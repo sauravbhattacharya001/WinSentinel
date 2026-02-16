@@ -6,7 +6,7 @@ namespace WinSentinel.Agent;
 
 /// <summary>
 /// Main orchestrator service for the WinSentinel agent.
-/// Manages agent modules, coordinates with IPC server, and maintains agent state.
+/// Manages agent modules, coordinates with IPC server, the Agent Brain, and maintains agent state.
 /// </summary>
 public class AgentService : BackgroundService
 {
@@ -15,6 +15,7 @@ public class AgentService : BackgroundService
     private readonly AgentConfig _config;
     private readonly ThreatLog _threatLog;
     private readonly IpcServer _ipcServer;
+    private readonly AgentBrain _brain;
     private readonly IEnumerable<IAgentModule> _modules;
 
     public AgentService(
@@ -23,6 +24,7 @@ public class AgentService : BackgroundService
         AgentConfig config,
         ThreatLog threatLog,
         IpcServer ipcServer,
+        AgentBrain brain,
         IEnumerable<IAgentModule> modules)
     {
         _logger = logger;
@@ -30,6 +32,7 @@ public class AgentService : BackgroundService
         _config = config;
         _threatLog = threatLog;
         _ipcServer = ipcServer;
+        _brain = brain;
         _modules = modules;
     }
 
@@ -41,6 +44,9 @@ public class AgentService : BackgroundService
         _state.StartTime = DateTimeOffset.UtcNow;
         _state.ThreatLog = _threatLog;
         _threatLog.SetMaxSize(_config.MaxThreatLogSize);
+
+        // Initialize the Agent Brain (decision engine)
+        _brain.Initialize();
 
         // Log startup threat event
         _threatLog.Add(new ThreatEvent
@@ -88,6 +94,9 @@ public class AgentService : BackgroundService
 
         // Shutdown
         _logger.LogInformation("WinSentinel Agent shutting down...");
+
+        // Shut down the brain first
+        _brain.Shutdown();
 
         foreach (var module in _modules)
         {

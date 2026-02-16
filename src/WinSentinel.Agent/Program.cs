@@ -21,6 +21,19 @@ builder.ConfigureServices((context, services) =>
     services.AddSingleton<IpcServer>();
     services.AddHostedService(sp => sp.GetRequiredService<IpcServer>());
 
+    // Agent Brain components (Step 5)
+    services.AddSingleton<ResponsePolicy>(sp =>
+    {
+        var config = sp.GetRequiredService<AgentConfig>();
+        var policy = ResponsePolicy.CreateDefault(config.RiskTolerance);
+        policy.Load();
+        return policy;
+    });
+    services.AddSingleton<ThreatCorrelator>();
+    services.AddSingleton<AutoRemediator>();
+    services.AddSingleton<AgentJournal>();
+    services.AddSingleton<AgentBrain>();
+
     // Agent modules
     services.AddSingleton<IAgentModule, ScheduledAuditModule>();
     services.AddSingleton<IAgentModule, ProcessMonitorModule>();

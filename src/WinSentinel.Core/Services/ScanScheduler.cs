@@ -153,10 +153,13 @@ public class ScanScheduler : IDisposable
                 if (filteredModules.Count > 0)
                 {
                     scanEngine = new AuditEngine(filteredModules);
+                    // Propagate history service to filtered engine
+                    if (_engine.HistoryService != null)
+                        scanEngine.SetHistoryService(_engine.HistoryService);
                 }
             }
 
-            var report = await scanEngine.RunFullAuditAsync(progress, _scanCts.Token);
+            var report = await scanEngine.RunFullAuditAsync(progress, _scanCts.Token, isScheduled);
 
             var previousScore = _settings.LastScore;
             _settings.LastScanTime = DateTimeOffset.UtcNow;

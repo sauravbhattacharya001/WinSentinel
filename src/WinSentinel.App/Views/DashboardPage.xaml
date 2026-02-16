@@ -32,7 +32,7 @@
 
             <!-- Security Score Card -->
             <Border Background="{StaticResource CardBackground}" CornerRadius="12" Padding="32" 
-                    BorderBrush="{StaticResource CardBorder}" BorderThickness="1" Margin="0,0,0,24">
+                    BorderBrush="{StaticResource CardBorder}" BorderThickness="1" Margin="0,0,0,16">
                 <StackPanel HorizontalAlignment="Center">
                     <TextBlock Text="Security Score" FontSize="18" FontWeight="SemiBold"
                               Foreground="{StaticResource TextSecondary}" HorizontalAlignment="Center" />
@@ -40,6 +40,65 @@
                               Foreground="{StaticResource TextPrimary}" HorizontalAlignment="Center" Margin="0,8,0,0" />
                     <TextBlock x:Name="GradeText" Text="" FontSize="24" HorizontalAlignment="Center"
                               Foreground="{StaticResource TextSecondary}" />
+                    <TextBlock x:Name="ScoreChangeText" Text="" FontSize="16" HorizontalAlignment="Center"
+                              Foreground="{StaticResource TextSecondary}" Margin="0,4,0,0" />
+                </StackPanel>
+            </Border>
+
+            <!-- Score Trend Section -->
+            <Border x:Name="TrendSection" Background="{StaticResource CardBackground}" CornerRadius="12" Padding="24" 
+                    BorderBrush="{StaticResource CardBorder}" BorderThickness="1" Margin="0,0,0,16" Visibility="Collapsed">
+                <StackPanel>
+                    <TextBlock Text="📈 Score Trend" FontSize="18" FontWeight="SemiBold" 
+                              Foreground="{StaticResource TextPrimary}" Margin="0,0,0,12" />
+
+                    <!-- Text-based trend chart -->
+                    <Border Background="#0AFFFFFF" CornerRadius="8" Padding="16" Margin="0,0,0,12">
+                        <StackPanel>
+                            <TextBlock x:Name="TrendChartText" FontFamily="Cascadia Mono,Consolas,Courier New"
+                                      FontSize="13" Foreground="{StaticResource TextPrimary}" 
+                                      TextWrapping="NoWrap" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Historical comparison -->
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <Border Grid.Column="0" Background="#0AFFFFFF" CornerRadius="6" Padding="12" Margin="0,0,6,0">
+                            <StackPanel HorizontalAlignment="Center">
+                                <TextBlock Text="🏆 Best" FontSize="13" Foreground="{StaticResource TextSecondary}" HorizontalAlignment="Center" />
+                                <TextBlock x:Name="BestScoreText" Text="—" FontSize="20" FontWeight="Bold" 
+                                          Foreground="#4CAF50" HorizontalAlignment="Center" Margin="0,4,0,0" />
+                                <TextBlock x:Name="BestScoreDateText" Text="" FontSize="11" 
+                                          Foreground="{StaticResource TextSecondary}" HorizontalAlignment="Center" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border Grid.Column="1" Background="#0AFFFFFF" CornerRadius="6" Padding="12" Margin="3,0,3,0">
+                            <StackPanel HorizontalAlignment="Center">
+                                <TextBlock Text="📊 Average" FontSize="13" Foreground="{StaticResource TextSecondary}" HorizontalAlignment="Center" />
+                                <TextBlock x:Name="AvgScoreText" Text="—" FontSize="20" FontWeight="Bold" 
+                                          Foreground="{StaticResource TextPrimary}" HorizontalAlignment="Center" Margin="0,4,0,0" />
+                                <TextBlock x:Name="TotalScansText" Text="" FontSize="11" 
+                                          Foreground="{StaticResource TextSecondary}" HorizontalAlignment="Center" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border Grid.Column="2" Background="#0AFFFFFF" CornerRadius="6" Padding="12" Margin="6,0,0,0">
+                            <StackPanel HorizontalAlignment="Center">
+                                <TextBlock Text="📉 Worst" FontSize="13" Foreground="{StaticResource TextSecondary}" HorizontalAlignment="Center" />
+                                <TextBlock x:Name="WorstScoreText" Text="—" FontSize="20" FontWeight="Bold" 
+                                          Foreground="#F44336" HorizontalAlignment="Center" Margin="0,4,0,0" />
+                                <TextBlock x:Name="WorstScoreDateText" Text="" FontSize="11" 
+                                          Foreground="{StaticResource TextSecondary}" HorizontalAlignment="Center" />
+                            </StackPanel>
+                        </Border>
+                    </Grid>
                 </StackPanel>
             </Border>
 

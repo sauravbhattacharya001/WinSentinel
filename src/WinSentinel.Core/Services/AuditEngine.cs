@@ -10,6 +10,7 @@ namespace WinSentinel.Core.Services;
 public class AuditEngine
 {
     private readonly List<IAuditModule> _modules;
+    private AuditHistoryService? _historyService;
 
     public AuditEngine()
     {
@@ -32,14 +33,29 @@ public class AuditEngine
         _modules = modules.ToList();
     }
 
+    /// <summary>
+    /// Set the history service for auto-saving audit results.
+    /// </summary>
+    public void SetHistoryService(AuditHistoryService historyService)
+    {
+        _historyService = historyService;
+    }
+
+    /// <summary>
+    /// Get the configured history service, if any.
+    /// </summary>
+    public AuditHistoryService? HistoryService => _historyService;
+
     public IReadOnlyList<IAuditModule> Modules => _modules.AsReadOnly();
 
     /// <summary>
     /// Run all audit modules and return a security report.
+    /// Automatically saves to history database if a history service is configured.
     /// </summary>
     public async Task<SecurityReport> RunFullAuditAsync(
         IProgress<(string module, int current, int total)>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool isScheduled = false)
     {
         var report = new SecurityReport();
         int current = 0;
@@ -71,6 +87,17 @@ public class AuditEngine
 
         report.SecurityScore = SecurityScorer.CalculateScore(report);
         report.GeneratedAt = DateTimeOffset.UtcNow;
+
+        // Auto-save to history database
+        try
+        {
+            _historyService?.SaveAuditResult(report, isScheduled);
+        }
+        catch
+        {
+            // Don't fail the scan if history save fails
+        }
+
         return report;
     }
 

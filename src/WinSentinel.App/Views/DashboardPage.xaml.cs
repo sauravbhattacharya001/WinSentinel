@@ -1,7 +1,7 @@
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
-using WinSentinel.App.ViewModels;
 using WinSentinel.Core.Models;
 using WinSentinel.Core.Services;
 
@@ -9,11 +9,12 @@ namespace WinSentinel.App.Views;
 
 public partial class DashboardPage : Page
 {
-    private readonly DashboardViewModel _vm = new();
+    private readonly AuditHistoryService _historyService = new();
 
     public DashboardPage()
     {
         InitializeComponent();
+        LoadTrendData();
     }
 
     private async void ScanButton_Click(object sender, RoutedEventArgs e)
@@ -24,6 +25,8 @@ public partial class DashboardPage : Page
         NoAlertsText.Visibility = Visibility.Collapsed;
 
         var engine = new AuditEngine();
+        engine.SetHistoryService(_historyService);
+
         var progress = new Progress<(string module, int current, int total)>(p =>
         {
             Dispatcher.Invoke(() =>
@@ -41,12 +44,16 @@ public partial class DashboardPage : Page
             GradeText.Text = $"Grade: {SecurityScorer.GetGrade(report.SecurityScore)}";
             StatusText.Text = $"Scan complete — {report.TotalFindings} findings";
 
-            // Category cards
+            // Category cards with trend indicators
             CategoryList.Items.Clear();
+            var moduleTrends = _historyService.GetModuleHistory();
+            var trendMap = moduleTrends.ToDictionary(t => t.ModuleName, t => t);
+
             foreach (var result in report.Results)
             {
                 var catScore = SecurityScorer.CalculateCategoryScore(result);
-                var card = CreateCategoryCard(result, catScore);
+                trendMap.TryGetValue(result.ModuleName, out var trend);
+                var card = CreateCategoryCard(result, catScore, trend);
                 CategoryList.Items.Add(card);
             }
 
@@ -68,6 +75,9 @@ public partial class DashboardPage : Page
                 NoAlertsText.Text = "✅ No critical issues or warnings found!";
                 NoAlertsText.Visibility = Visibility.Visible;
             }
+
+            // Update trend data after scan
+            LoadTrendData();
         }
         catch (Exception ex)
         {
@@ -81,7 +91,87 @@ public partial class DashboardPage : Page
         }
     }
 
-    private Border CreateCategoryCard(AuditResult result, int score)
+    private void LoadTrendData()
+    {
+        try
+        {
+            var trend = _historyService.GetTrend(30);
+
+            if (trend.TotalScans == 0)
+            {
+                TrendSection.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            TrendSection.Visibility = Visibility.Visible;
+
+            // Score change text
+            if (trend.PreviousScore.HasValue)
+            {
+                var change = trend.ScoreChange;
+                var arrow = trend.ChangeDirection;
+                var color = change > 0 ? "#4CAF50" : change < 0 ? "#F44336" : "#888888";
+                var sign = change > 0 ? "+" : "";
+                ScoreChangeText.Text = $"{arrow} {sign}{change} since last scan";
+                ScoreChangeText.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString(color));
+            }
+            else
+            {
+                ScoreChangeText.Text = "";
+            }
+
+            // Render text-based trend chart
+            TrendChartText.Text = RenderTextChart(trend);
+
+            // Best/Worst/Average
+            if (trend.BestScore.HasValue)
+            {
+                BestScoreText.Text = $"{trend.BestScore}/{trend.BestScoreGrade}";
+                BestScoreDateText.Text = trend.BestScoreDate?.ToLocalTime().ToString("MMM dd, HH:mm") ?? "";
+            }
+
+            if (trend.WorstScore.HasValue)
+            {
+                WorstScoreText.Text = $"{trend.WorstScore}/{trend.WorstScoreGrade}";
+                WorstScoreDateText.Text = trend.WorstScoreDate?.ToLocalTime().ToString("MMM dd, HH:mm") ?? "";
+            }
+
+            AvgScoreText.Text = $"{trend.AverageScore:F0}";
+            TotalScansText.Text = $"{trend.TotalScans} scans";
+        }
+        catch
+        {
+            TrendSection.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    /// <summary>
+    /// Render a simple text-based bar chart of score history.
+    /// </summary>
+    private static string RenderTextChart(ScoreTrendSummary trend)
+    {
+        if (trend.Points.Count == 0) return "No scan history available.";
+
+        var sb = new StringBuilder();
+        var points = trend.Points.TakeLast(15).ToList(); // Last 15 scans
+
+        // Header
+        sb.AppendLine("  Score History (last scans)");
+        sb.AppendLine("  ─────────────────────────────────────────");
+
+        foreach (var point in points)
+        {
+            var barLen = (int)(point.Score / 5.0); // Scale 0-100 to 0-20 chars
+            var bar = new string('█', barLen);
+            var pad = new string('░', 20 - barLen);
+            var date = point.Timestamp.ToLocalTime().ToString("MM/dd HH:mm");
+            sb.AppendLine($"  {date}  {bar}{pad}  {point.Score}/{point.Grade}");
+        }
+
+        return sb.ToString().TrimEnd();
+    }
+
+    private Border CreateCategoryCard(AuditResult result, int score, ModuleTrendInfo? trend)
     {
         var icon = score >= 80 ? "✅" : score >= 60 ? "⚠️" : "🔴";
 
@@ -118,17 +208,53 @@ public partial class DashboardPage : Page
         grid.Children.Add(info);
 
         var scorePanel = new StackPanel { HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
-        scorePanel.Children.Add(new TextBlock
+
+        // Score with trend indicator
+        var trendText = "";
+        var trendColor = (Brush)Application.Current.Resources["TextSecondary"];
+        if (trend != null && trend.PreviousScore.HasValue)
+        {
+            trendText = $" {trend.TrendIndicator}";
+            if (trend.ScoreChange > 0)
+                trendColor = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#4CAF50"));
+            else if (trend.ScoreChange < 0)
+                trendColor = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#F44336"));
+        }
+
+        var scoreRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        scoreRow.Children.Add(new TextBlock
         {
             Text = $"{score}",
             FontSize = 28,
             FontWeight = FontWeights.Bold,
-            HorizontalAlignment = HorizontalAlignment.Right,
             Foreground = (Brush)Application.Current.Resources["TextPrimary"]
         });
+
+        if (!string.IsNullOrEmpty(trendText))
+        {
+            scoreRow.Children.Add(new TextBlock
+            {
+                Text = trendText,
+                FontSize = 20,
+                FontWeight = FontWeights.Bold,
+                Foreground = trendColor,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(4, 0, 0, 0)
+            });
+        }
+
+        scorePanel.Children.Add(scoreRow);
+
+        var gradeAndChange = SecurityScorer.GetGrade(score);
+        if (trend != null && trend.PreviousScore.HasValue)
+        {
+            var sign = trend.ScoreChange > 0 ? "+" : "";
+            gradeAndChange += $" ({sign}{trend.ScoreChange})";
+        }
+
         scorePanel.Children.Add(new TextBlock
         {
-            Text = SecurityScorer.GetGrade(score),
+            Text = gradeAndChange,
             HorizontalAlignment = HorizontalAlignment.Right,
             Foreground = (Brush)Application.Current.Resources["TextSecondary"]
         });

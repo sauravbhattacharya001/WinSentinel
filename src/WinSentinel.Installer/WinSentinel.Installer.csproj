@@ -8,16 +8,41 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>WinSentinel.Installer</RootNamespace>
-    <Description>MSIX Packaging for WinSentinel. Build with Visual Studio for full MSIX support.</Description>
+    <Description>MSIX Packaging for WinSentinel security agent.</Description>
   </PropertyGroup>
 
-  <!-- 
-    Note: Full MSIX packaging requires Visual Studio's WAP project type.
-    This is a placeholder project. To create the MSIX package:
-    1. Open the solution in Visual Studio 2022
-    2. Right-click solution → Add → New Project → Windows Application Packaging Project
-    3. Set WinSentinel.App as the entry point
-    4. Build the packaging project to generate the .msix file
+  <!--
+    MSIX Build Instructions:
+    
+    Option 1 - PowerShell Script (recommended):
+      cd src\WinSentinel.Installer
+      .\Build-Msix.ps1
+    
+    This publishes WinSentinel.App as self-contained x64, copies the
+    AppxManifest.xml and Assets, then packages via makeappx.exe.
+    
+    Requirements:
+      - .NET 8 SDK
+      - Windows 10/11 SDK (for makeappx.exe)
+        Install: winget install Microsoft.WindowsSDK.10.0.22621
+    
+    Option 2 - Portable ZIP (no SDK needed):
+      dotnet publish ..\WinSentinel.App -c Release -r win-x64 -self-contained -o ..\..\publish\portable
+    
+    Option 3 - Visual Studio:
+      Right-click solution > Add > Windows Application Packaging Project
+      Set WinSentinel.App as entry point, build.
+    
+    Files in this project:
+      - AppxManifest.xml    — MSIX package manifest
+      - Assets\             — App icons (44x44, 150x150, StoreLogo, Wide310x150)
+      - Build-Msix.ps1      — Automated MSIX build script
   -->
+
+  <ItemGroup>
+    <None Include="AppxManifest.xml" />
+    <None Include="Build-Msix.ps1" />
+    <None Include="Assets\**" />
+  </ItemGroup>
 
 </Project>

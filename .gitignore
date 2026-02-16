@@ -71,6 +71,9 @@ _NCrunch_*
 .*crunch*.local.xml
 nCrunchTemp_*
 
+## Publish output
+publish/
+
 ## Misc
 *.tmp
 *.bak

@@ -109,7 +109,8 @@ public class StartupAudit : IAuditModule
                 $"Suspicious Startup Entries ({suspiciousEntries.Count})",
                 $"Potentially suspicious startup registry entries found: {string.Join("; ", suspiciousEntries.Take(5))}",
                 Category,
-                "Review these startup entries. Malware commonly uses registry run keys for persistence."));
+                "Review these startup entries. Malware commonly uses registry run keys for persistence.",
+                @"Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run','HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run' | Format-List"));
         }
     }
 
@@ -136,7 +137,8 @@ public class StartupAudit : IAuditModule
                 $"Many Startup Folder Items ({items.Count})",
                 $"Found {items.Count} items in startup folders. Too many startup items can slow boot and may indicate unwanted software.",
                 Category,
-                "Review startup folder items and remove any that are unnecessary."));
+                "Review startup folder items and remove any that are unnecessary.",
+                "explorer.exe shell:startup"));
         }
         else if (items.Count > 0)
         {
@@ -174,7 +176,8 @@ public class StartupAudit : IAuditModule
                 $"Many Non-Microsoft Scheduled Tasks ({tasks.Count})",
                 $"Found {tasks.Count} non-Microsoft scheduled tasks. Review for potential persistence mechanisms.",
                 Category,
-                "Review scheduled tasks: Get-ScheduledTask | Where-Object { $_.TaskPath -notmatch '\\\\Microsoft\\\\' }"));
+                "Review scheduled tasks: Get-ScheduledTask | Where-Object { $_.TaskPath -notmatch '\\\\Microsoft\\\\' }",
+                "Get-ScheduledTask | Where-Object { $_.State -eq 'Ready' -and $_.TaskPath -notmatch '\\\\Microsoft\\\\' } | Format-Table TaskName, TaskPath, State"));
         }
         else
         {
@@ -202,7 +205,8 @@ public class StartupAudit : IAuditModule
                 $"Suspicious Scheduled Task Actions ({suspicious.Count})",
                 $"Scheduled tasks with suspicious actions (temp dirs, encoded commands): {string.Join("; ", suspicious.Take(5))}",
                 Category,
-                "Investigate these scheduled tasks for potential malware persistence."));
+                "Investigate these scheduled tasks for potential malware persistence.",
+                "Get-ScheduledTask | Where-Object { $_.State -eq 'Ready' } | ForEach-Object { $t = $_; $_.Actions | Where-Object { $_.Execute -match 'Temp|AppData|cmd\\.exe|powershell.*-enc' } | ForEach-Object { [PSCustomObject]@{Task=$t.TaskName;Action=$_.Execute} } } | Format-Table"));
         }
     }
 

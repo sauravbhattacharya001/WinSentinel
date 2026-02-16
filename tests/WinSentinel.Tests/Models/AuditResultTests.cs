@@ -15,12 +15,12 @@ public class AuditResultTests
     }
 
     [Fact]
-    public void Score_DeductsCritical15Points()
+    public void Score_DeductsCritical20Points()
     {
         var result = new AuditResult { ModuleName = "Test", Category = "Test" };
         result.Findings.Add(Finding.Critical("C1", "Desc", "Cat"));
 
-        Assert.Equal(85, result.Score);
+        Assert.Equal(80, result.Score);
     }
 
     [Fact]
@@ -33,12 +33,12 @@ public class AuditResultTests
     }
 
     [Fact]
-    public void Score_DeductsInfo1Point()
+    public void Score_InfoDoesNotDeduct()
     {
         var result = new AuditResult { ModuleName = "Test", Category = "Test" };
         result.Findings.Add(Finding.Info("I1", "Desc", "Cat"));
 
-        Assert.Equal(99, result.Score);
+        Assert.Equal(100, result.Score);
     }
 
     [Fact]
@@ -65,12 +65,12 @@ public class AuditResultTests
     public void Score_MixedFindings()
     {
         var result = new AuditResult { ModuleName = "Test", Category = "Test" };
-        result.Findings.Add(Finding.Critical("C1", "Desc", "Cat"));  // -15
+        result.Findings.Add(Finding.Critical("C1", "Desc", "Cat"));  // -20
         result.Findings.Add(Finding.Warning("W1", "Desc", "Cat"));   // -5
-        result.Findings.Add(Finding.Info("I1", "Desc", "Cat"));      // -1
+        result.Findings.Add(Finding.Info("I1", "Desc", "Cat"));      // -0
         result.Findings.Add(Finding.Pass("P1", "Desc", "Cat"));      // -0
 
-        Assert.Equal(79, result.Score);
+        Assert.Equal(75, result.Score);
     }
 
     [Fact]

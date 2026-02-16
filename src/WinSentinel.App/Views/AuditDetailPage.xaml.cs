@@ -10,6 +10,7 @@ namespace WinSentinel.App.Views;
 public partial class AuditDetailPage : Page
 {
     private readonly AuditDetailViewModel _vm = new();
+    private readonly FixEngine _fixEngine = new();
 
     public AuditDetailPage()
     {
@@ -53,6 +54,72 @@ public partial class AuditDetailPage : Page
         }
     }
 
+    private async void FixButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button fixButton || fixButton.Tag is not Finding finding)
+            return;
+
+        // Confirm before executing
+        var needsAdmin = FixEngine.RequiresElevation(finding.FixCommand!);
+        var confirmMsg = needsAdmin
+            ? $"This fix requires administrator privileges and will trigger a UAC prompt.\n\nCommand:\n{finding.FixCommand}\n\nProceed?"
+            : $"Execute this fix?\n\nCommand:\n{finding.FixCommand}\n\nProceed?";
+
+        var confirmResult = MessageBox.Show(
+            confirmMsg,
+            $"Fix: {finding.Title}",
+            MessageBoxButton.YesNo,
+            needsAdmin ? MessageBoxImage.Warning : MessageBoxImage.Question);
+
+        if (confirmResult != MessageBoxResult.Yes)
+            return;
+
+        // Update button state
+        fixButton.IsEnabled = false;
+        fixButton.Content = "⏳ Fixing...";
+
+        try
+        {
+            var result = await _fixEngine.ExecuteFixAsync(finding);
+
+            if (result.Success)
+            {
+                fixButton.Content = "✅ Fixed!";
+                fixButton.Background = new SolidColorBrush(Color.FromRgb(39, 174, 96));
+
+                var output = string.IsNullOrWhiteSpace(result.Output) ? "Fix applied successfully." : result.Output;
+                MessageBox.Show(
+                    $"Fix applied successfully!\n\n{output}",
+                    "Fix Result",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+            else
+            {
+                fixButton.Content = "❌ Failed";
+                fixButton.Background = new SolidColorBrush(Color.FromRgb(231, 76, 60));
+                fixButton.IsEnabled = true; // Allow retry
+
+                MessageBox.Show(
+                    $"Fix failed.\n\n{result.Error}",
+                    "Fix Failed",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            fixButton.Content = "🔧 Fix";
+            fixButton.IsEnabled = true;
+
+            MessageBox.Show(
+                $"Error running fix:\n{ex.Message}",
+                "Fix Error",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+    }
+
     private Border CreateFindingCard(Finding finding)
     {
         var icon = finding.Severity switch
@@ -74,15 +141,54 @@ public partial class AuditDetailPage : Page
 
         var stack = new StackPanel();
 
-        // Title with severity
-        stack.Children.Add(new TextBlock
+        // Title row with Fix button
+        var titleRow = new Grid();
+        titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var titleBlock = new TextBlock
         {
             Text = $"{icon} {finding.Title}",
             FontWeight = FontWeights.SemiBold,
             FontSize = 15,
             TextWrapping = TextWrapping.Wrap,
-            Foreground = (Brush)Application.Current.Resources["TextPrimary"]
-        });
+            Foreground = (Brush)Application.Current.Resources["TextPrimary"],
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(titleBlock, 0);
+        titleRow.Children.Add(titleBlock);
+
+        // Add Fix button for findings with a FixCommand (Warning or Critical only)
+        if (!string.IsNullOrEmpty(finding.FixCommand) &&
+            (finding.Severity == Severity.Warning || finding.Severity == Severity.Critical))
+        {
+            var needsAdmin = FixEngine.RequiresElevation(finding.FixCommand);
+            var fixButton = new Button
+            {
+                Content = needsAdmin ? "🛡️ Fix (Admin)" : "🔧 Fix",
+                Tag = finding,
+                Padding = new Thickness(12, 6, 12, 6),
+                Margin = new Thickness(8, 0, 0, 0),
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold,
+                Cursor = System.Windows.Input.Cursors.Hand,
+                Background = finding.Severity == Severity.Critical
+                    ? new SolidColorBrush(Color.FromRgb(231, 76, 60))
+                    : new SolidColorBrush(Color.FromRgb(243, 156, 18)),
+                Foreground = Brushes.White,
+                BorderThickness = new Thickness(0),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            // Apply rounded corners via template
+            fixButton.Style = CreateFixButtonStyle(fixButton.Background);
+            fixButton.Click += FixButton_Click;
+
+            Grid.SetColumn(fixButton, 1);
+            titleRow.Children.Add(fixButton);
+        }
+
+        stack.Children.Add(titleRow);
 
         // Severity badge
         stack.Children.Add(new TextBlock
@@ -114,7 +220,7 @@ public partial class AuditDetailPage : Page
             });
         }
 
-        // Fix command
+        // Fix command display
         if (!string.IsNullOrEmpty(finding.FixCommand))
         {
             var cmdBorder = new Border
@@ -139,5 +245,32 @@ public partial class AuditDetailPage : Page
 
         border.Child = stack;
         return border;
+    }
+
+    /// <summary>
+    /// Creates a style for fix buttons with rounded corners.
+    /// </summary>
+    private static Style CreateFixButtonStyle(Brush background)
+    {
+        var style = new Style(typeof(Button));
+
+        var template = new ControlTemplate(typeof(Button));
+        var borderFactory = new FrameworkElementFactory(typeof(Border));
+        borderFactory.SetValue(Border.CornerRadiusProperty, new CornerRadius(6));
+        borderFactory.SetValue(Border.BackgroundProperty, background);
+        borderFactory.SetValue(Border.PaddingProperty, new Thickness(12, 6, 12, 6));
+
+        var contentFactory = new FrameworkElementFactory(typeof(ContentPresenter));
+        contentFactory.SetValue(ContentPresenter.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+        contentFactory.SetValue(ContentPresenter.VerticalAlignmentProperty, VerticalAlignment.Center);
+        borderFactory.AppendChild(contentFactory);
+
+        template.VisualTree = borderFactory;
+        style.Setters.Add(new Setter(Control.TemplateProperty, template));
+        style.Setters.Add(new Setter(Control.ForegroundProperty, Brushes.White));
+        style.Setters.Add(new Setter(Control.FontWeightProperty, FontWeights.SemiBold));
+        style.Setters.Add(new Setter(Control.CursorProperty, System.Windows.Input.Cursors.Hand));
+
+        return style;
     }
 }

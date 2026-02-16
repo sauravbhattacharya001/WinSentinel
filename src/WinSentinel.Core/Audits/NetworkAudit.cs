@@ -94,7 +94,8 @@ public class NetworkAudit : IAuditModule
                 $"High-Risk Ports Listening ({highRiskOpen.Count})",
                 $"The following high-risk ports are open and listening: {string.Join(", ", highRiskOpen)}",
                 Category,
-                "Review each listening service and disable any that are not needed. Block unused ports in the firewall."));
+                "Review each listening service and disable any that are not needed. Block unused ports in the firewall.",
+                "Get-NetTCPConnection -State Listen | Select-Object LocalPort, OwningProcess, @{N='Process';E={(Get-Process -Id $_.OwningProcess -EA SilentlyContinue).ProcessName}} | Sort-Object LocalPort | Format-Table"));
         }
         else
         {
@@ -352,7 +353,8 @@ public class NetworkAudit : IAuditModule
                 $"Open Wi-Fi Network: {ssid}",
                 $"Connected to an open (unencrypted) Wi-Fi network '{ssid}'. All traffic can be intercepted.",
                 Category,
-                "Disconnect from open networks. Use a VPN if you must connect to open Wi-Fi."));
+                "Disconnect from open networks. Use a VPN if you must connect to open Wi-Fi.",
+                "netsh wlan disconnect"));
         }
         else if (auth.Contains("WEP", StringComparison.OrdinalIgnoreCase))
         {
@@ -360,7 +362,8 @@ public class NetworkAudit : IAuditModule
                 $"WEP Wi-Fi Security: {ssid}",
                 $"Connected to Wi-Fi network '{ssid}' using WEP encryption, which can be cracked in minutes.",
                 Category,
-                "Switch to WPA2 or WPA3 encryption on your router immediately."));
+                "Switch to WPA2 or WPA3 encryption on your router immediately.",
+                "netsh wlan disconnect"));
         }
         else if (auth.Contains("WPA-Personal", StringComparison.OrdinalIgnoreCase) &&
                  !auth.Contains("WPA2", StringComparison.OrdinalIgnoreCase) &&
@@ -370,7 +373,8 @@ public class NetworkAudit : IAuditModule
                 $"WPA1 Wi-Fi Security: {ssid}",
                 $"Connected to Wi-Fi network '{ssid}' using WPA1 (TKIP), which has known vulnerabilities.",
                 Category,
-                "Upgrade your router to use WPA2-AES or WPA3."));
+                "Upgrade your router to use WPA2-AES or WPA3.",
+                "netsh wlan disconnect"));
         }
         else if (auth.Contains("WPA3", StringComparison.OrdinalIgnoreCase))
         {
@@ -388,7 +392,8 @@ public class NetworkAudit : IAuditModule
                     $"WPA2-TKIP Wi-Fi: {ssid}",
                     $"Connected to Wi-Fi network '{ssid}' using WPA2 with TKIP cipher. TKIP has known weaknesses.",
                     Category,
-                    "Configure your router to use WPA2-AES (CCMP) instead of TKIP."));
+                    "Configure your router to use WPA2-AES (CCMP) instead of TKIP.",
+                "netsh wlan disconnect"));
             }
             else
             {
@@ -465,7 +470,8 @@ public class NetworkAudit : IAuditModule
                 $"NetBIOS Name Service (NBT-NS) is enabled on: {string.Join("; ", enabledAdapters.Take(3))}. " +
                 "Like LLMNR, NBT-NS can be poisoned to capture credentials on the local network.",
                 Category,
-                "Disable NetBIOS over TCP/IP on each adapter: Network Adapter Properties > IPv4 > Advanced > WINS > Disable NetBIOS over TCP/IP."));
+                "Disable NetBIOS over TCP/IP on each adapter: Network Adapter Properties > IPv4 > Advanced > WINS > Disable NetBIOS over TCP/IP.",
+                @"Get-CimInstance Win32_NetworkAdapterConfiguration -Filter 'IPEnabled=True' | ForEach-Object { $_.SetTcpipNetbios(2) }"));
         }
         else if (netbiosLines.Length > 0)
         {
@@ -528,7 +534,8 @@ public class NetworkAudit : IAuditModule
                 $"Duplicate MAC Addresses Detected ({duplicates.Count})",
                 $"Multiple IP addresses share the same MAC address in the ARP table, which could indicate ARP spoofing: {details}",
                 Category,
-                "Investigate the duplicate MAC entries. Use static ARP entries for critical hosts (e.g., default gateway) if ARP spoofing is suspected."));
+                "Investigate the duplicate MAC entries. Use static ARP entries for critical hosts (e.g., default gateway) if ARP spoofing is suspected.",
+                "arp -a"));
         }
         else if (entryCount > 0)
         {

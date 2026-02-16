@@ -134,7 +134,8 @@ public class FirewallAudit : IAuditModule
                 "Rules Allowing All TCP Ports",
                 $"{anyPortTcpCount} inbound rules allow connections on any TCP port. This increases attack surface.",
                 Category,
-                "Review rules that allow all ports and restrict to specific ports where possible."));
+                "Review rules that allow all ports and restrict to specific ports where possible.",
+                "netsh advfirewall firewall show rule name=all dir=in | findstr /i \"LocalPort\""));
         }
     }
 

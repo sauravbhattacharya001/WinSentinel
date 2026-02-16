@@ -104,7 +104,8 @@ public class ProcessAudit : IAuditModule
                 $"Processes Running from Temp ({tempProcesses.Count})",
                 $"Processes running from temporary directories (common for malware): {string.Join("; ", tempProcesses.Take(10))}",
                 Category,
-                "Investigate processes running from temp directories. Malware often drops executables in temp folders."));
+                "Investigate processes running from temp directories. Malware often drops executables in temp folders.",
+                "Get-Process | Where-Object { $_.Path -match '\\\\Temp\\\\' } | Select-Object ProcessName, Id, Path | Format-Table"));
         }
         else
         {
@@ -145,7 +146,8 @@ public class ProcessAudit : IAuditModule
                 $"Unsigned/Invalid Processes ({lines.Count})",
                 $"Found {lines.Count} running processes without valid digital signatures. Some examples: {string.Join("; ", lines.Take(5))}",
                 Category,
-                "Review unsigned processes and verify they are legitimate software."));
+                "Review unsigned processes and verify they are legitimate software.",
+                "Get-Process | Where-Object { $_.Path } | ForEach-Object { $sig = Get-AuthenticodeSignature $_.Path -EA SilentlyContinue; if ($sig.Status -ne 'Valid') { [PSCustomObject]@{Name=$_.ProcessName;Path=$_.Path;Status=$sig.Status} } } | Format-Table"));
         }
         else if (lines.Count > 0)
         {

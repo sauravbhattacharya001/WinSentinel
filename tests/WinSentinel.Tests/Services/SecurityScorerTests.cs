@@ -37,16 +37,17 @@ public class SecurityScorerTests
         {
             ModuleName = "Mod1",
             Category = "Cat1",
-            Findings = { Finding.Critical("C1", "D", "C") } // -15
+            Findings = { Finding.Critical("C1", "D", "C") } // Score: 80
         });
         report.Results.Add(new AuditResult
         {
             ModuleName = "Mod2",
             Category = "Cat2",
-            Findings = { Finding.Warning("W1", "D", "C") } // -5
+            Findings = { Finding.Warning("W1", "D", "C") } // Score: 95
         });
 
-        Assert.Equal(80, SecurityScorer.CalculateScore(report));
+        // Average of 80 and 95 = 87.5, rounded to 88
+        Assert.Equal(88, SecurityScorer.CalculateScore(report));
     }
 
     [Fact]
@@ -66,9 +67,9 @@ public class SecurityScorerTests
     {
         var result = new AuditResult { ModuleName = "Test", Category = "Test" };
         result.Findings.Add(Finding.Warning("W1", "D", "C")); // -5
-        result.Findings.Add(Finding.Info("I1", "D", "C"));    // -1
+        result.Findings.Add(Finding.Info("I1", "D", "C"));    // -0 (Info doesn't deduct)
 
-        Assert.Equal(94, SecurityScorer.CalculateCategoryScore(result));
+        Assert.Equal(95, SecurityScorer.CalculateCategoryScore(result));
     }
 
     [Theory]

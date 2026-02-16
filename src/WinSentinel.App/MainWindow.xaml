@@ -32,6 +32,8 @@
                     <Button Content="⚙️ Processes" Tag="Processes" Style="{StaticResource NavButton}" Click="NavAudit_Click" />
                     <Button Content="🚀 Startup" Tag="Startup" Style="{StaticResource NavButton}" Click="NavAudit_Click" />
                     <Button Content="💻 System" Tag="System" Style="{StaticResource NavButton}" Click="NavAudit_Click" />
+                    <Separator Background="{StaticResource CardBorder}" Margin="16,8" />
+                    <Button Content="⚙️ Settings" Style="{StaticResource NavButton}" Click="NavSettings_Click" />
                 </StackPanel>
             </DockPanel>
         </Border>

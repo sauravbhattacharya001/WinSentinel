@@ -30,6 +30,25 @@ public class ScheduleSettings
     /// <summary>Whether to show toast notification on new critical/warning findings.</summary>
     public bool NotifyOnNewFindings { get; set; } = true;
 
+    // ── System Tray Settings ──
+
+    /// <summary>Whether to minimize to system tray on close instead of exiting.</summary>
+    public bool MinimizeToTrayOnClose { get; set; } = true;
+
+    /// <summary>Whether to start minimized to tray.</summary>
+    public bool StartMinimized { get; set; }
+
+    /// <summary>Whether to show tray balloon notifications.</summary>
+    public bool ShowTrayNotifications { get; set; } = true;
+
+    /// <summary>Whether to start WinSentinel with Windows.</summary>
+    public bool StartWithWindows { get; set; }
+
+    /// <summary>Whether we've shown the first-time "running in background" balloon.</summary>
+    public bool HasShownTrayBalloon { get; set; }
+
+    // ── Auto Export Settings ──
+
     /// <summary>Whether to auto-export reports after scheduled scans.</summary>
     public bool AutoExportEnabled { get; set; }
 

@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using WinSentinel.App.Services;
 using WinSentinel.Core.Models;
 using WinSentinel.Core.Services;
 
@@ -10,6 +11,7 @@ public partial class SettingsPage : Page
     private ScheduleSettings _settings;
     private ScanScheduler? _scheduler;
     private NotificationService? _notificationService;
+    private TrayIconService? _trayService;
     private bool _isLoading = true;
 
     public SettingsPage()
@@ -21,7 +23,7 @@ public partial class SettingsPage : Page
     }
 
     /// <summary>
-    /// Set the shared scheduler instance (from App.xaml.cs).
+    /// Set the shared scheduler instance (from MainWindow).
     /// </summary>
     public void SetScheduler(ScanScheduler scheduler)
     {
@@ -48,8 +50,17 @@ public partial class SettingsPage : Page
         UpdateStatusDisplay();
     }
 
+    /// <summary>
+    /// Set the shared tray icon service (from MainWindow).
+    /// </summary>
+    public void SetTrayService(TrayIconService trayService)
+    {
+        _trayService = trayService;
+    }
+
     private void LoadSettingsToUI()
     {
+        // Scheduled scanning settings
         EnableToggle.IsChecked = _settings.Enabled;
 
         IntervalHourly.IsChecked = _settings.Interval == ScanInterval.Hourly;
@@ -65,6 +76,15 @@ public partial class SettingsPage : Page
 
         IntervalSection.Opacity = _settings.Enabled ? 1.0 : 0.5;
         IntervalSection.IsEnabled = _settings.Enabled;
+
+        // System tray settings
+        MinimizeToTrayCheck.IsChecked = _settings.MinimizeToTrayOnClose;
+        StartMinimizedCheck.IsChecked = _settings.StartMinimized;
+        ShowTrayNotificationsCheck.IsChecked = _settings.ShowTrayNotifications;
+
+        // Windows startup
+        StartWithWindowsCheck.IsChecked = _settings.StartWithWindows;
+        UpdateStartupStatus();
 
         // Populate module checkboxes
         var engine = new AuditEngine();
@@ -92,6 +112,7 @@ public partial class SettingsPage : Page
     {
         if (_isLoading) return;
 
+        // Scheduled scanning settings
         _settings.Enabled = EnableToggle.IsChecked ?? false;
 
         if (IntervalHourly.IsChecked == true)
@@ -107,6 +128,11 @@ public partial class SettingsPage : Page
         _settings.NotifyOnComplete = NotifyCompleteCheck.IsChecked ?? true;
         _settings.NotifyOnScoreDrop = NotifyScoreDropCheck.IsChecked ?? true;
         _settings.NotifyOnNewFindings = NotifyNewFindingsCheck.IsChecked ?? true;
+
+        // System tray settings
+        _settings.MinimizeToTrayOnClose = MinimizeToTrayCheck.IsChecked ?? true;
+        _settings.StartMinimized = StartMinimizedCheck.IsChecked ?? false;
+        _settings.ShowTrayNotifications = ShowTrayNotificationsCheck.IsChecked ?? true;
 
         // Collect selected modules
         var selectedModules = new List<string>();
@@ -127,6 +153,7 @@ public partial class SettingsPage : Page
         _settings.Save();
         _scheduler?.UpdateSettings(_settings);
         _notificationService = new NotificationService(_settings);
+        _trayService?.UpdateSettings(_settings);
 
         SavedText.Text = "✓ Settings saved";
         UpdateStatusDisplay();
@@ -163,6 +190,19 @@ public partial class SettingsPage : Page
             : "Last score: —";
     }
 
+    private void UpdateStartupStatus()
+    {
+        var isRegistered = StartupManager.IsRegistered();
+        if (isRegistered)
+        {
+            StartupStatusText.Text = "✅ WinSentinel is registered to start with Windows";
+        }
+        else
+        {
+            StartupStatusText.Text = "WinSentinel will not start automatically with Windows";
+        }
+    }
+
     // Event handlers
     private void EnableToggle_Changed(object sender, RoutedEventArgs e)
     {
@@ -191,6 +231,33 @@ public partial class SettingsPage : Page
     private void Module_Changed(object sender, RoutedEventArgs e)
     {
         SaveSettings();
+    }
+
+    private void TraySettings_Changed(object sender, RoutedEventArgs e)
+    {
+        SaveSettings();
+    }
+
+    private void StartWithWindows_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_isLoading) return;
+
+        var enabled = StartWithWindowsCheck.IsChecked ?? false;
+        _settings.StartWithWindows = enabled;
+
+        var success = StartupManager.SetStartup(enabled);
+        if (!success)
+        {
+            SavedText.Text = "⚠️ Failed to update Windows startup registration";
+        }
+
+        _settings.Save();
+        _trayService?.UpdateSettings(_settings);
+        UpdateStartupStatus();
+
+        SavedText.Text = enabled
+            ? "✓ WinSentinel will start with Windows"
+            : "✓ Windows startup registration removed";
     }
 
     private async void ScanNow_Click(object sender, RoutedEventArgs e)
@@ -225,11 +292,14 @@ public partial class SettingsPage : Page
             IsScheduled = true
         };
 
+        // Send both toast and tray balloon
         var sender2 = new WindowsToastSender();
         sender2.ShowToast(
             NotificationService.BuildTitle(testArgs),
             NotificationService.BuildBody(testArgs),
             ToastUrgency.Normal);
+
+        _trayService?.NotifyScanComplete(testArgs);
 
         SavedText.Text = "🔔 Test notification sent!";
     }

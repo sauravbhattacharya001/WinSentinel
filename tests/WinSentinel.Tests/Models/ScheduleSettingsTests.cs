@@ -2,6 +2,7 @@ using WinSentinel.Core.Models;
 
 namespace WinSentinel.Tests.Models;
 
+[Collection("SettingsFile")]
 public class ScheduleSettingsTests
 {
     [Fact]
@@ -57,31 +58,41 @@ public class ScheduleSettingsTests
     [Fact]
     public void SaveAndLoad_RoundTrips()
     {
-        var settings = new ScheduleSettings
+        // Save current settings to restore after test
+        var original = ScheduleSettings.Load();
+
+        try
         {
-            Enabled = true,
-            Interval = ScanInterval.Hourly,
-            CustomIntervalMinutes = 45,
-            NotifyOnComplete = false,
-            NotifyOnScoreDrop = true,
-            NotifyOnNewFindings = false,
-            LastScanTime = new DateTimeOffset(2026, 2, 15, 12, 0, 0, TimeSpan.Zero),
-            LastScore = 78,
-            IncludedModules = new List<string> { "Firewall", "Network" }
-        };
+            var settings = new ScheduleSettings
+            {
+                Enabled = true,
+                Interval = ScanInterval.Hourly,
+                CustomIntervalMinutes = 45,
+                NotifyOnComplete = false,
+                NotifyOnScoreDrop = true,
+                NotifyOnNewFindings = false,
+                LastScanTime = new DateTimeOffset(2026, 2, 15, 12, 0, 0, TimeSpan.Zero),
+                LastScore = 78,
+                IncludedModules = new List<string> { "Firewall", "Network" }
+            };
 
-        settings.Save();
+            settings.Save();
 
-        var loaded = ScheduleSettings.Load();
-        Assert.True(loaded.Enabled);
-        Assert.Equal(ScanInterval.Hourly, loaded.Interval);
-        Assert.Equal(45, loaded.CustomIntervalMinutes);
-        Assert.False(loaded.NotifyOnComplete);
-        Assert.True(loaded.NotifyOnScoreDrop);
-        Assert.False(loaded.NotifyOnNewFindings);
-        Assert.NotNull(loaded.LastScanTime);
-        Assert.Equal(78, loaded.LastScore);
-        Assert.Contains("Firewall", loaded.IncludedModules);
-        Assert.Contains("Network", loaded.IncludedModules);
+            var loaded = ScheduleSettings.Load();
+            Assert.True(loaded.Enabled);
+            Assert.Equal(ScanInterval.Hourly, loaded.Interval);
+            Assert.Equal(45, loaded.CustomIntervalMinutes);
+            Assert.False(loaded.NotifyOnComplete);
+            Assert.True(loaded.NotifyOnScoreDrop);
+            Assert.False(loaded.NotifyOnNewFindings);
+            Assert.NotNull(loaded.LastScanTime);
+            Assert.Equal(78, loaded.LastScore);
+            Assert.Contains("Firewall", loaded.IncludedModules);
+            Assert.Contains("Network", loaded.IncludedModules);
+        }
+        finally
+        {
+            original.Save();
+        }
     }
 }

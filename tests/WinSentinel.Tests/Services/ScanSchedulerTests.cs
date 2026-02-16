@@ -3,6 +3,7 @@ using WinSentinel.Core.Services;
 
 namespace WinSentinel.Tests.Services;
 
+[Collection("SettingsFile")]
 public class ScanSchedulerTests
 {
     private static AuditEngine CreateMockEngine()

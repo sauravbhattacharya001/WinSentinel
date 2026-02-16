@@ -99,6 +99,47 @@
                 </StackPanel>
             </Border>
 
+            <!-- System Tray Settings -->
+            <TextBlock Text="🖥️ System Tray" FontSize="28" FontWeight="Bold" 
+                      Foreground="{StaticResource TextPrimary}" Margin="0,16,0,8" />
+            <TextBlock Text="Control how WinSentinel runs in the background."
+                      Foreground="{StaticResource TextSecondary}" FontSize="14" Margin="0,0,0,24" />
+
+            <Border Background="{StaticResource CardBackground}" CornerRadius="12" Padding="24"
+                    BorderBrush="{StaticResource CardBorder}" BorderThickness="1" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="Tray Behavior" FontSize="18" FontWeight="SemiBold"
+                              Foreground="{StaticResource TextPrimary}" Margin="0,0,0,12" />
+
+                    <CheckBox x:Name="MinimizeToTrayCheck" Content="Minimize to tray on close (instead of exiting)"
+                             Foreground="{StaticResource TextPrimary}" FontSize="14" Margin="0,0,0,8"
+                             Checked="TraySettings_Changed" Unchecked="TraySettings_Changed" />
+                    <CheckBox x:Name="StartMinimizedCheck" Content="Start minimized to tray"
+                             Foreground="{StaticResource TextPrimary}" FontSize="14" Margin="0,0,0,8"
+                             Checked="TraySettings_Changed" Unchecked="TraySettings_Changed" />
+                    <CheckBox x:Name="ShowTrayNotificationsCheck" Content="Show tray balloon notifications"
+                             Foreground="{StaticResource TextPrimary}" FontSize="14"
+                             Checked="TraySettings_Changed" Unchecked="TraySettings_Changed" />
+                </StackPanel>
+            </Border>
+
+            <Border Background="{StaticResource CardBackground}" CornerRadius="12" Padding="24"
+                    BorderBrush="{StaticResource CardBorder}" BorderThickness="1" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="🚀 Windows Startup" FontSize="18" FontWeight="SemiBold"
+                              Foreground="{StaticResource TextPrimary}" Margin="0,0,0,4" />
+                    <TextBlock Text="Launch WinSentinel automatically when Windows starts."
+                              Foreground="{StaticResource TextSecondary}" FontSize="13" Margin="0,0,0,12" />
+
+                    <CheckBox x:Name="StartWithWindowsCheck" Content="Start WinSentinel with Windows"
+                             Foreground="{StaticResource TextPrimary}" FontSize="14" Margin="0,0,0,8"
+                             Checked="StartWithWindows_Changed" Unchecked="StartWithWindows_Changed" />
+
+                    <TextBlock x:Name="StartupStatusText" Text=""
+                              Foreground="{StaticResource TextSecondary}" FontSize="13" Margin="0,4,0,0" />
+                </StackPanel>
+            </Border>
+
             <!-- Status & Actions -->
             <Border Background="{StaticResource CardBackground}" CornerRadius="12" Padding="24"
                     BorderBrush="{StaticResource CardBorder}" BorderThickness="1" Margin="0,0,0,16">

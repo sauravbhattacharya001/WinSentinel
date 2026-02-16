@@ -2,6 +2,7 @@ using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using Microsoft.Win32;
 using WinSentinel.Core.Models;
 using WinSentinel.Core.Services;
 
@@ -10,6 +11,7 @@ namespace WinSentinel.App.Views;
 public partial class DashboardPage : Page
 {
     private readonly AuditHistoryService _historyService = new();
+    private SecurityReport? _lastReport;
 
     public DashboardPage()
     {
@@ -39,6 +41,11 @@ public partial class DashboardPage : Page
         try
         {
             var report = await engine.RunFullAuditAsync(progress);
+            _lastReport = report;
+
+            // Enable export button
+            ExportButton.IsEnabled = true;
+            ExportButton.Opacity = 1.0;
 
             ScoreText.Text = $"{report.SecurityScore}";
             GradeText.Text = $"Grade: {SecurityScorer.GetGrade(report.SecurityScore)}";
@@ -88,6 +95,75 @@ public partial class DashboardPage : Page
             ScanButton.IsEnabled = true;
             ScanProgress.Visibility = Visibility.Collapsed;
             ProgressText.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private void ExportButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_lastReport == null)
+        {
+            MessageBox.Show("No scan results available. Run a scan first.", "Export Report",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var dialog = new SaveFileDialog
+        {
+            Title = "Export Security Report",
+            Filter = "HTML Report (*.html)|*.html|JSON Report (*.json)|*.json|Text Report (*.txt)|*.txt",
+            FileName = ReportGenerator.GenerateFilename(ReportFormat.Html),
+            DefaultExt = ".html",
+            AddExtension = true
+        };
+
+        if (dialog.ShowDialog() == true)
+        {
+            try
+            {
+                var format = dialog.FilterIndex switch
+                {
+                    1 => ReportFormat.Html,
+                    2 => ReportFormat.Json,
+                    3 => ReportFormat.Text,
+                    _ => ReportFormat.Html
+                };
+
+                // Get trend data for the report
+                ScoreTrendSummary? trend = null;
+                try
+                {
+                    trend = _historyService.GetTrend(30);
+                    if (trend.TotalScans == 0) trend = null;
+                }
+                catch { /* Trend data is optional */ }
+
+                var generator = new ReportGenerator();
+                generator.SaveReport(dialog.FileName, _lastReport, format, trend);
+
+                var result = MessageBox.Show(
+                    $"Report exported successfully!\n\n{dialog.FileName}\n\nOpen the file now?",
+                    "Export Complete",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Information);
+
+                if (result == MessageBoxResult.Yes)
+                {
+                    try
+                    {
+                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                        {
+                            FileName = dialog.FileName,
+                            UseShellExecute = true
+                        });
+                    }
+                    catch { /* Best effort open */ }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to export report:\n\n{ex.Message}", "Export Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
     }
 

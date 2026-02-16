@@ -166,6 +166,28 @@ public class ScanScheduler : IDisposable
             _settings.LastScore = report.SecurityScore;
             _settings.Save();
 
+            // Auto-export report if enabled and this is a scheduled scan
+            if (isScheduled && _settings.AutoExportEnabled)
+            {
+                try
+                {
+                    var format = Enum.TryParse<ReportFormat>(_settings.AutoExportFormat, true, out var fmt)
+                        ? fmt : ReportFormat.Html;
+                    var filename = ReportGenerator.GenerateFilename(format);
+                    var folder = _settings.EffectiveAutoExportFolder;
+                    var filePath = Path.Combine(folder, filename);
+
+                    var generator = new ReportGenerator();
+                    generator.SaveReport(filePath, report, format);
+
+                    ScanProgress?.Invoke(this, $"Report exported: {filePath}");
+                }
+                catch (Exception exportEx)
+                {
+                    ScanProgress?.Invoke(this, $"Report export failed: {exportEx.Message}");
+                }
+            }
+
             var args = new ScanCompletedEventArgs
             {
                 Report = report,

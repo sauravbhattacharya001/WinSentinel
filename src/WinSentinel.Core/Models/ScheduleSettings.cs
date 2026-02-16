@@ -30,6 +30,15 @@ public class ScheduleSettings
     /// <summary>Whether to show toast notification on new critical/warning findings.</summary>
     public bool NotifyOnNewFindings { get; set; } = true;
 
+    /// <summary>Whether to auto-export reports after scheduled scans.</summary>
+    public bool AutoExportEnabled { get; set; }
+
+    /// <summary>Folder to save auto-exported reports. Uses Documents/WinSentinel/Reports if empty.</summary>
+    public string? AutoExportFolder { get; set; }
+
+    /// <summary>Format for auto-exported reports (Html, Json, or Text).</summary>
+    public string AutoExportFormat { get; set; } = "Html";
+
     /// <summary>Last scan timestamp (UTC).</summary>
     public DateTimeOffset? LastScanTime { get; set; }
 
@@ -74,6 +83,22 @@ public class ScheduleSettings
             // Corrupted file — return defaults
         }
         return new();
+    }
+
+    /// <summary>Get the effective auto-export folder, creating it if needed.</summary>
+    [JsonIgnore]
+    public string EffectiveAutoExportFolder
+    {
+        get
+        {
+            if (!string.IsNullOrWhiteSpace(AutoExportFolder) && Directory.Exists(AutoExportFolder))
+                return AutoExportFolder;
+
+            var docs = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            var folder = Path.Combine(docs, "WinSentinel", "Reports");
+            Directory.CreateDirectory(folder);
+            return folder;
+        }
     }
 
     /// <summary>Save settings to AppData JSON file.</summary>

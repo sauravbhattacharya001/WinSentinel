@@ -10,6 +10,7 @@
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
                 <StackPanel>
@@ -22,6 +23,10 @@
                 <Button Grid.Column="1" x:Name="ScanButton" Content="▶ Run Full Audit" 
                         Style="{StaticResource AccentButton}" Click="ScanButton_Click"
                         MinWidth="160" VerticalAlignment="Center" />
+                <Button Grid.Column="2" x:Name="ExportButton" Content="📄 Export Report" 
+                        Style="{StaticResource AccentButton}" Click="ExportButton_Click"
+                        MinWidth="140" VerticalAlignment="Center" Margin="8,0,0,0"
+                        IsEnabled="False" Opacity="0.5" />
             </Grid>
 
             <!-- Progress -->

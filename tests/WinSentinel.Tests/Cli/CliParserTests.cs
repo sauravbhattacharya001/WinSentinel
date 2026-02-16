@@ -520,4 +520,70 @@ public class CliParserTests
         var result = CliParser.Parse(["--history"]);
         Assert.Equal(20, result.HistoryLimit);
     }
+
+    // ── Markdown Flag Tests ─────────────────────────────────────────
+
+    [Fact]
+    public void Parse_AuditWithMarkdown_SetsMarkdownFlag()
+    {
+        var result = CliParser.Parse(["--audit", "--markdown"]);
+        Assert.Equal(CliCommand.Audit, result.Command);
+        Assert.True(result.Markdown);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_AuditWithMdShorthand_SetsMarkdownFlag()
+    {
+        var result = CliParser.Parse(["--audit", "--md"]);
+        Assert.Equal(CliCommand.Audit, result.Command);
+        Assert.True(result.Markdown);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_MarkdownOnly_DefaultsToAudit()
+    {
+        var result = CliParser.Parse(["--markdown"]);
+        Assert.Equal(CliCommand.Audit, result.Command);
+        Assert.True(result.Markdown);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_MdOnly_DefaultsToAudit()
+    {
+        var result = CliParser.Parse(["--md"]);
+        Assert.Equal(CliCommand.Audit, result.Command);
+        Assert.True(result.Markdown);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_MarkdownWithOutput_AllFlagsSet()
+    {
+        var result = CliParser.Parse(["--audit", "--markdown", "-o", "report.md"]);
+        Assert.Equal(CliCommand.Audit, result.Command);
+        Assert.True(result.Markdown);
+        Assert.Equal("report.md", result.OutputFile);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_MarkdownWithModules_AllFlagsSet()
+    {
+        var result = CliParser.Parse(["--audit", "--md", "--modules", "firewall,network", "-o", "sec.md"]);
+        Assert.Equal(CliCommand.Audit, result.Command);
+        Assert.True(result.Markdown);
+        Assert.Equal("firewall,network", result.ModulesFilter);
+        Assert.Equal("sec.md", result.OutputFile);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void CliOptions_MarkdownDefault_IsFalse()
+    {
+        var options = new CliOptions();
+        Assert.False(options.Markdown);
+    }
 }

@@ -342,6 +342,10 @@ public static class ConsoleFormatter
         Console.ForegroundColor = original;
         Console.WriteLine("Output results as HTML report");
         Console.ForegroundColor = ConsoleColor.White;
+        Console.Write("    --markdown, --md     ");
+        Console.ForegroundColor = original;
+        Console.WriteLine("Output results as Markdown (GitHub-flavored)");
+        Console.ForegroundColor = ConsoleColor.White;
         Console.Write("    -o, --output <file>  ");
         Console.ForegroundColor = original;
         Console.WriteLine("Save output to file instead of stdout");
@@ -379,6 +383,7 @@ public static class ConsoleFormatter
         Console.WriteLine("    winsentinel --audit                              # Full audit with colored output");
         Console.WriteLine("    winsentinel --audit --json                       # JSON output for scripting");
         Console.WriteLine("    winsentinel --audit --html -o report.html        # Save HTML report");
+        Console.WriteLine("    winsentinel --audit --markdown -o report.md       # Save Markdown report");
         Console.WriteLine("    winsentinel --audit --modules firewall,network   # Scan specific modules");
         Console.WriteLine("    winsentinel --score                              # Quick score check");
         Console.WriteLine("    winsentinel --score --quiet                      # Score only, no formatting");

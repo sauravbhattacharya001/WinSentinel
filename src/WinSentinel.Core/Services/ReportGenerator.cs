@@ -394,6 +394,231 @@ public class ReportGenerator
     }
 
     /// <summary>
+    /// Generate a GitHub-flavored Markdown report.
+    /// Ideal for sharing in GitHub Issues, PRs, wikis, Slack, documentation, and CI/CD artifacts.
+    /// </summary>
+    public string GenerateMarkdownReport(SecurityReport report, ScoreTrendSummary? trend = null)
+    {
+        var grade = SecurityScorer.GetGrade(report.SecurityScore);
+        var gradeEmoji = GetGradeEmoji(grade);
+        var generatedAt = report.GeneratedAt.ToLocalTime();
+        var machineName = Environment.MachineName;
+
+        var sb = new StringBuilder();
+
+        // Title
+        sb.AppendLine("# 🛡️ WinSentinel Security Report");
+        sb.AppendLine();
+        sb.AppendLine($"> **Machine:** `{machineName}` · **Date:** {generatedAt:yyyy-MM-dd HH:mm} · **Modules:** {report.Results.Count}");
+        sb.AppendLine();
+
+        // Overall Score
+        sb.AppendLine("## Overall Score");
+        sb.AppendLine();
+        sb.AppendLine($"{gradeEmoji} **{report.SecurityScore}/100** — Grade **{grade}**");
+        sb.AppendLine();
+
+        // Score bar (rendered as text progress bar)
+        var filled = report.SecurityScore / 5;
+        var empty = 20 - filled;
+        sb.AppendLine($"`[{"█".PadRight(filled, '█').PadRight(20, '░')}]` {report.SecurityScore}%");
+        sb.AppendLine();
+
+        // Summary stats table
+        sb.AppendLine("### Summary");
+        sb.AppendLine();
+        sb.AppendLine("| 🔴 Critical | 🟡 Warnings | 🔵 Info | ✅ Pass | Total |");
+        sb.AppendLine("|:-----------:|:-----------:|:-------:|:------:|:-----:|");
+        sb.AppendLine($"| **{report.TotalCritical}** | **{report.TotalWarnings}** | **{report.TotalInfo}** | **{report.TotalPass}** | **{report.TotalFindings}** |");
+        sb.AppendLine();
+
+        // Score Trend (if available)
+        if (trend != null && trend.Points.Count > 1)
+        {
+            sb.AppendLine("## 📈 Score Trend");
+            sb.AppendLine();
+
+            var points = trend.Points.TakeLast(15).ToList();
+            sb.AppendLine("| Date | Score | Grade | Trend |");
+            sb.AppendLine("|:-----|------:|:-----:|:------|");
+
+            for (int i = 0; i < points.Count; i++)
+            {
+                var point = points[i];
+                var trendBar = new string('█', point.Score / 5);
+                var changeStr = "";
+                if (i > 0)
+                {
+                    var change = point.Score - points[i - 1].Score;
+                    changeStr = change > 0 ? $" ↑{change}" : change < 0 ? $" ↓{Math.Abs(change)}" : "";
+                }
+                sb.AppendLine($"| {point.Timestamp.ToLocalTime():MM/dd HH:mm} | **{point.Score}** | {point.Grade} | `{trendBar}`{changeStr} |");
+            }
+            sb.AppendLine();
+
+            // Trend stats
+            if (trend.BestScore.HasValue)
+                sb.AppendLine($"- 🏆 **Best:** {trend.BestScore} ({trend.BestScoreGrade}) on {trend.BestScoreDate?.ToLocalTime():MMM dd, yyyy}");
+            if (trend.WorstScore.HasValue)
+                sb.AppendLine($"- 📉 **Worst:** {trend.WorstScore} ({trend.WorstScoreGrade}) on {trend.WorstScoreDate?.ToLocalTime():MMM dd, yyyy}");
+            sb.AppendLine($"- 📊 **Average:** {trend.AverageScore:F0} over {trend.TotalScans} scans");
+            sb.AppendLine();
+        }
+
+        // Module Breakdown
+        sb.AppendLine("## Module Breakdown");
+        sb.AppendLine();
+        sb.AppendLine("| Module | Score | Grade | Critical | Warnings | Findings | Status |");
+        sb.AppendLine("|:-------|------:|:-----:|---------:|---------:|---------:|:------:|");
+
+        foreach (var result in report.Results)
+        {
+            var modScore = SecurityScorer.CalculateCategoryScore(result);
+            var modGrade = SecurityScorer.GetGrade(modScore);
+            var statusIcon = result.Success
+                ? (modScore >= 80 ? "✅" : modScore >= 60 ? "⚠️" : "🔴")
+                : "❌";
+
+            sb.AppendLine($"| {result.Category} | **{modScore}** | {modGrade} | {result.CriticalCount} | {result.WarningCount} | {result.Findings.Count} | {statusIcon} |");
+        }
+
+        sb.AppendLine();
+
+        // Detailed Findings
+        sb.AppendLine("## Detailed Findings");
+        sb.AppendLine();
+
+        foreach (var result in report.Results)
+        {
+            // Only show modules with actionable findings or errors
+            var actionableFindings = result.Findings
+                .Where(f => f.Severity is Severity.Critical or Severity.Warning)
+                .OrderByDescending(f => f.Severity)
+                .ThenBy(f => f.Title)
+                .ToList();
+
+            if (actionableFindings.Count == 0 && result.Success) continue;
+
+            var modScore = SecurityScorer.CalculateCategoryScore(result);
+            var modGrade = SecurityScorer.GetGrade(modScore);
+            sb.AppendLine($"### {result.Category} — {modScore}/100 ({modGrade})");
+            sb.AppendLine();
+
+            if (!result.Success)
+            {
+                sb.AppendLine($"> ❌ **Module Error:** {result.Error ?? "Unknown error"}");
+                sb.AppendLine();
+            }
+
+            foreach (var finding in actionableFindings)
+            {
+                var severityEmoji = finding.Severity switch
+                {
+                    Severity.Critical => "🔴",
+                    Severity.Warning => "🟡",
+                    _ => "🔵"
+                };
+                var severityLabel = finding.Severity switch
+                {
+                    Severity.Critical => "CRITICAL",
+                    Severity.Warning => "WARNING",
+                    _ => "INFO"
+                };
+
+                sb.AppendLine($"- {severityEmoji} **[{severityLabel}]** {finding.Title}");
+                sb.AppendLine($"  - {finding.Description}");
+
+                if (!string.IsNullOrEmpty(finding.Remediation))
+                {
+                    sb.AppendLine($"  - 💡 *{finding.Remediation}*");
+                }
+
+                if (!string.IsNullOrEmpty(finding.FixCommand))
+                {
+                    sb.AppendLine($"  - 🔧 `{finding.FixCommand}`");
+                }
+            }
+
+            sb.AppendLine();
+        }
+
+        // Passed checks (collapsible)
+        var passedChecks = report.Results
+            .SelectMany(r => r.Findings.Where(f => f.Severity == Severity.Pass))
+            .ToList();
+
+        if (passedChecks.Count > 0)
+        {
+            sb.AppendLine("<details>");
+            sb.AppendLine($"<summary>✅ Passed Checks ({passedChecks.Count})</summary>");
+            sb.AppendLine();
+
+            foreach (var result in report.Results)
+            {
+                var passes = result.Findings.Where(f => f.Severity == Severity.Pass).ToList();
+                if (passes.Count == 0) continue;
+
+                sb.AppendLine($"**{result.Category}**");
+                foreach (var finding in passes)
+                {
+                    sb.AppendLine($"- ✅ {finding.Title}");
+                }
+                sb.AppendLine();
+            }
+
+            sb.AppendLine("</details>");
+            sb.AppendLine();
+        }
+
+        // Info findings (collapsible)
+        var infoFindings = report.Results
+            .SelectMany(r => r.Findings.Where(f => f.Severity == Severity.Info))
+            .ToList();
+
+        if (infoFindings.Count > 0)
+        {
+            sb.AppendLine("<details>");
+            sb.AppendLine($"<summary>🔵 Informational ({infoFindings.Count})</summary>");
+            sb.AppendLine();
+
+            foreach (var result in report.Results)
+            {
+                var infos = result.Findings.Where(f => f.Severity == Severity.Info).ToList();
+                if (infos.Count == 0) continue;
+
+                sb.AppendLine($"**{result.Category}**");
+                foreach (var finding in infos)
+                {
+                    sb.AppendLine($"- 🔵 {finding.Title} — {finding.Description}");
+                }
+                sb.AppendLine();
+            }
+
+            sb.AppendLine("</details>");
+            sb.AppendLine();
+        }
+
+        // Footer
+        sb.AppendLine("---");
+        sb.AppendLine();
+        sb.AppendLine($"*Generated by [WinSentinel](https://github.com/sauravbhattacharya001/WinSentinel) v1.0 on {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss zzz}*");
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Get an emoji representing the grade.
+    /// </summary>
+    private static string GetGradeEmoji(string grade) => grade switch
+    {
+        "A" => "🟢",
+        "B" => "🟢",
+        "C" => "🟡",
+        "D" => "🟠",
+        _ => "🔴"
+    };
+
+    /// <summary>
     /// Save a report to a file in the specified format.
     /// </summary>
     public void SaveReport(string filePath, SecurityReport report, ReportFormat format, ScoreTrendSummary? trend = null)
@@ -403,6 +628,7 @@ public class ReportGenerator
             ReportFormat.Html => GenerateHtmlReport(report, trend),
             ReportFormat.Json => GenerateJsonReport(report, trend),
             ReportFormat.Text => GenerateTextReport(report, trend),
+            ReportFormat.Markdown => GenerateMarkdownReport(report, trend),
             _ => throw new ArgumentException($"Unknown report format: {format}", nameof(format))
         };
 
@@ -426,6 +652,7 @@ public class ReportGenerator
             ReportFormat.Html => "html",
             ReportFormat.Json => "json",
             ReportFormat.Text => "txt",
+            ReportFormat.Markdown => "md",
             _ => "html"
         };
         return $"WinSentinel-Report-{ts:yyyy-MM-dd-HHmm}.{extension}";
@@ -861,5 +1088,6 @@ public enum ReportFormat
 {
     Html,
     Json,
-    Text
+    Text,
+    Markdown
 }

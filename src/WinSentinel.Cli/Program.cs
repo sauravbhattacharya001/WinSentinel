@@ -94,12 +94,12 @@ static async Task<int> HandleAudit(CliOptions options)
     var engine = BuildEngine(options.ModulesFilter);
     var sw = Stopwatch.StartNew();
 
-    if (!options.Quiet && !options.Json && !options.Html)
+    if (!options.Quiet && !options.Json && !options.Html && !options.Markdown)
     {
         ConsoleFormatter.PrintBanner();
     }
 
-    var progress = options.Quiet || options.Json || options.Html
+    var progress = options.Quiet || options.Json || options.Html || options.Markdown
         ? null
         : new Progress<(string module, int current, int total)>(p =>
             ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
@@ -124,6 +124,20 @@ static async Task<int> HandleAudit(CliOptions options)
             var original = Console.ForegroundColor;
             Console.ForegroundColor = ConsoleColor.Green;
             Console.WriteLine($"  ✓ HTML report saved to {options.OutputFile}");
+            Console.ForegroundColor = original;
+        }
+    }
+    else if (options.Markdown)
+    {
+        var generator = new ReportGenerator();
+        var markdown = generator.GenerateMarkdownReport(report);
+        WriteOutput(markdown, options.OutputFile);
+
+        if (!options.Quiet && options.OutputFile != null)
+        {
+            var original = Console.ForegroundColor;
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"  ✓ Markdown report saved to {options.OutputFile}");
             Console.ForegroundColor = original;
         }
     }

@@ -9,9 +9,9 @@
 [![.NET 8](https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
 [![Windows 11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4?logo=windows11)](https://www.microsoft.com/windows)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-124%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-166%20passing-brightgreen)]()
 
-**9 security audit modules • Real-time scoring • One-click fixes • AI chat assistant**
+**13 security audit modules • CLI & GUI • Real-time scoring • One-click fixes • AI chat assistant**
 
 *Your machine's security shouldn't be a mystery. WinSentinel scans, scores, and fixes — all locally.*
 
@@ -29,8 +29,8 @@
 ║              2026-02-15 22:16:00 PST                 ║
 ╠══════════════════════════════════════════════════════╣
 ║                                                      ║
-║         Security Score:  95 / 100   Grade: A         ║
-║         ████████████████████████████████░░  95%       ║
+║         Security Score:  92 / 100   Grade: A         ║
+║         ████████████████████████████████░░  92%       ║
 ║                                                      ║
 ╠══════════════════════════════════════════════════════╣
 ║  Module           Score   Status                     ║
@@ -44,8 +44,12 @@
 ║  🚀 Startup          95    █████████░  PASS           ║
 ║  💻 System          100    ██████████  PASS           ║
 ║  🔒 Privacy          95    █████████░  PASS           ║
+║  🌍 Browser          85    ████████░░  PASS           ║
+║  📦 App Security     90    █████████░  PASS           ║
+║  🔐 Encryption       80    ████████░░  WARN           ║
+║  📋 Event Log        85    ████████░░  PASS           ║
 ╠══════════════════════════════════════════════════════╣
-║  Findings: 47 total | 0 critical | 3 warnings       ║
+║  Findings: 65 total | 0 critical | 5 warnings       ║
 ╚══════════════════════════════════════════════════════╝
 ```
 
@@ -55,13 +59,13 @@
 
 ## ⚡ What Is WinSentinel?
 
-WinSentinel is a **local-first** Windows security auditor built with .NET 8 and WPF. It runs **9 independent audit modules** that scan your system's security posture, produce a **0-100 security score** with letter grade, and offer **actionable remediation** — including one-click PowerShell fix scripts.
+WinSentinel is a **local-first** Windows security auditor built with .NET 8 and WPF. It runs **13 independent audit modules** that scan your system's security posture, produce a **0-100 security score** with letter grade, and offer **actionable remediation** — including one-click PowerShell fix scripts. Use the **WPF GUI** for interactive exploration or the **CLI** for scripting and CI/CD pipelines.
 
 **No cloud. No telemetry. Everything stays on your machine.**
 
 ---
 
-## 🔍 The 9 Audit Modules
+## 🔍 The 13 Audit Modules
 
 | Module | What It Scans | Checks |
 |:---:|:---|:---|
@@ -97,16 +101,94 @@ dotnet build WinSentinel.sln -p:Platform=x64
 # Run the WPF app
 dotnet run --project src/WinSentinel.App -p:Platform=x64
 
-# Run tests (124 tests)
+# Run tests (166+ tests)
 dotnet test -p:Platform=x64
 ```
 
 ### Run Audit from CLI
 
 ```powershell
-# Quick one-liner — runs all 9 modules and prints results
+# Quick one-liner — runs all 13 modules and prints results
 .\RunAudit.ps1
 ```
+
+---
+
+## 💻 CLI Mode
+
+WinSentinel includes a full-featured command-line interface (`winsentinel.exe`) for scripting, automation, and CI/CD pipelines.
+
+### Build the CLI
+
+```bash
+dotnet build src/WinSentinel.Cli -p:Platform=x64
+# Output: src/WinSentinel.Cli/bin/x64/Debug/net8.0-windows/winsentinel.exe
+```
+
+### Commands
+
+| Command | Description |
+|:---|:---|
+| `winsentinel --audit` | Run full security audit with colored output |
+| `winsentinel --score` | Print security score and grade only |
+| `winsentinel --fix-all` | Run audit and auto-fix all fixable findings |
+| `winsentinel --help` | Show usage information |
+| `winsentinel --version` | Show version info |
+
+### Options
+
+| Flag | Short | Description |
+|:---|:---:|:---|
+| `--json` | `-j` | Output as machine-parseable JSON |
+| `--html` | | Output as HTML report |
+| `--output <file>` | `-o` | Save output to file |
+| `--modules <list>` | `-m` | Run specific modules only (comma-separated) |
+| `--quiet` | `-q` | Minimal output — score + exit code only |
+| `--threshold <n>` | `-t` | Exit with error if score below n (0-100) |
+
+### Examples
+
+```powershell
+# Full audit with colored terminal output
+winsentinel --audit
+
+# JSON output for scripting
+winsentinel --audit --json
+
+# Save HTML report to file
+winsentinel --audit --html -o report.html
+
+# Scan only specific modules
+winsentinel --audit --modules firewall,network,privacy
+
+# Quick score check
+winsentinel --score
+
+# Quiet mode — just the score
+winsentinel --score --quiet
+
+# CI/CD gate: fail pipeline if score < 90
+winsentinel --audit --threshold 90
+
+# Auto-fix all fixable findings
+winsentinel --fix-all
+
+# JSON audit saved to file with threshold check
+winsentinel --audit --json -o results.json --threshold 85
+```
+
+### Exit Codes
+
+| Code | Meaning |
+|:---:|:---|
+| `0` | All checks pass (or score ≥ threshold) |
+| `1` | Warnings found (or score < threshold) |
+| `2` | Critical findings found |
+| `3` | Error during execution |
+
+### Available Modules
+
+`firewall`, `updates`, `defender`, `accounts`, `network`, `processes`, `startup`, `system`, `privacy`, `browser`, `appsecurity`, `encryption`, `eventlog`
 
 ---
 
@@ -160,7 +242,7 @@ WinSentinel.sln
 │
 ├── src/
 │   ├── WinSentinel.Core/              # 🧠 Security audit engine (class library)
-│   │   ├── Audits/                    #    9 audit modules (Firewall, Defender, Network, etc.)
+│   │   ├── Audits/                    #    13 audit modules (Firewall, Defender, Network, etc.)
 │   │   ├── Models/                    #    AuditResult, Finding, Severity, SecurityReport
 │   │   ├── Services/                  #    AuditEngine, AuditOrchestrator, SecurityScorer
 │   │   ├── Helpers/                   #    Shell, PowerShell, Registry, WMI helpers
@@ -172,6 +254,11 @@ WinSentinel.sln
 │   │   ├── Services/                  #    ChatAiService (Ollama + rule-based)
 │   │   └── Controls/                  #    Converters & utilities
 │   │
+│   ├── WinSentinel.Cli/              # 💻 Command-line interface
+│   │   ├── Program.cs                 #    Entry point & command handlers
+│   │   ├── CliParser.cs               #    Argument parsing
+│   │   └── ConsoleFormatter.cs        #    Color-coded terminal output
+│   │
 │   ├── WinSentinel.Service/          # 🔄 Background monitoring service
 │   │   └── SecurityMonitorWorker     #    Continuous security monitoring
 │   │
@@ -181,8 +268,9 @@ WinSentinel.sln
 │       └── Assets/                    #    App icons & logos
 │
 └── tests/
-    └── WinSentinel.Tests/            # ✅ 124 xUnit tests
+    └── WinSentinel.Tests/            # ✅ 166+ xUnit tests
         ├── Audits/                    #    Per-module audit tests
+        ├── Cli/                       #    CLI argument parsing tests
         ├── Models/                    #    Data model tests
         └── Services/                  #    Engine & scorer tests
 ```
@@ -191,7 +279,7 @@ WinSentinel.sln
 - **Runtime:** .NET 8 (LTS)
 - **UI:** WPF with MVVM (CommunityToolkit.Mvvm)
 - **Language:** C# 12
-- **Testing:** xUnit + 124 tests
+- **Testing:** xUnit + 166 tests
 - **Packaging:** MSIX with code signing
 - **CI/CD:** GitHub Actions (build, test, release)
 - **AI:** Ollama (local LLM) + built-in rule engine
@@ -269,19 +357,20 @@ Contributions are welcome! Here's how to get involved:
 
 ## 🗺️ Roadmap
 
-- [x] 9 security audit modules
+- [x] 13 security audit modules
 - [x] Real-time security scoring (0-100)
 - [x] WPF dashboard with MVVM
 - [x] AI chat assistant (Ollama + rule-based)
 - [x] MSIX packaging & signing
 - [x] GitHub Actions CI/CD
-- [x] 124 xUnit tests
-- [ ] 🔮 Scheduled / automated scanning
-- [ ] 🔮 Audit history & trend graphs
-- [ ] 🔮 More one-click fix scripts
-- [ ] 🔮 Export reports (PDF, JSON, HTML)
+- [x] 166+ xUnit tests
+- [x] Scheduled / automated scanning
+- [x] Audit history & trend graphs
+- [x] One-click fix scripts for all findings
+- [x] Export reports (HTML, JSON, Text)
+- [x] System tray background monitoring
+- [x] CLI mode for scripting & CI/CD
 - [ ] 🔮 Plugin system for custom audit modules
-- [ ] 🔮 Windows Service background monitoring
 - [ ] 🔮 Linux port (system auditing with .NET cross-platform)
 
 ---

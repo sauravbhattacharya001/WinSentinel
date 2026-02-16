@@ -8,38 +8,25 @@ namespace WinSentinel.Core.Services;
 public static class SecurityScorer
 {
     private const int MaxScore = 100;
-    private const int CriticalPenalty = 15;
+    private const int CriticalPenalty = 20;
     private const int WarningPenalty = 5;
-    private const int InfoPenalty = 1;
+    // Info and Pass findings do NOT deduct points
 
     /// <summary>
-    /// Calculate security score (0-100) from a security report.
+    /// Calculate overall security score (0-100) as weighted average of module scores.
     /// </summary>
     public static int CalculateScore(SecurityReport report)
     {
         if (report.Results.Count == 0) return MaxScore;
 
-        int totalDeductions = 0;
-
-        foreach (var result in report.Results)
-        {
-            foreach (var finding in result.Findings)
-            {
-                totalDeductions += finding.Severity switch
-                {
-                    Severity.Critical => CriticalPenalty,
-                    Severity.Warning => WarningPenalty,
-                    Severity.Info => InfoPenalty,
-                    _ => 0
-                };
-            }
-        }
-
-        return Math.Max(0, MaxScore - totalDeductions);
+        // Average all module scores for overall score
+        double avg = report.Results.Average(r => (double)CalculateCategoryScore(r));
+        return (int)Math.Round(avg);
     }
 
     /// <summary>
     /// Calculate score for a single category.
+    /// Only Critical and Warning findings deduct points. Info/Pass are informational only.
     /// </summary>
     public static int CalculateCategoryScore(AuditResult result)
     {
@@ -51,8 +38,7 @@ public static class SecurityScorer
             {
                 Severity.Critical => CriticalPenalty,
                 Severity.Warning => WarningPenalty,
-                Severity.Info => InfoPenalty,
-                _ => 0
+                _ => 0  // Info and Pass don't penalize
             };
         }
 

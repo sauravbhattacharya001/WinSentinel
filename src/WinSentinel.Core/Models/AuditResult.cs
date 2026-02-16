@@ -28,10 +28,9 @@ public class AuditResult
         {
             int deductions = Findings.Sum(f => f.Severity switch
             {
-                Severity.Critical => 15,
+                Severity.Critical => 20,
                 Severity.Warning => 5,
-                Severity.Info => 1,
-                _ => 0
+                _ => 0  // Info and Pass don't penalize
             });
             return Math.Max(0, 100 - deductions);
         }

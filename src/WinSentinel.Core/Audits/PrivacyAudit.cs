@@ -367,7 +367,7 @@ public class PrivacyAudit : IAuditModule
         }
     }
 
-    private async Task CheckRemoteAssistance(AuditResult result, CancellationToken ct)
+    private Task CheckRemoteAssistance(AuditResult result, CancellationToken ct)
     {
         try
         {
@@ -399,6 +399,8 @@ public class PrivacyAudit : IAuditModule
                 "Could not determine Remote Assistance status.",
                 Category));
         }
+
+        return Task.CompletedTask;
     }
 
     private void CheckOnlineSpeechRecognition(AuditResult result)

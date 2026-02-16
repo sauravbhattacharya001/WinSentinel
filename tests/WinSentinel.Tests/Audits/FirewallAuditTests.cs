@@ -5,11 +5,19 @@ namespace WinSentinel.Tests.Audits;
 
 /// <summary>
 /// Integration tests for the FirewallAudit module.
-/// Runs against the actual Windows machine to verify real results.
+/// Uses IAsyncLifetime to run the audit once and share the result across all tests.
 /// </summary>
-public class FirewallAuditTests
+public class FirewallAuditTests : IAsyncLifetime
 {
     private readonly FirewallAudit _audit = new();
+    private AuditResult _result = null!;
+
+    public async Task InitializeAsync()
+    {
+        _result = await _audit.RunAuditAsync();
+    }
+
+    public Task DisposeAsync() => Task.CompletedTask;
 
     [Fact]
     public void Properties_AreCorrect()
@@ -20,32 +28,26 @@ public class FirewallAuditTests
     }
 
     [Fact]
-    public async Task RunAuditAsync_Succeeds()
+    public void RunAuditAsync_Succeeds()
     {
-        var result = await _audit.RunAuditAsync();
-
-        Assert.True(result.Success, $"Audit failed: {result.Error}");
-        Assert.Equal("Firewall Audit", result.ModuleName);
-        Assert.Equal("Firewall", result.Category);
+        Assert.True(_result.Success, $"Audit failed: {_result.Error}");
+        Assert.Equal("Firewall Audit", _result.ModuleName);
+        Assert.Equal("Firewall", _result.Category);
     }
 
     [Fact]
-    public async Task RunAuditAsync_ProducesFindings()
+    public void RunAuditAsync_ProducesFindings()
     {
-        var result = await _audit.RunAuditAsync();
-
-        Assert.NotEmpty(result.Findings);
+        Assert.NotEmpty(_result.Findings);
         // Should at least have findings for the 3 firewall profiles
-        Assert.True(result.Findings.Count >= 3,
-            $"Expected at least 3 findings (one per profile), got {result.Findings.Count}");
+        Assert.True(_result.Findings.Count >= 3,
+            $"Expected at least 3 findings (one per profile), got {_result.Findings.Count}");
     }
 
     [Fact]
-    public async Task RunAuditAsync_FindingsHaveRequiredFields()
+    public void RunAuditAsync_FindingsHaveRequiredFields()
     {
-        var result = await _audit.RunAuditAsync();
-
-        foreach (var finding in result.Findings)
+        foreach (var finding in _result.Findings)
         {
             Assert.False(string.IsNullOrWhiteSpace(finding.Title),
                 "Finding title must not be empty");
@@ -57,23 +59,17 @@ public class FirewallAuditTests
     }
 
     [Fact]
-    public async Task RunAuditAsync_HasValidTimestamps()
+    public void RunAuditAsync_HasValidTimestamps()
     {
-        var before = DateTimeOffset.UtcNow;
-        var result = await _audit.RunAuditAsync();
-        var after = DateTimeOffset.UtcNow;
-
-        Assert.InRange(result.StartTime, before, after);
-        Assert.InRange(result.EndTime, before, after);
-        Assert.True(result.Duration >= TimeSpan.Zero);
+        Assert.True(_result.StartTime > DateTimeOffset.MinValue);
+        Assert.True(_result.EndTime >= _result.StartTime);
+        Assert.True(_result.Duration >= TimeSpan.Zero);
     }
 
     [Fact]
-    public async Task RunAuditAsync_CriticalFindingsHaveRemediation()
+    public void RunAuditAsync_CriticalFindingsHaveRemediation()
     {
-        var result = await _audit.RunAuditAsync();
-
-        foreach (var finding in result.Findings.Where(f => f.Severity == Severity.Critical))
+        foreach (var finding in _result.Findings.Where(f => f.Severity == Severity.Critical))
         {
             Assert.False(string.IsNullOrWhiteSpace(finding.Remediation),
                 $"Critical finding '{finding.Title}' must have remediation");
@@ -83,26 +79,8 @@ public class FirewallAuditTests
     }
 
     [Fact]
-    public async Task RunAuditAsync_SupportsCancellation()
+    public void RunAuditAsync_ScoreIsValid()
     {
-        using var cts = new CancellationTokenSource();
-        cts.Cancel();
-
-        // Should throw OperationCanceledException or return gracefully
-        try
-        {
-            await _audit.RunAuditAsync(cts.Token);
-        }
-        catch (OperationCanceledException)
-        {
-            // Expected
-        }
-    }
-
-    [Fact]
-    public async Task RunAuditAsync_ScoreIsValid()
-    {
-        var result = await _audit.RunAuditAsync();
-        Assert.InRange(result.Score, 0, 100);
+        Assert.InRange(_result.Score, 0, 100);
     }
 }

@@ -5,11 +5,19 @@ namespace WinSentinel.Tests.Audits;
 
 /// <summary>
 /// Integration tests for the StartupAudit module.
-/// Runs against the actual Windows machine.
+/// Runs audit once and shares the result across all tests.
 /// </summary>
-public class StartupAuditTests
+public class StartupAuditTests : IAsyncLifetime
 {
     private readonly StartupAudit _audit = new();
+    private AuditResult _result = null!;
+
+    public async Task InitializeAsync()
+    {
+        _result = await _audit.RunAuditAsync();
+    }
+
+    public Task DisposeAsync() => Task.CompletedTask;
 
     [Fact]
     public void Properties_AreCorrect()
@@ -19,54 +27,43 @@ public class StartupAuditTests
     }
 
     [Fact]
-    public async Task RunAuditAsync_Succeeds()
+    public void RunAuditAsync_Succeeds()
     {
-        var result = await _audit.RunAuditAsync();
-
-        Assert.True(result.Success, $"Audit failed: {result.Error}");
+        Assert.True(_result.Success, $"Audit failed: {_result.Error}");
     }
 
     [Fact]
-    public async Task RunAuditAsync_ChecksRegistryRunKeys()
+    public void RunAuditAsync_ChecksRegistryRunKeys()
     {
-        var result = await _audit.RunAuditAsync();
-
-        Assert.Contains(result.Findings,
+        Assert.Contains(_result.Findings,
             f => f.Title.Contains("Registry Run", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
-    public async Task RunAuditAsync_ChecksScheduledTasks()
+    public void RunAuditAsync_ChecksScheduledTasks()
     {
-        var result = await _audit.RunAuditAsync();
-
-        Assert.Contains(result.Findings,
+        Assert.Contains(_result.Findings,
             f => f.Title.Contains("Scheduled Task", StringComparison.OrdinalIgnoreCase) ||
                  f.Title.Contains("Tasks", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
-    public async Task RunAuditAsync_ChecksServices()
+    public void RunAuditAsync_ChecksServices()
     {
-        var result = await _audit.RunAuditAsync();
-
-        Assert.Contains(result.Findings,
+        Assert.Contains(_result.Findings,
             f => f.Title.Contains("Service", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
-    public async Task RunAuditAsync_ProducesMultipleFindings()
+    public void RunAuditAsync_ProducesMultipleFindings()
     {
-        var result = await _audit.RunAuditAsync();
-
-        Assert.True(result.Findings.Count >= 3,
-            $"Expected at least 3 findings, got {result.Findings.Count}");
+        Assert.True(_result.Findings.Count >= 3,
+            $"Expected at least 3 findings, got {_result.Findings.Count}");
     }
 
     [Fact]
-    public async Task RunAuditAsync_ScoreIsValid()
+    public void RunAuditAsync_ScoreIsValid()
     {
-        var result = await _audit.RunAuditAsync();
-        Assert.InRange(result.Score, 0, 100);
+        Assert.InRange(_result.Score, 0, 100);
     }
 }

@@ -5,11 +5,19 @@ namespace WinSentinel.Tests.Audits;
 
 /// <summary>
 /// Integration tests for the SystemAudit module.
-/// Runs against the actual Windows machine.
+/// Runs audit once and shares the result across all tests.
 /// </summary>
-public class SystemAuditTests
+public class SystemAuditTests : IAsyncLifetime
 {
     private readonly SystemAudit _audit = new();
+    private AuditResult _result = null!;
+
+    public async Task InitializeAsync()
+    {
+        _result = await _audit.RunAuditAsync();
+    }
+
+    public Task DisposeAsync() => Task.CompletedTask;
 
     [Fact]
     public void Properties_AreCorrect()
@@ -19,54 +27,43 @@ public class SystemAuditTests
     }
 
     [Fact]
-    public async Task RunAuditAsync_Succeeds()
+    public void RunAuditAsync_Succeeds()
     {
-        var result = await _audit.RunAuditAsync();
-
-        Assert.True(result.Success, $"Audit failed: {result.Error}");
+        Assert.True(_result.Success, $"Audit failed: {_result.Error}");
     }
 
     [Fact]
-    public async Task RunAuditAsync_DetectsOsVersion()
+    public void RunAuditAsync_DetectsOsVersion()
     {
-        var result = await _audit.RunAuditAsync();
-
-        Assert.Contains(result.Findings,
+        Assert.Contains(_result.Findings,
             f => f.Title.Contains("OS", StringComparison.OrdinalIgnoreCase) ||
                  f.Title.Contains("Windows", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
-    public async Task RunAuditAsync_ChecksUac()
+    public void RunAuditAsync_ChecksUac()
     {
-        var result = await _audit.RunAuditAsync();
-
-        Assert.Contains(result.Findings,
+        Assert.Contains(_result.Findings,
             f => f.Title.Contains("UAC", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
-    public async Task RunAuditAsync_ChecksSecureBoot()
+    public void RunAuditAsync_ChecksSecureBoot()
     {
-        var result = await _audit.RunAuditAsync();
-
-        Assert.Contains(result.Findings,
+        Assert.Contains(_result.Findings,
             f => f.Title.Contains("Secure Boot", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
-    public async Task RunAuditAsync_ProducesMultipleFindings()
+    public void RunAuditAsync_ProducesMultipleFindings()
     {
-        var result = await _audit.RunAuditAsync();
-
-        Assert.True(result.Findings.Count >= 3,
-            $"Expected at least 3 findings, got {result.Findings.Count}");
+        Assert.True(_result.Findings.Count >= 3,
+            $"Expected at least 3 findings, got {_result.Findings.Count}");
     }
 
     [Fact]
-    public async Task RunAuditAsync_ScoreIsValid()
+    public void RunAuditAsync_ScoreIsValid()
     {
-        var result = await _audit.RunAuditAsync();
-        Assert.InRange(result.Score, 0, 100);
+        Assert.InRange(_result.Score, 0, 100);
     }
 }

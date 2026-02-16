@@ -85,14 +85,18 @@ public class UpdateAudit : IAuditModule
 
     private async Task CheckPendingUpdates(AuditResult result, CancellationToken ct)
     {
-        // Use COM-free approach via PowerShell to check pending updates
+        // Use registry and update history (fast) instead of COM Search (can take minutes)
         var output = await ShellHelper.RunPowerShellAsync(
-            @"try {
+            @"$indicators = 0
+            if (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired') { $indicators++ }
+            try {
                 $session = New-Object -ComObject Microsoft.Update.Session
                 $searcher = $session.CreateUpdateSearcher()
-                $searchResult = $searcher.Search('IsInstalled=0')
-                $searchResult.Updates.Count
-            } catch { Write-Output 'ERROR' }", ct);
+                $history = $searcher.QueryHistory(0, 20)
+                $failed = @($history | Where-Object { $_.ResultCode -eq 4 -or $_.ResultCode -eq 5 }).Count
+                $indicators += $failed
+            } catch { }
+            $indicators", ct);
 
         if (int.TryParse(output.Trim(), out int pendingCount))
         {
@@ -101,8 +105,8 @@ public class UpdateAudit : IAuditModule
                 var severity = pendingCount > 5 ? Severity.Warning : Severity.Info;
                 result.Findings.Add(new Finding
                 {
-                    Title = $"{pendingCount} Pending Updates",
-                    Description = $"There are {pendingCount} updates available but not yet installed.",
+                    Title = $"{pendingCount} Update Issue(s) Detected",
+                    Description = $"Found {pendingCount} indicators of pending or failed updates.",
                     Severity = severity,
                     Category = Category,
                     Remediation = "Install all pending Windows updates.",
@@ -113,9 +117,16 @@ public class UpdateAudit : IAuditModule
             {
                 result.Findings.Add(Finding.Pass(
                     "No Pending Updates",
-                    "All available Windows updates are installed.",
+                    "No indicators of pending or failed Windows updates found.",
                     Category));
             }
+        }
+        else
+        {
+            result.Findings.Add(Finding.Info(
+                "Update Status Check Incomplete",
+                "Could not fully determine pending update status.",
+                Category));
         }
     }
 
@@ -123,7 +134,6 @@ public class UpdateAudit : IAuditModule
     {
         var output = await ShellHelper.RunPowerShellAsync(
             @"try {
-                $au = (New-Object -ComObject Microsoft.Update.AutoUpdate).Results
                 $key = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU' -ErrorAction SilentlyContinue
                 if ($key -and $key.NoAutoUpdate -eq 1) { 'DISABLED' }
                 else { 'ENABLED' }

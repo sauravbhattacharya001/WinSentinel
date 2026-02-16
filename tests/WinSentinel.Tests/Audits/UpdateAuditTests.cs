@@ -5,11 +5,19 @@ namespace WinSentinel.Tests.Audits;
 
 /// <summary>
 /// Integration tests for the UpdateAudit module.
-/// Runs against the actual Windows machine.
+/// Runs audit once and shares the result across all tests.
 /// </summary>
-public class UpdateAuditTests
+public class UpdateAuditTests : IAsyncLifetime
 {
     private readonly UpdateAudit _audit = new();
+    private AuditResult _result = null!;
+
+    public async Task InitializeAsync()
+    {
+        _result = await _audit.RunAuditAsync();
+    }
+
+    public Task DisposeAsync() => Task.CompletedTask;
 
     [Fact]
     public void Properties_AreCorrect()
@@ -19,45 +27,36 @@ public class UpdateAuditTests
     }
 
     [Fact]
-    public async Task RunAuditAsync_Succeeds()
+    public void RunAuditAsync_Succeeds()
     {
-        var result = await _audit.RunAuditAsync();
-
-        Assert.True(result.Success, $"Audit failed: {result.Error}");
+        Assert.True(_result.Success, $"Audit failed: {_result.Error}");
     }
 
     [Fact]
-    public async Task RunAuditAsync_ChecksLastUpdateDate()
+    public void RunAuditAsync_ChecksLastUpdateDate()
     {
-        var result = await _audit.RunAuditAsync();
-
-        Assert.Contains(result.Findings,
+        Assert.Contains(_result.Findings,
             f => f.Title.Contains("Update", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
-    public async Task RunAuditAsync_ChecksAutoUpdate()
+    public void RunAuditAsync_ChecksAutoUpdate()
     {
-        var result = await _audit.RunAuditAsync();
-
-        Assert.Contains(result.Findings,
+        Assert.Contains(_result.Findings,
             f => f.Title.Contains("Automatic", StringComparison.OrdinalIgnoreCase) ||
                  f.Title.Contains("Auto", StringComparison.OrdinalIgnoreCase) ||
                  f.Title.Contains("Update", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
-    public async Task RunAuditAsync_ProducesFindings()
+    public void RunAuditAsync_ProducesFindings()
     {
-        var result = await _audit.RunAuditAsync();
-
-        Assert.NotEmpty(result.Findings);
+        Assert.NotEmpty(_result.Findings);
     }
 
     [Fact]
-    public async Task RunAuditAsync_ScoreIsValid()
+    public void RunAuditAsync_ScoreIsValid()
     {
-        var result = await _audit.RunAuditAsync();
-        Assert.InRange(result.Score, 0, 100);
+        Assert.InRange(_result.Score, 0, 100);
     }
 }

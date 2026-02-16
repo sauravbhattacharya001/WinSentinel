@@ -5,11 +5,19 @@ namespace WinSentinel.Tests.Audits;
 
 /// <summary>
 /// Integration tests for the NetworkAudit module.
-/// Runs against the actual Windows machine.
+/// Runs audit once and shares the result across all tests.
 /// </summary>
-public class NetworkAuditTests
+public class NetworkAuditTests : IAsyncLifetime
 {
     private readonly NetworkAudit _audit = new();
+    private AuditResult _result = null!;
+
+    public async Task InitializeAsync()
+    {
+        _result = await _audit.RunAuditAsync();
+    }
+
+    public Task DisposeAsync() => Task.CompletedTask;
 
     [Fact]
     public void Properties_AreCorrect()
@@ -19,57 +27,44 @@ public class NetworkAuditTests
     }
 
     [Fact]
-    public async Task RunAuditAsync_Succeeds()
+    public void RunAuditAsync_Succeeds()
     {
-        var result = await _audit.RunAuditAsync();
-
-        Assert.True(result.Success, $"Audit failed: {result.Error}");
+        Assert.True(_result.Success, $"Audit failed: {_result.Error}");
     }
 
     [Fact]
-    public async Task RunAuditAsync_ChecksListeningPorts()
+    public void RunAuditAsync_ChecksListeningPorts()
     {
-        var result = await _audit.RunAuditAsync();
-
-        // Should report on listening ports (either pass or findings)
-        Assert.Contains(result.Findings,
+        Assert.Contains(_result.Findings,
             f => f.Title.Contains("Port", StringComparison.OrdinalIgnoreCase) ||
                  f.Title.Contains("Listening", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
-    public async Task RunAuditAsync_ChecksSmbOrRdp()
+    public void RunAuditAsync_ChecksSmbOrRdp()
     {
-        var result = await _audit.RunAuditAsync();
-
-        // Should check at least SMB or RDP
-        Assert.Contains(result.Findings,
+        Assert.Contains(_result.Findings,
             f => f.Title.Contains("SMB", StringComparison.OrdinalIgnoreCase) ||
                  f.Title.Contains("RDP", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
-    public async Task RunAuditAsync_ChecksDns()
+    public void RunAuditAsync_ChecksDns()
     {
-        var result = await _audit.RunAuditAsync();
-
-        Assert.Contains(result.Findings,
+        Assert.Contains(_result.Findings,
             f => f.Title.Contains("DNS", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
-    public async Task RunAuditAsync_ProducesMultipleFindings()
+    public void RunAuditAsync_ProducesMultipleFindings()
     {
-        var result = await _audit.RunAuditAsync();
-
-        Assert.True(result.Findings.Count >= 3,
-            $"Expected at least 3 findings, got {result.Findings.Count}");
+        Assert.True(_result.Findings.Count >= 3,
+            $"Expected at least 3 findings, got {_result.Findings.Count}");
     }
 
     [Fact]
-    public async Task RunAuditAsync_ScoreIsValid()
+    public void RunAuditAsync_ScoreIsValid()
     {
-        var result = await _audit.RunAuditAsync();
-        Assert.InRange(result.Score, 0, 100);
+        Assert.InRange(_result.Score, 0, 100);
     }
 }

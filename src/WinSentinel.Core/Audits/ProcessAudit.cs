@@ -125,14 +125,16 @@ public class ProcessAudit : IAuditModule
 
     private async Task CheckUnsignedProcesses(AuditResult result, CancellationToken ct)
     {
+        // Get unique executable paths first, then check signatures to avoid
+        // running Get-AuthenticodeSignature on duplicate paths (much faster).
         var output = await ShellHelper.RunPowerShellAsync(
-            @"Get-Process | Where-Object { $_.Path } | 
-              ForEach-Object { 
-                  $sig = Get-AuthenticodeSignature $_.Path -ErrorAction SilentlyContinue
+            @"$paths = Get-Process | Where-Object { $_.Path } | Select-Object -ExpandProperty Path -Unique
+              foreach ($p in $paths) { 
+                  $sig = Get-AuthenticodeSignature $p -ErrorAction SilentlyContinue
                   if ($sig.Status -ne 'Valid') { 
-                      '{0}|{1}|{2}' -f $_.ProcessName, $_.Path, $sig.Status 
+                      '{0}|{1}|{2}' -f [IO.Path]::GetFileNameWithoutExtension($p), $p, $sig.Status 
                   }
-              }", ct);
+              }", TimeSpan.FromSeconds(60), ct);
 
         var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Where(l => l.Contains('|')).ToList();

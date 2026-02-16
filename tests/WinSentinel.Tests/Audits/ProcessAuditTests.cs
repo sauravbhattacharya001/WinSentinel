@@ -5,11 +5,19 @@ namespace WinSentinel.Tests.Audits;
 
 /// <summary>
 /// Integration tests for the ProcessAudit module.
-/// Runs against the actual Windows machine.
+/// Runs audit once and shares the result across all tests.
 /// </summary>
-public class ProcessAuditTests
+public class ProcessAuditTests : IAsyncLifetime
 {
     private readonly ProcessAudit _audit = new();
+    private AuditResult _result = null!;
+
+    public async Task InitializeAsync()
+    {
+        _result = await _audit.RunAuditAsync();
+    }
+
+    public Task DisposeAsync() => Task.CompletedTask;
 
     [Fact]
     public void Properties_AreCorrect()
@@ -19,56 +27,43 @@ public class ProcessAuditTests
     }
 
     [Fact]
-    public async Task RunAuditAsync_Succeeds()
+    public void RunAuditAsync_Succeeds()
     {
-        var result = await _audit.RunAuditAsync();
-
-        Assert.True(result.Success, $"Audit failed: {result.Error}");
+        Assert.True(_result.Success, $"Audit failed: {_result.Error}");
     }
 
     [Fact]
-    public async Task RunAuditAsync_ChecksProcessCount()
+    public void RunAuditAsync_ChecksProcessCount()
     {
-        var result = await _audit.RunAuditAsync();
-
-        Assert.Contains(result.Findings,
+        Assert.Contains(_result.Findings,
             f => f.Title.Contains("Process Count", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
-    public async Task RunAuditAsync_ChecksTempProcesses()
+    public void RunAuditAsync_ChecksTempProcesses()
     {
-        var result = await _audit.RunAuditAsync();
-
-        // Should have a finding about temp directory processes (pass or warning)
-        Assert.Contains(result.Findings,
+        Assert.Contains(_result.Findings,
             f => f.Title.Contains("Temp", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
-    public async Task RunAuditAsync_ChecksSignatures()
+    public void RunAuditAsync_ChecksSignatures()
     {
-        var result = await _audit.RunAuditAsync();
-
-        // Should check process signatures
-        Assert.Contains(result.Findings,
+        Assert.Contains(_result.Findings,
             f => f.Title.Contains("Signed", StringComparison.OrdinalIgnoreCase) ||
                  f.Title.Contains("Unsigned", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
-    public async Task RunAuditAsync_ProducesMultipleFindings()
+    public void RunAuditAsync_ProducesMultipleFindings()
     {
-        var result = await _audit.RunAuditAsync();
-
-        Assert.True(result.Findings.Count >= 2,
-            $"Expected at least 2 findings, got {result.Findings.Count}");
+        Assert.True(_result.Findings.Count >= 2,
+            $"Expected at least 2 findings, got {_result.Findings.Count}");
     }
 
     [Fact]
-    public async Task RunAuditAsync_ScoreIsValid()
+    public void RunAuditAsync_ScoreIsValid()
     {
-        var result = await _audit.RunAuditAsync();
-        Assert.InRange(result.Score, 0, 100);
+        Assert.InRange(_result.Score, 0, 100);
     }
 }

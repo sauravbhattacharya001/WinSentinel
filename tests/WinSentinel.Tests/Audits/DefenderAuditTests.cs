@@ -5,11 +5,19 @@ namespace WinSentinel.Tests.Audits;
 
 /// <summary>
 /// Integration tests for the DefenderAudit module.
-/// Runs against the actual Windows machine.
+/// Runs audit once and shares the result across all tests.
 /// </summary>
-public class DefenderAuditTests
+public class DefenderAuditTests : IAsyncLifetime
 {
     private readonly DefenderAudit _audit = new();
+    private AuditResult _result = null!;
+
+    public async Task InitializeAsync()
+    {
+        _result = await _audit.RunAuditAsync();
+    }
+
+    public Task DisposeAsync() => Task.CompletedTask;
 
     [Fact]
     public void Properties_AreCorrect()
@@ -19,50 +27,39 @@ public class DefenderAuditTests
     }
 
     [Fact]
-    public async Task RunAuditAsync_Succeeds()
+    public void RunAuditAsync_Succeeds()
     {
-        var result = await _audit.RunAuditAsync();
-
-        Assert.True(result.Success, $"Audit failed: {result.Error}");
-        Assert.Equal("Defender Audit", result.ModuleName);
+        Assert.True(_result.Success, $"Audit failed: {_result.Error}");
+        Assert.Equal("Defender Audit", _result.ModuleName);
     }
 
     [Fact]
-    public async Task RunAuditAsync_ChecksRealTimeProtection()
+    public void RunAuditAsync_ChecksRealTimeProtection()
     {
-        var result = await _audit.RunAuditAsync();
-
-        // Should have at least one finding about real-time protection
-        Assert.Contains(result.Findings,
+        Assert.Contains(_result.Findings,
             f => f.Title.Contains("Real-Time Protection", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
-    public async Task RunAuditAsync_ChecksDefinitions()
+    public void RunAuditAsync_ChecksDefinitions()
     {
-        var result = await _audit.RunAuditAsync();
-
-        // Should have a finding about antivirus definitions
-        Assert.Contains(result.Findings,
+        Assert.Contains(_result.Findings,
             f => f.Title.Contains("Definitions", StringComparison.OrdinalIgnoreCase) ||
                  f.Title.Contains("Definition", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
-    public async Task RunAuditAsync_AllFindingsHaveCategory()
+    public void RunAuditAsync_AllFindingsHaveCategory()
     {
-        var result = await _audit.RunAuditAsync();
-
-        foreach (var finding in result.Findings)
+        foreach (var finding in _result.Findings)
         {
             Assert.Equal("Defender", finding.Category);
         }
     }
 
     [Fact]
-    public async Task RunAuditAsync_ScoreIsValid()
+    public void RunAuditAsync_ScoreIsValid()
     {
-        var result = await _audit.RunAuditAsync();
-        Assert.InRange(result.Score, 0, 100);
+        Assert.InRange(_result.Score, 0, 100);
     }
 }

@@ -25,6 +25,7 @@ public class AuditEngine
             new StartupAudit(),
             new SystemAudit(),
             new PrivacyAudit(),
+            new BrowserAudit(),
         };
     }
 

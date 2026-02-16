@@ -115,7 +115,7 @@ public class SecurityAdvisor
             // Single module scan
             var result = await _auditEngine.RunSingleAuditAsync(arg, ct);
             if (result == null)
-                return AdvisorResponse.Text($"❌ No audit module found for '{arg}'.\nAvailable modules: Firewall, Updates, Defender, Accounts, Network, Processes, Startup, System, Privacy");
+                return AdvisorResponse.Text($"❌ No audit module found for '{arg}'.\nAvailable modules: Firewall, Updates, Defender, Accounts, Network, Processes, Startup, System, Privacy, Browser");
 
             // Update lastReport with this single result
             _lastReport ??= new SecurityReport();

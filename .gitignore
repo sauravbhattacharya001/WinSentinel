@@ -74,6 +74,13 @@ nCrunchTemp_*
 ## Publish output
 publish/
 
+## Certificates (never commit private keys!)
+src/WinSentinel.Installer/certs/*.pfx
+src/WinSentinel.Installer/certs/*.cer
+
+## Distribution output
+dist/
+
 ## Misc
 *.tmp
 *.bak

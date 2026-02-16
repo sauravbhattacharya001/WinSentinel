@@ -86,21 +86,72 @@ dotnet test -p:Platform=x64
 ### Build MSIX Package
 
 ```powershell
-# Option 1: Automated script
+# Automated: build, package, and sign in one step
 cd src\WinSentinel.Installer
 .\Build-Msix.ps1
 
-# Option 2: Manual
-dotnet publish src\WinSentinel.App -c Release -r win-x64 --self-contained -o publish\msix-content
-# Copy AppxManifest.xml and Assets to publish\msix-content
-# Run: makeappx pack /d publish\msix-content /p WinSentinel.msix /o
+# The signed MSIX is output to: dist\WinSentinel.msix
 ```
 
-### Install MSIX (Sideload)
+### Install (One Command)
+
+```powershell
+# Run as Administrator — imports cert, installs MSIX, done!
+.\Install-WinSentinel.ps1
+```
+
+This script:
+1. Finds the MSIX in `dist/` (or downloads from GitHub Releases)
+2. Imports the signing certificate to your trusted store
+3. Installs the MSIX package
+4. WinSentinel appears in your Start menu
+
+### Manual Install (Sideload)
 
 1. Enable **Developer Mode** in Windows Settings > Privacy & Security > For Developers
 2. Right-click the `.msix` file → **Install**
-3. Or run: `Add-AppxPackage -Path WinSentinel.msix`
+3. Or run: `Add-AppxPackage -Path dist\WinSentinel.msix`
+
+### Generate a Code Signing Certificate (Dev)
+
+If you're building from source and need a signing certificate:
+
+```powershell
+# 1. Create a self-signed code signing certificate
+#    Subject MUST match AppxManifest.xml Publisher: CN=WinSentinel
+$cert = New-SelfSignedCertificate `
+    -Type Custom `
+    -Subject "CN=WinSentinel" `
+    -KeyUsage DigitalSignature `
+    -FriendlyName "WinSentinel Code Signing (Dev)" `
+    -CertStoreLocation "Cert:\CurrentUser\My" `
+    -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3", "2.5.29.19={text}") `
+    -NotAfter (Get-Date).AddYears(5)
+
+# 2. Export as PFX (for signing)
+$password = ConvertTo-SecureString -String "YourPassword" -Force -AsPlainText
+Export-PfxCertificate -Cert "Cert:\CurrentUser\My\$($cert.Thumbprint)" `
+    -FilePath src\WinSentinel.Installer\certs\WinSentinel-Dev.pfx `
+    -Password $password
+
+# 3. Export public cert (for trust import on other machines)
+Export-Certificate -Cert "Cert:\CurrentUser\My\$($cert.Thumbprint)" `
+    -FilePath src\WinSentinel.Installer\certs\WinSentinel-Dev.cer
+
+# 4. Build signed MSIX
+cd src\WinSentinel.Installer
+.\Build-Msix.ps1 -CertPassword "YourPassword"
+```
+
+> **Note:** The `certs/` directory is in `.gitignore` — never commit `.pfx` files!
+
+### GitHub Actions Release
+
+For CI/CD releases, add these secrets to your GitHub repository:
+- `CERT_BASE64` — Base64-encoded `.pfx` file (`[Convert]::ToBase64String([IO.File]::ReadAllBytes("cert.pfx"))`)
+- `CERT_PASSWORD` — Password for the `.pfx` file
+
+Tag a release to trigger: `git tag v1.0.0 && git push origin v1.0.0`
 
 ### Chat Commands
 

@@ -24,23 +24,105 @@ jobs:
       run: dotnet restore
 
     - name: Build Release
-      run: dotnet build --configuration Release
+      run: dotnet build --configuration Release -p:Platform=x64
 
-    - name: Publish App
-      run: dotnet publish src/WinSentinel.App/WinSentinel.App.csproj -c Release -r win-x64 --self-contained -o publish/app
+    - name: Run Tests
+      run: dotnet test --no-build --configuration Release -p:Platform=x64 --verbosity normal
+      continue-on-error: true
+
+    - name: Publish App (self-contained x64)
+      run: |
+        dotnet publish src/WinSentinel.App/WinSentinel.App.csproj `
+          -c Release -r win-x64 -p:Platform=x64 `
+          --self-contained true `
+          -o publish/msix-content `
+          -p:PublishSingleFile=false `
+          -p:IncludeNativeLibrariesForSelfExtract=false
+
+    - name: Copy MSIX manifest and assets
+      run: |
+        Copy-Item src/WinSentinel.Installer/AppxManifest.xml publish/msix-content/ -Force
+        Copy-Item src/WinSentinel.Installer/Assets/* publish/msix-content/Assets/ -Force -Recurse
+
+    - name: Find Windows SDK tools
+      id: sdk
+      run: |
+        $sdkBase = "${env:ProgramFiles(x86)}\Windows Kits\10\bin"
+        $makeappx = Get-ChildItem $sdkBase -Recurse -Filter "makeappx.exe" -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Directory.Name -eq "x64" } |
+                    Sort-Object { $_.Directory.Parent.Name } -Descending |
+                    Select-Object -First 1
+        $signtool = Get-ChildItem $sdkBase -Recurse -Filter "signtool.exe" -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Directory.Name -eq "x64" } |
+                    Sort-Object { $_.Directory.Parent.Name } -Descending |
+                    Select-Object -First 1
+        
+        if (-not $makeappx) { Write-Error "makeappx.exe not found"; exit 1 }
+        if (-not $signtool) { Write-Error "signtool.exe not found"; exit 1 }
+        
+        "makeappx=$($makeappx.FullName)" >> $env:GITHUB_OUTPUT
+        "signtool=$($signtool.FullName)" >> $env:GITHUB_OUTPUT
+        
+        Write-Host "makeappx: $($makeappx.FullName)"
+        Write-Host "signtool: $($signtool.FullName)"
+
+    - name: Create MSIX mapping file
+      run: |
+        $publishDir = "publish/msix-content"
+        $mapping = @("[Files]")
+        Get-ChildItem $publishDir -Recurse -File | ForEach-Object {
+          $rel = $_.FullName.Substring((Resolve-Path $publishDir).Path.Length + 1)
+          $mapping += "`"$($_.FullName)`" `"$rel`""
+        }
+        $mapping -join "`n" | Set-Content publish/mapping.txt -Encoding UTF8
+
+    - name: Package MSIX
+      run: |
+        New-Item -ItemType Directory -Path dist -Force | Out-Null
+        & "${{ steps.sdk.outputs.makeappx }}" pack /f publish/mapping.txt /p dist/WinSentinel.msix /o
+
+    - name: Decode signing certificate
+      if: ${{ env.CERT_BASE64 != '' }}
+      env:
+        CERT_BASE64: ${{ secrets.CERT_BASE64 }}
+      run: |
+        $certBytes = [Convert]::FromBase64String($env:CERT_BASE64)
+        [IO.File]::WriteAllBytes("${{ runner.temp }}/cert.pfx", $certBytes)
+
+    - name: Sign MSIX
+      if: ${{ env.CERT_BASE64 != '' }}
+      env:
+        CERT_BASE64: ${{ secrets.CERT_BASE64 }}
+        CERT_PASSWORD: ${{ secrets.CERT_PASSWORD }}
+      run: |
+        & "${{ steps.sdk.outputs.signtool }}" sign /fd SHA256 /a /f "${{ runner.temp }}/cert.pfx" /p "$env:CERT_PASSWORD" dist/WinSentinel.msix
+
+    - name: Clean up certificate
+      if: always()
+      run: Remove-Item "${{ runner.temp }}/cert.pfx" -ErrorAction SilentlyContinue
 
     - name: Publish Service
       run: dotnet publish src/WinSentinel.Service/WinSentinel.Service.csproj -c Release -r win-x64 --self-contained -o publish/service
 
-    - name: Create ZIP
+    - name: Create release assets
       run: |
-        Compress-Archive -Path publish/app/* -DestinationPath WinSentinel-App-${{ github.ref_name }}.zip
-        Compress-Archive -Path publish/service/* -DestinationPath WinSentinel-Service-${{ github.ref_name }}.zip
+        # Rename MSIX with version
+        $version = "${{ github.ref_name }}"
+        Copy-Item dist/WinSentinel.msix "dist/WinSentinel-$version.msix" -Force
+        
+        # Create portable ZIP
+        Compress-Archive -Path publish/msix-content/* -DestinationPath "dist/WinSentinel-App-$version.zip"
+        
+        # Create service ZIP
+        Compress-Archive -Path publish/service/* -DestinationPath "dist/WinSentinel-Service-$version.zip"
 
     - name: Create Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         files: |
-          WinSentinel-App-${{ github.ref_name }}.zip
-          WinSentinel-Service-${{ github.ref_name }}.zip
+          dist/WinSentinel-${{ github.ref_name }}.msix
+          dist/WinSentinel-App-${{ github.ref_name }}.zip
+          dist/WinSentinel-Service-${{ github.ref_name }}.zip
         generate_release_notes: true
+        draft: false
+        prerelease: false

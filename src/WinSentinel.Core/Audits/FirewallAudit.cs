@@ -69,44 +69,96 @@ public class FirewallAudit : IAuditModule
 
     private async Task CheckFirewallRules(AuditResult result, CancellationToken ct)
     {
-        // Count enabled inbound allow rules (can be slow with many rules)
-        var output = await ShellHelper.RunPowerShellAsync(
-            "Get-NetFirewallRule -Direction Inbound -Enabled True -Action Allow | Measure-Object | Select-Object -ExpandProperty Count",
-            TimeSpan.FromSeconds(45), ct);
+        // Use netsh instead of Get-NetFirewallRule — netsh runs in <1s vs 60-90s for the cmdlets.
+        var output = await ShellHelper.RunNetshAsync(
+            "advfirewall firewall show rule name=all dir=in verbose", ct);
 
-        if (int.TryParse(output.Trim(), out int ruleCount))
+        if (string.IsNullOrWhiteSpace(output))
         {
-            if (ruleCount > 100)
+            result.Findings.Add(Finding.Info(
+                "Firewall Rules Check Skipped",
+                "Could not retrieve firewall rules via netsh.",
+                Category));
+            return;
+        }
+
+        // Parse netsh output — rules are separated by blank lines, fields are "Key: Value"
+        var rules = output.Split(new[] { "\r\n\r\n", "\n\n" }, StringSplitOptions.RemoveEmptyEntries);
+        int allowCount = 0;
+        int anyPortTcpCount = 0;
+
+        foreach (var ruleBlock in rules)
+        {
+            var fields = ParseNetshRuleBlock(ruleBlock);
+
+            // Only count enabled allow rules
+            if (!fields.TryGetValue("Enabled", out var enabled) ||
+                !enabled.Equals("Yes", StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (!fields.TryGetValue("Action", out var action) ||
+                !action.Equals("Allow", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            allowCount++;
+
+            // Check for rules allowing any TCP port
+            fields.TryGetValue("Protocol", out var protocol);
+            fields.TryGetValue("LocalPort", out var localPort);
+            if (protocol != null && protocol.Equals("TCP", StringComparison.OrdinalIgnoreCase) &&
+                localPort != null && localPort.Equals("Any", StringComparison.OrdinalIgnoreCase))
             {
-                result.Findings.Add(Finding.Warning(
-                    "High Number of Inbound Allow Rules",
-                    $"There are {ruleCount} enabled inbound allow rules. Consider reviewing and removing unnecessary rules.",
-                    Category,
-                    "Review inbound firewall rules and disable any that are no longer needed.",
-                    "Get-NetFirewallRule -Direction Inbound -Enabled True -Action Allow | Format-Table Name, DisplayName, Profile"));
-            }
-            else
-            {
-                result.Findings.Add(Finding.Pass(
-                    "Inbound Rules Count Acceptable",
-                    $"There are {ruleCount} enabled inbound allow rules.",
-                    Category));
+                anyPortTcpCount++;
             }
         }
 
-        // Check for any rules allowing all ports (can be slow)
-        var anyPortRules = await ShellHelper.RunPowerShellAsync(
-            @"Get-NetFirewallRule -Direction Inbound -Enabled True -Action Allow | Get-NetFirewallPortFilter | Where-Object { $_.LocalPort -eq 'Any' -and $_.Protocol -eq 'TCP' } | Measure-Object | Select-Object -ExpandProperty Count",
-            TimeSpan.FromSeconds(60), ct);
+        if (allowCount > 100)
+        {
+            result.Findings.Add(Finding.Warning(
+                "High Number of Inbound Allow Rules",
+                $"There are {allowCount} enabled inbound allow rules. Consider reviewing and removing unnecessary rules.",
+                Category,
+                "Review inbound firewall rules and disable any that are no longer needed.",
+                "netsh advfirewall firewall show rule name=all dir=in"));
+        }
+        else
+        {
+            result.Findings.Add(Finding.Pass(
+                "Inbound Rules Count Acceptable",
+                $"There are {allowCount} enabled inbound allow rules.",
+                Category));
+        }
 
-        if (int.TryParse(anyPortRules.Trim(), out int anyCount) && anyCount > 5)
+        if (anyPortTcpCount > 5)
         {
             result.Findings.Add(Finding.Warning(
                 "Rules Allowing All TCP Ports",
-                $"{anyCount} inbound rules allow connections on any TCP port. This increases attack surface.",
+                $"{anyPortTcpCount} inbound rules allow connections on any TCP port. This increases attack surface.",
                 Category,
                 "Review rules that allow all ports and restrict to specific ports where possible."));
         }
+    }
+
+    /// <summary>
+    /// Parse a netsh rule block into key-value pairs.
+    /// Each line is "Key:                Value".
+    /// </summary>
+    private static Dictionary<string, string> ParseNetshRuleBlock(string block)
+    {
+        var fields = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var lines = block.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+        foreach (var line in lines)
+        {
+            // Skip separator lines
+            if (line.StartsWith("---")) continue;
+
+            var colonIdx = line.IndexOf(':');
+            if (colonIdx <= 0) continue;
+
+            var key = line.Substring(0, colonIdx).Trim();
+            var value = line.Substring(colonIdx + 1).Trim();
+            fields[key] = value;
+        }
+        return fields;
     }
 
     private async Task CheckInboundDefaults(AuditResult result, CancellationToken ct)

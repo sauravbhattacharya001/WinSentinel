@@ -16,8 +16,13 @@
         <Border Grid.Row="0" Padding="24,16" 
                 BorderBrush="{StaticResource CardBorder}" 
                 BorderThickness="0,0,0,1">
-            <TextBlock Text="🛡️ Security Chat" FontSize="20" FontWeight="SemiBold"
-                      Foreground="{StaticResource TextPrimary}" />
+            <Grid>
+                <TextBlock Text="🛡️ Security Advisor" FontSize="20" FontWeight="SemiBold"
+                          Foreground="{StaticResource TextPrimary}" />
+                <TextBlock x:Name="OllamaStatus" Text="" FontSize="12"
+                          HorizontalAlignment="Right" VerticalAlignment="Center"
+                          Foreground="{StaticResource TextSecondary}" />
+            </Grid>
         </Border>
 
         <!-- Chat Messages -->
@@ -28,15 +33,17 @@
 
         <!-- Quick Actions -->
         <WrapPanel Grid.Row="2" HorizontalAlignment="Center" Margin="24,8">
-            <Button Content="🔍 Full Audit" Click="QuickAction_Click" Tag="Run full audit" 
+            <Button Content="🔍 Scan" Click="QuickAction_Click" Tag="/scan" 
                     Style="{StaticResource QuickButton}" Margin="4" />
-            <Button Content="🔥 Firewall" Click="QuickAction_Click" Tag="Check firewall" 
+            <Button Content="📊 Score" Click="QuickAction_Click" Tag="/score" 
                     Style="{StaticResource QuickButton}" Margin="4" />
-            <Button Content="🛡️ Defender" Click="QuickAction_Click" Tag="Check defender" 
+            <Button Content="⚠️ Issues" Click="QuickAction_Click" Tag="what's wrong?" 
                     Style="{StaticResource QuickButton}" Margin="4" />
-            <Button Content="📊 Score" Click="QuickAction_Click" Tag="Security score" 
+            <Button Content="🔧 Fix All" Click="QuickAction_Click" Tag="/fixall" 
                     Style="{StaticResource QuickButton}" Margin="4" />
-            <Button Content="❓ Help" Click="QuickAction_Click" Tag="Help" 
+            <Button Content="📈 History" Click="QuickAction_Click" Tag="/history" 
+                    Style="{StaticResource QuickButton}" Margin="4" />
+            <Button Content="❓ Help" Click="QuickAction_Click" Tag="/help" 
                     Style="{StaticResource QuickButton}" Margin="4" />
         </WrapPanel>
 
@@ -53,7 +60,8 @@
                     Background="#2A2A4A"
                     Foreground="{StaticResource TextPrimary}"
                     BorderBrush="{StaticResource CardBorder}"
-                    Padding="8,6"
+                    Padding="12,8"
+                    FontSize="14"
                     VerticalContentAlignment="Center" />
 
             <Button Grid.Column="1" x:Name="SendButton"

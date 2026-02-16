@@ -107,35 +107,66 @@ public partial class ChatPage : Page
                 msg.IsBot ? 60 : 0, 8)
         };
 
+        var stackPanel = new StackPanel();
+
+        // Message text
         var textBlock = new TextBlock
         {
             Text = msg.Text,
             TextWrapping = TextWrapping.Wrap,
             Foreground = msg.IsBot
                 ? (Brush)Application.Current.Resources["TextPrimary"]
-                : new SolidColorBrush(Colors.White)
+                : new SolidColorBrush(Colors.White),
+            FontSize = 13.5
         };
+        stackPanel.Children.Add(textBlock);
 
-        border.Child = textBlock;
+        // Timestamp
+        var timeBlock = new TextBlock
+        {
+            Text = msg.Timestamp.ToLocalTime().ToString("HH:mm"),
+            FontSize = 10,
+            Foreground = msg.IsBot
+                ? (Brush)Application.Current.Resources["TextSecondary"]
+                : new SolidColorBrush(Color.FromArgb(180, 255, 255, 255)),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 4, 0, 0)
+        };
+        stackPanel.Children.Add(timeBlock);
+
+        border.Child = stackPanel;
         MessageList.Items.Add(border);
         ScrollToBottom();
     }
 
     private Border CreateTypingIndicator()
     {
+        var stack = new StackPanel { Orientation = Orientation.Horizontal };
+        stack.Children.Add(new TextBlock
+        {
+            Text = "🛡️ Analyzing",
+            FontSize = 13,
+            Foreground = (Brush)Application.Current.Resources["TextSecondary"],
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 8, 0)
+        });
+        stack.Children.Add(new ProgressBar
+        {
+            IsIndeterminate = true,
+            Width = 80,
+            Height = 6,
+            VerticalAlignment = VerticalAlignment.Center
+        });
+
         return new Border
         {
             Background = (Brush)Application.Current.Resources["CardBackground"],
             CornerRadius = new CornerRadius(12),
             Padding = new Thickness(16, 10, 16, 10),
             HorizontalAlignment = HorizontalAlignment.Left,
-            MaxWidth = 200,
-            Child = new ProgressBar
-            {
-                IsIndeterminate = true,
-                Width = 100,
-                Height = 8
-            }
+            MaxWidth = 250,
+            Margin = new Thickness(0, 0, 60, 8),
+            Child = stack
         };
     }
 

@@ -19,6 +19,24 @@ public class AuditResult
     public int InfoCount => Findings.Count(f => f.Severity == Severity.Info);
     public int PassCount => Findings.Count(f => f.Severity == Severity.Pass);
 
+    /// <summary>
+    /// Computed score (0-100) based on finding severities.
+    /// </summary>
+    public int Score
+    {
+        get
+        {
+            int deductions = Findings.Sum(f => f.Severity switch
+            {
+                Severity.Critical => 15,
+                Severity.Warning => 5,
+                Severity.Info => 1,
+                _ => 0
+            });
+            return Math.Max(0, 100 - deductions);
+        }
+    }
+
     public Severity OverallSeverity
     {
         get

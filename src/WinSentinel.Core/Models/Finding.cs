@@ -13,20 +13,26 @@ public class Finding
     public string Category { get; set; } = string.Empty;
     public DateTimeOffset Timestamp { get; set; } = DateTimeOffset.UtcNow;
 
-    public static Finding Pass(string title, string description, string category) => new()
+    public static Finding Pass(string title, string description, string category,
+        string? remediation = null, string? fixCommand = null) => new()
     {
         Title = title,
         Description = description,
         Severity = Severity.Pass,
-        Category = category
+        Category = category,
+        Remediation = remediation,
+        FixCommand = fixCommand
     };
 
-    public static Finding Info(string title, string description, string category) => new()
+    public static Finding Info(string title, string description, string category,
+        string? remediation = null, string? fixCommand = null) => new()
     {
         Title = title,
         Description = description,
         Severity = Severity.Info,
-        Category = category
+        Category = category,
+        Remediation = remediation,
+        FixCommand = fixCommand
     };
 
     public static Finding Warning(string title, string description, string category,

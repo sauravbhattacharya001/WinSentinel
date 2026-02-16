@@ -1,7 +1,7 @@
-using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Data;
-using Microsoft.UI.Xaml.Media;
-using Windows.UI;
+using System.Globalization;
+using System.Windows;
+using System.Windows.Data;
+using System.Windows.Media;
 
 namespace WinSentinel.App.Controls;
 
@@ -10,12 +10,12 @@ namespace WinSentinel.App.Controls;
 /// </summary>
 public class BoolToAlignmentConverter : IValueConverter
 {
-    public object Convert(object value, Type targetType, object parameter, string language)
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
         return value is true ? HorizontalAlignment.Right : HorizontalAlignment.Left;
     }
 
-    public object ConvertBack(object value, Type targetType, object parameter, string language)
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
         => throw new NotImplementedException();
 }
 
@@ -24,14 +24,14 @@ public class BoolToAlignmentConverter : IValueConverter
 /// </summary>
 public class BoolToBubbleColorConverter : IValueConverter
 {
-    public object Convert(object value, Type targetType, object parameter, string language)
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
         return value is true
             ? new SolidColorBrush(Color.FromArgb(255, 0, 120, 212))  // Blue for user
             : new SolidColorBrush(Color.FromArgb(255, 45, 45, 61));   // Dark for bot
     }
 
-    public object ConvertBack(object value, Type targetType, object parameter, string language)
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
         => throw new NotImplementedException();
 }
 
@@ -40,12 +40,12 @@ public class BoolToBubbleColorConverter : IValueConverter
 /// </summary>
 public class BoolNegationConverter : IValueConverter
 {
-    public object Convert(object value, Type targetType, object parameter, string language)
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
         return value is bool b ? !b : true;
     }
 
-    public object ConvertBack(object value, Type targetType, object parameter, string language)
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
     {
         return value is bool b ? !b : true;
     }

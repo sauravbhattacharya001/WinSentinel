@@ -1,30 +1,25 @@
-using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Navigation;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Media;
 using WinSentinel.App.ViewModels;
 using WinSentinel.Core.Models;
 using WinSentinel.Core.Services;
 
 namespace WinSentinel.App.Views;
 
-public sealed partial class AuditDetailPage : Page
+public partial class AuditDetailPage : Page
 {
     private readonly AuditDetailViewModel _vm = new();
 
     public AuditDetailPage()
     {
-        this.InitializeComponent();
+        InitializeComponent();
     }
 
-    protected override void OnNavigatedTo(NavigationEventArgs e)
+    public AuditDetailPage(string category) : this()
     {
-        if (e.Parameter is string category)
-        {
-            _vm.SetCategory(category);
-            ModuleTitle.Text = $"🔍 {_vm.ModuleName}";
-        }
-        base.OnNavigatedTo(e);
+        _vm.SetCategory(category);
+        ModuleTitle.Text = $"🔍 {_vm.ModuleName}";
     }
 
     private async void RunButton_Click(object sender, RoutedEventArgs e)
@@ -71,27 +66,29 @@ public sealed partial class AuditDetailPage : Page
 
         var border = new Border
         {
-            Background = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"],
+            Background = (Brush)Application.Current.Resources["CardBackground"],
             CornerRadius = new CornerRadius(8),
             Padding = new Thickness(16),
+            Margin = new Thickness(0, 0, 0, 8),
         };
 
-        var stack = new StackPanel { Spacing = 4 };
+        var stack = new StackPanel();
 
         // Title with severity
         stack.Children.Add(new TextBlock
         {
             Text = $"{icon} {finding.Title}",
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            FontWeight = FontWeights.SemiBold,
             FontSize = 15,
-            TextWrapping = TextWrapping.Wrap
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = (Brush)Application.Current.Resources["TextPrimary"]
         });
 
         // Severity badge
         stack.Children.Add(new TextBlock
         {
             Text = $"Severity: {finding.Severity}",
-            Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+            Foreground = (Brush)Application.Current.Resources["TextSecondary"],
             FontSize = 12
         });
 
@@ -100,7 +97,8 @@ public sealed partial class AuditDetailPage : Page
         {
             Text = finding.Description,
             TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(0, 4, 0, 0)
+            Margin = new Thickness(0, 4, 0, 0),
+            Foreground = (Brush)Application.Current.Resources["TextPrimary"]
         });
 
         // Remediation
@@ -111,8 +109,8 @@ public sealed partial class AuditDetailPage : Page
                 Text = $"💡 {finding.Remediation}",
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 8, 0, 0),
-                FontStyle = Windows.UI.Text.FontStyle.Italic,
-                Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"]
+                FontStyle = FontStyles.Italic,
+                Foreground = (Brush)Application.Current.Resources["TextSecondary"]
             });
         }
 
@@ -121,7 +119,7 @@ public sealed partial class AuditDetailPage : Page
         {
             var cmdBorder = new Border
             {
-                Background = new SolidColorBrush(Windows.UI.Color.FromArgb(30, 255, 255, 255)),
+                Background = new SolidColorBrush(Color.FromArgb(30, 255, 255, 255)),
                 CornerRadius = new CornerRadius(4),
                 Padding = new Thickness(8, 4, 8, 4),
                 Margin = new Thickness(0, 4, 0, 0)
@@ -132,8 +130,8 @@ public sealed partial class AuditDetailPage : Page
                 Text = $"🔧 {finding.FixCommand}",
                 FontFamily = new FontFamily("Cascadia Mono, Consolas"),
                 FontSize = 12,
-                IsTextSelectionEnabled = true,
-                TextWrapping = TextWrapping.Wrap
+                TextWrapping = TextWrapping.Wrap,
+                Foreground = (Brush)Application.Current.Resources["TextPrimary"]
             };
 
             stack.Children.Add(cmdBorder);

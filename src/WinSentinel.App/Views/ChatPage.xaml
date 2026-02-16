@@ -2,8 +2,7 @@
     x:Class="WinSentinel.App.Views.ChatPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:local="using:WinSentinel.App.Views"
-    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+    Background="{StaticResource AppBackground}">
 
     <Grid>
         <Grid.RowDefinitions>
@@ -15,47 +14,51 @@
 
         <!-- Header -->
         <Border Grid.Row="0" Padding="24,16" 
-                BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" 
+                BorderBrush="{StaticResource CardBorder}" 
                 BorderThickness="0,0,0,1">
-            <TextBlock Text="🛡️ Security Chat" Style="{StaticResource SubtitleTextBlockStyle}" />
+            <TextBlock Text="🛡️ Security Chat" FontSize="20" FontWeight="SemiBold"
+                      Foreground="{StaticResource TextPrimary}" />
         </Border>
 
         <!-- Chat Messages -->
-        <ScrollViewer Grid.Row="1" x:Name="ChatScroller" Padding="24,16">
-            <ItemsControl x:Name="MessageList">
-                <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate>
-                        <StackPanel Spacing="12" />
-                    </ItemsPanelTemplate>
-                </ItemsControl.ItemsPanel>
-            </ItemsControl>
+        <ScrollViewer Grid.Row="1" x:Name="ChatScroller" Padding="24,16"
+                     VerticalScrollBarVisibility="Auto">
+            <ItemsControl x:Name="MessageList" />
         </ScrollViewer>
 
         <!-- Quick Actions -->
-        <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8" Padding="24,8"
-                    HorizontalAlignment="Center">
-            <Button Content="🔍 Full Audit" Click="QuickAction_Click" Tag="Run full audit" />
-            <Button Content="🔥 Firewall" Click="QuickAction_Click" Tag="Check firewall" />
-            <Button Content="🛡️ Defender" Click="QuickAction_Click" Tag="Check defender" />
-            <Button Content="📊 Score" Click="QuickAction_Click" Tag="Security score" />
-            <Button Content="❓ Help" Click="QuickAction_Click" Tag="Help" />
-        </StackPanel>
+        <WrapPanel Grid.Row="2" HorizontalAlignment="Center" Margin="24,8">
+            <Button Content="🔍 Full Audit" Click="QuickAction_Click" Tag="Run full audit" 
+                    Style="{StaticResource QuickButton}" Margin="4" />
+            <Button Content="🔥 Firewall" Click="QuickAction_Click" Tag="Check firewall" 
+                    Style="{StaticResource QuickButton}" Margin="4" />
+            <Button Content="🛡️ Defender" Click="QuickAction_Click" Tag="Check defender" 
+                    Style="{StaticResource QuickButton}" Margin="4" />
+            <Button Content="📊 Score" Click="QuickAction_Click" Tag="Security score" 
+                    Style="{StaticResource QuickButton}" Margin="4" />
+            <Button Content="❓ Help" Click="QuickAction_Click" Tag="Help" 
+                    Style="{StaticResource QuickButton}" Margin="4" />
+        </WrapPanel>
 
         <!-- Input Area -->
-        <Grid Grid.Row="3" Padding="24,8,24,16">
+        <Grid Grid.Row="3" Margin="24,8,24,16">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
             <TextBox x:Name="InputBox" 
-                    PlaceholderText="Ask about security or type a command..."
                     KeyDown="InputBox_KeyDown"
-                    AcceptsReturn="False" />
+                    AcceptsReturn="False"
+                    Background="#2A2A4A"
+                    Foreground="{StaticResource TextPrimary}"
+                    BorderBrush="{StaticResource CardBorder}"
+                    Padding="8,6"
+                    VerticalContentAlignment="Center" />
 
             <Button Grid.Column="1" x:Name="SendButton"
                     Content="Send" 
-                    Style="{StaticResource AccentButtonStyle}"
+                    Style="{StaticResource AccentButton}"
                     Click="SendButton_Click"
                     Margin="8,0,0,0" />
         </Grid>

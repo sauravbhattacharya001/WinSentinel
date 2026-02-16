@@ -1,20 +1,19 @@
-using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Media;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Media;
 using WinSentinel.App.ViewModels;
 using WinSentinel.Core.Models;
 using WinSentinel.Core.Services;
-using Windows.UI;
 
 namespace WinSentinel.App.Views;
 
-public sealed partial class DashboardPage : Page
+public partial class DashboardPage : Page
 {
     private readonly DashboardViewModel _vm = new();
 
     public DashboardPage()
     {
-        this.InitializeComponent();
+        InitializeComponent();
     }
 
     private async void ScanButton_Click(object sender, RoutedEventArgs e)
@@ -27,7 +26,7 @@ public sealed partial class DashboardPage : Page
         var engine = new AuditEngine();
         var progress = new Progress<(string module, int current, int total)>(p =>
         {
-            DispatcherQueue.TryEnqueue(() =>
+            Dispatcher.Invoke(() =>
             {
                 StatusText.Text = $"Scanning: {p.module}...";
                 ProgressText.Text = $"Module {p.current} of {p.total}";
@@ -88,9 +87,10 @@ public sealed partial class DashboardPage : Page
 
         var border = new Border
         {
-            Background = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"],
+            Background = (Brush)Application.Current.Resources["CardBackground"],
             CornerRadius = new CornerRadius(8),
             Padding = new Thickness(16),
+            Margin = new Thickness(0, 0, 0, 8),
         };
 
         var grid = new Grid();
@@ -101,15 +101,16 @@ public sealed partial class DashboardPage : Page
         info.Children.Add(new TextBlock
         {
             Text = $"{icon} {result.Category}",
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-            FontSize = 16
+            FontWeight = FontWeights.SemiBold,
+            FontSize = 16,
+            Foreground = (Brush)Application.Current.Resources["TextPrimary"]
         });
 
         var details = $"🔴 {result.CriticalCount} critical  •  🟡 {result.WarningCount} warnings  •  {result.Findings.Count} total findings";
         info.Children.Add(new TextBlock
         {
             Text = details,
-            Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+            Foreground = (Brush)Application.Current.Resources["TextSecondary"],
             Margin = new Thickness(0, 4, 0, 0)
         });
 
@@ -121,14 +122,15 @@ public sealed partial class DashboardPage : Page
         {
             Text = $"{score}",
             FontSize = 28,
-            FontWeight = Microsoft.UI.Text.FontWeights.Bold,
-            HorizontalAlignment = HorizontalAlignment.Right
+            FontWeight = FontWeights.Bold,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Foreground = (Brush)Application.Current.Resources["TextPrimary"]
         });
         scorePanel.Children.Add(new TextBlock
         {
             Text = SecurityScorer.GetGrade(score),
             HorizontalAlignment = HorizontalAlignment.Right,
-            Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"]
+            Foreground = (Brush)Application.Current.Resources["TextSecondary"]
         });
 
         Grid.SetColumn(scorePanel, 1);
@@ -144,22 +146,24 @@ public sealed partial class DashboardPage : Page
 
         var border = new Border
         {
-            Background = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"],
+            Background = (Brush)Application.Current.Resources["CardBackground"],
             CornerRadius = new CornerRadius(6),
             Padding = new Thickness(12),
+            Margin = new Thickness(0, 0, 0, 6),
         };
 
         var stack = new StackPanel();
         stack.Children.Add(new TextBlock
         {
             Text = $"{icon} {finding.Title}",
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+            FontWeight = FontWeights.SemiBold,
+            Foreground = (Brush)Application.Current.Resources["TextPrimary"]
         });
         stack.Children.Add(new TextBlock
         {
             Text = finding.Description,
             TextWrapping = TextWrapping.Wrap,
-            Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+            Foreground = (Brush)Application.Current.Resources["TextSecondary"],
             Margin = new Thickness(0, 2, 0, 0)
         });
 
@@ -170,7 +174,8 @@ public sealed partial class DashboardPage : Page
                 Text = $"💡 {finding.Remediation}",
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 4, 0, 0),
-                FontStyle = Windows.UI.Text.FontStyle.Italic
+                FontStyle = FontStyles.Italic,
+                Foreground = (Brush)Application.Current.Resources["TextSecondary"]
             });
         }
 

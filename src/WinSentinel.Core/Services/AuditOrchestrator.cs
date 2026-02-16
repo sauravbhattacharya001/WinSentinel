@@ -1,4 +1,5 @@
 using WinSentinel.Core.Audits;
+using WinSentinel.Core.Interfaces;
 using WinSentinel.Core.Models;
 
 namespace WinSentinel.Core.Services;
@@ -62,7 +63,7 @@ public class AuditOrchestrator
                     ModuleName = module.Name,
                     Category = module.Category,
                     Success = false,
-                    ErrorMessage = ex.Message
+                    Error = ex.Message
                 });
             }
         }
@@ -102,7 +103,7 @@ public class AuditOrchestrator
 
             if (!result.Success)
             {
-                sb.AppendLine($"   ⚠️ Error: {result.ErrorMessage}");
+                sb.AppendLine($"   ⚠️ Error: {result.Error}");
             }
             else
             {

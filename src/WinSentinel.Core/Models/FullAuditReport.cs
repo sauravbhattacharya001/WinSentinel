@@ -5,8 +5,8 @@ namespace WinSentinel.Core.Models;
 /// </summary>
 public class FullAuditReport
 {
-    public List<AuditResult> Results { get; init; } = [];
-    public DateTime Timestamp { get; init; } = DateTime.UtcNow;
+    public List<AuditResult> Results { get; set; } = [];
+    public DateTime Timestamp { get; set; } = DateTime.UtcNow;
 
     /// <summary>
     /// Overall security score (0-100), weighted average of all module scores.

@@ -69,9 +69,10 @@ public class FirewallAudit : IAuditModule
 
     private async Task CheckFirewallRules(AuditResult result, CancellationToken ct)
     {
-        // Count enabled inbound allow rules
+        // Count enabled inbound allow rules (can be slow with many rules)
         var output = await ShellHelper.RunPowerShellAsync(
-            "Get-NetFirewallRule -Direction Inbound -Enabled True -Action Allow | Measure-Object | Select-Object -ExpandProperty Count", ct);
+            "Get-NetFirewallRule -Direction Inbound -Enabled True -Action Allow | Measure-Object | Select-Object -ExpandProperty Count",
+            TimeSpan.FromSeconds(45), ct);
 
         if (int.TryParse(output.Trim(), out int ruleCount))
         {
@@ -93,9 +94,10 @@ public class FirewallAudit : IAuditModule
             }
         }
 
-        // Check for any rules allowing all ports
+        // Check for any rules allowing all ports (can be slow)
         var anyPortRules = await ShellHelper.RunPowerShellAsync(
-            @"Get-NetFirewallRule -Direction Inbound -Enabled True -Action Allow | Get-NetFirewallPortFilter | Where-Object { $_.LocalPort -eq 'Any' -and $_.Protocol -eq 'TCP' } | Measure-Object | Select-Object -ExpandProperty Count", ct);
+            @"Get-NetFirewallRule -Direction Inbound -Enabled True -Action Allow | Get-NetFirewallPortFilter | Where-Object { $_.LocalPort -eq 'Any' -and $_.Protocol -eq 'TCP' } | Measure-Object | Select-Object -ExpandProperty Count",
+            TimeSpan.FromSeconds(60), ct);
 
         if (int.TryParse(anyPortRules.Trim(), out int anyCount) && anyCount > 5)
         {

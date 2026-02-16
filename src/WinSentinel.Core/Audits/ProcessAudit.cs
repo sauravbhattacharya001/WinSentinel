@@ -165,14 +165,16 @@ public class ProcessAudit : IAuditModule
 
     private async Task CheckHighPrivilegeProcesses(AuditResult result, CancellationToken ct)
     {
+        // Use a filtered WMI query to only check SYSTEM processes outside Windows dir.
+        // This avoids calling GetOwner on every process (very slow).
         var output = await ShellHelper.RunPowerShellAsync(
-            @"Get-CimInstance Win32_Process | 
+            @"Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and $_.ExecutablePath -notmatch 'Windows' } |
               ForEach-Object { 
                   $owner = Invoke-CimMethod -InputObject $_ -MethodName GetOwner -ErrorAction SilentlyContinue
-                  if ($owner.User -eq 'SYSTEM' -and $_.ExecutablePath -and $_.ExecutablePath -notmatch 'Windows') {
+                  if ($owner.User -eq 'SYSTEM') {
                       '{0}|{1}' -f $_.Name, $_.ExecutablePath
                   }
-              }", ct);
+              }", TimeSpan.FromSeconds(45), ct);
 
         var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Where(l => l.Contains('|')).ToList();

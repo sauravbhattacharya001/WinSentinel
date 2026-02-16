@@ -1,4 +1,5 @@
 using WinSentinel.Agent;
+using WinSentinel.Agent.Modules;
 using WinSentinel.Agent.Services;
 
 var builder = Host.CreateDefaultBuilder(args);
@@ -22,6 +23,7 @@ builder.ConfigureServices((context, services) =>
 
     // Agent modules
     services.AddSingleton<IAgentModule, ScheduledAuditModule>();
+    services.AddSingleton<IAgentModule, ProcessMonitorModule>();
 
     // Main orchestrator
     services.AddHostedService<AgentService>();

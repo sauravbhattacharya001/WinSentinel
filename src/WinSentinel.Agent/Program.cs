@@ -24,6 +24,7 @@ builder.ConfigureServices((context, services) =>
     // Agent modules
     services.AddSingleton<IAgentModule, ScheduledAuditModule>();
     services.AddSingleton<IAgentModule, ProcessMonitorModule>();
+    services.AddSingleton<IAgentModule, FileSystemMonitorModule>();
 
     // Main orchestrator
     services.AddHostedService<AgentService>();

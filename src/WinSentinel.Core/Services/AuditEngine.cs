@@ -26,6 +26,7 @@ public class AuditEngine
             new SystemAudit(),
             new PrivacyAudit(),
             new BrowserAudit(),
+            new AppSecurityAudit(),
         };
     }
 

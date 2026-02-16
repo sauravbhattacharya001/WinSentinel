@@ -1,0 +1,78 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.userprefs
+
+## NuGet
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+*.nupkg
+**/packages/repositories.config
+
+## Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+## Visual Studio
+.vs/
+*.rsuser
+*.sln.docstates
+_ReSharper*/
+*.[Rr]e[Ss]harper
+*.DotSettings.user
+_TeamCity*
+*.dotCover
+*.VisualState.xml
+TestResult.xml
+[Dd]ebugPublic/
+[Rr]eleases/
+*.publishsettings
+
+## JetBrains
+.idea/
+*.sln.iml
+
+## Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+## macOS
+.DS_Store
+
+## Publish profiles
+*.pubxml
+!**/Properties/PublishProfiles/*.pubxml
+
+## Application Insights
+ApplicationInsights.config
+
+## MSTEST
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+
+## NCrunch
+_NCrunch_*
+.*crunch*.local.xml
+nCrunchTemp_*
+
+## Misc
+*.tmp
+*.bak
+*.swp
+~$*

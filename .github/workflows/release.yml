@@ -1,0 +1,46 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Restore
+      run: dotnet restore
+
+    - name: Build Release
+      run: dotnet build --configuration Release
+
+    - name: Publish App
+      run: dotnet publish src/WinSentinel.App/WinSentinel.App.csproj -c Release -r win-x64 --self-contained -o publish/app
+
+    - name: Publish Service
+      run: dotnet publish src/WinSentinel.Service/WinSentinel.Service.csproj -c Release -r win-x64 --self-contained -o publish/service
+
+    - name: Create ZIP
+      run: |
+        Compress-Archive -Path publish/app/* -DestinationPath WinSentinel-App-${{ github.ref_name }}.zip
+        Compress-Archive -Path publish/service/* -DestinationPath WinSentinel-Service-${{ github.ref_name }}.zip
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          WinSentinel-App-${{ github.ref_name }}.zip
+          WinSentinel-Service-${{ github.ref_name }}.zip
+        generate_release_notes: true

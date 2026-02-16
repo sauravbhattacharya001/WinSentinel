@@ -23,6 +23,7 @@ public class AuditEngine
             new ProcessAudit(),
             new StartupAudit(),
             new SystemAudit(),
+            new PrivacyAudit(),
         };
     }
 

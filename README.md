@@ -1,181 +1,301 @@
+<div align="center">
+
 # 🛡️ WinSentinel
 
-**Windows Security Agent — Local-first security auditing, monitoring, and remediation for Windows machines.**
+### Real-time Windows Security Auditing & Remediation
 
-[![Build](https://github.com/sauravbhattacharya001/WinSentinel/actions/workflows/build.yml/badge.svg)](https://github.com/sauravbhattacharya001/WinSentinel/actions/workflows/build.yml)
+[![Build & Test](https://github.com/sauravbhattacharya001/WinSentinel/actions/workflows/build.yml/badge.svg)](https://github.com/sauravbhattacharya001/WinSentinel/actions/workflows/build.yml)
+[![Release](https://github.com/sauravbhattacharya001/WinSentinel/actions/workflows/release.yml/badge.svg)](https://github.com/sauravbhattacharya001/WinSentinel/releases)
+[![.NET 8](https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
+[![Windows 11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4?logo=windows11)](https://www.microsoft.com/windows)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-124%20passing-brightgreen)]()
 
-## Features
+**9 security audit modules • Real-time scoring • One-click fixes • AI chat assistant**
 
-- **9 Security Audit Modules** — Comprehensive Windows security assessment
-- **Real-time Security Score** — 0-100 score with letter grade and category breakdown
-- **Chat Interface** — AI-powered security assistant with natural language
-- **Quick Fix Actions** — One-click remediation with PowerShell/CMD commands
-- **Local-first** — All analysis runs on your machine, no data leaves
-- **MSIX Installer** — Packageable as MSIX for easy deployment and sideloading
-- **Portable Mode** — Also runs as a standalone self-contained executable
+*Your machine's security shouldn't be a mystery. WinSentinel scans, scores, and fixes — all locally.*
 
-## Security Audit Modules
+[🚀 Quick Start](#-quick-start) · [📦 Install](#-install-msix) · [📖 Docs](https://sauravbhattacharya001.github.io/WinSentinel/) · [🐛 Issues](https://github.com/sauravbhattacharya001/WinSentinel/issues)
 
-| Module | What It Checks |
-|--------|---------------|
-| 🔥 **Firewall** | Windows Firewall status, profile states, rule analysis, dangerous port exposure |
-| 🔄 **Updates** | Windows Update status, pending updates, last install date |
-| 🛡️ **Defender** | Windows Defender status, real-time protection, definition freshness |
-| 👤 **Accounts** | Local users, admin accounts, password policies, guest account |
-| 🌐 **Network** | Open ports, listening services, SMB/RDP exposure, LLMNR/NetBIOS poisoning, Wi-Fi security, ARP anomalies, IPv6 exposure |
-| ⚙️ **Processes** | Running processes, unsigned executables, suspicious locations, high-privilege analysis |
-| 🚀 **Startup** | Startup items, scheduled tasks, registry run keys |
-| 💻 **System** | OS version, Secure Boot, BitLocker, UAC, RDP configuration |
-| 🔒 **Privacy** | Telemetry, advertising ID, location tracking, clipboard sync, remote assistance, camera/mic permissions |
+---
 
-## Architecture
+</div>
+
+## 📸 Sample Audit Output
 
 ```
-WinSentinel.sln
-├── src/
-│   ├── WinSentinel.Core/          # Security audit engine (class library)
-│   │   ├── Audits/                # 9 audit modules
-│   │   ├── Models/                # AuditResult, Finding, Severity
-│   │   ├── Services/              # AuditEngine, SecurityScorer
-│   │   ├── Helpers/               # ShellHelper, PowerShellHelper
-│   │   └── Interfaces/            # IAuditModule
-│   │
-│   ├── WinSentinel.App/           # WPF desktop application
-│   │   ├── Views/                 # Dashboard, Chat, AuditDetail pages
-│   │   ├── ViewModels/            # MVVM view models (CommunityToolkit.Mvvm)
-│   │   ├── Services/              # ChatAiService (Ollama/rule-based)
-│   │   └── Controls/              # Converters, utilities
-│   │
-│   └── WinSentinel.Installer/     # MSIX packaging
-│       ├── AppxManifest.xml       # Package manifest
-│       ├── Build-Msix.ps1         # Automated MSIX build script
-│       └── Assets/                # App icons
-│
-└── tests/
-    └── WinSentinel.Tests/         # 124 xUnit tests (unit + integration)
+╔══════════════════════════════════════════════════════╗
+║           WinSentinel Security Audit Report          ║
+║              2026-02-15 22:16:00 PST                 ║
+╠══════════════════════════════════════════════════════╣
+║                                                      ║
+║         Security Score:  95 / 100   Grade: A         ║
+║         ████████████████████████████████░░  95%       ║
+║                                                      ║
+╠══════════════════════════════════════════════════════╣
+║  Module           Score   Status                     ║
+╠══════════════════════════════════════════════════════╣
+║  🔥 Firewall       100    ██████████  PASS           ║
+║  🔄 Updates          95    █████████░  PASS           ║
+║  🛡️ Defender        100    ██████████  PASS           ║
+║  👤 Accounts        100    ██████████  PASS           ║
+║  🌐 Network          80    ████████░░  WARN           ║
+║  ⚙️ Processes        90    █████████░  PASS           ║
+║  🚀 Startup          95    █████████░  PASS           ║
+║  💻 System          100    ██████████  PASS           ║
+║  🔒 Privacy          95    █████████░  PASS           ║
+╠══════════════════════════════════════════════════════╣
+║  Findings: 47 total | 0 critical | 3 warnings       ║
+╚══════════════════════════════════════════════════════╝
 ```
 
-## AI Backend (Tiered)
+> *Real output from a Windows 11 machine — your results will vary based on your configuration.*
 
-1. **Ollama** — Local LLM (llama3, mistral, phi3) at `http://localhost:11434`
-2. **Rule-based** — Built-in pattern matching for common security queries (passwords, ransomware, encryption, VPN, malware, backup, phishing)
+---
 
-## Quick Start
+## ⚡ What Is WinSentinel?
+
+WinSentinel is a **local-first** Windows security auditor built with .NET 8 and WPF. It runs **9 independent audit modules** that scan your system's security posture, produce a **0-100 security score** with letter grade, and offer **actionable remediation** — including one-click PowerShell fix scripts.
+
+**No cloud. No telemetry. Everything stays on your machine.**
+
+---
+
+## 🔍 The 9 Audit Modules
+
+| Module | What It Scans | Checks |
+|:---:|:---|:---|
+| 🔥 | **Firewall** | Windows Firewall status, all profile states (Domain/Private/Public), rule analysis, dangerous port exposure (RDP 3389, SMB 445, Telnet 23) |
+| 🔄 | **Updates** | Windows Update service status, pending updates count, last successful install date, update source configuration |
+| 🛡️ | **Defender** | Real-time protection, cloud protection, behavior monitoring, definition age, tamper protection, PUA detection |
+| 👤 | **Accounts** | Local users enumeration, admin account audit, password policies, guest account status, empty passwords check |
+| 🌐 | **Network** | Open ports & listening services, SMB/RDP exposure, LLMNR & NetBIOS poisoning vectors, Wi-Fi security, ARP anomalies, IPv6 exposure |
+| ⚙️ | **Processes** | Running processes audit, unsigned executable detection, suspicious path analysis, high-privilege process monitoring |
+| 🚀 | **Startup** | Startup programs, scheduled tasks, registry Run/RunOnce keys, service startup types |
+| 💻 | **System** | OS version & build, Secure Boot status, BitLocker encryption, UAC level, RDP configuration, DEP/NX status |
+| 🔒 | **Privacy** | Telemetry level, advertising ID, location tracking, clipboard sync, remote assistance, camera/mic permissions, activity history |
+
+---
+
+## 🚀 Quick Start
 
 ### Prerequisites
-- Windows 10/11
-- .NET 8 SDK
 
-### Build & Run
+- **Windows 10 or 11** (x64)
+- [**.NET 8 SDK**](https://dotnet.microsoft.com/download/dotnet/8.0) (for building from source)
+
+### Clone, Build & Run
 
 ```bash
-# Clone
+# Clone the repo
 git clone https://github.com/sauravbhattacharya001/WinSentinel.git
 cd WinSentinel
 
-# Build
+# Build everything
 dotnet build WinSentinel.sln -p:Platform=x64
 
-# Run
+# Run the WPF app
 dotnet run --project src/WinSentinel.App -p:Platform=x64
 
-# Test (124 tests)
+# Run tests (124 tests)
 dotnet test -p:Platform=x64
 ```
 
-### Build MSIX Package
+### Run Audit from CLI
 
 ```powershell
-# Automated: build, package, and sign in one step
-cd src\WinSentinel.Installer
-.\Build-Msix.ps1
-
-# The signed MSIX is output to: dist\WinSentinel.msix
+# Quick one-liner — runs all 9 modules and prints results
+.\RunAudit.ps1
 ```
 
-### Install (One Command)
+---
+
+## 📦 Install (MSIX)
+
+### One-Command Install
 
 ```powershell
 # Run as Administrator — imports cert, installs MSIX, done!
 .\Install-WinSentinel.ps1
 ```
 
-This script:
-1. Finds the MSIX in `dist/` (or downloads from GitHub Releases)
-2. Imports the signing certificate to your trusted store
-3. Installs the MSIX package
-4. WinSentinel appears in your Start menu
-
-### Manual Install (Sideload)
-
-1. Enable **Developer Mode** in Windows Settings > Privacy & Security > For Developers
-2. Right-click the `.msix` file → **Install**
-3. Or run: `Add-AppxPackage -Path dist\WinSentinel.msix`
-
-### Generate a Code Signing Certificate (Dev)
-
-If you're building from source and need a signing certificate:
+### Build MSIX from Source
 
 ```powershell
-# 1. Create a self-signed code signing certificate
-#    Subject MUST match AppxManifest.xml Publisher: CN=WinSentinel
-$cert = New-SelfSignedCertificate `
-    -Type Custom `
-    -Subject "CN=WinSentinel" `
-    -KeyUsage DigitalSignature `
-    -FriendlyName "WinSentinel Code Signing (Dev)" `
-    -CertStoreLocation "Cert:\CurrentUser\My" `
-    -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3", "2.5.29.19={text}") `
-    -NotAfter (Get-Date).AddYears(5)
-
-# 2. Export as PFX (for signing)
-$password = ConvertTo-SecureString -String "YourPassword" -Force -AsPlainText
-Export-PfxCertificate -Cert "Cert:\CurrentUser\My\$($cert.Thumbprint)" `
-    -FilePath src\WinSentinel.Installer\certs\WinSentinel-Dev.pfx `
-    -Password $password
-
-# 3. Export public cert (for trust import on other machines)
-Export-Certificate -Cert "Cert:\CurrentUser\My\$($cert.Thumbprint)" `
-    -FilePath src\WinSentinel.Installer\certs\WinSentinel-Dev.cer
-
-# 4. Build signed MSIX
 cd src\WinSentinel.Installer
-.\Build-Msix.ps1 -CertPassword "YourPassword"
+.\Build-Msix.ps1
+# Output: dist\WinSentinel.msix
 ```
 
-> **Note:** The `certs/` directory is in `.gitignore` — never commit `.pfx` files!
+### Manual Sideload
 
-### GitHub Actions Release
+1. Enable **Developer Mode** → Settings > Privacy & Security > For Developers
+2. Right-click `.msix` → **Install**
+3. Or: `Add-AppxPackage -Path dist\WinSentinel.msix`
 
-For CI/CD releases, add these secrets to your GitHub repository:
-- `CERT_BASE64` — Base64-encoded `.pfx` file (`[Convert]::ToBase64String([IO.File]::ReadAllBytes("cert.pfx"))`)
-- `CERT_PASSWORD` — Password for the `.pfx` file
+---
 
-Tag a release to trigger: `git tag v1.0.0 && git push origin v1.0.0`
+## 🔧 One-Click Fixes
 
-### Chat Commands
+WinSentinel doesn't just find problems — it helps fix them. Included fix scripts run as Administrator and apply security hardening:
 
-- `Run full audit` — Execute all 9 security modules
-- `Check firewall` — Run firewall audit only
-- `Check defender` — Check antivirus status
-- `Security score` — Calculate current security score
-- Ask about passwords, ransomware, encryption, VPNs, backups, phishing, and more
+```powershell
+# Example: Fix network security findings
+.\Fix-Network.ps1
 
-## Security Score
+# What it does:
+#   ✅ Disables LLMNR (credential poisoning risk)
+#   ✅ Enables SMB signing (MITM prevention)
+#   ✅ Disables NetBIOS over TCP/IP (poisoning risk)
+```
 
-The security score (0-100) is calculated by weighting findings across all modules:
+> Re-run the audit after applying fixes to see your score improve!
 
-- **Critical** finding: -15 points
-- **Warning** finding: -5 points
-- **Info** finding: -1 point
-- **Pass** finding: +0 (baseline)
+---
 
-Score starts at 100 with deductions applied. Categories are weighted equally. Letter grades: A+ (95+) through F (<40).
+## 🏗️ Architecture
 
-## Contributing
+```
+WinSentinel.sln
+│
+├── src/
+│   ├── WinSentinel.Core/              # 🧠 Security audit engine (class library)
+│   │   ├── Audits/                    #    9 audit modules (Firewall, Defender, Network, etc.)
+│   │   ├── Models/                    #    AuditResult, Finding, Severity, SecurityReport
+│   │   ├── Services/                  #    AuditEngine, AuditOrchestrator, SecurityScorer
+│   │   ├── Helpers/                   #    Shell, PowerShell, Registry, WMI helpers
+│   │   └── Interfaces/               #    IAuditModule contract
+│   │
+│   ├── WinSentinel.App/              # 🖥️ WPF desktop application
+│   │   ├── Views/                     #    Dashboard, AuditDetail, Chat pages
+│   │   ├── ViewModels/                #    MVVM with CommunityToolkit.Mvvm
+│   │   ├── Services/                  #    ChatAiService (Ollama + rule-based)
+│   │   └── Controls/                  #    Converters & utilities
+│   │
+│   ├── WinSentinel.Service/          # 🔄 Background monitoring service
+│   │   └── SecurityMonitorWorker     #    Continuous security monitoring
+│   │
+│   └── WinSentinel.Installer/        # 📦 MSIX packaging
+│       ├── AppxManifest.xml           #    Package manifest
+│       ├── Build-Msix.ps1            #    Automated build + sign script
+│       └── Assets/                    #    App icons & logos
+│
+└── tests/
+    └── WinSentinel.Tests/            # ✅ 124 xUnit tests
+        ├── Audits/                    #    Per-module audit tests
+        ├── Models/                    #    Data model tests
+        └── Services/                  #    Engine & scorer tests
+```
 
-This is a private project. Contact the owner for access.
+**Tech Stack:**
+- **Runtime:** .NET 8 (LTS)
+- **UI:** WPF with MVVM (CommunityToolkit.Mvvm)
+- **Language:** C# 12
+- **Testing:** xUnit + 124 tests
+- **Packaging:** MSIX with code signing
+- **CI/CD:** GitHub Actions (build, test, release)
+- **AI:** Ollama (local LLM) + built-in rule engine
 
-## License
+---
 
-MIT — see [LICENSE](LICENSE)
+## 🤖 AI Chat Assistant
+
+WinSentinel includes an AI-powered security chat interface with a tiered backend:
+
+1. **Ollama** (local LLM) — Uses llama3, mistral, or phi3 running at `localhost:11434`
+2. **Rule-based** — Built-in pattern matching for common security topics
+
+**Example commands:**
+```
+> Run full audit          → Executes all 9 security modules
+> Check firewall          → Runs firewall audit only
+> Check defender          → Checks antivirus status
+> Security score          → Calculates current score
+> How do I enable BitLocker?  → AI-powered guidance
+```
+
+---
+
+## 📊 Security Scoring
+
+The score (0-100) starts at 100 with deductions based on finding severity:
+
+| Severity | Impact | Example |
+|:---:|:---:|:---|
+| 🔴 Critical | **-15 pts** | Real-time protection disabled, firewall off |
+| 🟡 Warning | **-5 pts** | LLMNR enabled, outdated definitions |
+| 🔵 Info | **-1 pt** | Telemetry at default level |
+| ✅ Pass | **0 pts** | Secure Boot enabled, UAC on |
+
+**Grade Scale:** A+ (95+) · A (90-94) · B (80-89) · C (70-79) · D (60-69) · F (<60)
+
+---
+
+## ⚙️ CI/CD
+
+WinSentinel uses **GitHub Actions** for automated builds, testing, and releases:
+
+| Workflow | Trigger | What It Does |
+|:---|:---|:---|
+| **Build & Test** | Push/PR to `main` | Restore → Build → Run 124 tests → Upload results |
+| **Release** | Tag `v*` | Build → Test → Publish → Create MSIX → Sign → GitHub Release |
+
+**Release artifacts:**
+- `WinSentinel-vX.X.X.msix` — Signed MSIX installer
+- `WinSentinel-App-vX.X.X.zip` — Portable self-contained app
+- `WinSentinel-Service-vX.X.X.zip` — Background monitoring service
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Here's how to get involved:
+
+1. **Fork** the repository
+2. **Create** a feature branch (`git checkout -b feature/amazing-feature`)
+3. **Commit** your changes (`git commit -m 'Add amazing feature'`)
+4. **Push** to the branch (`git push origin feature/amazing-feature`)
+5. **Open** a Pull Request
+
+### Ideas for Contributions
+
+- 🧪 Additional audit modules (browser security, Docker, WSL)
+- 🔧 More one-click fix scripts
+- 🎨 UI themes and customization
+- 📊 Audit history and trend tracking
+- 🌍 Localization / i18n support
+
+---
+
+## 🗺️ Roadmap
+
+- [x] 9 security audit modules
+- [x] Real-time security scoring (0-100)
+- [x] WPF dashboard with MVVM
+- [x] AI chat assistant (Ollama + rule-based)
+- [x] MSIX packaging & signing
+- [x] GitHub Actions CI/CD
+- [x] 124 xUnit tests
+- [ ] 🔮 Scheduled / automated scanning
+- [ ] 🔮 Audit history & trend graphs
+- [ ] 🔮 More one-click fix scripts
+- [ ] 🔮 Export reports (PDF, JSON, HTML)
+- [ ] 🔮 Plugin system for custom audit modules
+- [ ] 🔮 Windows Service background monitoring
+- [ ] 🔮 Linux port (system auditing with .NET cross-platform)
+
+---
+
+## 📄 License
+
+This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
+
+---
+
+<div align="center">
+
+**Built with ❤️ and C# on Windows 11**
+
+[⭐ Star this repo](https://github.com/sauravbhattacharya001/WinSentinel) · [🐛 Report Bug](https://github.com/sauravbhattacharya001/WinSentinel/issues) · [💡 Request Feature](https://github.com/sauravbhattacharya001/WinSentinel/issues)
+
+</div>

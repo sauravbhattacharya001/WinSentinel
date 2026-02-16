@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WinSentinel — Real-time Windows Security Auditing</title>
+    <meta name="description" content="9 security audit modules • Real-time scoring • One-click fixes • AI chat assistant. Local-first Windows security auditor built with .NET 8.">
+    <meta name="theme-color" content="#0f172a">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛡️</text></svg>">
+    <style>
+        :root {
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --bg-card: #1e293b;
+            --border: #334155;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --accent: #3b82f6;
+            --accent-glow: rgba(59, 130, 246, 0.3);
+            --green: #22c55e;
+            --yellow: #eab308;
+            --red: #ef4444;
+            --gradient-start: #3b82f6;
+            --gradient-end: #8b5cf6;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        /* Animated background grid */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-image: 
+                linear-gradient(rgba(59, 130, 246, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(59, 130, 246, 0.03) 1px, transparent 1px);
+            background-size: 50px 50px;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 0 24px;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* NAV */
+        nav {
+            position: fixed;
+            top: 0; left: 0; right: 0;
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border);
+            z-index: 100;
+            padding: 16px 0;
+        }
+
+        nav .container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        nav .logo {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        nav .links {
+            display: flex;
+            gap: 32px;
+            list-style: none;
+        }
+
+        nav .links a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 0.9rem;
+            transition: color 0.2s;
+        }
+
+        nav .links a:hover { color: var(--accent); }
+
+        /* HERO */
+        .hero {
+            padding: 160px 0 100px;
+            text-align: center;
+        }
+
+        .hero-badge {
+            display: inline-block;
+            background: rgba(59, 130, 246, 0.1);
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            border-radius: 999px;
+            padding: 6px 18px;
+            font-size: 0.85rem;
+            color: var(--accent);
+            margin-bottom: 24px;
+        }
+
+        .hero h1 {
+            font-size: clamp(2.5rem, 6vw, 4rem);
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 16px;
+            letter-spacing: -0.02em;
+        }
+
+        .hero .subtitle {
+            font-size: clamp(1.1rem, 2.5vw, 1.35rem);
+            color: var(--text-secondary);
+            max-width: 650px;
+            margin: 0 auto 40px;
+            line-height: 1.7;
+        }
+
+        .hero-buttons {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 14px 32px;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end));
+            color: white;
+            border: none;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 32px var(--accent-glow);
+        }
+
+        .btn-secondary {
+            background: transparent;
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover {
+            border-color: var(--accent);
+            background: rgba(59, 130, 246, 0.05);
+        }
+
+        /* SCORE DEMO */
+        .score-section {
+            padding: 60px 0 80px;
+        }
+
+        .score-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 40px;
+            max-width: 700px;
+            margin: 0 auto;
+            font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+            font-size: 0.85rem;
+            line-height: 1.8;
+            overflow-x: auto;
+        }
+
+        .score-card .header {
+            text-align: center;
+            color: var(--accent);
+            margin-bottom: 12px;
+        }
+
+        .score-card .big-score {
+            text-align: center;
+            font-size: 2.5rem;
+            font-weight: 800;
+            color: var(--green);
+            margin: 16px 0 4px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+        }
+
+        .score-card .grade {
+            text-align: center;
+            font-size: 1rem;
+            color: var(--text-secondary);
+            margin-bottom: 24px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+        }
+
+        .module-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+        }
+
+        .module-row:last-child { border-bottom: none; }
+
+        .module-name { color: var(--text-primary); }
+        .module-score { color: var(--text-secondary); min-width: 50px; text-align: right; }
+        
+        .bar {
+            flex: 1;
+            height: 6px;
+            background: rgba(51, 65, 85, 0.5);
+            border-radius: 3px;
+            margin: 0 16px;
+            overflow: hidden;
+        }
+
+        .bar-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 1.5s ease-out;
+        }
+
+        .bar-green { background: var(--green); }
+        .bar-yellow { background: var(--yellow); }
+
+        /* SECTION TITLE */
+        .section-title {
+            text-align: center;
+            margin-bottom: 56px;
+        }
+
+        .section-title h2 {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 12px;
+        }
+
+        .section-title p {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+            max-width: 550px;
+            margin: 0 auto;
+        }
+
+        /* FEATURES */
+        .features {
+            padding: 80px 0;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 24px;
+        }
+
+        .feature-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 32px;
+            transition: all 0.25s;
+        }
+
+        .feature-card:hover {
+            border-color: var(--accent);
+            transform: translateY(-4px);
+            box-shadow: 0 12px 40px rgba(0,0,0,0.3);
+        }
+
+        .feature-icon {
+            font-size: 2rem;
+            margin-bottom: 16px;
+            display: block;
+        }
+
+        .feature-card h3 {
+            font-size: 1.15rem;
+            margin-bottom: 8px;
+        }
+
+        .feature-card p {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            line-height: 1.6;
+        }
+
+        /* MODULES */
+        .modules {
+            padding: 80px 0;
+        }
+
+        .modules-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 16px;
+        }
+
+        .module-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            text-align: center;
+            transition: all 0.2s;
+        }
+
+        .module-card:hover {
+            border-color: var(--accent);
+        }
+
+        .module-card .icon { font-size: 2rem; margin-bottom: 10px; display: block; }
+        .module-card h4 { font-size: 1rem; margin-bottom: 6px; }
+        .module-card p { font-size: 0.82rem; color: var(--text-secondary); }
+
+        /* QUICKSTART */
+        .quickstart {
+            padding: 80px 0;
+        }
+
+        .code-block {
+            background: #0d1117;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 28px 32px;
+            font-family: 'Cascadia Code', 'Fira Code', monospace;
+            font-size: 0.9rem;
+            line-height: 1.8;
+            overflow-x: auto;
+            max-width: 700px;
+            margin: 0 auto;
+            color: #c9d1d9;
+        }
+
+        .code-block .comment { color: #8b949e; }
+        .code-block .cmd { color: #79c0ff; }
+
+        /* TECH STACK */
+        .tech {
+            padding: 80px 0;
+        }
+
+        .tech-pills {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .tech-pill {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            padding: 10px 22px;
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* CTA */
+        .cta {
+            padding: 100px 0;
+            text-align: center;
+        }
+
+        .cta h2 {
+            font-size: 2.2rem;
+            font-weight: 700;
+            margin-bottom: 16px;
+        }
+
+        .cta p {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+            margin-bottom: 36px;
+        }
+
+        /* FOOTER */
+        footer {
+            padding: 40px 0;
+            text-align: center;
+            border-top: 1px solid var(--border);
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+        }
+
+        footer a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        @media (max-width: 640px) {
+            .hero { padding: 120px 0 60px; }
+            nav .links { gap: 16px; }
+            .score-card { padding: 24px; }
+            .features-grid { grid-template-columns: 1fr; }
+            .modules-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+    </style>
+</head>
+<body>
+    <!-- NAV -->
+    <nav>
+        <div class="container">
+            <a href="#" class="logo">🛡️ WinSentinel</a>
+            <ul class="links">
+                <li><a href="#features">Features</a></li>
+                <li><a href="#modules">Modules</a></li>
+                <li><a href="#quickstart">Quick Start</a></li>
+                <li><a href="https://github.com/sauravbhattacharya001/WinSentinel">GitHub</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <!-- HERO -->
+    <section class="hero">
+        <div class="container">
+            <span class="hero-badge">🔒 Open Source • Local-First • MIT License</span>
+            <h1>WinSentinel</h1>
+            <p class="subtitle">
+                Real-time Windows security auditing with 9 modules, instant scoring, one-click fixes, and an AI chat assistant. Everything runs locally — no data leaves your machine.
+            </p>
+            <div class="hero-buttons">
+                <a href="https://github.com/sauravbhattacharya001/WinSentinel" class="btn btn-primary">
+                    ⭐ View on GitHub
+                </a>
+                <a href="https://github.com/sauravbhattacharya001/WinSentinel/releases" class="btn btn-secondary">
+                    📦 Download Latest
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- LIVE SCORE -->
+    <section class="score-section">
+        <div class="container">
+            <div class="section-title">
+                <h2>📊 Real-Time Security Score</h2>
+                <p>See your Windows security posture at a glance with per-module breakdown</p>
+            </div>
+            <div class="score-card">
+                <div class="header">WinSentinel Security Audit Report</div>
+                <div class="big-score">95 / 100</div>
+                <div class="grade">Grade: A — Excellent</div>
+
+                <div class="module-row">
+                    <span class="module-name">🔥 Firewall</span>
+                    <div class="bar"><div class="bar-fill bar-green" style="width: 100%"></div></div>
+                    <span class="module-score">100</span>
+                </div>
+                <div class="module-row">
+                    <span class="module-name">🔄 Updates</span>
+                    <div class="bar"><div class="bar-fill bar-green" style="width: 95%"></div></div>
+                    <span class="module-score">95</span>
+                </div>
+                <div class="module-row">
+                    <span class="module-name">🛡️ Defender</span>
+                    <div class="bar"><div class="bar-fill bar-green" style="width: 100%"></div></div>
+                    <span class="module-score">100</span>
+                </div>
+                <div class="module-row">
+                    <span class="module-name">👤 Accounts</span>
+                    <div class="bar"><div class="bar-fill bar-green" style="width: 100%"></div></div>
+                    <span class="module-score">100</span>
+                </div>
+                <div class="module-row">
+                    <span class="module-name">🌐 Network</span>
+                    <div class="bar"><div class="bar-fill bar-yellow" style="width: 80%"></div></div>
+                    <span class="module-score">80</span>
+                </div>
+                <div class="module-row">
+                    <span class="module-name">⚙️ Processes</span>
+                    <div class="bar"><div class="bar-fill bar-green" style="width: 90%"></div></div>
+                    <span class="module-score">90</span>
+                </div>
+                <div class="module-row">
+                    <span class="module-name">🚀 Startup</span>
+                    <div class="bar"><div class="bar-fill bar-green" style="width: 95%"></div></div>
+                    <span class="module-score">95</span>
+                </div>
+                <div class="module-row">
+                    <span class="module-name">💻 System</span>
+                    <div class="bar"><div class="bar-fill bar-green" style="width: 100%"></div></div>
+                    <span class="module-score">100</span>
+                </div>
+                <div class="module-row">
+                    <span class="module-name">🔒 Privacy</span>
+                    <div class="bar"><div class="bar-fill bar-green" style="width: 95%"></div></div>
+                    <span class="module-score">95</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- FEATURES -->
+    <section class="features" id="features">
+        <div class="container">
+            <div class="section-title">
+                <h2>⚡ Why WinSentinel?</h2>
+                <p>Built for developers and power users who want real visibility into their system's security</p>
+            </div>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <span class="feature-icon">🏠</span>
+                    <h3>100% Local</h3>
+                    <p>All analysis runs on your machine. No cloud, no telemetry, no accounts. Your data stays yours.</p>
+                </div>
+                <div class="feature-card">
+                    <span class="feature-icon">📊</span>
+                    <h3>Real-Time Scoring</h3>
+                    <p>0-100 security score with letter grades (A+ through F) and per-module breakdown. Know your posture instantly.</p>
+                </div>
+                <div class="feature-card">
+                    <span class="feature-icon">🔧</span>
+                    <h3>One-Click Fixes</h3>
+                    <p>Included PowerShell fix scripts remediate common issues automatically. Run, re-scan, see improvements.</p>
+                </div>
+                <div class="feature-card">
+                    <span class="feature-icon">🤖</span>
+                    <h3>AI Chat Assistant</h3>
+                    <p>Ask security questions in natural language. Powered by local Ollama LLMs or built-in rule engine.</p>
+                </div>
+                <div class="feature-card">
+                    <span class="feature-icon">📦</span>
+                    <h3>Easy Install</h3>
+                    <p>MSIX installer, portable ZIP, or build from source. One PowerShell command to install, one to audit.</p>
+                </div>
+                <div class="feature-card">
+                    <span class="feature-icon">✅</span>
+                    <h3>Battle-Tested</h3>
+                    <p>124 xUnit tests, GitHub Actions CI/CD, automated MSIX packaging with code signing. Production ready.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- MODULES -->
+    <section class="modules" id="modules">
+        <div class="container">
+            <div class="section-title">
+                <h2>🔍 9 Security Audit Modules</h2>
+                <p>Comprehensive coverage of your Windows security configuration</p>
+            </div>
+            <div class="modules-grid">
+                <div class="module-card">
+                    <span class="icon">🔥</span>
+                    <h4>Firewall</h4>
+                    <p>Profile states, rules, port exposure</p>
+                </div>
+                <div class="module-card">
+                    <span class="icon">🔄</span>
+                    <h4>Updates</h4>
+                    <p>Pending updates, install history</p>
+                </div>
+                <div class="module-card">
+                    <span class="icon">🛡️</span>
+                    <h4>Defender</h4>
+                    <p>Real-time protection, definitions</p>
+                </div>
+                <div class="module-card">
+                    <span class="icon">👤</span>
+                    <h4>Accounts</h4>
+                    <p>Admin audit, password policies</p>
+                </div>
+                <div class="module-card">
+                    <span class="icon">🌐</span>
+                    <h4>Network</h4>
+                    <p>Open ports, LLMNR, SMB, ARP</p>
+                </div>
+                <div class="module-card">
+                    <span class="icon">⚙️</span>
+                    <h4>Processes</h4>
+                    <p>Unsigned exes, suspicious paths</p>
+                </div>
+                <div class="module-card">
+                    <span class="icon">🚀</span>
+                    <h4>Startup</h4>
+                    <p>Registry keys, scheduled tasks</p>
+                </div>
+                <div class="module-card">
+                    <span class="icon">💻</span>
+                    <h4>System</h4>
+                    <p>SecureBoot, BitLocker, UAC, RDP</p>
+                </div>
+                <div class="module-card">
+                    <span class="icon">🔒</span>
+                    <h4>Privacy</h4>
+                    <p>Telemetry, tracking, permissions</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- QUICKSTART -->
+    <section class="quickstart" id="quickstart">
+        <div class="container">
+            <div class="section-title">
+                <h2>🚀 Get Started in 30 Seconds</h2>
+                <p>Clone, build, audit — it's that simple</p>
+            </div>
+            <div class="code-block">
+                <span class="comment"># Clone the repo</span><br>
+                <span class="cmd">git clone</span> https://github.com/sauravbhattacharya001/WinSentinel.git<br>
+                <span class="cmd">cd</span> WinSentinel<br><br>
+                <span class="comment"># Build & run</span><br>
+                <span class="cmd">dotnet build</span> WinSentinel.sln -p:Platform=x64<br>
+                <span class="cmd">dotnet run</span> --project src/WinSentinel.App -p:Platform=x64<br><br>
+                <span class="comment"># Or run CLI audit directly</span><br>
+                <span class="cmd">.\RunAudit.ps1</span>
+            </div>
+        </div>
+    </section>
+
+    <!-- TECH -->
+    <section class="tech">
+        <div class="container">
+            <div class="section-title">
+                <h2>🏗️ Built With</h2>
+            </div>
+            <div class="tech-pills">
+                <span class="tech-pill">💜 .NET 8</span>
+                <span class="tech-pill">🖥️ WPF</span>
+                <span class="tech-pill"># C# 12</span>
+                <span class="tech-pill">🧪 xUnit</span>
+                <span class="tech-pill">📦 MSIX</span>
+                <span class="tech-pill">⚙️ GitHub Actions</span>
+                <span class="tech-pill">🤖 Ollama</span>
+                <span class="tech-pill">🛡️ CommunityToolkit.Mvvm</span>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="cta">
+        <div class="container">
+            <h2>Ready to audit your Windows security?</h2>
+            <p>WinSentinel is free, open source, and respects your privacy.</p>
+            <div class="hero-buttons">
+                <a href="https://github.com/sauravbhattacharya001/WinSentinel" class="btn btn-primary">
+                    ⭐ Star on GitHub
+                </a>
+                <a href="https://github.com/sauravbhattacharya001/WinSentinel/releases" class="btn btn-secondary">
+                    📦 Download
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- FOOTER -->
+    <footer>
+        <div class="container">
+            <p>
+                Built with ❤️ and C# on Windows 11 &nbsp;·&nbsp;
+                <a href="https://github.com/sauravbhattacharya001/WinSentinel">GitHub</a> &nbsp;·&nbsp;
+                MIT License &nbsp;·&nbsp;
+                © 2026 Saurav Bhattacharya
+            </p>
+        </div>
+    </footer>
+</body>
+</html>

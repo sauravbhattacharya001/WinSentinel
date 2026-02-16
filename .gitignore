@@ -1,4 +1,4 @@
-## .NET
+## .NET / C#
 bin/
 obj/
 *.user
@@ -6,12 +6,17 @@ obj/
 *.userosscache
 *.sln.docstates
 *.userprefs
+project.lock.json
+project.fragment.lock.json
+artifacts/
 
 ## NuGet
 **/[Pp]ackages/*
 !**/[Pp]ackages/build/
 *.nupkg
 **/packages/repositories.config
+*.nuget.props
+*.nuget.targets
 
 ## Build results
 [Dd]ebug/
@@ -26,6 +31,9 @@ bld/
 [Oo]bj/
 [Ll]og/
 [Ll]ogs/
+msbuild.log
+msbuild.err
+msbuild.wrn
 
 ## Visual Studio
 .vs/
@@ -41,19 +49,37 @@ TestResult.xml
 [Dd]ebugPublic/
 [Rr]eleases/
 *.publishsettings
+launchSettings.json
 
-## JetBrains
+## Visual Studio Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+## JetBrains Rider
 .idea/
 *.sln.iml
 
 ## Windows
 Thumbs.db
+Thumbs.db:encryptable
 ehthumbs.db
+ehthumbs_vista.db
 Desktop.ini
 $RECYCLE.BIN/
+*.stackdump
+[Dd]esktop.ini
 
 ## macOS
 .DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+## Linux
+*~
 
 ## Publish profiles
 *.pubxml
@@ -62,14 +88,23 @@ $RECYCLE.BIN/
 ## Application Insights
 ApplicationInsights.config
 
-## MSTEST
+## MSTest / xUnit / NUnit
 [Tt]est[Rr]esult*/
 [Bb]uild[Ll]og.*
+*.trx
+TestResults/
 
 ## NCrunch
 _NCrunch_*
 .*crunch*.local.xml
 nCrunchTemp_*
+
+## Coverlet / Coverage
+coverage*.json
+coverage*.xml
+coverage*.info
+*.coverage
+*.coveragexml
 
 ## Publish output
 publish/
@@ -86,3 +121,9 @@ dist/
 *.bak
 *.swp
 ~$*
+*.cache
+*.log
+*.orig
+
+## Node (if docs/tooling ever uses it)
+node_modules/

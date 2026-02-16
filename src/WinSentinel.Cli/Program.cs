@@ -24,6 +24,7 @@ return options.Command switch
     CliCommand.Score => await HandleScore(options),
     CliCommand.Audit => await HandleAudit(options),
     CliCommand.FixAll => await HandleFixAll(options),
+    CliCommand.History => HandleHistory(options),
     _ => HandleHelp()
 };
 
@@ -242,6 +243,229 @@ static async Task<int> HandleFixAll(CliOptions options)
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
+
+static int HandleHistory(CliOptions options)
+{
+    using var historyService = new AuditHistoryService();
+    historyService.EnsureDatabase();
+
+    if (options.Diff)
+    {
+        return HandleHistoryDiff(historyService, options);
+    }
+    else if (options.Compare)
+    {
+        return HandleHistoryCompare(historyService, options);
+    }
+    else
+    {
+        return HandleHistoryList(historyService, options);
+    }
+}
+
+static int HandleHistoryList(AuditHistoryService historyService, CliOptions options)
+{
+    var runs = historyService.GetHistory(options.HistoryDays);
+
+    if (runs.Count == 0)
+    {
+        if (options.Json)
+        {
+            WriteOutput("[]", options.OutputFile);
+        }
+        else if (!options.Quiet)
+        {
+            var original = Console.ForegroundColor;
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine("  No audit history found. Run an audit first with: winsentinel --audit");
+            Console.ForegroundColor = original;
+            Console.WriteLine();
+        }
+        return 0;
+    }
+
+    // Limit to requested count
+    var displayRuns = runs.Take(options.HistoryLimit).ToList();
+
+    if (options.Json)
+    {
+        var jsonRuns = displayRuns.Select(r => new
+        {
+            id = r.Id,
+            timestamp = r.Timestamp,
+            score = r.OverallScore,
+            grade = r.Grade,
+            totalFindings = r.TotalFindings,
+            critical = r.CriticalCount,
+            warnings = r.WarningCount,
+            info = r.InfoCount,
+            pass = r.PassCount,
+            scheduled = r.IsScheduled
+        });
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        var json = JsonSerializer.Serialize(new { totalRuns = runs.Count, displayed = displayRuns.Count, days = options.HistoryDays, runs = jsonRuns }, jsonOptions);
+        WriteOutput(json, options.OutputFile);
+        return 0;
+    }
+
+    if (!options.Quiet)
+    {
+        ConsoleFormatter.PrintHistoryBanner(runs.Count, options.HistoryDays);
+    }
+
+    ConsoleFormatter.PrintHistoryTable(displayRuns, options.Quiet);
+
+    // Show trend summary
+    if (!options.Quiet && displayRuns.Count >= 2)
+    {
+        var trend = historyService.GetTrend(options.HistoryDays);
+        ConsoleFormatter.PrintHistoryTrend(trend);
+    }
+
+    return 0;
+}
+
+static int HandleHistoryCompare(AuditHistoryService historyService, CliOptions options)
+{
+    var recentRuns = historyService.GetRecentRuns(2);
+
+    if (recentRuns.Count < 2)
+    {
+        if (options.Json)
+        {
+            WriteOutput("{\"error\": \"Need at least 2 audit runs to compare. Run more audits first.\"}", options.OutputFile);
+        }
+        else
+        {
+            var original = Console.ForegroundColor;
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine("  Need at least 2 audit runs to compare. Run more audits first.");
+            Console.ForegroundColor = original;
+            Console.WriteLine();
+        }
+        return 0;
+    }
+
+    // Get full details for both runs (recentRuns[0] is newest, [1] is previous)
+    var currentRun = historyService.GetRunDetails(recentRuns[0].Id)!;
+    var previousRun = historyService.GetRunDetails(recentRuns[1].Id)!;
+
+    if (options.Json)
+    {
+        var comparison = BuildComparisonJson(previousRun, currentRun);
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        var json = JsonSerializer.Serialize(comparison, jsonOptions);
+        WriteOutput(json, options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintComparisonReport(previousRun, currentRun, options.Quiet);
+    return 0;
+}
+
+static int HandleHistoryDiff(AuditHistoryService historyService, CliOptions options)
+{
+    var recentRuns = historyService.GetRecentRuns(2);
+
+    if (recentRuns.Count < 2)
+    {
+        if (options.Json)
+        {
+            WriteOutput("{\"error\": \"Need at least 2 audit runs to diff. Run more audits first.\"}", options.OutputFile);
+        }
+        else
+        {
+            var original = Console.ForegroundColor;
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine("  Need at least 2 audit runs to diff. Run more audits first.");
+            Console.ForegroundColor = original;
+            Console.WriteLine();
+        }
+        return 0;
+    }
+
+    var currentRun = historyService.GetRunDetails(recentRuns[0].Id)!;
+    var previousRun = historyService.GetRunDetails(recentRuns[1].Id)!;
+
+    // Calculate diffs
+    var previousTitles = new HashSet<string>(previousRun.Findings.Select(f => f.Title));
+    var currentTitles = new HashSet<string>(currentRun.Findings.Select(f => f.Title));
+
+    var newFindings = currentRun.Findings.Where(f => !previousTitles.Contains(f.Title)).ToList();
+    var resolvedFindings = previousRun.Findings.Where(f => !currentTitles.Contains(f.Title)).ToList();
+    var persistentFindings = currentRun.Findings.Where(f => previousTitles.Contains(f.Title)).ToList();
+
+    if (options.Json)
+    {
+        var diffResult = new
+        {
+            previousRun = new { id = previousRun.Id, timestamp = previousRun.Timestamp, score = previousRun.OverallScore },
+            currentRun = new { id = currentRun.Id, timestamp = currentRun.Timestamp, score = currentRun.OverallScore },
+            scoreChange = currentRun.OverallScore - previousRun.OverallScore,
+            newFindings = newFindings.Select(f => new { f.Title, f.Severity, f.ModuleName, f.Description, f.Remediation }),
+            resolvedFindings = resolvedFindings.Select(f => new { f.Title, f.Severity, f.ModuleName, f.Description }),
+            persistentCount = persistentFindings.Count,
+            summary = new
+            {
+                added = newFindings.Count,
+                resolved = resolvedFindings.Count,
+                persistent = persistentFindings.Count
+            }
+        };
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        var json = JsonSerializer.Serialize(diffResult, jsonOptions);
+        WriteOutput(json, options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintDiffReport(previousRun, currentRun, newFindings, resolvedFindings, persistentFindings, options.Quiet);
+    return 0;
+}
+
+static object BuildComparisonJson(AuditRunRecord previousRun, AuditRunRecord currentRun)
+{
+    var moduleComparisons = new List<object>();
+
+    var prevModules = previousRun.ModuleScores.ToDictionary(m => m.ModuleName, m => m);
+    var currModules = currentRun.ModuleScores.ToDictionary(m => m.ModuleName, m => m);
+    var allModuleNames = prevModules.Keys.Union(currModules.Keys).OrderBy(n => n);
+
+    foreach (var name in allModuleNames)
+    {
+        prevModules.TryGetValue(name, out var prev);
+        currModules.TryGetValue(name, out var curr);
+
+        moduleComparisons.Add(new
+        {
+            module = curr?.Category ?? prev?.Category ?? name,
+            previousScore = prev?.Score,
+            currentScore = curr?.Score,
+            change = (curr?.Score ?? 0) - (prev?.Score ?? 0),
+            previousCritical = prev?.CriticalCount ?? 0,
+            currentCritical = curr?.CriticalCount ?? 0,
+            previousWarnings = prev?.WarningCount ?? 0,
+            currentWarnings = curr?.WarningCount ?? 0
+        });
+    }
+
+    return new
+    {
+        previousRun = new { id = previousRun.Id, timestamp = previousRun.Timestamp, score = previousRun.OverallScore, grade = previousRun.Grade },
+        currentRun = new { id = currentRun.Id, timestamp = currentRun.Timestamp, score = currentRun.OverallScore, grade = currentRun.Grade },
+        scoreChange = currentRun.OverallScore - previousRun.OverallScore,
+        modules = moduleComparisons,
+        summary = new
+        {
+            previousFindings = previousRun.TotalFindings,
+            currentFindings = currentRun.TotalFindings,
+            findingsChange = currentRun.TotalFindings - previousRun.TotalFindings,
+            previousCritical = previousRun.CriticalCount,
+            currentCritical = currentRun.CriticalCount,
+            previousWarnings = previousRun.WarningCount,
+            currentWarnings = currentRun.WarningCount
+        }
+    };
+}
 
 static AuditEngine BuildEngine(string? modulesFilter)
 {

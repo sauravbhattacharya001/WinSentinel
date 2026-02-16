@@ -303,9 +303,221 @@ public class CliParserTests
         Assert.False(options.Quiet);
         Assert.False(options.ShowHelp);
         Assert.False(options.ShowVersion);
+        Assert.False(options.Compare);
+        Assert.False(options.Diff);
+        Assert.Equal(30, options.HistoryDays);
+        Assert.Equal(20, options.HistoryLimit);
         Assert.Null(options.OutputFile);
         Assert.Null(options.ModulesFilter);
         Assert.Null(options.Threshold);
         Assert.Null(options.Error);
+    }
+
+    // ── History Command Tests ────────────────────────────────────────
+
+    [Fact]
+    public void Parse_History_ReturnsHistory()
+    {
+        var result = CliParser.Parse(["--history"]);
+        Assert.Equal(CliCommand.History, result.Command);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_HistoryWithCompare_SetsCompareFlag()
+    {
+        var result = CliParser.Parse(["--history", "--compare"]);
+        Assert.Equal(CliCommand.History, result.Command);
+        Assert.True(result.Compare);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_HistoryWithDiff_SetsDiffFlag()
+    {
+        var result = CliParser.Parse(["--history", "--diff"]);
+        Assert.Equal(CliCommand.History, result.Command);
+        Assert.True(result.Diff);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_HistoryWithJson_SetsJsonFlag()
+    {
+        var result = CliParser.Parse(["--history", "--json"]);
+        Assert.Equal(CliCommand.History, result.Command);
+        Assert.True(result.Json);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_HistoryWithDays_SetsDays()
+    {
+        var result = CliParser.Parse(["--history", "--days", "7"]);
+        Assert.Equal(CliCommand.History, result.Command);
+        Assert.Equal(7, result.HistoryDays);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_HistoryWithLimit_SetsLimit()
+    {
+        var result = CliParser.Parse(["--history", "--limit", "5"]);
+        Assert.Equal(CliCommand.History, result.Command);
+        Assert.Equal(5, result.HistoryLimit);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_HistoryWithLimitShort_SetsLimit()
+    {
+        var result = CliParser.Parse(["--history", "-l", "10"]);
+        Assert.Equal(CliCommand.History, result.Command);
+        Assert.Equal(10, result.HistoryLimit);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_CompareOnly_DefaultsToHistory()
+    {
+        var result = CliParser.Parse(["--compare"]);
+        Assert.Equal(CliCommand.History, result.Command);
+        Assert.True(result.Compare);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_DiffOnly_DefaultsToHistory()
+    {
+        var result = CliParser.Parse(["--diff"]);
+        Assert.Equal(CliCommand.History, result.Command);
+        Assert.True(result.Diff);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_HistoryCompareWithJson_AllFlagsSet()
+    {
+        var result = CliParser.Parse(["--history", "--compare", "--json", "-o", "compare.json"]);
+        Assert.Equal(CliCommand.History, result.Command);
+        Assert.True(result.Compare);
+        Assert.True(result.Json);
+        Assert.Equal("compare.json", result.OutputFile);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_InvalidDays_ReturnsError()
+    {
+        var result = CliParser.Parse(["--history", "--days", "abc"]);
+        Assert.NotNull(result.Error);
+        Assert.Contains("Invalid days", result.Error);
+    }
+
+    [Fact]
+    public void Parse_DaysOutOfRange_ReturnsError()
+    {
+        var result = CliParser.Parse(["--history", "--days", "500"]);
+        Assert.NotNull(result.Error);
+        Assert.Contains("Invalid days", result.Error);
+    }
+
+    [Fact]
+    public void Parse_DaysZero_ReturnsError()
+    {
+        var result = CliParser.Parse(["--history", "--days", "0"]);
+        Assert.NotNull(result.Error);
+        Assert.Contains("Invalid days", result.Error);
+    }
+
+    [Fact]
+    public void Parse_MissingDaysValue_ReturnsError()
+    {
+        var result = CliParser.Parse(["--history", "--days"]);
+        Assert.NotNull(result.Error);
+        Assert.Contains("Missing value", result.Error);
+    }
+
+    [Fact]
+    public void Parse_InvalidLimit_ReturnsError()
+    {
+        var result = CliParser.Parse(["--history", "--limit", "abc"]);
+        Assert.NotNull(result.Error);
+        Assert.Contains("Invalid limit", result.Error);
+    }
+
+    [Fact]
+    public void Parse_LimitOutOfRange_ReturnsError()
+    {
+        var result = CliParser.Parse(["--history", "--limit", "200"]);
+        Assert.NotNull(result.Error);
+        Assert.Contains("Invalid limit", result.Error);
+    }
+
+    [Fact]
+    public void Parse_MissingLimitValue_ReturnsError()
+    {
+        var result = CliParser.Parse(["--history", "-l"]);
+        Assert.NotNull(result.Error);
+        Assert.Contains("Missing value", result.Error);
+    }
+
+    [Fact]
+    public void Parse_Days1_IsValid()
+    {
+        var result = CliParser.Parse(["--history", "--days", "1"]);
+        Assert.Equal(1, result.HistoryDays);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_Days365_IsValid()
+    {
+        var result = CliParser.Parse(["--history", "--days", "365"]);
+        Assert.Equal(365, result.HistoryDays);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_Limit1_IsValid()
+    {
+        var result = CliParser.Parse(["--history", "--limit", "1"]);
+        Assert.Equal(1, result.HistoryLimit);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_Limit100_IsValid()
+    {
+        var result = CliParser.Parse(["--history", "--limit", "100"]);
+        Assert.Equal(100, result.HistoryLimit);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_HistoryDiffWithDaysAndLimit_AllOptionsSet()
+    {
+        var result = CliParser.Parse(["--history", "--diff", "--days", "14", "--limit", "50", "--json", "-o", "diff.json"]);
+        Assert.Equal(CliCommand.History, result.Command);
+        Assert.True(result.Diff);
+        Assert.Equal(14, result.HistoryDays);
+        Assert.Equal(50, result.HistoryLimit);
+        Assert.True(result.Json);
+        Assert.Equal("diff.json", result.OutputFile);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_HistoryDefaultDays_Is30()
+    {
+        var result = CliParser.Parse(["--history"]);
+        Assert.Equal(30, result.HistoryDays);
+    }
+
+    [Fact]
+    public void Parse_HistoryDefaultLimit_Is20()
+    {
+        var result = CliParser.Parse(["--history"]);
+        Assert.Equal(20, result.HistoryLimit);
     }
 }

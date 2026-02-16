@@ -14,6 +14,10 @@ public class CliOptions
     public int? Threshold { get; set; }
     public bool ShowHelp { get; set; }
     public bool ShowVersion { get; set; }
+    public bool Compare { get; set; }
+    public bool Diff { get; set; }
+    public int HistoryDays { get; set; } = 30;
+    public int HistoryLimit { get; set; } = 20;
     public string? Error { get; set; }
 }
 
@@ -23,6 +27,7 @@ public enum CliCommand
     Audit,
     Score,
     FixAll,
+    History,
     Help,
     Version
 }
@@ -68,6 +73,58 @@ public static class CliParser
 
                 case "--fix-all" or "-f":
                     options.Command = CliCommand.FixAll;
+                    break;
+
+                case "--history":
+                    options.Command = CliCommand.History;
+                    break;
+
+                case "--compare":
+                    options.Compare = true;
+                    break;
+
+                case "--diff":
+                    options.Diff = true;
+                    break;
+
+                case "--days":
+                    if (i + 1 < args.Length)
+                    {
+                        if (int.TryParse(args[++i], out int days) && days >= 1 && days <= 365)
+                        {
+                            options.HistoryDays = days;
+                        }
+                        else
+                        {
+                            options.Error = "Invalid days value. Must be 1-365.";
+                            return options;
+                        }
+                    }
+                    else
+                    {
+                        options.Error = "Missing value for --days.";
+                        return options;
+                    }
+                    break;
+
+                case "--limit" or "-l":
+                    if (i + 1 < args.Length)
+                    {
+                        if (int.TryParse(args[++i], out int limit) && limit >= 1 && limit <= 100)
+                        {
+                            options.HistoryLimit = limit;
+                        }
+                        else
+                        {
+                            options.Error = "Invalid limit value. Must be 1-100.";
+                            return options;
+                        }
+                    }
+                    else
+                    {
+                        options.Error = "Missing value for --limit (-l).";
+                        return options;
+                    }
                     break;
 
                 case "--json" or "-j":
@@ -136,6 +193,12 @@ public static class CliParser
         if (options.Command == CliCommand.None && (options.Json || options.Html || options.Quiet || options.ModulesFilter != null))
         {
             options.Command = CliCommand.Audit;
+        }
+
+        // If compare or diff flags set without command, default to history
+        if (options.Command == CliCommand.None && (options.Compare || options.Diff))
+        {
+            options.Command = CliCommand.History;
         }
 
         if (options.Command == CliCommand.None)

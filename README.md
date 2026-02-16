@@ -9,7 +9,7 @@
 [![.NET 8](https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
 [![Windows 11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4?logo=windows11)](https://www.microsoft.com/windows)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-166%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-192%20passing-brightgreen)]()
 
 **13 security audit modules • CLI & GUI • Real-time scoring • One-click fixes • AI chat assistant**
 
@@ -101,7 +101,7 @@ dotnet build WinSentinel.sln -p:Platform=x64
 # Run the WPF app
 dotnet run --project src/WinSentinel.App -p:Platform=x64
 
-# Run tests (166+ tests)
+# Run tests (192+ tests)
 dotnet test -p:Platform=x64
 ```
 
@@ -132,6 +132,7 @@ dotnet build src/WinSentinel.Cli -p:Platform=x64
 | `winsentinel --audit` | Run full security audit with colored output |
 | `winsentinel --score` | Print security score and grade only |
 | `winsentinel --fix-all` | Run audit and auto-fix all fixable findings |
+| `winsentinel --history` | View past audit runs, scores, and trends |
 | `winsentinel --help` | Show usage information |
 | `winsentinel --version` | Show version info |
 
@@ -145,6 +146,10 @@ dotnet build src/WinSentinel.Cli -p:Platform=x64
 | `--modules <list>` | `-m` | Run specific modules only (comma-separated) |
 | `--quiet` | `-q` | Minimal output — score + exit code only |
 | `--threshold <n>` | `-t` | Exit with error if score below n (0-100) |
+| `--compare` | | Compare latest two runs side-by-side (with `--history`) |
+| `--diff` | | Show new/resolved findings between runs (with `--history`) |
+| `--days <n>` | | History lookback period in days (default: 30) |
+| `--limit <n>` | `-l` | Max history entries to display (default: 20) |
 
 ### Examples
 
@@ -175,6 +180,24 @@ winsentinel --fix-all
 
 # JSON audit saved to file with threshold check
 winsentinel --audit --json -o results.json --threshold 85
+
+# View audit history (last 30 days)
+winsentinel --history
+
+# View last 7 days of history
+winsentinel --history --days 7
+
+# Compare latest two audit runs side-by-side
+winsentinel --history --compare
+
+# Show what changed between runs (new/resolved findings)
+winsentinel --history --diff
+
+# Export history as JSON
+winsentinel --history --json -o history.json
+
+# Export comparison as JSON
+winsentinel --history --compare --json -o compare.json
 ```
 
 ### Exit Codes
@@ -268,7 +291,7 @@ WinSentinel.sln
 │       └── Assets/                    #    App icons & logos
 │
 └── tests/
-    └── WinSentinel.Tests/            # ✅ 166+ xUnit tests
+    └── WinSentinel.Tests/            # ✅ 192+ xUnit tests
         ├── Audits/                    #    Per-module audit tests
         ├── Cli/                       #    CLI argument parsing tests
         ├── Models/                    #    Data model tests
@@ -279,7 +302,7 @@ WinSentinel.sln
 - **Runtime:** .NET 8 (LTS)
 - **UI:** WPF with MVVM (CommunityToolkit.Mvvm)
 - **Language:** C# 12
-- **Testing:** xUnit + 166 tests
+- **Testing:** xUnit + 192 tests
 - **Packaging:** MSIX with code signing
 - **CI/CD:** GitHub Actions (build, test, release)
 - **AI:** Ollama (local LLM) + built-in rule engine
@@ -363,13 +386,14 @@ Contributions are welcome! Here's how to get involved:
 - [x] AI chat assistant (Ollama + rule-based)
 - [x] MSIX packaging & signing
 - [x] GitHub Actions CI/CD
-- [x] 166+ xUnit tests
+- [x] 192+ xUnit tests
 - [x] Scheduled / automated scanning
 - [x] Audit history & trend graphs
 - [x] One-click fix scripts for all findings
 - [x] Export reports (HTML, JSON, Text)
 - [x] System tray background monitoring
 - [x] CLI mode for scripting & CI/CD
+- [x] CLI audit history, comparison & diff
 - [ ] 🔮 Plugin system for custom audit modules
 - [ ] 🔮 Linux port (system auditing with .NET cross-platform)
 

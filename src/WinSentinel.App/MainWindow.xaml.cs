@@ -14,6 +14,7 @@ public partial class MainWindow : Window
     private NotificationService? _notificationService;
     private TrayIconService? _trayService;
     private ScheduleSettings _settings;
+    private AgentConnectionService? _agentConnection;
 
     /// <summary>
     /// When true, the window close will not be intercepted (actual exit).
@@ -28,6 +29,7 @@ public partial class MainWindow : Window
         ContentFrame.Navigate(new DashboardPage());
         InitializeScheduler();
         InitializeTray();
+        InitializeAgentConnection();
 
         // Handle --minimized startup
         if (App.StartMinimized)
@@ -94,6 +96,99 @@ public partial class MainWindow : Window
         };
     }
 
+    private void InitializeAgentConnection()
+    {
+        _agentConnection = new AgentConnectionService(Dispatcher);
+
+        // Update status bar when connection status changes
+        _agentConnection.StatusChanged += OnAgentStatusChanged;
+        _agentConnection.AgentStatusUpdated += OnAgentStatusUpdated;
+        _agentConnection.ThreatReceived += OnAgentThreatReceived;
+
+        // Auto-connect on startup
+        _ = _agentConnection.ConnectAsync();
+    }
+
+    private void OnAgentStatusChanged(ConnectionStatus status)
+    {
+        Dispatcher.InvokeAsync(() =>
+        {
+            AgentStatusIcon.Text = _agentConnection!.StatusIcon;
+            AgentStatusText.Text = $"Agent {_agentConnection.StatusText}";
+
+            ReconnectButton.Visibility = status == ConnectionStatus.Connected
+                ? Visibility.Collapsed
+                : Visibility.Visible;
+
+            ReconnectButton.Content = status == ConnectionStatus.Connecting
+                ? "⏳ Connecting..."
+                : "🔌 Connect Agent";
+            ReconnectButton.IsEnabled = status != ConnectionStatus.Connecting;
+        });
+    }
+
+    private void OnAgentStatusUpdated(IpcAgentStatus status)
+    {
+        Dispatcher.InvokeAsync(() =>
+        {
+            AgentUptimeText.Text = status.UptimeFormatted;
+            ActiveMonitorsText.Text = $"{status.ActiveModules.Count} monitors";
+            ThreatsTodayText.Text = $"{status.ThreatsDetectedToday} threats";
+            LastScanText.Text = status.LastScanTime?.ToLocalTime().ToString("HH:mm:ss") ?? "Never";
+        });
+    }
+
+    private void OnAgentThreatReceived(IpcThreatEvent threat)
+    {
+        Dispatcher.InvokeAsync(() =>
+        {
+            // Update threats count in status bar
+            if (_agentConnection != null)
+                ThreatsTodayText.Text = $"{_agentConnection.ThreatsToday} threats";
+
+            // Update critical badge
+            UpdateCriticalBadge();
+
+            // Show toast for critical threats
+            if (threat.Severity == "Critical")
+            {
+                try
+                {
+                    var sender = new WindowsToastSender();
+                    sender.ShowToast(
+                        $"🔴 CRITICAL: {threat.Title}",
+                        $"Source: {threat.Source}\n{threat.Description}",
+                        ToastUrgency.High);
+                }
+                catch { /* best-effort */ }
+            }
+        });
+    }
+
+    private void UpdateCriticalBadge()
+    {
+        if (_agentConnection == null) return;
+
+        var count = _agentConnection.UnreadCriticalCount;
+        CriticalBadge.Visibility = count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        CriticalBadgeText.Text = count > 99 ? "99+" : count.ToString();
+    }
+
+    // ── Navigation ──
+
+    private void NavThreatFeed_Click(object sender, RoutedEventArgs e)
+    {
+        var page = new ThreatFeedPage();
+        if (_agentConnection != null)
+            page.SetAgentService(_agentConnection);
+        ContentFrame.Navigate(page);
+
+        // Clear badge
+        if (_agentConnection != null)
+            _agentConnection.UnreadCriticalCount = 0;
+        UpdateCriticalBadge();
+    }
+
     private void NavDashboard_Click(object sender, RoutedEventArgs e)
         => ContentFrame.Navigate(new DashboardPage());
 
@@ -116,6 +211,27 @@ public partial class MainWindow : Window
             ContentFrame.Navigate(new AuditDetailPage(category));
     }
 
+    private async void ReconnectButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_agentConnection != null)
+        {
+            _agentConnection.Disconnect();
+            await _agentConnection.ConnectAsync();
+        }
+    }
+
+    /// <summary>
+    /// Navigate to the threat feed and scroll to a specific threat (for toast click).
+    /// </summary>
+    public void NavigateToThreat(string threatId)
+    {
+        var page = new ThreatFeedPage();
+        if (_agentConnection != null)
+            page.SetAgentService(_agentConnection);
+        ContentFrame.Navigate(page);
+        page.ScrollToThreat(threatId);
+    }
+
     /// <summary>
     /// Intercept the window close. If minimize-to-tray is enabled, hide instead of close.
     /// </summary>
@@ -134,6 +250,7 @@ public partial class MainWindow : Window
     {
         _scheduler?.Dispose();
         _trayService?.Dispose();
+        _agentConnection?.Dispose();
         base.OnClosed(e);
     }
 }

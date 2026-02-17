@@ -266,6 +266,7 @@ public class ResponsePolicy
             "filesystemmonitor" => ThreatCategory.File,
             "eventlogmonitor" => ThreatCategory.EventLog,
             "threatcorrelator" or "correlation" => ThreatCategory.Correlation,
+            "networkmonitor" => ThreatCategory.Network,
             _ when source.Contains("network", StringComparison.OrdinalIgnoreCase) => ThreatCategory.Network,
             _ => ThreatCategory.Unknown
         };

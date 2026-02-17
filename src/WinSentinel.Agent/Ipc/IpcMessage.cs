@@ -19,6 +19,8 @@ public enum IpcMessageType
     Subscribe,
     Unsubscribe,
     Ping,
+    GetPolicy,
+    SetPolicy,
 
     // Responses (Agent → UI)
     StatusResponse,
@@ -31,6 +33,7 @@ public enum IpcMessageType
     Subscribed,
     Error,
     Pong,
+    PolicyResponse,
 
     // Events (Agent → UI, pushed)
     ThreatDetected,
@@ -191,4 +194,32 @@ public class ScanProgressPayload
     public string Module { get; set; } = "";
     public int Current { get; set; }
     public int Total { get; set; }
+}
+
+/// <summary>IPC payload for response policy data.</summary>
+public class PolicyPayload
+{
+    public List<PolicyRulePayload> Rules { get; set; } = new();
+    public List<UserOverridePayload> UserOverrides { get; set; } = new();
+    public string RiskTolerance { get; set; } = "Medium";
+}
+
+/// <summary>Serializable policy rule for IPC.</summary>
+public class PolicyRulePayload
+{
+    public string? Category { get; set; }
+    public string? Severity { get; set; }
+    public string? TitlePattern { get; set; }
+    public string Action { get; set; } = "Log";
+    public bool AllowAutoFix { get; set; } = true;
+    public int Priority { get; set; }
+}
+
+/// <summary>Serializable user override for IPC.</summary>
+public class UserOverridePayload
+{
+    public string ThreatTitle { get; set; } = "";
+    public string? Source { get; set; }
+    public string OverrideAction { get; set; } = "AlwaysIgnore";
+    public DateTimeOffset CreatedAt { get; set; }
 }

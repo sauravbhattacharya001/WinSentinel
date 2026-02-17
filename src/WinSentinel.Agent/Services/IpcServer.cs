@@ -20,6 +20,7 @@ public class IpcServer : BackgroundService
     private readonly AgentState _state;
     private readonly AgentConfig _config;
     private readonly ThreatLog _threatLog;
+    private readonly ResponsePolicy _responsePolicy;
     private readonly ConcurrentDictionary<string, StreamWriter> _subscribers = new();
     private readonly IServiceProvider _services;
 
@@ -43,12 +44,14 @@ public class IpcServer : BackgroundService
         AgentState state,
         AgentConfig config,
         ThreatLog threatLog,
+        ResponsePolicy responsePolicy,
         IServiceProvider services)
     {
         _logger = logger;
         _state = state;
         _config = config;
         _threatLog = threatLog;
+        _responsePolicy = responsePolicy;
         _services = services;
 
         // Subscribe to threat events for push notifications
@@ -162,6 +165,10 @@ public class IpcServer : BackgroundService
 
                 IpcMessageType.SetConfig => HandleSetConfig(message),
 
+                IpcMessageType.GetPolicy => HandleGetPolicy(message),
+
+                IpcMessageType.SetPolicy => HandleSetPolicy(message),
+
                 IpcMessageType.SendChat => await HandleChatAsync(message),
 
                 IpcMessageType.Subscribe => HandleSubscribe(writer, clientId, message),
@@ -206,6 +213,63 @@ public class IpcServer : BackgroundService
 
         _config.ApplySnapshot(snapshot);
         return IpcMessage.Response(IpcMessageType.ConfigResponse, _config.ToSnapshot(), message.RequestId);
+    }
+
+    private IpcMessage HandleGetPolicy(IpcMessage message)
+    {
+        var payload = new PolicyPayload
+        {
+            RiskTolerance = _responsePolicy.RiskTolerance.ToString(),
+            Rules = _responsePolicy.Rules.Select(r => new PolicyRulePayload
+            {
+                Category = r.Category?.ToString(),
+                Severity = r.Severity?.ToString(),
+                TitlePattern = r.TitlePattern,
+                Action = r.Action.ToString(),
+                AllowAutoFix = r.AllowAutoFix,
+                Priority = r.Priority
+            }).ToList(),
+            UserOverrides = _responsePolicy.UserOverrides.Select(o => new UserOverridePayload
+            {
+                ThreatTitle = o.ThreatTitle,
+                Source = o.Source,
+                OverrideAction = o.OverrideAction.ToString(),
+                CreatedAt = o.CreatedAt
+            }).ToList()
+        };
+
+        return IpcMessage.Response(IpcMessageType.PolicyResponse, payload, message.RequestId);
+    }
+
+    private IpcMessage HandleSetPolicy(IpcMessage message)
+    {
+        var payload = message.GetPayload<PolicyPayload>();
+        if (payload == null)
+            return IpcMessage.ErrorResponse("Invalid policy payload.", message.RequestId);
+
+        // Update risk tolerance
+        if (Enum.TryParse<RiskTolerance>(payload.RiskTolerance, out var rt))
+            _responsePolicy.RiskTolerance = rt;
+
+        // Replace user overrides
+        _responsePolicy.UserOverrides.Clear();
+        foreach (var o in payload.UserOverrides)
+        {
+            if (Enum.TryParse<UserOverrideAction>(o.OverrideAction, out var action))
+            {
+                _responsePolicy.UserOverrides.Add(new UserOverride
+                {
+                    ThreatTitle = o.ThreatTitle,
+                    Source = o.Source,
+                    OverrideAction = action,
+                    CreatedAt = o.CreatedAt
+                });
+            }
+        }
+
+        _responsePolicy.Save();
+
+        return HandleGetPolicy(message);
     }
 
     private async Task<IpcMessage> HandleChatAsync(IpcMessage message)

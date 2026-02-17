@@ -119,6 +119,20 @@ public class IpcClient : IDisposable
         return response?.GetPayload<IpcAgentConfig>();
     }
 
+    /// <summary>Get the agent's response policy (overrides and rules).</summary>
+    public async Task<IpcPolicyData?> GetPolicyAsync(CancellationToken ct = default)
+    {
+        var response = await SendRequestAsync("GetPolicy", ct: ct);
+        return response?.GetPayload<IpcPolicyData>();
+    }
+
+    /// <summary>Update the agent's response policy.</summary>
+    public async Task<IpcPolicyData?> SetPolicyAsync(IpcPolicyData policy, CancellationToken ct = default)
+    {
+        var response = await SendRequestAsync("SetPolicy", policy, ct);
+        return response?.GetPayload<IpcPolicyData>();
+    }
+
     /// <summary>Send a chat message to the agent and get a rich response.</summary>
     public async Task<IpcChatResponse?> SendChatAsync(string message, CancellationToken ct = default)
     {
@@ -368,6 +382,14 @@ public class IpcAgentConfig
     public int MaxThreatLogSize { get; set; }
     public bool NotifyOnCriticalThreats { get; set; }
     public bool NotifyOnScanComplete { get; set; }
+    public bool NotificationSound { get; set; } = true;
+    public bool NotifyCriticalOnly { get; set; }
+    public bool AutoExportAfterScan { get; set; }
+    public string AutoExportFormat { get; set; } = "HTML";
+    public bool StartWithWindows { get; set; }
+    public bool MinimizeToTray { get; set; } = true;
+    public Dictionary<string, bool> CategoryAutoFix { get; set; } = new();
+    public Dictionary<string, string> CategoryDefaultResponse { get; set; } = new();
 }
 
 public class IpcFixResult
@@ -413,4 +435,32 @@ public class IpcChatThreatEvent
 internal class ScorePayload
 {
     public int Score { get; set; }
+}
+
+/// <summary>IPC data for response policy.</summary>
+public class IpcPolicyData
+{
+    public List<IpcPolicyRule> Rules { get; set; } = new();
+    public List<IpcUserOverride> UserOverrides { get; set; } = new();
+    public string RiskTolerance { get; set; } = "Medium";
+}
+
+/// <summary>IPC policy rule.</summary>
+public class IpcPolicyRule
+{
+    public string? Category { get; set; }
+    public string? Severity { get; set; }
+    public string? TitlePattern { get; set; }
+    public string Action { get; set; } = "Log";
+    public bool AllowAutoFix { get; set; } = true;
+    public int Priority { get; set; }
+}
+
+/// <summary>IPC user override.</summary>
+public class IpcUserOverride
+{
+    public string ThreatTitle { get; set; } = "";
+    public string? Source { get; set; }
+    public string OverrideAction { get; set; } = "AlwaysIgnore";
+    public DateTimeOffset CreatedAt { get; set; }
 }

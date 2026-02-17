@@ -40,6 +40,7 @@ builder.ConfigureServices((context, services) =>
     services.AddSingleton<IAgentModule, ProcessMonitorModule>();
     services.AddSingleton<IAgentModule, FileSystemMonitorModule>();
     services.AddSingleton<IAgentModule, EventLogMonitorModule>();
+    services.AddSingleton<IAgentModule, NetworkMonitorModule>();
 
     // Main orchestrator
     services.AddHostedService<AgentService>();

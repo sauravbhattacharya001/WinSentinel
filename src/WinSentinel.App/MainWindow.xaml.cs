@@ -223,6 +223,14 @@ public partial class MainWindow : Window
         ContentFrame.Navigate(settingsPage);
     }
 
+    private void NavPolicies_Click(object sender, RoutedEventArgs e)
+    {
+        var policyPage = new PolicySettingsPage();
+        if (_agentConnection != null)
+            policyPage.SetAgentService(_agentConnection);
+        ContentFrame.Navigate(policyPage);
+    }
+
     private void NavAudit_Click(object sender, RoutedEventArgs e)
     {
         if (sender is Button btn && btn.Tag is string category)

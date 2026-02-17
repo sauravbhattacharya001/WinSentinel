@@ -33,6 +33,30 @@ public class AgentConfig
     /// <summary>Whether to send Windows toast notifications when scan completes.</summary>
     public bool NotifyOnScanComplete { get; set; } = true;
 
+    /// <summary>Whether to play a sound on notifications.</summary>
+    public bool NotificationSound { get; set; } = true;
+
+    /// <summary>Only notify for critical severity (true) or all severities (false).</summary>
+    public bool NotifyCriticalOnly { get; set; } = false;
+
+    /// <summary>Whether to auto-export after each scan.</summary>
+    public bool AutoExportAfterScan { get; set; } = false;
+
+    /// <summary>Export format for auto-export (HTML, JSON, PDF).</summary>
+    public string AutoExportFormat { get; set; } = "HTML";
+
+    /// <summary>Start with Windows.</summary>
+    public bool StartWithWindows { get; set; } = false;
+
+    /// <summary>Minimize to system tray on close.</summary>
+    public bool MinimizeToTray { get; set; } = true;
+
+    /// <summary>Per-category auto-fix enabled/disabled.</summary>
+    public Dictionary<string, bool> CategoryAutoFix { get; set; } = new();
+
+    /// <summary>Per-category default response action (AutoFix, Alert, Log).</summary>
+    public Dictionary<string, string> CategoryDefaultResponse { get; set; } = new();
+
     // ── Persistence ──
 
     private static readonly string ConfigDir =
@@ -66,6 +90,14 @@ public class AgentConfig
                     MaxThreatLogSize = loaded.MaxThreatLogSize;
                     NotifyOnCriticalThreats = loaded.NotifyOnCriticalThreats;
                     NotifyOnScanComplete = loaded.NotifyOnScanComplete;
+                    NotificationSound = loaded.NotificationSound;
+                    NotifyCriticalOnly = loaded.NotifyCriticalOnly;
+                    AutoExportAfterScan = loaded.AutoExportAfterScan;
+                    AutoExportFormat = loaded.AutoExportFormat;
+                    StartWithWindows = loaded.StartWithWindows;
+                    MinimizeToTray = loaded.MinimizeToTray;
+                    CategoryAutoFix = loaded.CategoryAutoFix;
+                    CategoryDefaultResponse = loaded.CategoryDefaultResponse;
                 }
             }
         }
@@ -100,7 +132,15 @@ public class AgentConfig
         ModuleToggles = new Dictionary<string, bool>(ModuleToggles),
         MaxThreatLogSize = MaxThreatLogSize,
         NotifyOnCriticalThreats = NotifyOnCriticalThreats,
-        NotifyOnScanComplete = NotifyOnScanComplete
+        NotifyOnScanComplete = NotifyOnScanComplete,
+        NotificationSound = NotificationSound,
+        NotifyCriticalOnly = NotifyCriticalOnly,
+        AutoExportAfterScan = AutoExportAfterScan,
+        AutoExportFormat = AutoExportFormat,
+        StartWithWindows = StartWithWindows,
+        MinimizeToTray = MinimizeToTray,
+        CategoryAutoFix = new Dictionary<string, bool>(CategoryAutoFix),
+        CategoryDefaultResponse = new Dictionary<string, string>(CategoryDefaultResponse)
     };
 
     /// <summary>Apply settings from a snapshot (received via IPC).</summary>
@@ -115,6 +155,14 @@ public class AgentConfig
         MaxThreatLogSize = snapshot.MaxThreatLogSize;
         NotifyOnCriticalThreats = snapshot.NotifyOnCriticalThreats;
         NotifyOnScanComplete = snapshot.NotifyOnScanComplete;
+        NotificationSound = snapshot.NotificationSound;
+        NotifyCriticalOnly = snapshot.NotifyCriticalOnly;
+        AutoExportAfterScan = snapshot.AutoExportAfterScan;
+        AutoExportFormat = snapshot.AutoExportFormat;
+        StartWithWindows = snapshot.StartWithWindows;
+        MinimizeToTray = snapshot.MinimizeToTray;
+        CategoryAutoFix = new Dictionary<string, bool>(snapshot.CategoryAutoFix);
+        CategoryDefaultResponse = new Dictionary<string, string>(snapshot.CategoryDefaultResponse);
         Save();
     }
 
@@ -142,4 +190,12 @@ public class AgentConfigSnapshot
     public int MaxThreatLogSize { get; set; }
     public bool NotifyOnCriticalThreats { get; set; }
     public bool NotifyOnScanComplete { get; set; }
+    public bool NotificationSound { get; set; } = true;
+    public bool NotifyCriticalOnly { get; set; }
+    public bool AutoExportAfterScan { get; set; }
+    public string AutoExportFormat { get; set; } = "HTML";
+    public bool StartWithWindows { get; set; }
+    public bool MinimizeToTray { get; set; } = true;
+    public Dictionary<string, bool> CategoryAutoFix { get; set; } = new();
+    public Dictionary<string, string> CategoryDefaultResponse { get; set; } = new();
 }

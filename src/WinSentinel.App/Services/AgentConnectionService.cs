@@ -238,6 +238,38 @@ public class AgentConnectionService : INotifyPropertyChanged, IDisposable
         }
     }
 
+    /// <summary>Get the agent's current config.</summary>
+    public async Task<IpcAgentConfig?> GetConfigAsync()
+    {
+        if (!IsConnected) return null;
+        try { return await _client.GetConfigAsync(); }
+        catch { return null; }
+    }
+
+    /// <summary>Update the agent's config.</summary>
+    public async Task<IpcAgentConfig?> SetConfigAsync(IpcAgentConfig config)
+    {
+        if (!IsConnected) return null;
+        try { return await _client.SetConfigAsync(config); }
+        catch { return null; }
+    }
+
+    /// <summary>Get the agent's response policy (overrides and rules).</summary>
+    public async Task<IpcPolicyData?> GetPolicyAsync()
+    {
+        if (!IsConnected) return null;
+        try { return await _client.GetPolicyAsync(); }
+        catch { return null; }
+    }
+
+    /// <summary>Update the agent's response policy.</summary>
+    public async Task<IpcPolicyData?> SetPolicyAsync(IpcPolicyData policy)
+    {
+        if (!IsConnected) return null;
+        try { return await _client.SetPolicyAsync(policy); }
+        catch { return null; }
+    }
+
     // ── Private Methods ──
 
     private void ScheduleReconnect()

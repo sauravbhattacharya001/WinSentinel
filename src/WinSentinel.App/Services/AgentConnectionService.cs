@@ -223,6 +223,21 @@ public class AgentConnectionService : INotifyPropertyChanged, IDisposable
         }
     }
 
+    /// <summary>Send a chat message to the agent and get a rich response.</summary>
+    public async Task<IpcChatResponse?> SendChatAsync(string message)
+    {
+        if (!IsConnected) return null;
+
+        try
+        {
+            return await _client.SendChatAsync(message);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     // ── Private Methods ──
 
     private void ScheduleReconnect()

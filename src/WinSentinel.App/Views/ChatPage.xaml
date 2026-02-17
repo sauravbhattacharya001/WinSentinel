@@ -10,6 +10,7 @@
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <!-- Header -->
@@ -17,8 +18,15 @@
                 BorderBrush="{StaticResource CardBorder}" 
                 BorderThickness="0,0,0,1">
             <Grid>
-                <TextBlock Text="🛡️ Security Advisor" FontSize="20" FontWeight="SemiBold"
-                          Foreground="{StaticResource TextPrimary}" />
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="🛡️ Security Advisor" FontSize="20" FontWeight="SemiBold"
+                              Foreground="{StaticResource TextPrimary}" />
+                    <Border x:Name="AgentBadge" CornerRadius="8" Padding="8,2" Margin="12,0,0,0"
+                            VerticalAlignment="Center" Background="#1A4CAF50">
+                        <TextBlock x:Name="AgentBadgeText" Text="⚡ Agent Connected" FontSize="11"
+                                  Foreground="#4CAF50" />
+                    </Border>
+                </StackPanel>
                 <TextBlock x:Name="OllamaStatus" Text="" FontSize="12"
                           HorizontalAlignment="Right" VerticalAlignment="Center"
                           Foreground="{StaticResource TextSecondary}" />
@@ -31,24 +39,29 @@
             <ItemsControl x:Name="MessageList" />
         </ScrollViewer>
 
+        <!-- Suggested Actions (dynamic) -->
+        <WrapPanel Grid.Row="2" x:Name="SuggestedActionsPanel" 
+                   HorizontalAlignment="Center" Margin="24,4"
+                   Visibility="Collapsed" />
+
         <!-- Quick Actions -->
-        <WrapPanel Grid.Row="2" HorizontalAlignment="Center" Margin="24,8">
-            <Button Content="🔍 Scan" Click="QuickAction_Click" Tag="/scan" 
+        <WrapPanel Grid.Row="3" HorizontalAlignment="Center" Margin="24,4">
+            <Button Content="📊 Status" Click="QuickAction_Click" Tag="status" 
                     Style="{StaticResource QuickButton}" Margin="4" />
-            <Button Content="📊 Score" Click="QuickAction_Click" Tag="/score" 
+            <Button Content="🔍 Scan" Click="QuickAction_Click" Tag="scan" 
                     Style="{StaticResource QuickButton}" Margin="4" />
-            <Button Content="⚠️ Issues" Click="QuickAction_Click" Tag="what's wrong?" 
+            <Button Content="⚠️ Threats" Click="QuickAction_Click" Tag="threats" 
                     Style="{StaticResource QuickButton}" Margin="4" />
-            <Button Content="🔧 Fix All" Click="QuickAction_Click" Tag="/fixall" 
+            <Button Content="🔧 Fix All" Click="QuickAction_Click" Tag="fix all" 
                     Style="{StaticResource QuickButton}" Margin="4" />
-            <Button Content="📈 History" Click="QuickAction_Click" Tag="/history" 
+            <Button Content="📈 History" Click="QuickAction_Click" Tag="history" 
                     Style="{StaticResource QuickButton}" Margin="4" />
-            <Button Content="❓ Help" Click="QuickAction_Click" Tag="/help" 
+            <Button Content="❓ Help" Click="QuickAction_Click" Tag="help" 
                     Style="{StaticResource QuickButton}" Margin="4" />
         </WrapPanel>
 
         <!-- Input Area -->
-        <Grid Grid.Row="3" Margin="24,8,24,16">
+        <Grid Grid.Row="4" Margin="24,8,24,16">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />

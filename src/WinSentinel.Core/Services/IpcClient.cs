@@ -119,12 +119,11 @@ public class IpcClient : IDisposable
         return response?.GetPayload<IpcAgentConfig>();
     }
 
-    /// <summary>Send a chat message to the agent.</summary>
-    public async Task<string?> SendChatAsync(string message, CancellationToken ct = default)
+    /// <summary>Send a chat message to the agent and get a rich response.</summary>
+    public async Task<IpcChatResponse?> SendChatAsync(string message, CancellationToken ct = default)
     {
         var response = await SendRequestAsync("SendChat", new { message }, ct);
-        var payload = response?.GetPayload<ChatResponsePayload>();
-        return payload?.Message;
+        return response?.GetPayload<IpcChatResponse>();
     }
 
     /// <summary>Request a fix execution.</summary>
@@ -381,9 +380,34 @@ public class IpcFixResult
     public string? FindingTitle { get; set; }
 }
 
-internal class ChatResponsePayload
+/// <summary>Rich chat response from the agent.</summary>
+public class IpcChatResponse
 {
-    public string Message { get; set; } = "";
+    public string Text { get; set; } = "";
+    public List<IpcSuggestedAction> SuggestedActions { get; set; } = new();
+    public List<IpcChatThreatEvent> ThreatEvents { get; set; } = new();
+    public int? SecurityScore { get; set; }
+    public bool ActionPerformed { get; set; }
+    public string? ActionId { get; set; }
+    public string Category { get; set; } = "General";
+}
+
+/// <summary>Suggested action from chat response.</summary>
+public class IpcSuggestedAction
+{
+    public string Label { get; set; } = "";
+    public string Command { get; set; } = "";
+}
+
+/// <summary>Threat event in chat response.</summary>
+public class IpcChatThreatEvent
+{
+    public string Id { get; set; } = "";
+    public DateTimeOffset Timestamp { get; set; }
+    public string Source { get; set; } = "";
+    public string Severity { get; set; } = "";
+    public string Title { get; set; } = "";
+    public string? ResponseTaken { get; set; }
 }
 
 internal class ScorePayload

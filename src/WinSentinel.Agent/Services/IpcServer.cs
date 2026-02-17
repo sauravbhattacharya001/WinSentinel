@@ -26,8 +26,17 @@ public class IpcServer : BackgroundService
     /// <summary>Event fired when a "run audit" command is received via IPC.</summary>
     public event Func<Task>? AuditRequested;
 
+    /// <summary>Trigger an audit (callable from ChatHandler and other internal services).</summary>
+    public async Task TriggerAuditAsync()
+    {
+        if (AuditRequested != null)
+        {
+            await AuditRequested.Invoke();
+        }
+    }
+
     /// <summary>Event fired when a chat message is received via IPC.</summary>
-    public event Func<string, Task<string>>? ChatMessageReceived;
+    public event Func<string, Task<ChatResponsePayload>>? ChatMessageReceived;
 
     public IpcServer(
         ILogger<IpcServer> logger,
@@ -205,17 +214,21 @@ public class IpcServer : BackgroundService
         if (payload == null || string.IsNullOrWhiteSpace(payload.Message))
             return IpcMessage.ErrorResponse("Empty chat message.", message.RequestId);
 
-        string response;
+        ChatResponsePayload response;
         if (ChatMessageReceived != null)
         {
             response = await ChatMessageReceived.Invoke(payload.Message);
         }
         else
         {
-            response = "Agent chat is not configured. Use the WPF app's built-in AI chat instead.";
+            response = new ChatResponsePayload
+            {
+                Text = "Agent chat is not configured. Use the WPF app's built-in AI chat instead.",
+                Category = ChatResponseCategory.Error
+            };
         }
 
-        return IpcMessage.Response(IpcMessageType.ChatResponse, new ChatPayload { Message = response }, message.RequestId);
+        return IpcMessage.Response(IpcMessageType.ChatResponse, response, message.RequestId);
     }
 
     private IpcMessage HandleSubscribe(StreamWriter writer, string clientId, IpcMessage message)

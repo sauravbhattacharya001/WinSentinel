@@ -193,7 +193,12 @@ public partial class MainWindow : Window
         => ContentFrame.Navigate(new DashboardPage());
 
     private void NavChat_Click(object sender, RoutedEventArgs e)
-        => ContentFrame.Navigate(new ChatPage());
+    {
+        var chatPage = new ChatPage();
+        if (_agentConnection != null)
+            chatPage.SetAgentService(_agentConnection);
+        ContentFrame.Navigate(chatPage);
+    }
 
     private void NavSettings_Click(object sender, RoutedEventArgs e)
     {

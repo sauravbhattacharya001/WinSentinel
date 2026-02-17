@@ -16,6 +16,7 @@ public class AgentService : BackgroundService
     private readonly ThreatLog _threatLog;
     private readonly IpcServer _ipcServer;
     private readonly AgentBrain _brain;
+    private readonly ChatHandler _chatHandler;
     private readonly IEnumerable<IAgentModule> _modules;
 
     public AgentService(
@@ -25,6 +26,7 @@ public class AgentService : BackgroundService
         ThreatLog threatLog,
         IpcServer ipcServer,
         AgentBrain brain,
+        ChatHandler chatHandler,
         IEnumerable<IAgentModule> modules)
     {
         _logger = logger;
@@ -33,6 +35,7 @@ public class AgentService : BackgroundService
         _threatLog = threatLog;
         _ipcServer = ipcServer;
         _brain = brain;
+        _chatHandler = chatHandler;
         _modules = modules;
     }
 
@@ -47,6 +50,9 @@ public class AgentService : BackgroundService
 
         // Initialize the Agent Brain (decision engine)
         _brain.Initialize();
+
+        // Initialize the Chat Handler (chat as control plane)
+        _chatHandler.Initialize();
 
         // Log startup threat event
         _threatLog.Add(new ThreatEvent
@@ -95,7 +101,8 @@ public class AgentService : BackgroundService
         // Shutdown
         _logger.LogInformation("WinSentinel Agent shutting down...");
 
-        // Shut down the brain first
+        // Shut down the brain and chat handler first
+        _chatHandler.Shutdown();
         _brain.Shutdown();
 
         foreach (var module in _modules)

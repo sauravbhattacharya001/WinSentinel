@@ -33,6 +33,7 @@ builder.ConfigureServices((context, services) =>
     services.AddSingleton<AutoRemediator>();
     services.AddSingleton<AgentJournal>();
     services.AddSingleton<AgentBrain>();
+    services.AddSingleton<ChatHandler>();
 
     // Agent modules
     services.AddSingleton<IAgentModule, ScheduledAuditModule>();

@@ -130,6 +130,61 @@ public class ChatPayload
     public string Message { get; set; } = "";
 }
 
+/// <summary>Rich response from agent chat handler.</summary>
+public class ChatResponsePayload
+{
+    /// <summary>Main text response.</summary>
+    public string Text { get; set; } = "";
+
+    /// <summary>Suggested follow-up actions (displayed as buttons).</summary>
+    public List<SuggestedAction> SuggestedActions { get; set; } = new();
+
+    /// <summary>Threat events included in the response (for rich display).</summary>
+    public List<ChatThreatEvent> ThreatEvents { get; set; } = new();
+
+    /// <summary>Security score (if applicable to the response).</summary>
+    public int? SecurityScore { get; set; }
+
+    /// <summary>Whether an action was performed (for undo support).</summary>
+    public bool ActionPerformed { get; set; }
+
+    /// <summary>ID of the action performed (for undo).</summary>
+    public string? ActionId { get; set; }
+
+    /// <summary>Response category for UI formatting.</summary>
+    public ChatResponseCategory Category { get; set; } = ChatResponseCategory.General;
+}
+
+/// <summary>Suggested action button for chat responses.</summary>
+public class SuggestedAction
+{
+    public string Label { get; set; } = "";
+    public string Command { get; set; } = "";
+}
+
+/// <summary>Simplified threat event for chat display.</summary>
+public class ChatThreatEvent
+{
+    public string Id { get; set; } = "";
+    public DateTimeOffset Timestamp { get; set; }
+    public string Source { get; set; } = "";
+    public string Severity { get; set; } = "";
+    public string Title { get; set; } = "";
+    public string? ResponseTaken { get; set; }
+}
+
+/// <summary>Categories for chat response formatting.</summary>
+public enum ChatResponseCategory
+{
+    General,
+    Status,
+    ThreatList,
+    AuditResult,
+    ActionConfirmation,
+    Error,
+    Help
+}
+
 /// <summary>Payload for scan progress events.</summary>
 public class ScanProgressPayload
 {

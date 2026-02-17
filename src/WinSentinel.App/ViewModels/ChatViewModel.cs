@@ -60,10 +60,3 @@ public partial class ChatViewModel : ObservableObject
         }
     }
 }
-
-public class ChatMessage
-{
-    public bool IsBot { get; set; }
-    public string Text { get; set; } = "";
-    public DateTimeOffset Timestamp { get; set; } = DateTimeOffset.Now;
-}

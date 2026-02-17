@@ -26,10 +26,10 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         _settings = ScheduleSettings.Load();
-        ContentFrame.Navigate(new DashboardPage());
         InitializeScheduler();
         InitializeTray();
         InitializeAgentConnection();
+        NavigateToDashboard();
 
         // Handle --minimized startup
         if (App.StartMinimized)
@@ -72,12 +72,12 @@ public partial class MainWindow : Window
         // Wire up context menu events
         _trayService.ScanRequested += (_, _) =>
         {
-            ContentFrame.Navigate(new DashboardPage());
+            NavigateToDashboard();
         };
 
         _trayService.ExportRequested += (_, _) =>
         {
-            ContentFrame.Navigate(new DashboardPage());
+            NavigateToDashboard();
         };
 
         _trayService.SettingsRequested += (_, _) =>
@@ -87,12 +87,12 @@ public partial class MainWindow : Window
 
         _trayService.ViewScoreRequested += (_, _) =>
         {
-            ContentFrame.Navigate(new DashboardPage());
+            NavigateToDashboard();
         };
 
         _trayService.BalloonClicked += (_, action) =>
         {
-            ContentFrame.Navigate(new DashboardPage());
+            NavigateToDashboard();
         };
     }
 
@@ -176,6 +176,14 @@ public partial class MainWindow : Window
 
     // ── Navigation ──
 
+    private void NavigateToDashboard()
+    {
+        var page = new DashboardPage();
+        if (_agentConnection != null)
+            page.SetAgentService(_agentConnection);
+        ContentFrame.Navigate(page);
+    }
+
     private void NavThreatFeed_Click(object sender, RoutedEventArgs e)
     {
         var page = new ThreatFeedPage();
@@ -190,7 +198,12 @@ public partial class MainWindow : Window
     }
 
     private void NavDashboard_Click(object sender, RoutedEventArgs e)
-        => ContentFrame.Navigate(new DashboardPage());
+    {
+        var page = new DashboardPage();
+        if (_agentConnection != null)
+            page.SetAgentService(_agentConnection);
+        ContentFrame.Navigate(page);
+    }
 
     private void NavChat_Click(object sender, RoutedEventArgs e)
     {

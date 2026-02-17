@@ -1,8 +1,10 @@
-using System.Text;
+using System.Collections.Specialized;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using Microsoft.Win32;
+using WinSentinel.App.Services;
+using WinSentinel.App.ViewModels;
 using WinSentinel.Core.Models;
 using WinSentinel.Core.Services;
 
@@ -10,103 +12,247 @@ namespace WinSentinel.App.Views;
 
 public partial class DashboardPage : Page
 {
+    private DashboardViewModel _viewModel;
+    private AgentConnectionService? _agentConnection;
     private readonly AuditHistoryService _historyService = new();
-    private SecurityReport? _lastReport;
 
     public DashboardPage()
     {
         InitializeComponent();
-        LoadTrendData();
+        _viewModel = new DashboardViewModel(Dispatcher);
+
+        // Wire up collections to UI
+        _viewModel.PropertyChanged += ViewModel_PropertyChanged;
+        _viewModel.MonitorCards.CollectionChanged += MonitorCards_CollectionChanged;
+        _viewModel.RecentThreats.CollectionChanged += RecentThreats_CollectionChanged;
+        _viewModel.TimelineEntries.CollectionChanged += TimelineEntries_CollectionChanged;
+
+        // Bind collections
+        MonitorCardsList.ItemsSource = _viewModel.MonitorCards;
+        RecentThreatsList.ItemsSource = _viewModel.RecentThreats;
+        TimelineList.ItemsSource = _viewModel.TimelineEntries;
     }
 
-    private async void ScanButton_Click(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// Set the agent connection service (called from MainWindow during navigation).
+    /// </summary>
+    public void SetAgentService(AgentConnectionService connection)
     {
-        ScanButton.IsEnabled = false;
-        ScanProgress.Visibility = Visibility.Visible;
-        ProgressText.Visibility = Visibility.Visible;
-        NoAlertsText.Visibility = Visibility.Collapsed;
+        _agentConnection = connection;
+        _viewModel.SetAgentConnection(connection);
+    }
 
-        var engine = new AuditEngine();
-        engine.SetHistoryService(_historyService);
+    // ══════════════════════════════════════════
+    //  Property Change Handler
+    // ══════════════════════════════════════════
 
-        var progress = new Progress<(string module, int current, int total)>(p =>
+    private void ViewModel_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        Dispatcher.InvokeAsync(() =>
         {
-            Dispatcher.Invoke(() =>
+            switch (e.PropertyName)
             {
-                StatusText.Text = $"Scanning: {p.module}...";
-                ProgressText.Text = $"Module {p.current} of {p.total}";
-            });
+                case nameof(DashboardViewModel.AgentStatusIcon):
+                    AgentStatusIconText.Text = _viewModel.AgentStatusIcon;
+                    break;
+
+                case nameof(DashboardViewModel.AgentStatusText):
+                    AgentStatusLabel.Text = _viewModel.AgentStatusText;
+                    break;
+
+                case nameof(DashboardViewModel.UptimeText):
+                    UptimeLabel.Text = _viewModel.UptimeText;
+                    break;
+
+                case nameof(DashboardViewModel.SecurityScoreDisplay):
+                    ScoreText.Text = _viewModel.SecurityScoreDisplay;
+                    break;
+
+                case nameof(DashboardViewModel.SecurityGrade):
+                    GradeText.Text = _viewModel.SecurityGrade;
+                    break;
+
+                case nameof(DashboardViewModel.ScoreColor):
+                    try
+                    {
+                        var color = (Color)ColorConverter.ConvertFromString(_viewModel.ScoreColor);
+                        ScoreRing.Stroke = new SolidColorBrush(color);
+                    }
+                    catch { /* fallback */ }
+                    break;
+
+                case nameof(DashboardViewModel.ScoreTrendArrow):
+                    TrendArrowText.Text = _viewModel.ScoreTrendArrow;
+                    break;
+
+                case nameof(DashboardViewModel.ScoreTrendText):
+                    TrendDescText.Text = _viewModel.ScoreTrendText;
+                    break;
+
+                case nameof(DashboardViewModel.ScoreTrendColor):
+                    try
+                    {
+                        var color = (Color)ColorConverter.ConvertFromString(_viewModel.ScoreTrendColor);
+                        TrendArrowText.Foreground = new SolidColorBrush(color);
+                        TrendDescText.Foreground = new SolidColorBrush(color);
+                    }
+                    catch { /* fallback */ }
+                    break;
+
+                case nameof(DashboardViewModel.IsConnected):
+                    DisconnectedBanner.Visibility = _viewModel.IsConnected ? Visibility.Collapsed : Visibility.Visible;
+                    break;
+
+                case nameof(DashboardViewModel.IsScanRunning):
+                    ScanProgressPanel.Visibility = _viewModel.IsScanRunning ? Visibility.Visible : Visibility.Collapsed;
+                    RunAuditButton.IsEnabled = _viewModel.CanRunAudit;
+                    RunAuditButton.Opacity = _viewModel.CanRunAudit ? 1.0 : 0.5;
+                    break;
+
+                case nameof(DashboardViewModel.CriticalCount):
+                    CritCountText.Text = _viewModel.CriticalCount.ToString();
+                    break;
+
+                case nameof(DashboardViewModel.HighCount):
+                    HighCountText.Text = _viewModel.HighCount.ToString();
+                    break;
+
+                case nameof(DashboardViewModel.MediumCount):
+                    MedCountText.Text = _viewModel.MediumCount.ToString();
+                    break;
+
+                case nameof(DashboardViewModel.LowCount):
+                    LowCountText.Text = _viewModel.LowCount.ToString();
+                    break;
+
+                case nameof(DashboardViewModel.AutoFixesToday):
+                    AutoFixCountText.Text = _viewModel.AutoFixesToday.ToString();
+                    break;
+
+                case nameof(DashboardViewModel.LastActionText):
+                    LastActionLabel.Text = _viewModel.LastActionText;
+                    break;
+
+                case nameof(DashboardViewModel.PauseResumeText):
+                    PauseResumeButton.Content = _viewModel.PauseResumeText;
+                    break;
+            }
         });
+    }
+
+    // ══════════════════════════════════════════
+    //  Collection Change Handlers
+    // ══════════════════════════════════════════
+
+    private void MonitorCards_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        Dispatcher.InvokeAsync(() =>
+        {
+            NoMonitorsText.Visibility = _viewModel.MonitorCards.Count == 0
+                ? Visibility.Visible : Visibility.Collapsed;
+        });
+    }
+
+    private void RecentThreats_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        Dispatcher.InvokeAsync(() =>
+        {
+            NoThreatsText.Visibility = _viewModel.RecentThreats.Count == 0
+                ? Visibility.Visible : Visibility.Collapsed;
+        });
+    }
+
+    private void TimelineEntries_CollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        Dispatcher.InvokeAsync(() =>
+        {
+            NoTimelineText.Visibility = _viewModel.TimelineEntries.Count == 0
+                ? Visibility.Visible : Visibility.Collapsed;
+        });
+    }
+
+    // ══════════════════════════════════════════
+    //  Button Click Handlers
+    // ══════════════════════════════════════════
+
+    private async void RunAuditButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_agentConnection != null && _agentConnection.IsConnected)
+        {
+            // Run via agent IPC
+            await _viewModel.RunFullAuditAsync();
+        }
+        else
+        {
+            // Fallback: run locally
+            await RunLocalAuditAsync();
+        }
+    }
+
+    private async Task RunLocalAuditAsync()
+    {
+        RunAuditButton.IsEnabled = false;
+        RunAuditButton.Opacity = 0.5;
+        ScanProgressPanel.Visibility = Visibility.Visible;
 
         try
         {
+            var engine = new AuditEngine();
+            engine.SetHistoryService(_historyService);
+
+            var progress = new Progress<(string module, int current, int total)>(p =>
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    AgentStatusLabel.Text = $"Scanning: {p.module}...";
+                });
+            });
+
             var report = await engine.RunFullAuditAsync(progress);
-            _lastReport = report;
 
-            // Enable export button
-            ExportButton.IsEnabled = true;
-            ExportButton.Opacity = 1.0;
-
-            ScoreText.Text = $"{report.SecurityScore}";
-            GradeText.Text = $"Grade: {SecurityScorer.GetGrade(report.SecurityScore)}";
-            StatusText.Text = $"Scan complete — {report.TotalFindings} findings";
-
-            // Category cards with trend indicators
-            CategoryList.Items.Clear();
-            var moduleTrends = _historyService.GetModuleHistory();
-            var trendMap = moduleTrends.ToDictionary(t => t.ModuleName, t => t);
-
-            foreach (var result in report.Results)
+            Dispatcher.Invoke(() =>
             {
-                var catScore = SecurityScorer.CalculateCategoryScore(result);
-                trendMap.TryGetValue(result.ModuleName, out var trend);
-                var card = CreateCategoryCard(result, catScore, trend);
-                CategoryList.Items.Add(card);
-            }
+                ScoreText.Text = $"{report.SecurityScore}";
+                GradeText.Text = SecurityScorer.GetGrade(report.SecurityScore);
+                AgentStatusLabel.Text = $"Scan complete — Score: {report.SecurityScore}";
 
-            // Alerts
-            AlertsList.Items.Clear();
-            var alerts = report.Results
-                .SelectMany(r => r.Findings)
-                .Where(f => f.Severity >= Severity.Warning)
-                .OrderByDescending(f => f.Severity)
-                .Take(20);
+                try
+                {
+                    var color = (Color)ColorConverter.ConvertFromString(SecurityScorer.GetScoreColor(report.SecurityScore));
+                    ScoreRing.Stroke = new SolidColorBrush(color);
+                }
+                catch { }
 
-            foreach (var alert in alerts)
-            {
-                AlertsList.Items.Add(CreateAlertItem(alert));
-            }
-
-            if (!alerts.Any())
-            {
-                NoAlertsText.Text = "✅ No critical issues or warnings found!";
-                NoAlertsText.Visibility = Visibility.Visible;
-            }
-
-            // Update trend data after scan
-            LoadTrendData();
+                // Add to timeline
+                _viewModel.TimelineEntries.Add(new TimelineEntry
+                {
+                    Time = DateTime.Now.ToString("HH:mm"),
+                    Icon = "📊",
+                    Description = $"Local audit completed — Score: {report.SecurityScore}/100 ({SecurityScorer.GetGrade(report.SecurityScore)})",
+                    EntryType = TimelineEntryType.Info
+                });
+            });
         }
         catch (Exception ex)
         {
-            StatusText.Text = $"Error: {ex.Message}";
+            AgentStatusLabel.Text = $"Scan failed: {ex.Message}";
         }
         finally
         {
-            ScanButton.IsEnabled = true;
-            ScanProgress.Visibility = Visibility.Collapsed;
-            ProgressText.Visibility = Visibility.Collapsed;
+            RunAuditButton.IsEnabled = true;
+            RunAuditButton.Opacity = 1.0;
+            ScanProgressPanel.Visibility = Visibility.Collapsed;
         }
+    }
+
+    private void PauseResumeButton_Click(object sender, RoutedEventArgs e)
+    {
+        // Toggle pause state (visual only for now — would need IPC command for actual pause)
+        _viewModel.AllMonitorsPaused = !_viewModel.AllMonitorsPaused;
     }
 
     private void ExportButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_lastReport == null)
-        {
-            MessageBox.Show("No scan results available. Run a scan first.", "Export Report",
-                MessageBoxButton.OK, MessageBoxImage.Information);
-            return;
-        }
-
         var dialog = new SaveFileDialog
         {
             Title = "Export Security Report",
@@ -128,23 +274,26 @@ public partial class DashboardPage : Page
                     _ => ReportFormat.Html
                 };
 
-                // Get trend data for the report
                 ScoreTrendSummary? trend = null;
                 try
                 {
                     trend = _historyService.GetTrend(30);
                     if (trend.TotalScans == 0) trend = null;
                 }
-                catch { /* Trend data is optional */ }
+                catch { }
+
+                // We need a report to export — run a quick audit if none available
+                var engine = new AuditEngine();
+                engine.SetHistoryService(_historyService);
+
+                var report = engine.RunFullAuditAsync(null).GetAwaiter().GetResult();
 
                 var generator = new ReportGenerator();
-                generator.SaveReport(dialog.FileName, _lastReport, format, trend);
+                generator.SaveReport(dialog.FileName, report, format, trend);
 
                 var result = MessageBox.Show(
                     $"Report exported successfully!\n\n{dialog.FileName}\n\nOpen the file now?",
-                    "Export Complete",
-                    MessageBoxButton.YesNo,
-                    MessageBoxImage.Information);
+                    "Export Complete", MessageBoxButton.YesNo, MessageBoxImage.Information);
 
                 if (result == MessageBoxResult.Yes)
                 {
@@ -156,7 +305,7 @@ public partial class DashboardPage : Page
                             UseShellExecute = true
                         });
                     }
-                    catch { /* Best effort open */ }
+                    catch { }
                 }
             }
             catch (Exception ex)
@@ -167,221 +316,32 @@ public partial class DashboardPage : Page
         }
     }
 
-    private void LoadTrendData()
+    private void OpenChatButton_Click(object sender, RoutedEventArgs e)
     {
-        try
+        // Navigate to Chat page via MainWindow
+        if (Window.GetWindow(this) is MainWindow mainWindow)
         {
-            var trend = _historyService.GetTrend(30);
-
-            if (trend.TotalScans == 0)
-            {
-                TrendSection.Visibility = Visibility.Collapsed;
-                return;
-            }
-
-            TrendSection.Visibility = Visibility.Visible;
-
-            // Score change text
-            if (trend.PreviousScore.HasValue)
-            {
-                var change = trend.ScoreChange;
-                var arrow = trend.ChangeDirection;
-                var color = change > 0 ? "#4CAF50" : change < 0 ? "#F44336" : "#888888";
-                var sign = change > 0 ? "+" : "";
-                ScoreChangeText.Text = $"{arrow} {sign}{change} since last scan";
-                ScoreChangeText.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString(color));
-            }
-            else
-            {
-                ScoreChangeText.Text = "";
-            }
-
-            // Render text-based trend chart
-            TrendChartText.Text = RenderTextChart(trend);
-
-            // Best/Worst/Average
-            if (trend.BestScore.HasValue)
-            {
-                BestScoreText.Text = $"{trend.BestScore}/{trend.BestScoreGrade}";
-                BestScoreDateText.Text = trend.BestScoreDate?.ToLocalTime().ToString("MMM dd, HH:mm") ?? "";
-            }
-
-            if (trend.WorstScore.HasValue)
-            {
-                WorstScoreText.Text = $"{trend.WorstScore}/{trend.WorstScoreGrade}";
-                WorstScoreDateText.Text = trend.WorstScoreDate?.ToLocalTime().ToString("MMM dd, HH:mm") ?? "";
-            }
-
-            AvgScoreText.Text = $"{trend.AverageScore:F0}";
-            TotalScansText.Text = $"{trend.TotalScans} scans";
-        }
-        catch
-        {
-            TrendSection.Visibility = Visibility.Collapsed;
+            var chatPage = new ChatPage();
+            if (_agentConnection != null)
+                chatPage.SetAgentService(_agentConnection);
+            mainWindow.ContentFrame.Navigate(chatPage);
         }
     }
 
-    /// <summary>
-    /// Render a simple text-based bar chart of score history.
-    /// </summary>
-    private static string RenderTextChart(ScoreTrendSummary trend)
+    private void ViewAllThreats_Click(object sender, RoutedEventArgs e)
     {
-        if (trend.Points.Count == 0) return "No scan history available.";
-
-        var sb = new StringBuilder();
-        var points = trend.Points.TakeLast(15).ToList(); // Last 15 scans
-
-        // Header
-        sb.AppendLine("  Score History (last scans)");
-        sb.AppendLine("  ─────────────────────────────────────────");
-
-        foreach (var point in points)
+        // Navigate to Threat Feed page via MainWindow
+        if (Window.GetWindow(this) is MainWindow mainWindow)
         {
-            var barLen = (int)(point.Score / 5.0); // Scale 0-100 to 0-20 chars
-            var bar = new string('█', barLen);
-            var pad = new string('░', 20 - barLen);
-            var date = point.Timestamp.ToLocalTime().ToString("MM/dd HH:mm");
-            sb.AppendLine($"  {date}  {bar}{pad}  {point.Score}/{point.Grade}");
+            var page = new ThreatFeedPage();
+            if (_agentConnection != null)
+                page.SetAgentService(_agentConnection);
+            mainWindow.ContentFrame.Navigate(page);
         }
-
-        return sb.ToString().TrimEnd();
     }
 
-    private Border CreateCategoryCard(AuditResult result, int score, ModuleTrendInfo? trend)
+    private async void ReconnectButton_Click(object sender, RoutedEventArgs e)
     {
-        var icon = score >= 80 ? "✅" : score >= 60 ? "⚠️" : "🔴";
-
-        var border = new Border
-        {
-            Background = (Brush)Application.Current.Resources["CardBackground"],
-            CornerRadius = new CornerRadius(8),
-            Padding = new Thickness(16),
-            Margin = new Thickness(0, 0, 0, 8),
-        };
-
-        var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-        var info = new StackPanel();
-        info.Children.Add(new TextBlock
-        {
-            Text = $"{icon} {result.Category}",
-            FontWeight = FontWeights.SemiBold,
-            FontSize = 16,
-            Foreground = (Brush)Application.Current.Resources["TextPrimary"]
-        });
-
-        var details = $"🔴 {result.CriticalCount} critical  •  🟡 {result.WarningCount} warnings  •  {result.Findings.Count} total findings";
-        info.Children.Add(new TextBlock
-        {
-            Text = details,
-            Foreground = (Brush)Application.Current.Resources["TextSecondary"],
-            Margin = new Thickness(0, 4, 0, 0)
-        });
-
-        Grid.SetColumn(info, 0);
-        grid.Children.Add(info);
-
-        var scorePanel = new StackPanel { HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
-
-        // Score with trend indicator
-        var trendText = "";
-        var trendColor = (Brush)Application.Current.Resources["TextSecondary"];
-        if (trend != null && trend.PreviousScore.HasValue)
-        {
-            trendText = $" {trend.TrendIndicator}";
-            if (trend.ScoreChange > 0)
-                trendColor = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#4CAF50"));
-            else if (trend.ScoreChange < 0)
-                trendColor = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#F44336"));
-        }
-
-        var scoreRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
-        scoreRow.Children.Add(new TextBlock
-        {
-            Text = $"{score}",
-            FontSize = 28,
-            FontWeight = FontWeights.Bold,
-            Foreground = (Brush)Application.Current.Resources["TextPrimary"]
-        });
-
-        if (!string.IsNullOrEmpty(trendText))
-        {
-            scoreRow.Children.Add(new TextBlock
-            {
-                Text = trendText,
-                FontSize = 20,
-                FontWeight = FontWeights.Bold,
-                Foreground = trendColor,
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(4, 0, 0, 0)
-            });
-        }
-
-        scorePanel.Children.Add(scoreRow);
-
-        var gradeAndChange = SecurityScorer.GetGrade(score);
-        if (trend != null && trend.PreviousScore.HasValue)
-        {
-            var sign = trend.ScoreChange > 0 ? "+" : "";
-            gradeAndChange += $" ({sign}{trend.ScoreChange})";
-        }
-
-        scorePanel.Children.Add(new TextBlock
-        {
-            Text = gradeAndChange,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            Foreground = (Brush)Application.Current.Resources["TextSecondary"]
-        });
-
-        Grid.SetColumn(scorePanel, 1);
-        grid.Children.Add(scorePanel);
-
-        border.Child = grid;
-        return border;
-    }
-
-    private Border CreateAlertItem(Finding finding)
-    {
-        var icon = finding.Severity == Severity.Critical ? "🔴" : "🟡";
-
-        var border = new Border
-        {
-            Background = (Brush)Application.Current.Resources["CardBackground"],
-            CornerRadius = new CornerRadius(6),
-            Padding = new Thickness(12),
-            Margin = new Thickness(0, 0, 0, 6),
-        };
-
-        var stack = new StackPanel();
-        stack.Children.Add(new TextBlock
-        {
-            Text = $"{icon} {finding.Title}",
-            FontWeight = FontWeights.SemiBold,
-            Foreground = (Brush)Application.Current.Resources["TextPrimary"]
-        });
-        stack.Children.Add(new TextBlock
-        {
-            Text = finding.Description,
-            TextWrapping = TextWrapping.Wrap,
-            Foreground = (Brush)Application.Current.Resources["TextSecondary"],
-            Margin = new Thickness(0, 2, 0, 0)
-        });
-
-        if (finding.Remediation != null)
-        {
-            stack.Children.Add(new TextBlock
-            {
-                Text = $"💡 {finding.Remediation}",
-                TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 4, 0, 0),
-                FontStyle = FontStyles.Italic,
-                Foreground = (Brush)Application.Current.Resources["TextSecondary"]
-            });
-        }
-
-        border.Child = stack;
-        return border;
+        await _viewModel.ReconnectAsync();
     }
 }

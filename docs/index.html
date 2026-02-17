@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WinSentinel — Real-time Windows Security Auditing</title>
-    <meta name="description" content="9 security audit modules • Real-time scoring • One-click fixes • AI chat assistant. Local-first Windows security auditor built with .NET 8.">
+    <title>WinSentinel — Your Always-On Windows Security Agent</title>
+    <meta name="description" content="Always-on Windows security agent with real-time monitoring, AI-powered threat detection, auto-remediation, and 13 audit modules. Local-first, open source, MIT licensed.">
     <meta name="theme-color" content="#0f172a">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛡️</text></svg>">
     <style>
@@ -34,12 +34,11 @@
             overflow-x: hidden;
         }
 
-        /* Animated background grid */
         body::before {
             content: '';
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
-            background-image: 
+            background-image:
                 linear-gradient(rgba(59, 130, 246, 0.03) 1px, transparent 1px),
                 linear-gradient(90deg, rgba(59, 130, 246, 0.03) 1px, transparent 1px);
             background-size: 50px 50px;
@@ -128,7 +127,7 @@
         .hero .subtitle {
             font-size: clamp(1.1rem, 2.5vw, 1.35rem);
             color: var(--text-secondary);
-            max-width: 650px;
+            max-width: 700px;
             margin: 0 auto 40px;
             line-height: 1.7;
         }
@@ -173,6 +172,49 @@
             border-color: var(--accent);
             background: rgba(59, 130, 246, 0.05);
         }
+
+        /* SECTION TITLE */
+        .section-title {
+            text-align: center;
+            margin-bottom: 56px;
+        }
+
+        .section-title h2 {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 12px;
+        }
+
+        .section-title p {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        /* ARCHITECTURE */
+        .architecture {
+            padding: 60px 0 80px;
+        }
+
+        .arch-diagram {
+            background: #0d1117;
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 40px;
+            max-width: 700px;
+            margin: 0 auto;
+            font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+            font-size: 0.82rem;
+            line-height: 1.6;
+            overflow-x: auto;
+            color: #c9d1d9;
+        }
+
+        .arch-diagram .agent-label { color: var(--accent); font-weight: 700; }
+        .arch-diagram .ui-label { color: var(--green); font-weight: 700; }
+        .arch-diagram .module { color: #eab308; }
+        .arch-diagram .pipe { color: var(--text-secondary); }
 
         /* SCORE DEMO */
         .score-section {
@@ -227,7 +269,7 @@
 
         .module-name { color: var(--text-primary); }
         .module-score { color: var(--text-secondary); min-width: 50px; text-align: right; }
-        
+
         .bar {
             flex: 1;
             height: 6px;
@@ -245,25 +287,6 @@
 
         .bar-green { background: var(--green); }
         .bar-yellow { background: var(--yellow); }
-
-        /* SECTION TITLE */
-        .section-title {
-            text-align: center;
-            margin-bottom: 56px;
-        }
-
-        .section-title h2 {
-            font-size: 2rem;
-            font-weight: 700;
-            margin-bottom: 12px;
-        }
-
-        .section-title p {
-            color: var(--text-secondary);
-            font-size: 1.1rem;
-            max-width: 550px;
-            margin: 0 auto;
-        }
 
         /* FEATURES */
         .features {
@@ -334,6 +357,56 @@
         .module-card .icon { font-size: 2rem; margin-bottom: 10px; display: block; }
         .module-card h4 { font-size: 1rem; margin-bottom: 6px; }
         .module-card p { font-size: 0.82rem; color: var(--text-secondary); }
+
+        /* MONITORS */
+        .monitors {
+            padding: 80px 0;
+        }
+
+        .monitors-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 20px;
+        }
+
+        .monitor-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 28px;
+            text-align: center;
+            transition: all 0.2s;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .monitor-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--green), var(--accent));
+        }
+
+        .monitor-card:hover { border-color: var(--accent); }
+        .monitor-card .icon { font-size: 2.2rem; margin-bottom: 12px; display: block; }
+        .monitor-card h4 { font-size: 1.05rem; margin-bottom: 8px; }
+        .monitor-card p { font-size: 0.85rem; color: var(--text-secondary); line-height: 1.5; }
+
+        .pulse {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--green);
+            margin-right: 6px;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
+            50% { opacity: 0.7; box-shadow: 0 0 0 8px rgba(34, 197, 94, 0); }
+        }
 
         /* QUICKSTART */
         .quickstart {
@@ -419,6 +492,8 @@
             .score-card { padding: 24px; }
             .features-grid { grid-template-columns: 1fr; }
             .modules-grid { grid-template-columns: repeat(2, 1fr); }
+            .monitors-grid { grid-template-columns: 1fr 1fr; }
+            .arch-diagram { font-size: 0.7rem; padding: 20px; }
         }
     </style>
 </head>
@@ -428,7 +503,9 @@
         <div class="container">
             <a href="#" class="logo">🛡️ WinSentinel</a>
             <ul class="links">
+                <li><a href="#architecture">Architecture</a></li>
                 <li><a href="#features">Features</a></li>
+                <li><a href="#monitors">Monitors</a></li>
                 <li><a href="#modules">Modules</a></li>
                 <li><a href="#quickstart">Quick Start</a></li>
                 <li><a href="https://github.com/sauravbhattacharya001/WinSentinel">GitHub</a></li>
@@ -439,10 +516,10 @@
     <!-- HERO -->
     <section class="hero">
         <div class="container">
-            <span class="hero-badge">🔒 Open Source • Local-First • MIT License</span>
+            <span class="hero-badge">🔒 Always-On Agent • Open Source • MIT License</span>
             <h1>WinSentinel</h1>
             <p class="subtitle">
-                Real-time Windows security auditing with 9 modules, instant scoring, one-click fixes, and an AI chat assistant. Everything runs locally — no data leaves your machine.
+                Your always-on Windows security agent. Real-time monitoring with 4 live watchers, AI-powered threat correlation, autonomous remediation, and 13 audit modules — all running locally.
             </p>
             <div class="hero-buttons">
                 <a href="https://github.com/sauravbhattacharya001/WinSentinel" class="btn btn-primary">
@@ -455,16 +532,81 @@
         </div>
     </section>
 
+    <!-- ARCHITECTURE -->
+    <section class="architecture" id="architecture">
+        <div class="container">
+            <div class="section-title">
+                <h2>🏗️ Agent Architecture</h2>
+                <p>A two-process design: a background agent that never sleeps, and a dashboard that connects in real time</p>
+            </div>
+            <div class="arch-diagram">
+<span class="pipe">┌─────────────────────────────────┐</span>
+<span class="pipe">│</span> <span class="agent-label">WinSentinel Agent (Win Service)</span> <span class="pipe">│</span>
+<span class="pipe">│</span> <span class="module">├── Process Monitor</span>             <span class="pipe">│</span>
+<span class="pipe">│</span> <span class="module">├── File System Watcher</span>         <span class="pipe">│</span>
+<span class="pipe">│</span> <span class="module">├── Event Log Listener</span>          <span class="pipe">│</span>
+<span class="pipe">│</span> <span class="module">├── Network Monitor</span>             <span class="pipe">│</span>
+<span class="pipe">│</span> <span class="module">├── Scheduled Auditor (13 mods)</span> <span class="pipe">│</span>
+<span class="pipe">│</span> <span class="module">├── Agent Brain + Correlator</span>    <span class="pipe">│</span>
+<span class="pipe">│</span> <span class="module">├── Auto-Remediator (7 actions)</span> <span class="pipe">│</span>
+<span class="pipe">│</span> <span class="module">└── IPC Server (named pipe)</span>     <span class="pipe">│</span>
+<span class="pipe">└──────────────┬──────────────────┘</span>
+<span class="pipe">               │</span>
+<span class="pipe">┌──────────────┴──────────────────┐</span>
+<span class="pipe">│</span> <span class="ui-label">WinSentinel UI (WPF Dashboard)</span>  <span class="pipe">│</span>
+<span class="pipe">│</span> <span class="module">├── Live Dashboard</span>              <span class="pipe">│</span>
+<span class="pipe">│</span> <span class="module">├── Real-time Threat Feed</span>       <span class="pipe">│</span>
+<span class="pipe">│</span> <span class="module">├── Chat Control Plane</span>          <span class="pipe">│</span>
+<span class="pipe">│</span> <span class="module">├── Score History & Trends</span>      <span class="pipe">│</span>
+<span class="pipe">│</span> <span class="module">├── Policy Configuration</span>        <span class="pipe">│</span>
+<span class="pipe">│</span> <span class="module">└── Export Reports</span>              <span class="pipe">│</span>
+<span class="pipe">└─────────────────────────────────┘</span>
+            </div>
+        </div>
+    </section>
+
+    <!-- LIVE MONITORS -->
+    <section class="monitors" id="monitors">
+        <div class="container">
+            <div class="section-title">
+                <h2><span class="pulse"></span> Real-Time Monitoring</h2>
+                <p>Four always-on watchers that detect threats the moment they happen</p>
+            </div>
+            <div class="monitors-grid">
+                <div class="monitor-card">
+                    <span class="icon">⚙️</span>
+                    <h4>Process Monitor</h4>
+                    <p>Watches process creation &amp; termination. Detects suspicious executables, unsigned binaries, temp-path launches.</p>
+                </div>
+                <div class="monitor-card">
+                    <span class="icon">📁</span>
+                    <h4>File System Watcher</h4>
+                    <p>Monitors file changes in critical directories. Detects hosts file tampering, new executables in startup folders.</p>
+                </div>
+                <div class="monitor-card">
+                    <span class="icon">📋</span>
+                    <h4>Event Log Listener</h4>
+                    <p>Watches Windows Security &amp; System logs. Detects failed logons, privilege escalation, service installations.</p>
+                </div>
+                <div class="monitor-card">
+                    <span class="icon">🌐</span>
+                    <h4>Network Monitor</h4>
+                    <p>Tracks active connections &amp; listening ports. Detects new services, suspicious outbound connections, DNS anomalies.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
     <!-- LIVE SCORE -->
     <section class="score-section">
         <div class="container">
             <div class="section-title">
                 <h2>📊 Real-Time Security Score</h2>
-                <p>See your Windows security posture at a glance with per-module breakdown</p>
+                <p>See your Windows security posture at a glance — 13 modules, per-module breakdown</p>
             </div>
             <div class="score-card">
                 <div class="header">WinSentinel Security Audit Report</div>
-                <div class="big-score">95 / 100</div>
+                <div class="big-score">92 / 100</div>
                 <div class="grade">Grade: A — Excellent</div>
 
                 <div class="module-row">
@@ -512,6 +654,26 @@
                     <div class="bar"><div class="bar-fill bar-green" style="width: 95%"></div></div>
                     <span class="module-score">95</span>
                 </div>
+                <div class="module-row">
+                    <span class="module-name">🌍 Browser</span>
+                    <div class="bar"><div class="bar-fill bar-yellow" style="width: 85%"></div></div>
+                    <span class="module-score">85</span>
+                </div>
+                <div class="module-row">
+                    <span class="module-name">📦 App Security</span>
+                    <div class="bar"><div class="bar-fill bar-green" style="width: 90%"></div></div>
+                    <span class="module-score">90</span>
+                </div>
+                <div class="module-row">
+                    <span class="module-name">🔐 Encryption</span>
+                    <div class="bar"><div class="bar-fill bar-yellow" style="width: 80%"></div></div>
+                    <span class="module-score">80</span>
+                </div>
+                <div class="module-row">
+                    <span class="module-name">📋 Event Log</span>
+                    <div class="bar"><div class="bar-fill bar-yellow" style="width: 85%"></div></div>
+                    <span class="module-score">85</span>
+                </div>
             </div>
         </div>
     </section>
@@ -521,38 +683,53 @@
         <div class="container">
             <div class="section-title">
                 <h2>⚡ Why WinSentinel?</h2>
-                <p>Built for developers and power users who want real visibility into their system's security</p>
+                <p>More than an auditor — a living security agent that watches, thinks, and acts</p>
             </div>
             <div class="features-grid">
                 <div class="feature-card">
-                    <span class="feature-icon">🏠</span>
-                    <h3>100% Local</h3>
-                    <p>All analysis runs on your machine. No cloud, no telemetry, no accounts. Your data stays yours.</p>
+                    <span class="feature-icon">🤖</span>
+                    <h3>Always-On Agent</h3>
+                    <p>Runs as a Windows Service 24/7. Monitors processes, files, event logs, and network in real time — even when the dashboard is closed.</p>
                 </div>
                 <div class="feature-card">
-                    <span class="feature-icon">📊</span>
-                    <h3>Real-Time Scoring</h3>
-                    <p>0-100 security score with letter grades (A+ through F) and per-module breakdown. Know your posture instantly.</p>
+                    <span class="feature-icon">🧠</span>
+                    <h3>AI-Powered Threat Correlation</h3>
+                    <p>Agent Brain correlates individual events into attack chains. Detects multi-stage attacks that single-event analysis misses.</p>
                 </div>
                 <div class="feature-card">
                     <span class="feature-icon">🔧</span>
-                    <h3>One-Click Fixes</h3>
-                    <p>Included PowerShell fix scripts remediate common issues automatically. Run, re-scan, see improvements.</p>
+                    <h3>Auto-Remediation + Undo</h3>
+                    <p>7 autonomous response actions: kill process, quarantine file, block IP, and more. Every action has full undo support.</p>
                 </div>
                 <div class="feature-card">
-                    <span class="feature-icon">🤖</span>
-                    <h3>AI Chat Assistant</h3>
-                    <p>Ask security questions in natural language. Powered by local Ollama LLMs or built-in rule engine.</p>
+                    <span class="feature-icon">💬</span>
+                    <h3>Chat Control Plane</h3>
+                    <p>25+ commands plus natural language. Ask questions, run audits, configure policies — talk to your agent like a colleague.</p>
                 </div>
                 <div class="feature-card">
-                    <span class="feature-icon">📦</span>
-                    <h3>Easy Install</h3>
-                    <p>MSIX installer, portable ZIP, or build from source. One PowerShell command to install, one to audit.</p>
+                    <span class="feature-icon">📊</span>
+                    <h3>13 Audit Modules</h3>
+                    <p>Comprehensive coverage: Firewall, Defender, Network, Privacy, Browser, Encryption, Event Log, and more. Real Windows API calls.</p>
                 </div>
                 <div class="feature-card">
-                    <span class="feature-icon">✅</span>
-                    <h3>Battle-Tested</h3>
-                    <p>124 xUnit tests, GitHub Actions CI/CD, automated MSIX packaging with code signing. Production ready.</p>
+                    <span class="feature-icon">🏠</span>
+                    <h3>100% Local</h3>
+                    <p>Everything runs on your machine. No cloud, no telemetry, no accounts. Your security data never leaves your system.</p>
+                </div>
+                <div class="feature-card">
+                    <span class="feature-icon">📈</span>
+                    <h3>Score History & Trends</h3>
+                    <p>SQLite-backed audit history with score tracking. See how your security posture changes over days and weeks.</p>
+                </div>
+                <div class="feature-card">
+                    <span class="feature-icon">📋</span>
+                    <h3>Multi-Format Export</h3>
+                    <p>Generate reports in HTML, JSON, Text, and Markdown. Share results, feed into pipelines, keep records.</p>
+                </div>
+                <div class="feature-card">
+                    <span class="feature-icon">⚙️</span>
+                    <h3>Configurable Policies</h3>
+                    <p>Risk tolerance, per-category rules, auto-remediation triggers — tune the agent to match your environment and risk appetite.</p>
                 </div>
             </div>
         </div>
@@ -562,7 +739,7 @@
     <section class="modules" id="modules">
         <div class="container">
             <div class="section-title">
-                <h2>🔍 9 Security Audit Modules</h2>
+                <h2>🔍 13 Security Audit Modules</h2>
                 <p>Comprehensive coverage of your Windows security configuration</p>
             </div>
             <div class="modules-grid">
@@ -611,6 +788,26 @@
                     <h4>Privacy</h4>
                     <p>Telemetry, tracking, permissions</p>
                 </div>
+                <div class="module-card">
+                    <span class="icon">🌍</span>
+                    <h4>Browser</h4>
+                    <p>Chrome/Edge settings, extensions</p>
+                </div>
+                <div class="module-card">
+                    <span class="icon">📦</span>
+                    <h4>App Security</h4>
+                    <p>Outdated software, EOL detection</p>
+                </div>
+                <div class="module-card">
+                    <span class="icon">🔐</span>
+                    <h4>Encryption</h4>
+                    <p>BitLocker, EFS, TPM, certificates</p>
+                </div>
+                <div class="module-card">
+                    <span class="icon">📋</span>
+                    <h4>Event Log</h4>
+                    <p>Failed logins, security events</p>
+                </div>
             </div>
         </div>
     </section>
@@ -620,16 +817,19 @@
         <div class="container">
             <div class="section-title">
                 <h2>🚀 Get Started in 30 Seconds</h2>
-                <p>Clone, build, audit — it's that simple</p>
+                <p>Clone, build, and start your security agent</p>
             </div>
             <div class="code-block">
                 <span class="comment"># Clone the repo</span><br>
                 <span class="cmd">git clone</span> https://github.com/sauravbhattacharya001/WinSentinel.git<br>
                 <span class="cmd">cd</span> WinSentinel<br><br>
-                <span class="comment"># Build & run</span><br>
-                <span class="cmd">dotnet build</span> WinSentinel.sln -p:Platform=x64<br>
+                <span class="comment"># Build everything</span><br>
+                <span class="cmd">dotnet build</span> WinSentinel.sln -p:Platform=x64<br><br>
+                <span class="comment"># Run the dashboard</span><br>
                 <span class="cmd">dotnet run</span> --project src/WinSentinel.App -p:Platform=x64<br><br>
-                <span class="comment"># Or run CLI audit directly</span><br>
+                <span class="comment"># Install the agent as a Windows Service</span><br>
+                <span class="cmd">.\Install-Agent.ps1</span> -Install<br><br>
+                <span class="comment"># Or run a quick CLI audit</span><br>
                 <span class="cmd">.\RunAudit.ps1</span>
             </div>
         </div>
@@ -645,9 +845,11 @@
                 <span class="tech-pill">💜 .NET 8</span>
                 <span class="tech-pill">🖥️ WPF</span>
                 <span class="tech-pill"># C# 12</span>
-                <span class="tech-pill">🧪 xUnit</span>
+                <span class="tech-pill">🧪 xUnit (192+ tests)</span>
                 <span class="tech-pill">📦 MSIX</span>
                 <span class="tech-pill">⚙️ GitHub Actions</span>
+                <span class="tech-pill">🗄️ SQLite</span>
+                <span class="tech-pill">🔌 Named Pipes IPC</span>
                 <span class="tech-pill">🤖 Ollama</span>
                 <span class="tech-pill">🛡️ CommunityToolkit.Mvvm</span>
             </div>
@@ -657,8 +859,8 @@
     <!-- CTA -->
     <section class="cta">
         <div class="container">
-            <h2>Ready to audit your Windows security?</h2>
-            <p>WinSentinel is free, open source, and respects your privacy.</p>
+            <h2>Ready for always-on Windows security?</h2>
+            <p>WinSentinel is free, open source, and runs entirely on your machine.</p>
             <div class="hero-buttons">
                 <a href="https://github.com/sauravbhattacharya001/WinSentinel" class="btn btn-primary">
                     ⭐ Star on GitHub

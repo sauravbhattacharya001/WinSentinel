@@ -1,0 +1,28 @@
+name: Copilot Setup Steps
+
+# This workflow is used by GitHub Copilot coding agents (Claude, Codex, etc.)
+# to set up the environment for autonomous development on this repository.
+
+on: workflow_dispatch
+
+jobs:
+  setup:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore WinSentinel.sln
+
+      - name: Build solution (Release, x64)
+        run: dotnet build WinSentinel.sln --no-restore --configuration Release -p:Platform=x64
+
+      - name: Run tests
+        run: dotnet test --no-build --configuration Release -p:Platform=x64 --verbosity normal

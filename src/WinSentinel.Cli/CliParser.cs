@@ -20,6 +20,10 @@ public class CliOptions
     public int HistoryDays { get; set; } = 30;
     public int HistoryLimit { get; set; } = 20;
     public string? Error { get; set; }
+    public BaselineAction BaselineAction { get; set; } = BaselineAction.None;
+    public string? BaselineName { get; set; }
+    public string? BaselineDescription { get; set; }
+    public bool Force { get; set; }
 }
 
 public enum CliCommand
@@ -29,8 +33,18 @@ public enum CliCommand
     Score,
     FixAll,
     History,
+    Baseline,
     Help,
     Version
+}
+
+public enum BaselineAction
+{
+    None,
+    Save,
+    List,
+    Check,
+    Delete
 }
 
 /// <summary>
@@ -78,6 +92,62 @@ public static class CliParser
 
                 case "--history":
                     options.Command = CliCommand.History;
+                    break;
+
+                case "--baseline":
+                    options.Command = CliCommand.Baseline;
+                    // Next arg should be the action: save, list, check, delete
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                    {
+                        var action = args[++i].ToLowerInvariant();
+                        options.BaselineAction = action switch
+                        {
+                            "save" => BaselineAction.Save,
+                            "list" => BaselineAction.List,
+                            "check" => BaselineAction.Check,
+                            "delete" => BaselineAction.Delete,
+                            _ => BaselineAction.None
+                        };
+                        if (options.BaselineAction == BaselineAction.None)
+                        {
+                            options.Error = $"Unknown baseline action: {action}. Use save, list, check, or delete.";
+                            return options;
+                        }
+                        // For save, check, delete: next arg is the name
+                        if (options.BaselineAction is BaselineAction.Save or BaselineAction.Check or BaselineAction.Delete)
+                        {
+                            if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                            {
+                                options.BaselineName = args[++i];
+                            }
+                            else
+                            {
+                                options.Error = $"Missing baseline name for '{action}'. Usage: --baseline {action} <name>";
+                                return options;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // No action specified, default to list
+                        options.BaselineAction = BaselineAction.List;
+                    }
+                    break;
+
+                case "--desc":
+                    if (i + 1 < args.Length)
+                    {
+                        options.BaselineDescription = args[++i];
+                    }
+                    else
+                    {
+                        options.Error = "Missing value for --desc.";
+                        return options;
+                    }
+                    break;
+
+                case "--force":
+                    options.Force = true;
                     break;
 
                 case "--compare":

@@ -324,6 +324,10 @@ public static class ConsoleFormatter
         Console.ForegroundColor = original;
         Console.WriteLine("View past audit runs and score trends");
         Console.ForegroundColor = ConsoleColor.White;
+        Console.Write("    --baseline <action>  ");
+        Console.ForegroundColor = original;
+        Console.WriteLine("Manage security baselines (save/list/check/delete)");
+        Console.ForegroundColor = ConsoleColor.White;
         Console.Write("    --help, -h           ");
         Console.ForegroundColor = original;
         Console.WriteLine("Show this help message");
@@ -377,6 +381,14 @@ public static class ConsoleFormatter
         Console.Write("    --limit, -l <n>      ");
         Console.ForegroundColor = original;
         Console.WriteLine("Max number of history entries to show (default: 20)");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.Write("    --desc <text>        ");
+        Console.ForegroundColor = original;
+        Console.WriteLine("Description for a baseline (with --baseline save)");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.Write("    --force              ");
+        Console.ForegroundColor = original;
+        Console.WriteLine("Overwrite existing baseline (with --baseline save)");
         Console.WriteLine();
         Console.WriteLine("  EXAMPLES:");
         Console.ForegroundColor = ConsoleColor.DarkGray;
@@ -394,6 +406,12 @@ public static class ConsoleFormatter
         Console.WriteLine("    winsentinel --history --diff                     # Show new/resolved findings");
         Console.WriteLine("    winsentinel --history --json                     # History as JSON");
         Console.WriteLine("    winsentinel --history --days 7                   # Last 7 days only");
+        Console.WriteLine("    winsentinel --baseline save prod                 # Save current state as baseline");
+        Console.WriteLine("    winsentinel --baseline save prod --desc \"...\"    # With description");
+        Console.WriteLine("    winsentinel --baseline list                      # List all saved baselines");
+        Console.WriteLine("    winsentinel --baseline check prod                # Check current vs baseline");
+        Console.WriteLine("    winsentinel --baseline check prod --json         # Check result as JSON");
+        Console.WriteLine("    winsentinel --baseline delete prod               # Delete a baseline");
         Console.ForegroundColor = original;
         Console.WriteLine();
         Console.WriteLine("  EXIT CODES:");
@@ -865,6 +883,346 @@ public static class ConsoleFormatter
         {
             Console.ForegroundColor = ConsoleColor.DarkGray;
             Console.WriteLine("  No changes in findings between these two runs.");
+            Console.ForegroundColor = original;
+            Console.WriteLine();
+        }
+    }
+
+    // ── Baseline Formatting ──────────────────────────────────────────────
+
+    /// <summary>
+    /// Print confirmation after saving a baseline.
+    /// </summary>
+    public static void PrintBaselineSaved(SecurityBaseline baseline)
+    {
+        var original = Console.ForegroundColor;
+
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.WriteLine();
+        Console.WriteLine("  ╔══════════════════════════════════════════════╗");
+        Console.WriteLine("  ║       📌 Baseline Saved                     ║");
+        Console.WriteLine("  ╚══════════════════════════════════════════════╝");
+        Console.ForegroundColor = original;
+        Console.WriteLine();
+
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.Write("  Name:     ");
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.WriteLine(baseline.Name);
+
+        if (!string.IsNullOrEmpty(baseline.Description))
+        {
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.Write("  Desc:     ");
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine(baseline.Description);
+        }
+
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.Write("  Score:    ");
+        Console.ForegroundColor = GetScoreConsoleColor(baseline.OverallScore);
+        Console.WriteLine($"{baseline.OverallScore}/100 ({baseline.Grade})");
+
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.Write("  Findings: ");
+        Console.ForegroundColor = ConsoleColor.Red;
+        Console.Write($"{baseline.CriticalCount} critical");
+        Console.ForegroundColor = original;
+        Console.Write(" │ ");
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.Write($"{baseline.WarningCount} warnings");
+        Console.ForegroundColor = original;
+        Console.Write(" │ ");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine($"{baseline.TotalFindings} total");
+
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.Write("  Modules:  ");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine($"{baseline.ModuleScores.Count} captured");
+
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.Write("  Machine:  ");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine(baseline.MachineName);
+
+        Console.ForegroundColor = original;
+        Console.WriteLine();
+
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.WriteLine("  ✓ Baseline snapshot saved. Check against it with:");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine($"    winsentinel --baseline check {baseline.Name}");
+        Console.ForegroundColor = original;
+        Console.WriteLine();
+    }
+
+    /// <summary>
+    /// Print a list of saved baselines.
+    /// </summary>
+    public static void PrintBaselineList(List<BaselineSummary> baselines, bool quiet = false)
+    {
+        var original = Console.ForegroundColor;
+
+        if (!quiet)
+        {
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine();
+            Console.WriteLine("  ╔══════════════════════════════════════════════╗");
+            Console.WriteLine("  ║       📌 Saved Baselines                    ║");
+            Console.WriteLine("  ╚══════════════════════════════════════════════╝");
+            Console.ForegroundColor = original;
+            Console.WriteLine();
+        }
+
+        // Table header
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine($"  {"Name",-20} {"Score",6} {"Grade",6} {"Crit",6} {"Warn",6} {"Total",6}  {"Created",-20} Machine");
+        Console.WriteLine($"  {new string('─', 20)} {new string('─', 6)} {new string('─', 6)} {new string('─', 6)} {new string('─', 6)} {new string('─', 6)}  {new string('─', 20)} {new string('─', 15)}");
+        Console.ForegroundColor = original;
+
+        foreach (var b in baselines)
+        {
+            var scoreColor = GetScoreConsoleColor(b.OverallScore);
+
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.Write($"  {b.Name,-20}");
+            Console.ForegroundColor = scoreColor;
+            Console.Write($" {b.OverallScore,6}");
+            Console.Write($" {b.Grade,6}");
+            Console.ForegroundColor = b.CriticalCount > 0 ? ConsoleColor.Red : original;
+            Console.Write($" {b.CriticalCount,6}");
+            Console.ForegroundColor = b.WarningCount > 0 ? ConsoleColor.Yellow : original;
+            Console.Write($" {b.WarningCount,6}");
+            Console.ForegroundColor = original;
+            Console.Write($" {b.TotalFindings,6}");
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.Write($"  {b.CreatedAt.ToLocalTime():yyyy-MM-dd HH:mm,-20}");
+            Console.Write($" {b.MachineName}");
+            Console.ForegroundColor = original;
+            Console.WriteLine();
+
+            if (!quiet && !string.IsNullOrEmpty(b.Description))
+            {
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.WriteLine($"  └ {b.Description}");
+                Console.ForegroundColor = original;
+            }
+        }
+
+        Console.WriteLine();
+
+        if (!quiet)
+        {
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine($"  {baselines.Count} baseline(s) saved.");
+            Console.ForegroundColor = original;
+            Console.WriteLine();
+        }
+    }
+
+    /// <summary>
+    /// Print baseline check results showing deviations from the saved baseline.
+    /// </summary>
+    public static void PrintBaselineCheck(BaselineCheckResult result, bool quiet = false)
+    {
+        var original = Console.ForegroundColor;
+
+        if (!quiet)
+        {
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine();
+            Console.WriteLine("  ╔══════════════════════════════════════════════╗");
+            Console.WriteLine("  ║       📌 Baseline Check                     ║");
+            Console.WriteLine("  ╚══════════════════════════════════════════════╝");
+            Console.ForegroundColor = original;
+            Console.WriteLine();
+
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.Write("  Baseline: ");
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.Write($"{result.Baseline.Name}");
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine($"  (saved {result.Baseline.CreatedAt.ToLocalTime():yyyy-MM-dd HH:mm})");
+            Console.ForegroundColor = original;
+            Console.WriteLine();
+        }
+
+        // Score comparison
+        var scoreChange = result.ScoreChange;
+        var changeColor = scoreChange > 0 ? ConsoleColor.Green : scoreChange < 0 ? ConsoleColor.Red : ConsoleColor.DarkGray;
+        var changeArrow = scoreChange > 0 ? "↑" : scoreChange < 0 ? "↓" : "→";
+
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write("  Baseline: ");
+        Console.ForegroundColor = GetScoreConsoleColor(result.Baseline.OverallScore);
+        Console.Write($"{result.Baseline.OverallScore}/100 ({result.Baseline.Grade})");
+        Console.ForegroundColor = original;
+        Console.WriteLine();
+
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write("  Current:  ");
+        Console.ForegroundColor = GetScoreConsoleColor(result.CurrentScore);
+        Console.Write($"{result.CurrentScore}/100 ({SecurityScorer.GetGrade(result.CurrentScore)})");
+        Console.ForegroundColor = original;
+        Console.WriteLine();
+
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write("  Change:   ");
+        Console.ForegroundColor = changeColor;
+        Console.WriteLine($"{changeArrow} {Math.Abs(scoreChange)} points");
+        Console.ForegroundColor = original;
+        Console.WriteLine();
+
+        // Overall verdict
+        var verdictColor = result.Passed ? ConsoleColor.Green : ConsoleColor.Red;
+        var verdictIcon = result.Passed ? "✅" : "❌";
+        var verdictText = result.Passed ? "BASELINE CHECK PASSED" : "BASELINE CHECK FAILED";
+
+        Console.ForegroundColor = verdictColor;
+        Console.WriteLine($"  {verdictIcon} {verdictText}");
+        Console.ForegroundColor = original;
+        Console.WriteLine();
+
+        // Deviation summary
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write("  ");
+        Console.ForegroundColor = ConsoleColor.Red;
+        Console.Write($"{result.Regressions.Count} regressions");
+        Console.ForegroundColor = original;
+        Console.Write("  │  ");
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.Write($"{result.Resolved.Count} resolved");
+        Console.ForegroundColor = original;
+        Console.Write("  │  ");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write($"{result.Unchanged.Count} unchanged");
+        Console.ForegroundColor = original;
+        Console.WriteLine();
+        Console.WriteLine();
+
+        // Module deviations table
+        if (!quiet)
+        {
+            var deviationsWithChange = result.ModuleDeviations.Where(d => d.ScoreChange != 0).ToList();
+            if (deviationsWithChange.Count > 0)
+            {
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.WriteLine("  ── Module Deviations ─────────────────────────");
+                Console.ForegroundColor = original;
+                Console.WriteLine();
+
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.WriteLine($"  {"Module",-22} {"Baseline",10} {"Current",10} {"Change",8}  Status");
+                Console.WriteLine($"  {new string('─', 22)} {new string('─', 10)} {new string('─', 10)} {new string('─', 8)}  {new string('─', 10)}");
+                Console.ForegroundColor = original;
+
+                foreach (var dev in deviationsWithChange)
+                {
+                    var devChangeColor = dev.ScoreChange > 0 ? ConsoleColor.Green : ConsoleColor.Red;
+                    var devArrow = dev.ScoreChange > 0 ? "↑" : "↓";
+                    var statusEmoji = dev.ScoreChange > 0 ? "✅" : "⚠️";
+
+                    Console.Write($"  {dev.Category,-22}");
+                    Console.ForegroundColor = GetScoreConsoleColor(dev.BaselineScore);
+                    Console.Write($" {dev.BaselineScore,10}");
+                    Console.ForegroundColor = GetScoreConsoleColor(dev.CurrentScore);
+                    Console.Write($" {dev.CurrentScore,10}");
+                    Console.ForegroundColor = devChangeColor;
+                    Console.Write($" {devArrow}{Math.Abs(dev.ScoreChange),6}");
+                    Console.ForegroundColor = original;
+                    Console.WriteLine($"  {statusEmoji}");
+                }
+
+                Console.WriteLine();
+            }
+        }
+
+        // Regressions (new findings not in baseline)
+        if (result.Regressions.Count > 0)
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"  ┌─ Regressions ({result.Regressions.Count})  — new issues since baseline");
+            Console.ForegroundColor = original;
+
+            foreach (var finding in result.Regressions)
+            {
+                var severityColor = finding.Severity switch
+                {
+                    "Critical" => ConsoleColor.Red,
+                    "Warning" => ConsoleColor.Yellow,
+                    "Info" => ConsoleColor.Cyan,
+                    _ => ConsoleColor.Green
+                };
+
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.Write("  │  + ");
+                Console.ForegroundColor = severityColor;
+                Console.Write($"[{finding.Severity,-8}]");
+                Console.ForegroundColor = ConsoleColor.White;
+                Console.Write($" {finding.Title}");
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.WriteLine($"  ({finding.ModuleName})");
+
+                if (!quiet && !string.IsNullOrEmpty(finding.Description))
+                {
+                    Console.ForegroundColor = ConsoleColor.DarkGray;
+                    Console.WriteLine($"  │    {finding.Description}");
+                }
+
+                if (!quiet && !string.IsNullOrEmpty(finding.Remediation))
+                {
+                    Console.ForegroundColor = ConsoleColor.Green;
+                    Console.WriteLine($"  │    → {finding.Remediation}");
+                }
+
+                Console.ForegroundColor = original;
+            }
+
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine("  └─────────────────────────────────");
+            Console.ForegroundColor = original;
+            Console.WriteLine();
+        }
+
+        // Resolved findings (improvements since baseline)
+        if (result.Resolved.Count > 0 && !quiet)
+        {
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"  ┌─ Resolved ({result.Resolved.Count})  — fixed since baseline");
+            Console.ForegroundColor = original;
+
+            foreach (var finding in result.Resolved)
+            {
+                var severityColor = finding.Severity switch
+                {
+                    "Critical" => ConsoleColor.Red,
+                    "Warning" => ConsoleColor.Yellow,
+                    "Info" => ConsoleColor.Cyan,
+                    _ => ConsoleColor.Green
+                };
+
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.Write("  │  - ");
+                Console.ForegroundColor = severityColor;
+                Console.Write($"[{finding.Severity,-8}]");
+                Console.ForegroundColor = ConsoleColor.White;
+                Console.Write($" {finding.Title}");
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.WriteLine($"  ({finding.ModuleName})");
+                Console.ForegroundColor = original;
+            }
+
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine("  └─────────────────────────────────");
+            Console.ForegroundColor = original;
+            Console.WriteLine();
+        }
+
+        if (result.Regressions.Count == 0 && result.Resolved.Count == 0)
+        {
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine("  ✓ No deviations from baseline — system state matches.");
             Console.ForegroundColor = original;
             Console.WriteLine();
         }

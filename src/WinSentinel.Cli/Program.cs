@@ -25,6 +25,7 @@ return options.Command switch
     CliCommand.Audit => await HandleAudit(options),
     CliCommand.FixAll => await HandleFixAll(options),
     CliCommand.History => HandleHistory(options),
+    CliCommand.Baseline => await HandleBaseline(options),
     _ => HandleHelp()
 };
 
@@ -257,6 +258,289 @@ static async Task<int> HandleFixAll(CliOptions options)
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
+
+static async Task<int> HandleBaseline(CliOptions options)
+{
+    var baselineService = new BaselineService();
+
+    return options.BaselineAction switch
+    {
+        BaselineAction.Save => await HandleBaselineSave(baselineService, options),
+        BaselineAction.List => HandleBaselineList(baselineService, options),
+        BaselineAction.Check => await HandleBaselineCheck(baselineService, options),
+        BaselineAction.Delete => HandleBaselineDelete(baselineService, options),
+        _ => HandleBaselineList(baselineService, options)
+    };
+}
+
+static async Task<int> HandleBaselineSave(BaselineService baselineService, CliOptions options)
+{
+    var name = options.BaselineName!;
+    var engine = BuildEngine(options.ModulesFilter);
+    var sw = Stopwatch.StartNew();
+
+    if (!options.Quiet && !options.Json)
+    {
+        ConsoleFormatter.PrintBanner();
+        Console.WriteLine("  Running audit to capture baseline...");
+        Console.WriteLine();
+    }
+
+    var progress = options.Quiet || options.Json
+        ? null
+        : new Progress<(string module, int current, int total)>(p =>
+            ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
+
+    var report = await engine.RunFullAuditAsync(progress);
+    sw.Stop();
+
+    if (!options.Quiet && !options.Json)
+    {
+        ConsoleFormatter.PrintProgressDone(engine.Modules.Count, sw.Elapsed);
+    }
+
+    try
+    {
+        var baseline = baselineService.SaveBaseline(name, report, options.BaselineDescription, options.Force);
+
+        if (options.Json)
+        {
+            var jsonResult = new
+            {
+                action = "saved",
+                name = baseline.Name,
+                description = baseline.Description,
+                score = baseline.OverallScore,
+                grade = baseline.Grade,
+                totalFindings = baseline.TotalFindings,
+                critical = baseline.CriticalCount,
+                warnings = baseline.WarningCount,
+                modules = baseline.ModuleScores.Count,
+                createdAt = baseline.CreatedAt,
+                machine = baseline.MachineName
+            };
+            var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+            var json = JsonSerializer.Serialize(jsonResult, jsonOptions);
+            WriteOutput(json, options.OutputFile);
+        }
+        else
+        {
+            ConsoleFormatter.PrintBaselineSaved(baseline);
+        }
+
+        return 0;
+    }
+    catch (InvalidOperationException ex)
+    {
+        if (options.Json)
+        {
+            WriteOutput($"{{\"error\": \"{ex.Message}\"}}", options.OutputFile);
+        }
+        else
+        {
+            ConsoleFormatter.PrintError(ex.Message);
+        }
+        return 3;
+    }
+    catch (ArgumentException ex)
+    {
+        if (options.Json)
+        {
+            WriteOutput($"{{\"error\": \"{ex.Message}\"}}", options.OutputFile);
+        }
+        else
+        {
+            ConsoleFormatter.PrintError(ex.Message);
+        }
+        return 3;
+    }
+}
+
+static int HandleBaselineList(BaselineService baselineService, CliOptions options)
+{
+    var baselines = baselineService.ListBaselines();
+
+    if (baselines.Count == 0)
+    {
+        if (options.Json)
+        {
+            WriteOutput("[]", options.OutputFile);
+        }
+        else if (!options.Quiet)
+        {
+            var original = Console.ForegroundColor;
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine("  No saved baselines found. Create one with: winsentinel --baseline save <name>");
+            Console.ForegroundColor = original;
+            Console.WriteLine();
+        }
+        return 0;
+    }
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        var json = JsonSerializer.Serialize(baselines.Select(b => new
+        {
+            name = b.Name,
+            description = b.Description,
+            score = b.OverallScore,
+            grade = b.Grade,
+            totalFindings = b.TotalFindings,
+            critical = b.CriticalCount,
+            warnings = b.WarningCount,
+            createdAt = b.CreatedAt,
+            machine = b.MachineName
+        }), jsonOptions);
+        WriteOutput(json, options.OutputFile);
+    }
+    else
+    {
+        ConsoleFormatter.PrintBaselineList(baselines, options.Quiet);
+    }
+
+    return 0;
+}
+
+static async Task<int> HandleBaselineCheck(BaselineService baselineService, CliOptions options)
+{
+    var name = options.BaselineName!;
+
+    if (!baselineService.BaselineExists(name))
+    {
+        if (options.Json)
+        {
+            WriteOutput($"{{\"error\": \"Baseline '{name}' not found.\"}}", options.OutputFile);
+        }
+        else
+        {
+            ConsoleFormatter.PrintError($"Baseline '{name}' not found. Use --baseline list to see saved baselines.");
+        }
+        return 3;
+    }
+
+    var engine = BuildEngine(options.ModulesFilter);
+    var sw = Stopwatch.StartNew();
+
+    if (!options.Quiet && !options.Json)
+    {
+        ConsoleFormatter.PrintBanner();
+        Console.WriteLine($"  Checking against baseline '{name}'...");
+        Console.WriteLine();
+    }
+
+    var progress = options.Quiet || options.Json
+        ? null
+        : new Progress<(string module, int current, int total)>(p =>
+            ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
+
+    var report = await engine.RunFullAuditAsync(progress);
+    sw.Stop();
+
+    if (!options.Quiet && !options.Json)
+    {
+        ConsoleFormatter.PrintProgressDone(engine.Modules.Count, sw.Elapsed);
+    }
+
+    var checkResult = baselineService.CheckBaseline(name, report);
+
+    if (options.Json)
+    {
+        var jsonResult = new
+        {
+            baseline = new
+            {
+                name = checkResult.Baseline.Name,
+                score = checkResult.Baseline.OverallScore,
+                grade = checkResult.Baseline.Grade,
+                createdAt = checkResult.Baseline.CreatedAt
+            },
+            current = new
+            {
+                score = checkResult.CurrentScore,
+                grade = SecurityScorer.GetGrade(checkResult.CurrentScore)
+            },
+            scoreChange = checkResult.ScoreChange,
+            passed = checkResult.Passed,
+            regressions = checkResult.Regressions.Select(f => new
+            {
+                title = f.Title,
+                severity = f.Severity,
+                module = f.ModuleName,
+                description = f.Description,
+                remediation = f.Remediation
+            }),
+            resolved = checkResult.Resolved.Select(f => new
+            {
+                title = f.Title,
+                severity = f.Severity,
+                module = f.ModuleName
+            }),
+            moduleDeviations = checkResult.ModuleDeviations.Select(d => new
+            {
+                module = d.Category,
+                baselineScore = d.BaselineScore,
+                currentScore = d.CurrentScore,
+                change = d.ScoreChange,
+                status = d.Status
+            }),
+            summary = new
+            {
+                regressions = checkResult.Regressions.Count,
+                criticalRegressions = checkResult.CriticalRegressions,
+                warningRegressions = checkResult.WarningRegressions,
+                resolved = checkResult.Resolved.Count,
+                unchanged = checkResult.Unchanged.Count
+            }
+        };
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        var json = JsonSerializer.Serialize(jsonResult, jsonOptions);
+        WriteOutput(json, options.OutputFile);
+    }
+    else
+    {
+        ConsoleFormatter.PrintBaselineCheck(checkResult, options.Quiet);
+    }
+
+    // Exit code: 0 if baseline check passed, 1 if regressions found, 2 if critical regressions
+    if (checkResult.CriticalRegressions > 0) return 2;
+    if (!checkResult.Passed) return 1;
+    return 0;
+}
+
+static int HandleBaselineDelete(BaselineService baselineService, CliOptions options)
+{
+    var name = options.BaselineName!;
+
+    if (baselineService.DeleteBaseline(name))
+    {
+        if (options.Json)
+        {
+            WriteOutput($"{{\"action\": \"deleted\", \"name\": \"{name}\"}}", options.OutputFile);
+        }
+        else if (!options.Quiet)
+        {
+            var original = Console.ForegroundColor;
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"  ✓ Baseline '{name}' deleted.");
+            Console.ForegroundColor = original;
+            Console.WriteLine();
+        }
+        return 0;
+    }
+    else
+    {
+        if (options.Json)
+        {
+            WriteOutput($"{{\"error\": \"Baseline '{name}' not found.\"}}", options.OutputFile);
+        }
+        else
+        {
+            ConsoleFormatter.PrintError($"Baseline '{name}' not found.");
+        }
+        return 3;
+    }
+}
 
 static int HandleHistory(CliOptions options)
 {

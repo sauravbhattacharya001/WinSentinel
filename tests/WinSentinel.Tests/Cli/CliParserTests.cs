@@ -586,4 +586,163 @@ public class CliParserTests
         var options = new CliOptions();
         Assert.False(options.Markdown);
     }
+
+    // ── Baseline Command Tests ──
+
+    [Fact]
+    public void Parse_BaselineSave_ParsesNameCorrectly()
+    {
+        var result = CliParser.Parse(["--baseline", "save", "production"]);
+        Assert.Equal(CliCommand.Baseline, result.Command);
+        Assert.Equal(BaselineAction.Save, result.BaselineAction);
+        Assert.Equal("production", result.BaselineName);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_BaselineList_Works()
+    {
+        var result = CliParser.Parse(["--baseline", "list"]);
+        Assert.Equal(CliCommand.Baseline, result.Command);
+        Assert.Equal(BaselineAction.List, result.BaselineAction);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_BaselineCheck_ParsesName()
+    {
+        var result = CliParser.Parse(["--baseline", "check", "my-baseline"]);
+        Assert.Equal(CliCommand.Baseline, result.Command);
+        Assert.Equal(BaselineAction.Check, result.BaselineAction);
+        Assert.Equal("my-baseline", result.BaselineName);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_BaselineDelete_ParsesName()
+    {
+        var result = CliParser.Parse(["--baseline", "delete", "old-baseline"]);
+        Assert.Equal(CliCommand.Baseline, result.Command);
+        Assert.Equal(BaselineAction.Delete, result.BaselineAction);
+        Assert.Equal("old-baseline", result.BaselineName);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_BaselineNoAction_DefaultsList()
+    {
+        var result = CliParser.Parse(["--baseline"]);
+        Assert.Equal(CliCommand.Baseline, result.Command);
+        Assert.Equal(BaselineAction.List, result.BaselineAction);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_BaselineInvalidAction_ReturnsError()
+    {
+        var result = CliParser.Parse(["--baseline", "invalid"]);
+        Assert.NotNull(result.Error);
+        Assert.Contains("Unknown baseline action", result.Error);
+    }
+
+    [Fact]
+    public void Parse_BaselineSave_MissingName_ReturnsError()
+    {
+        var result = CliParser.Parse(["--baseline", "save"]);
+        Assert.NotNull(result.Error);
+        Assert.Contains("Missing baseline name", result.Error);
+    }
+
+    [Fact]
+    public void Parse_BaselineCheck_MissingName_ReturnsError()
+    {
+        var result = CliParser.Parse(["--baseline", "check"]);
+        Assert.NotNull(result.Error);
+        Assert.Contains("Missing baseline name", result.Error);
+    }
+
+    [Fact]
+    public void Parse_BaselineDelete_MissingName_ReturnsError()
+    {
+        var result = CliParser.Parse(["--baseline", "delete"]);
+        Assert.NotNull(result.Error);
+        Assert.Contains("Missing baseline name", result.Error);
+    }
+
+    [Fact]
+    public void Parse_BaselineSave_WithDesc()
+    {
+        var result = CliParser.Parse(["--baseline", "save", "prod", "--desc", "After hardening"]);
+        Assert.Equal(CliCommand.Baseline, result.Command);
+        Assert.Equal(BaselineAction.Save, result.BaselineAction);
+        Assert.Equal("prod", result.BaselineName);
+        Assert.Equal("After hardening", result.BaselineDescription);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_BaselineSave_WithForce()
+    {
+        var result = CliParser.Parse(["--baseline", "save", "prod", "--force"]);
+        Assert.Equal(CliCommand.Baseline, result.Command);
+        Assert.True(result.Force);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_BaselineCheck_WithJson()
+    {
+        var result = CliParser.Parse(["--baseline", "check", "prod", "--json"]);
+        Assert.Equal(CliCommand.Baseline, result.Command);
+        Assert.Equal(BaselineAction.Check, result.BaselineAction);
+        Assert.True(result.Json);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_BaselineCheck_WithJsonOutput()
+    {
+        var result = CliParser.Parse(["--baseline", "check", "prod", "--json", "-o", "result.json"]);
+        Assert.Equal(CliCommand.Baseline, result.Command);
+        Assert.Equal(BaselineAction.Check, result.BaselineAction);
+        Assert.True(result.Json);
+        Assert.Equal("result.json", result.OutputFile);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_BaselineSave_WithModulesFilter()
+    {
+        var result = CliParser.Parse(["--baseline", "save", "fw-only", "--modules", "firewall"]);
+        Assert.Equal(CliCommand.Baseline, result.Command);
+        Assert.Equal("firewall", result.ModulesFilter);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_DescMissingValue_ReturnsError()
+    {
+        var result = CliParser.Parse(["--baseline", "save", "test", "--desc"]);
+        Assert.NotNull(result.Error);
+        Assert.Contains("Missing value for --desc", result.Error);
+    }
+
+    [Fact]
+    public void Parse_BaselineSave_NameNotFlag()
+    {
+        // Make sure --json after "save" is not treated as the name
+        var result = CliParser.Parse(["--baseline", "save", "--json"]);
+        Assert.NotNull(result.Error);
+        Assert.Contains("Missing baseline name", result.Error);
+    }
+
+    [Fact]
+    public void CliOptions_BaselineDefaults()
+    {
+        var options = new CliOptions();
+        Assert.Equal(BaselineAction.None, options.BaselineAction);
+        Assert.Null(options.BaselineName);
+        Assert.Null(options.BaselineDescription);
+        Assert.False(options.Force);
+    }
 }

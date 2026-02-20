@@ -9,7 +9,7 @@
 #         or a Windows Server host with Docker EE.
 
 # --- Build Stage ---
-FROM mcr.microsoft.com/dotnet/sdk:8.0-windowsservercore-ltsc2022 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0-windowsservercore-ltsc2022 AS build
 WORKDIR /src
 
 # Copy solution and project files first for layer caching

@@ -1,0 +1,189 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+  CONFIGURATION: Release
+  PLATFORM: x64
+
+jobs:
+  # ─────────────────────────────────────────────
+  # Code quality: format & style checks
+  # ─────────────────────────────────────────────
+  lint:
+    name: Code Style & Format
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Restore
+      run: dotnet restore
+
+    - name: Check formatting
+      run: dotnet format --verify-no-changes --verbosity diagnostic
+      continue-on-error: true
+
+    - name: Check style violations
+      run: dotnet format style --verify-no-changes --verbosity diagnostic
+      continue-on-error: true
+
+    - name: Check analyzer warnings
+      run: dotnet format analyzers --verify-no-changes --severity warn --verbosity diagnostic
+      continue-on-error: true
+
+  # ─────────────────────────────────────────────
+  # Build & Test with coverage
+  # ─────────────────────────────────────────────
+  build-and-test:
+    name: Build & Test (${{ matrix.configuration }})
+    runs-on: windows-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [ Debug, Release ]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Cache NuGet packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.nuget/packages
+        key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
+        restore-keys: nuget-${{ runner.os }}-
+
+    - name: Restore dependencies
+      run: dotnet restore
+
+    - name: Build
+      run: >-
+        dotnet build --no-restore
+        --configuration ${{ matrix.configuration }}
+        -p:Platform=x64
+        -p:TreatWarningsAsErrors=true
+        -p:EnforceCodeStyleInBuild=true
+
+    - name: Test with coverage
+      run: >-
+        dotnet test --no-build
+        --configuration ${{ matrix.configuration }}
+        -p:Platform=x64
+        --verbosity normal
+        --logger "trx;LogFileName=test-results.trx"
+        --collect:"XPlat Code Coverage"
+        --results-directory TestResults
+      continue-on-error: true
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-results-${{ matrix.configuration }}
+        path: '**/TestResults/**/*.trx'
+        retention-days: 14
+
+    - name: Upload coverage
+      uses: actions/upload-artifact@v4
+      if: always() && matrix.configuration == 'Release'
+      with:
+        name: coverage-report
+        path: '**/TestResults/**/coverage.cobertura.xml'
+        retention-days: 14
+
+  # ─────────────────────────────────────────────
+  # Security: check for vulnerable packages
+  # ─────────────────────────────────────────────
+  security:
+    name: Security Audit
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Restore
+      run: dotnet restore
+
+    - name: Check for vulnerable NuGet packages
+      run: dotnet list package --vulnerable --include-transitive
+      continue-on-error: true
+
+    - name: Check for deprecated packages
+      run: dotnet list package --deprecated
+      continue-on-error: true
+
+  # ─────────────────────────────────────────────
+  # Publish artifacts (Release only)
+  # ─────────────────────────────────────────────
+  publish:
+    name: Publish Artifacts
+    runs-on: windows-latest
+    needs: [ build-and-test, lint ]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Restore
+      run: dotnet restore
+
+    - name: Publish CLI
+      run: >-
+        dotnet publish src/WinSentinel.Cli/WinSentinel.Cli.csproj
+        --configuration Release
+        -p:Platform=x64
+        --output ./artifacts/cli
+
+    - name: Publish Agent
+      run: >-
+        dotnet publish src/WinSentinel.Agent/WinSentinel.Agent.csproj
+        --configuration Release
+        -p:Platform=x64
+        --output ./artifacts/agent
+
+    - name: Upload CLI artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: winsentinel-cli
+        path: ./artifacts/cli/
+        retention-days: 30
+
+    - name: Upload Agent artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: winsentinel-agent
+        path: ./artifacts/agent/
+        retention-days: 30

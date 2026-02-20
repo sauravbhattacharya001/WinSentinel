@@ -97,7 +97,7 @@ public class EncryptionAudit : IAuditModule
             if (string.IsNullOrWhiteSpace(output))
             {
                 // Fallback: try PowerShell Get-BitLockerVolume
-                output = await PowerShellHelper.RunCommandAsync(
+                output = await ShellHelper.RunPowerShellAsync(
                     $"Get-BitLockerVolume -MountPoint '{driveLetter}' | Format-List *", ct);
             }
 
@@ -217,7 +217,7 @@ public class EncryptionAudit : IAuditModule
         try
         {
             // Try PowerShell Get-Tpm first
-            var tpmOutput = await PowerShellHelper.RunCommandAsync("Get-Tpm | Format-List *", ct);
+            var tpmOutput = await ShellHelper.RunPowerShellAsync("Get-Tpm | Format-List *", ct);
 
             if (!string.IsNullOrWhiteSpace(tpmOutput) &&
                 !tpmOutput.Contains("not recognized", StringComparison.OrdinalIgnoreCase) &&
@@ -900,7 +900,7 @@ public class EncryptionAudit : IAuditModule
             {
                 try
                 {
-                    var psOutput = await PowerShellHelper.RunCommandAsync(
+                    var psOutput = await ShellHelper.RunPowerShellAsync(
                         "(Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root/Microsoft/Windows/DeviceGuard -ErrorAction SilentlyContinue).SecurityServicesRunning", ct);
 
                     if (!string.IsNullOrWhiteSpace(psOutput))
@@ -981,7 +981,7 @@ public class EncryptionAudit : IAuditModule
             bool isDomainJoined = false;
             try
             {
-                var domainOutput = await PowerShellHelper.RunCommandAsync(
+                var domainOutput = await ShellHelper.RunPowerShellAsync(
                     "(Get-WmiObject Win32_ComputerSystem).PartOfDomain", ct);
                 isDomainJoined = domainOutput.Contains("True", StringComparison.OrdinalIgnoreCase);
             }

@@ -118,4 +118,57 @@ public class AuditEngine
         if (module == null) return null;
         return await module.RunAuditAsync(cancellationToken);
     }
+
+    /// <summary>
+    /// Generate a formatted text summary of a security report for console/log output.
+    /// </summary>
+    public static string GenerateTextSummary(SecurityReport report)
+    {
+        var sb = new System.Text.StringBuilder();
+        var score = report.SecurityScore;
+        var grade = SecurityScorer.GetGrade(score);
+
+        sb.AppendLine("═══════════════════════════════════════════");
+        sb.AppendLine("  WinSentinel Security Report");
+        sb.AppendLine($"  Score: {score}/100 (Grade: {grade})");
+        sb.AppendLine($"  Generated: {report.GeneratedAt:yyyy-MM-dd HH:mm:ss}");
+        sb.AppendLine("═══════════════════════════════════════════");
+        sb.AppendLine();
+
+        foreach (var result in report.Results)
+        {
+            sb.AppendLine($"📋 {result.ModuleName} [{result.Category}] — Score: {SecurityScorer.CalculateCategoryScore(result)}/100");
+
+            if (!result.Success)
+            {
+                sb.AppendLine($"   ⚠️ Error: {result.Error}");
+            }
+            else
+            {
+                foreach (var finding in result.Findings.OrderByDescending(f => f.Severity))
+                {
+                    var icon = finding.Severity switch
+                    {
+                        Severity.Critical => "🔴",
+                        Severity.Warning => "🟡",
+                        Severity.Info => "🔵",
+                        Severity.Pass => "🟢",
+                        _ => "⚪"
+                    };
+                    sb.AppendLine($"   {icon} {finding.Title}");
+                    sb.AppendLine($"      {finding.Description}");
+                    if (finding.Remediation != null)
+                        sb.AppendLine($"      💡 Fix: {finding.Remediation}");
+                }
+            }
+
+            sb.AppendLine();
+        }
+
+        sb.AppendLine("═══════════════════════════════════════════");
+        sb.AppendLine($"  Critical: {report.TotalCritical} | Warnings: {report.TotalWarnings} | Total: {report.TotalFindings}");
+        sb.AppendLine("═══════════════════════════════════════════");
+
+        return sb.ToString();
+    }
 }

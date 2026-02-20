@@ -8,7 +8,7 @@ namespace WinSentinel.Service;
 public class SecurityMonitorWorker : BackgroundService
 {
     private readonly ILogger<SecurityMonitorWorker> _logger;
-    private readonly AuditOrchestrator _orchestrator = new();
+    private readonly AuditEngine _engine = new();
     private readonly TimeSpan _auditInterval = TimeSpan.FromHours(1);
 
     public SecurityMonitorWorker(ILogger<SecurityMonitorWorker> logger)
@@ -26,11 +26,12 @@ public class SecurityMonitorWorker : BackgroundService
             {
                 _logger.LogInformation("Running scheduled security audit at {time}", DateTimeOffset.Now);
 
-                var report = await _orchestrator.RunFullAuditAsync(ct: stoppingToken);
+                var report = await _engine.RunFullAuditAsync(
+                    cancellationToken: stoppingToken, isScheduled: true);
 
                 _logger.LogInformation(
                     "Audit complete. Score: {score}/100, Critical: {critical}, Warnings: {warnings}",
-                    report.OverallScore, report.TotalCritical, report.TotalWarnings);
+                    report.SecurityScore, report.TotalCritical, report.TotalWarnings);
 
                 // Log critical findings
                 foreach (var finding in report.Results

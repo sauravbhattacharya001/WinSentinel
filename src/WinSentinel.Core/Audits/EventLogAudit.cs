@@ -967,7 +967,7 @@ public class EventLogAudit : IAuditModule
                 // Try PowerShell as fallback
                 try
                 {
-                    var psOutput = await PowerShellHelper.RunCommandAsync(
+                    var psOutput = await ShellHelper.RunPowerShellAsync(
                         "(Get-WinEvent -ListLog Security -ErrorAction SilentlyContinue) | Select-Object -Property MaximumSizeInBytes,LogMode | Format-List", ct);
 
                     if (!string.IsNullOrWhiteSpace(psOutput))

@@ -99,6 +99,15 @@ public static class ShellHelper
         }
     }
 
+    /// <summary>
+    /// Run a PowerShell command and return lines of output (split by newline, trimmed, empty removed).
+    /// </summary>
+    public static async Task<string[]> RunPowerShellLinesAsync(string command, CancellationToken ct = default)
+    {
+        var output = await RunPowerShellAsync(command, ct);
+        return output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    }
+
     private static void KillProcess(Process process)
     {
         try

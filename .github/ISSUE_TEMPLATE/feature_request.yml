@@ -1,0 +1,80 @@
+name: ✨ Feature Request
+description: Suggest a new feature or enhancement for WinSentinel
+title: "[Feature]: "
+labels: ["enhancement", "triage"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have an idea to make WinSentinel better? We'd love to hear it!
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which area does this feature relate to?
+      options:
+        - Agent (Windows Service)
+        - Dashboard (WPF App)
+        - CLI
+        - Audit Module (new or existing)
+        - Threat Detection / Correlation
+        - Auto-Remediation
+        - IPC / Architecture
+        - Installer / Deployment
+        - Documentation
+        - CI/CD / DevOps
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: What problem does this feature solve? What pain point does it address?
+      placeholder: I'm always frustrated when...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe the solution you'd like. Be as specific as possible.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Have you considered any alternative approaches?
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: How important is this to you?
+      options:
+        - Nice to have
+        - Would significantly improve my workflow
+        - Critical — blocking my use case
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Add any mockups, diagrams, references to similar tools, or other context.
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I have searched existing issues and feature requests for duplicates
+          required: true
+        - label: I would be willing to contribute a PR for this feature
+          required: false

@@ -1,0 +1,85 @@
+name: 📋 Audit Module Request
+description: Request a new audit module or improvements to an existing one
+title: "[Module]: "
+labels: ["enhancement", "audit-module"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        WinSentinel's power comes from its audit modules. Suggest a new one or improve an existing one!
+
+  - type: dropdown
+    id: type
+    attributes:
+      label: Request Type
+      options:
+        - New audit module
+        - Enhancement to existing module
+    validations:
+      required: true
+
+  - type: input
+    id: module_name
+    attributes:
+      label: Module Name
+      description: Name of the new or existing module
+      placeholder: e.g., USB Device Monitor, Registry Watcher
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What should this module detect or monitor? What security threat does it address?
+    validations:
+      required: true
+
+  - type: textarea
+    id: data_sources
+    attributes:
+      label: Data Sources
+      description: What Windows APIs, event logs, or system resources would this module use?
+      placeholder: |
+        - Windows Event Log (Security channel, Event IDs 4624-4625)
+        - WMI queries
+        - Registry keys
+        - File system watchers
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Threat Severity
+      description: How critical are the threats this module would detect?
+      options:
+        - Critical — active exploitation detection
+        - High — significant security events
+        - Medium — suspicious activity patterns
+        - Low — compliance / informational
+    validations:
+      required: true
+
+  - type: textarea
+    id: examples
+    attributes:
+      label: Example Detections
+      description: Give examples of what this module should flag.
+      placeholder: |
+        - Detect when a USB mass storage device is connected
+        - Alert on unsigned driver installation
+        - Flag registry changes to startup keys
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: References to similar tools, MITRE ATT&CK techniques, compliance frameworks, etc.
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I have checked this doesn't duplicate an existing module
+          required: true

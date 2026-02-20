@@ -1,0 +1,85 @@
+name: 🔒 Security Vulnerability
+description: Report a security vulnerability (use this for non-critical issues; for critical vulnerabilities, email directly)
+title: "[Security]: "
+labels: ["security", "triage"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ⚠️ **For critical security vulnerabilities**, please follow our [Security Policy](https://github.com/sauravbhattacharya001/WinSentinel/blob/main/SECURITY.md) and report privately instead of opening a public issue.
+
+        This template is for **low-to-medium severity** security concerns, hardening suggestions, or security-related feature requests.
+
+  - type: input
+    id: version
+    attributes:
+      label: WinSentinel Version
+      placeholder: e.g., 1.0.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - Low — defense-in-depth improvement
+        - Medium — exploitable under specific conditions
+        - Informational — hardening suggestion
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - Privilege Escalation
+        - Information Disclosure
+        - Denial of Service
+        - Input Validation
+        - Configuration / Hardening
+        - Dependency Vulnerability
+        - IPC Security
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Describe the security concern in detail.
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: What could an attacker achieve? What's the blast radius?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce (if applicable)
+      description: How can we verify this issue?
+
+  - type: textarea
+    id: mitigation
+    attributes:
+      label: Suggested Mitigation
+      description: If you have ideas on how to fix or mitigate this, please share.
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: This is NOT a critical vulnerability (I would report those privately via the Security Policy)
+          required: true
+        - label: I have searched existing issues for duplicates
+          required: true

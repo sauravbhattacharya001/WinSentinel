@@ -745,4 +745,47 @@ public class CliParserTests
         Assert.Null(options.BaselineDescription);
         Assert.False(options.Force);
     }
+
+    // ── Checklist Command Tests ─────────────────────────────────────
+
+    [Fact]
+    public void Parse_Checklist_ReturnsChecklist()
+    {
+        var result = CliParser.Parse(["--checklist"]);
+        Assert.Equal(CliCommand.Checklist, result.Command);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_ChecklistWithJson_ReturnsChecklist()
+    {
+        var result = CliParser.Parse(["--checklist", "--json"]);
+        Assert.Equal(CliCommand.Checklist, result.Command);
+        Assert.True(result.Json);
+    }
+
+    [Fact]
+    public void Parse_ChecklistWithModules_ReturnsChecklist()
+    {
+        var result = CliParser.Parse(["--checklist", "-m", "firewall,network"]);
+        Assert.Equal(CliCommand.Checklist, result.Command);
+        Assert.Equal("firewall,network", result.ModulesFilter);
+    }
+
+    [Fact]
+    public void Parse_ChecklistWithOutput_ReturnsChecklist()
+    {
+        var result = CliParser.Parse(["--checklist", "--json", "-o", "plan.json"]);
+        Assert.Equal(CliCommand.Checklist, result.Command);
+        Assert.True(result.Json);
+        Assert.Equal("plan.json", result.OutputFile);
+    }
+
+    [Fact]
+    public void Parse_ChecklistWithQuiet_ReturnsChecklist()
+    {
+        var result = CliParser.Parse(["--checklist", "--quiet"]);
+        Assert.Equal(CliCommand.Checklist, result.Command);
+        Assert.True(result.Quiet);
+    }
 }

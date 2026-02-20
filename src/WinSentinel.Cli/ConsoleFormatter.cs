@@ -328,6 +328,10 @@ public static class ConsoleFormatter
         Console.ForegroundColor = original;
         Console.WriteLine("Manage security baselines (save/list/check/delete)");
         Console.ForegroundColor = ConsoleColor.White;
+        Console.Write("    --checklist          ");
+        Console.ForegroundColor = original;
+        Console.WriteLine("Generate prioritized remediation checklist");
+        Console.ForegroundColor = ConsoleColor.White;
         Console.Write("    --help, -h           ");
         Console.ForegroundColor = original;
         Console.WriteLine("Show this help message");
@@ -412,6 +416,9 @@ public static class ConsoleFormatter
         Console.WriteLine("    winsentinel --baseline check prod                # Check current vs baseline");
         Console.WriteLine("    winsentinel --baseline check prod --json         # Check result as JSON");
         Console.WriteLine("    winsentinel --baseline delete prod               # Delete a baseline");
+        Console.WriteLine("    winsentinel --checklist                          # Prioritized fix plan");
+        Console.WriteLine("    winsentinel --checklist --json                   # Checklist as JSON");
+        Console.WriteLine("    winsentinel --checklist -m firewall,network      # Checklist for specific modules");
         Console.ForegroundColor = original;
         Console.WriteLine();
         Console.WriteLine("  EXIT CODES:");
@@ -1223,6 +1230,218 @@ public static class ConsoleFormatter
         {
             Console.ForegroundColor = ConsoleColor.Green;
             Console.WriteLine("  ✓ No deviations from baseline — system state matches.");
+            Console.ForegroundColor = original;
+            Console.WriteLine();
+        }
+    }
+
+    // ── Checklist / Remediation Plan ─────────────────────────────────
+
+    /// <summary>
+    /// Print a prioritized remediation checklist with Quick Wins, Medium Effort, and Major Changes.
+    /// </summary>
+    public static void PrintChecklist(RemediationPlan plan, bool quiet = false)
+    {
+        var original = Console.ForegroundColor;
+
+        if (plan.TotalItems == 0)
+        {
+            if (!quiet)
+            {
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine("  ✅ No actionable findings — your system is well secured!");
+                Console.ForegroundColor = original;
+                Console.WriteLine();
+            }
+            return;
+        }
+
+        if (!quiet)
+        {
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine();
+            Console.WriteLine("  ╔══════════════════════════════════════════════╗");
+            Console.WriteLine("  ║       📋 Remediation Checklist              ║");
+            Console.WriteLine("  ╚══════════════════════════════════════════════╝");
+            Console.ForegroundColor = original;
+            Console.WriteLine();
+        }
+
+        // Overview cards
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write("  Current:   ");
+        Console.ForegroundColor = GetScoreConsoleColor(plan.CurrentScore);
+        Console.Write($"{plan.CurrentScore}/100 ({plan.CurrentGrade})");
+        Console.ForegroundColor = original;
+        Console.Write("   →   Projected: ");
+        Console.ForegroundColor = GetScoreConsoleColor(plan.ProjectedScore);
+        Console.WriteLine($"{plan.ProjectedScore}/100 ({plan.ProjectedGrade})");
+        Console.ForegroundColor = original;
+        Console.WriteLine();
+
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write("  ");
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.Write($"⚡ {plan.QuickWins.Count} quick wins");
+        Console.ForegroundColor = original;
+        Console.Write("  │  ");
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.Write($"🔧 {plan.MediumEffort.Count} medium effort");
+        Console.ForegroundColor = original;
+        Console.Write("  │  ");
+        Console.ForegroundColor = ConsoleColor.Magenta;
+        Console.Write($"🏗️ {plan.MajorChanges.Count} major changes");
+        Console.ForegroundColor = original;
+        Console.Write("  │  ");
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.WriteLine($"🤖 {plan.AutoFixableCount} auto-fixable");
+        Console.ForegroundColor = original;
+        Console.WriteLine();
+
+        // Quick Wins
+        if (plan.QuickWins.Count > 0)
+        {
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"  ── ⚡ Quick Wins ({plan.QuickWins.Count}) ─ Less than 5 minutes each ──────");
+            Console.ForegroundColor = original;
+            Console.WriteLine();
+
+            foreach (var item in plan.QuickWins)
+            {
+                PrintChecklistItem(item, quiet);
+            }
+        }
+
+        // Medium Effort
+        if (plan.MediumEffort.Count > 0)
+        {
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine($"  ── 🔧 Medium Effort ({plan.MediumEffort.Count}) ─ 5-30 minutes each ──────");
+            Console.ForegroundColor = original;
+            Console.WriteLine();
+
+            foreach (var item in plan.MediumEffort)
+            {
+                PrintChecklistItem(item, quiet);
+            }
+        }
+
+        // Major Changes
+        if (plan.MajorChanges.Count > 0)
+        {
+            Console.ForegroundColor = ConsoleColor.Magenta;
+            Console.WriteLine($"  ── 🏗️ Major Changes ({plan.MajorChanges.Count}) ─ 30+ minutes each ──────");
+            Console.ForegroundColor = original;
+            Console.WriteLine();
+
+            foreach (var item in plan.MajorChanges)
+            {
+                PrintChecklistItem(item, quiet);
+            }
+        }
+
+        // Summary
+        if (!quiet)
+        {
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine("  ── Summary ───────────────────────────────────");
+            Console.ForegroundColor = original;
+            Console.WriteLine();
+
+            var totalImpact = plan.TotalImpact;
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.Write($"  📈 Fixing all {plan.TotalItems} items could improve your score by up to ");
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.Write($"+{totalImpact} points");
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($" ({plan.CurrentScore} → {plan.ProjectedScore})");
+            Console.ForegroundColor = original;
+
+            if (plan.AutoFixableCount > 0)
+            {
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.WriteLine($"  🤖 {plan.AutoFixableCount} items can be auto-fixed with: winsentinel --fix-all");
+                Console.ForegroundColor = original;
+            }
+
+            if (plan.QuickWins.Count > 0)
+            {
+                var quickImpact = plan.QuickWins.Sum(i => i.Impact);
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"  ⚡ Start with quick wins for +{quickImpact} points in minutes!");
+                Console.ForegroundColor = original;
+            }
+
+            Console.WriteLine();
+        }
+    }
+
+    /// <summary>
+    /// Print a single checklist item with severity, impact, and details.
+    /// </summary>
+    private static void PrintChecklistItem(RemediationItem item, bool quiet)
+    {
+        var original = Console.ForegroundColor;
+
+        var severityColor = item.Severity switch
+        {
+            Severity.Critical => ConsoleColor.Red,
+            Severity.Warning => ConsoleColor.Yellow,
+            _ => ConsoleColor.Cyan
+        };
+
+        var severityLabel = item.Severity switch
+        {
+            Severity.Critical => "CRITICAL",
+            Severity.Warning => "WARNING ",
+            _ => "INFO    "
+        };
+
+        // Step number and title
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write($"  {item.StepNumber,3}. ");
+        Console.ForegroundColor = severityColor;
+        Console.Write($"[{severityLabel}]");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.Write($" {item.Title}");
+
+        if (item.HasAutoFix)
+        {
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.Write("  🤖");
+        }
+
+        Console.ForegroundColor = original;
+        Console.WriteLine();
+
+        if (!quiet)
+        {
+            // Impact and timing
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.Write($"       +{item.Impact} pts");
+            Console.Write($"  │  ⏱️ {item.EstimatedTime}");
+            Console.Write($"  │  📂 {item.Category}");
+            Console.ForegroundColor = original;
+            Console.WriteLine();
+
+            // Description
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine($"       {item.Description}");
+
+            // Remediation
+            if (!string.IsNullOrEmpty(item.Remediation))
+            {
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"       → {item.Remediation}");
+            }
+
+            // Fix command
+            if (item.HasAutoFix)
+            {
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.WriteLine($"       🔧 {item.FixCommand}");
+            }
+
             Console.ForegroundColor = original;
             Console.WriteLine();
         }

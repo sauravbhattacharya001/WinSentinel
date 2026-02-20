@@ -26,6 +26,7 @@ return options.Command switch
     CliCommand.FixAll => await HandleFixAll(options),
     CliCommand.History => HandleHistory(options),
     CliCommand.Baseline => await HandleBaseline(options),
+    CliCommand.Checklist => await HandleChecklist(options),
     _ => HandleHelp()
 };
 
@@ -258,6 +259,76 @@ static async Task<int> HandleFixAll(CliOptions options)
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
+
+static async Task<int> HandleChecklist(CliOptions options)
+{
+    var engine = BuildEngine(options.ModulesFilter);
+    var planner = new RemediationPlanner();
+    var sw = Stopwatch.StartNew();
+
+    if (!options.Quiet && !options.Json)
+    {
+        ConsoleFormatter.PrintBanner();
+        Console.WriteLine("  Running audit to generate remediation checklist...");
+        Console.WriteLine();
+    }
+
+    var progress = options.Quiet || options.Json
+        ? null
+        : new Progress<(string module, int current, int total)>(p =>
+            ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
+
+    var report = await engine.RunFullAuditAsync(progress);
+    sw.Stop();
+
+    if (!options.Quiet && !options.Json)
+    {
+        ConsoleFormatter.PrintProgressDone(engine.Modules.Count, sw.Elapsed);
+    }
+
+    var plan = planner.GeneratePlan(report);
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        var json = JsonSerializer.Serialize(new
+        {
+            generatedAt = plan.GeneratedAt,
+            currentScore = plan.CurrentScore,
+            currentGrade = plan.CurrentGrade,
+            projectedScore = plan.ProjectedScore,
+            projectedGrade = plan.ProjectedGrade,
+            totalImpact = plan.TotalImpact,
+            totalItems = plan.TotalItems,
+            autoFixableCount = plan.AutoFixableCount,
+            quickWins = plan.QuickWins.Select(FormatChecklistItem),
+            mediumEffort = plan.MediumEffort.Select(FormatChecklistItem),
+            majorChanges = plan.MajorChanges.Select(FormatChecklistItem)
+        }, jsonOptions);
+        WriteOutput(json, options.OutputFile);
+    }
+    else
+    {
+        ConsoleFormatter.PrintChecklist(plan, options.Quiet);
+    }
+
+    return DetermineExitCode(report, options.Threshold);
+}
+
+static object FormatChecklistItem(RemediationItem item) => new
+{
+    step = item.StepNumber,
+    title = item.Title,
+    description = item.Description,
+    severity = item.Severity.ToString(),
+    category = item.Category,
+    impact = item.Impact,
+    effort = item.Effort,
+    estimatedTime = item.EstimatedTime,
+    remediation = item.Remediation,
+    fixCommand = item.FixCommand,
+    hasAutoFix = item.HasAutoFix
+};
 
 static async Task<int> HandleBaseline(CliOptions options)
 {

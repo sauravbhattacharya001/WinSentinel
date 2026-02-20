@@ -34,6 +34,7 @@ public enum CliCommand
     FixAll,
     History,
     Baseline,
+    Checklist,
     Help,
     Version
 }
@@ -92,6 +93,10 @@ public static class CliParser
 
                 case "--history":
                     options.Command = CliCommand.History;
+                    break;
+
+                case "--checklist":
+                    options.Command = CliCommand.Checklist;
                     break;
 
                 case "--baseline":

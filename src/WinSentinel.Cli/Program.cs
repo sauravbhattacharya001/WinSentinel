@@ -27,6 +27,7 @@ return options.Command switch
     CliCommand.History => HandleHistory(options),
     CliCommand.Baseline => await HandleBaseline(options),
     CliCommand.Checklist => await HandleChecklist(options),
+    CliCommand.Profiles => HandleProfiles(options),
     _ => HandleHelp()
 };
 
@@ -46,6 +47,12 @@ static int HandleVersion()
 
 static async Task<int> HandleScore(CliOptions options)
 {
+    // If a profile is specified, route to profile audit
+    if (!string.IsNullOrEmpty(options.ProfileName))
+    {
+        return await HandleProfileAudit(options);
+    }
+
     var engine = BuildEngine(options.ModulesFilter);
     var sw = Stopwatch.StartNew();
 
@@ -93,6 +100,12 @@ static async Task<int> HandleScore(CliOptions options)
 
 static async Task<int> HandleAudit(CliOptions options)
 {
+    // If a profile is specified, route to profile audit
+    if (!string.IsNullOrEmpty(options.ProfileName))
+    {
+        return await HandleProfileAudit(options);
+    }
+
     var engine = BuildEngine(options.ModulesFilter);
     var sw = Stopwatch.StartNew();
 
@@ -259,6 +272,130 @@ static async Task<int> HandleFixAll(CliOptions options)
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
+
+static int HandleProfiles(CliOptions options)
+{
+    var profileService = new ComplianceProfileService();
+
+    if (options.Json)
+    {
+        var profiles = profileService.Profiles.Select(p => new
+        {
+            name = p.Name,
+            displayName = p.DisplayName,
+            description = p.Description,
+            targetAudience = p.TargetAudience,
+            complianceThreshold = p.ComplianceThreshold,
+            moduleWeights = p.ModuleWeights,
+            severityOverrides = p.SeverityOverrides.Count,
+            skippedModules = p.SkippedModules.Count,
+            recommendations = p.Recommendations
+        });
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        var json = JsonSerializer.Serialize(profiles, jsonOptions);
+        WriteOutput(json, options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintProfileList(profileService.Profiles, options.Quiet);
+    return 0;
+}
+
+static async Task<int> HandleProfileAudit(CliOptions options)
+{
+    var profileService = new ComplianceProfileService();
+    var profile = profileService.GetProfile(options.ProfileName!);
+
+    if (profile == null)
+    {
+        ConsoleFormatter.PrintError(
+            $"Unknown profile: '{options.ProfileName}'. Available: {string.Join(", ", profileService.ProfileNames)}");
+        return 3;
+    }
+
+    var engine = BuildEngine(options.ModulesFilter);
+    var sw = Stopwatch.StartNew();
+
+    if (!options.Quiet && !options.Json)
+    {
+        ConsoleFormatter.PrintBanner();
+        var original = Console.ForegroundColor;
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.Write($"  Profile: ");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.Write(profile.DisplayName);
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine($"  (threshold: {profile.ComplianceThreshold}/100)");
+        Console.ForegroundColor = original;
+        Console.WriteLine();
+    }
+
+    var progress = options.Quiet || options.Json
+        ? null
+        : new Progress<(string module, int current, int total)>(p =>
+            ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
+
+    var report = await engine.RunFullAuditAsync(progress);
+    sw.Stop();
+
+    if (!options.Quiet && !options.Json)
+    {
+        ConsoleFormatter.PrintProgressDone(engine.Modules.Count, sw.Elapsed);
+    }
+
+    var complianceResult = profileService.ApplyProfile(profile, report);
+
+    if (options.Json)
+    {
+        var jsonResult = new
+        {
+            profile = new
+            {
+                name = profile.Name,
+                displayName = profile.DisplayName,
+                complianceThreshold = profile.ComplianceThreshold
+            },
+            originalScore = complianceResult.OriginalScore,
+            originalGrade = complianceResult.OriginalGrade,
+            adjustedScore = complianceResult.AdjustedScore,
+            adjustedGrade = complianceResult.AdjustedGrade,
+            isCompliant = complianceResult.IsCompliant,
+            overridesApplied = complianceResult.OverridesApplied,
+            modulesSkipped = complianceResult.ModulesSkipped,
+            modulesWeighted = complianceResult.ModulesWeighted,
+            moduleScores = complianceResult.ModuleScores.Select(m => new
+            {
+                category = m.Category,
+                originalScore = m.OriginalScore,
+                weight = m.Weight,
+                skipped = m.Skipped,
+                findings = m.FindingCount,
+                overrides = m.OverridesInModule
+            }),
+            appliedOverrides = complianceResult.AppliedOverrides.Select(o => new
+            {
+                finding = o.FindingTitle,
+                originalSeverity = o.OriginalSeverity.ToString(),
+                newSeverity = o.NewSeverity.ToString(),
+                reason = o.Reason,
+                module = o.ModuleCategory
+            }),
+            recommendations = complianceResult.Recommendations,
+            timestamp = complianceResult.CheckedAt
+        };
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        var json = JsonSerializer.Serialize(jsonResult, jsonOptions);
+        WriteOutput(json, options.OutputFile);
+    }
+    else
+    {
+        ConsoleFormatter.PrintComplianceResult(complianceResult, options.Quiet);
+    }
+
+    // Exit code: 0 if compliant, 1 if not, 2 if critical issues
+    if (report.TotalCritical > 0 && !complianceResult.IsCompliant) return 2;
+    return complianceResult.IsCompliant ? 0 : 1;
+}
 
 static async Task<int> HandleChecklist(CliOptions options)
 {

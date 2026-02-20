@@ -24,6 +24,7 @@ public class CliOptions
     public string? BaselineName { get; set; }
     public string? BaselineDescription { get; set; }
     public bool Force { get; set; }
+    public string? ProfileName { get; set; }
 }
 
 public enum CliCommand
@@ -35,6 +36,7 @@ public enum CliCommand
     History,
     Baseline,
     Checklist,
+    Profiles,
     Help,
     Version
 }
@@ -97,6 +99,22 @@ public static class CliParser
 
                 case "--checklist":
                     options.Command = CliCommand.Checklist;
+                    break;
+
+                case "--profiles":
+                    options.Command = CliCommand.Profiles;
+                    break;
+
+                case "--profile" or "-p":
+                    if (i + 1 < args.Length)
+                    {
+                        options.ProfileName = args[++i];
+                    }
+                    else
+                    {
+                        options.Error = "Missing value for --profile (-p). Available: home, developer, enterprise, server";
+                        return options;
+                    }
                     break;
 
                 case "--baseline":

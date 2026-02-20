@@ -788,4 +788,91 @@ public class CliParserTests
         Assert.Equal(CliCommand.Checklist, result.Command);
         Assert.True(result.Quiet);
     }
+
+    // ── Profile Command Tests ───────────────────────────────────────
+
+    [Fact]
+    public void Parse_Profiles_ReturnsProfiles()
+    {
+        var result = CliParser.Parse(["--profiles"]);
+        Assert.Equal(CliCommand.Profiles, result.Command);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_ProfilesWithJson_ReturnsProfiles()
+    {
+        var result = CliParser.Parse(["--profiles", "--json"]);
+        Assert.Equal(CliCommand.Profiles, result.Command);
+        Assert.True(result.Json);
+    }
+
+    [Fact]
+    public void Parse_ProfileFlag_SetsProfileName()
+    {
+        var result = CliParser.Parse(["--audit", "--profile", "home"]);
+        Assert.Equal(CliCommand.Audit, result.Command);
+        Assert.Equal("home", result.ProfileName);
+        Assert.Null(result.Error);
+    }
+
+    [Theory]
+    [InlineData("--profile")]
+    [InlineData("-p")]
+    public void Parse_ProfileVariants(string flag)
+    {
+        var result = CliParser.Parse(["--audit", flag, "enterprise"]);
+        Assert.Equal("enterprise", result.ProfileName);
+    }
+
+    [Fact]
+    public void Parse_ProfileWithScore_SetsProfileName()
+    {
+        var result = CliParser.Parse(["--score", "--profile", "server"]);
+        Assert.Equal(CliCommand.Score, result.Command);
+        Assert.Equal("server", result.ProfileName);
+    }
+
+    [Fact]
+    public void Parse_ProfileMissingValue_ReturnsError()
+    {
+        var result = CliParser.Parse(["--audit", "--profile"]);
+        Assert.NotNull(result.Error);
+        Assert.Contains("Missing value for --profile", result.Error);
+    }
+
+    [Fact]
+    public void Parse_ProfileWithJson_SetsAll()
+    {
+        var result = CliParser.Parse(["--audit", "--profile", "developer", "--json"]);
+        Assert.Equal(CliCommand.Audit, result.Command);
+        Assert.Equal("developer", result.ProfileName);
+        Assert.True(result.Json);
+    }
+
+    [Fact]
+    public void Parse_ProfileWithOutput_SetsAll()
+    {
+        var result = CliParser.Parse(["--audit", "--profile", "enterprise", "-o", "report.json", "--json"]);
+        Assert.Equal(CliCommand.Audit, result.Command);
+        Assert.Equal("enterprise", result.ProfileName);
+        Assert.Equal("report.json", result.OutputFile);
+        Assert.True(result.Json);
+    }
+
+    [Fact]
+    public void Parse_ProfileWithQuiet_SetsAll()
+    {
+        var result = CliParser.Parse(["--score", "-p", "home", "--quiet"]);
+        Assert.Equal(CliCommand.Score, result.Command);
+        Assert.Equal("home", result.ProfileName);
+        Assert.True(result.Quiet);
+    }
+
+    [Fact]
+    public void CliOptions_ProfileDefaults()
+    {
+        var options = new CliOptions();
+        Assert.Null(options.ProfileName);
+    }
 }

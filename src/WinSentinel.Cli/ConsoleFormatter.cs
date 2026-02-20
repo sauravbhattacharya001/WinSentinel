@@ -332,6 +332,10 @@ public static class ConsoleFormatter
         Console.ForegroundColor = original;
         Console.WriteLine("Generate prioritized remediation checklist");
         Console.ForegroundColor = ConsoleColor.White;
+        Console.Write("    --profiles           ");
+        Console.ForegroundColor = original;
+        Console.WriteLine("List available compliance profiles");
+        Console.ForegroundColor = ConsoleColor.White;
         Console.Write("    --help, -h           ");
         Console.ForegroundColor = original;
         Console.WriteLine("Show this help message");
@@ -365,6 +369,10 @@ public static class ConsoleFormatter
         Console.Write("    --quiet, -q          ");
         Console.ForegroundColor = original;
         Console.WriteLine("Minimal output (score + exit code only)");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.Write("    --profile, -p <name> ");
+        Console.ForegroundColor = original;
+        Console.WriteLine("Apply compliance profile (home/developer/enterprise/server)");
         Console.ForegroundColor = ConsoleColor.White;
         Console.Write("    --threshold, -t <n>  ");
         Console.ForegroundColor = original;
@@ -419,6 +427,10 @@ public static class ConsoleFormatter
         Console.WriteLine("    winsentinel --checklist                          # Prioritized fix plan");
         Console.WriteLine("    winsentinel --checklist --json                   # Checklist as JSON");
         Console.WriteLine("    winsentinel --checklist -m firewall,network      # Checklist for specific modules");
+        Console.WriteLine("    winsentinel --profiles                           # List compliance profiles");
+        Console.WriteLine("    winsentinel --audit --profile home               # Audit with Home profile");
+        Console.WriteLine("    winsentinel --audit --profile enterprise         # Audit with Enterprise profile");
+        Console.WriteLine("    winsentinel --audit --profile server --json      # Server profile as JSON");
         Console.ForegroundColor = original;
         Console.WriteLine();
         Console.WriteLine("  EXIT CODES:");
@@ -1456,5 +1468,315 @@ public static class ConsoleFormatter
         >= 60 => ConsoleColor.Yellow,
         >= 40 => ConsoleColor.DarkYellow,
         _ => ConsoleColor.Red
+    };
+
+    // ── Compliance Profile Display ───────────────────────────────────
+
+    /// <summary>
+    /// Print a list of available compliance profiles.
+    /// </summary>
+    public static void PrintProfileList(IReadOnlyList<ComplianceProfile> profiles, bool quiet = false)
+    {
+        var original = Console.ForegroundColor;
+
+        if (!quiet)
+        {
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine();
+            Console.WriteLine("  ╔══════════════════════════════════════════════╗");
+            Console.WriteLine("  ║       📋 Compliance Profiles                ║");
+            Console.WriteLine("  ╚══════════════════════════════════════════════╝");
+            Console.ForegroundColor = original;
+            Console.WriteLine();
+        }
+
+        foreach (var profile in profiles)
+        {
+            var thresholdColor = GetScoreConsoleColor(profile.ComplianceThreshold);
+
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.Write($"  {profile.Name,-12}");
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.Write($" {profile.DisplayName}");
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.Write($"  (threshold: ");
+            Console.ForegroundColor = thresholdColor;
+            Console.Write($"{profile.ComplianceThreshold}");
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine(")");
+
+            if (!quiet)
+            {
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.WriteLine($"             {profile.Description}");
+
+                // Show key stats
+                var weightedModules = profile.ModuleWeights.Count(w => Math.Abs(w.Value - 1.0) > 0.001);
+                var overrides = profile.SeverityOverrides.Count;
+                var skipped = profile.SkippedModules.Count;
+
+                Console.Write("             ");
+                if (weightedModules > 0)
+                {
+                    Console.ForegroundColor = ConsoleColor.DarkGray;
+                    Console.Write($"⚖️ {weightedModules} weighted modules");
+                }
+                if (overrides > 0)
+                {
+                    if (weightedModules > 0) Console.Write("  │  ");
+                    Console.ForegroundColor = ConsoleColor.DarkGray;
+                    Console.Write($"🔄 {overrides} severity overrides");
+                }
+                if (skipped > 0)
+                {
+                    Console.Write("  │  ");
+                    Console.ForegroundColor = ConsoleColor.DarkGray;
+                    Console.Write($"⏭️ {skipped} skipped modules");
+                }
+                Console.WriteLine();
+                Console.ForegroundColor = original;
+                Console.WriteLine();
+            }
+        }
+
+        if (!quiet)
+        {
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine("  Usage:");
+            Console.WriteLine("    winsentinel --audit --profile home         # Audit with Home profile");
+            Console.WriteLine("    winsentinel --audit --profile enterprise   # Audit with Enterprise profile");
+            Console.WriteLine("    winsentinel --score --profile server       # Score with Server profile");
+            Console.ForegroundColor = original;
+            Console.WriteLine();
+        }
+    }
+
+    /// <summary>
+    /// Print compliance result after applying a profile to an audit.
+    /// </summary>
+    public static void PrintComplianceResult(ComplianceResult result, bool quiet = false)
+    {
+        var original = Console.ForegroundColor;
+        var profile = result.Profile;
+
+        // Compliance verdict
+        var verdictColor = result.IsCompliant ? ConsoleColor.Green : ConsoleColor.Red;
+        var verdictIcon = result.IsCompliant ? "✅" : "❌";
+        var verdictText = result.IsCompliant ? "COMPLIANT" : "NON-COMPLIANT";
+
+        if (quiet)
+        {
+            Console.ForegroundColor = verdictColor;
+            Console.WriteLine($"{result.AdjustedScore}/100 ({result.AdjustedGrade}) [{verdictText}] profile={profile.Name}");
+            Console.ForegroundColor = original;
+            return;
+        }
+
+        // Banner
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.WriteLine("  ╔══════════════════════════════════════════════╗");
+        Console.WriteLine("  ║       📋 Compliance Assessment              ║");
+        Console.WriteLine("  ╚══════════════════════════════════════════════╝");
+        Console.ForegroundColor = original;
+        Console.WriteLine();
+
+        // Profile info
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write("  Profile:   ");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.Write(profile.DisplayName);
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write($"  ({profile.Name})");
+        Console.ForegroundColor = original;
+        Console.WriteLine();
+
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write("  Audience:  ");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine(profile.TargetAudience);
+
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write("  Threshold: ");
+        Console.ForegroundColor = GetScoreConsoleColor(profile.ComplianceThreshold);
+        Console.WriteLine($"{profile.ComplianceThreshold}/100");
+        Console.ForegroundColor = original;
+        Console.WriteLine();
+
+        // Score comparison
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write("  Raw Score:      ");
+        Console.ForegroundColor = GetScoreConsoleColor(result.OriginalScore);
+        Console.WriteLine($"{result.OriginalScore}/100 ({result.OriginalGrade})");
+
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write("  Adjusted Score: ");
+        Console.ForegroundColor = GetScoreConsoleColor(result.AdjustedScore);
+        Console.WriteLine($"{result.AdjustedScore}/100 ({result.AdjustedGrade})");
+
+        var scoreDiff = result.AdjustedScore - result.OriginalScore;
+        if (scoreDiff != 0)
+        {
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.Write("  Adjustment:     ");
+            Console.ForegroundColor = scoreDiff > 0 ? ConsoleColor.Green : ConsoleColor.Red;
+            var arrow = scoreDiff > 0 ? "↑" : "↓";
+            Console.WriteLine($"{arrow} {Math.Abs(scoreDiff)} points (from profile weights & overrides)");
+        }
+
+        Console.ForegroundColor = original;
+        Console.WriteLine();
+
+        // Adjusted score bar
+        int barLength = 40;
+        int filled = (int)(result.AdjustedScore / 100.0 * barLength);
+        int thresholdPos = (int)(profile.ComplianceThreshold / 100.0 * barLength);
+
+        Console.Write("  ");
+        Console.ForegroundColor = GetScoreConsoleColor(result.AdjustedScore);
+        Console.Write(new string('█', filled));
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write(new string('░', barLength - filled));
+        Console.ForegroundColor = original;
+        Console.Write($"  {result.AdjustedScore}%");
+
+        // Show threshold marker
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write($"  (threshold: {profile.ComplianceThreshold})");
+        Console.ForegroundColor = original;
+        Console.WriteLine();
+        Console.WriteLine();
+
+        // Verdict
+        Console.ForegroundColor = verdictColor;
+        Console.WriteLine($"  {verdictIcon} {verdictText} — {profile.DisplayName} profile");
+        Console.ForegroundColor = original;
+        Console.WriteLine();
+
+        // Profile adjustment summary
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write("  ");
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.Write($"🔄 {result.OverridesApplied} overrides");
+        Console.ForegroundColor = original;
+        Console.Write("  │  ");
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.Write($"⚖️ {result.ModulesWeighted} weighted");
+        Console.ForegroundColor = original;
+        Console.Write("  │  ");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write($"⏭️ {result.ModulesSkipped} skipped");
+        Console.ForegroundColor = original;
+        Console.WriteLine();
+        Console.WriteLine();
+
+        // Module scores table
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine($"  {"Module",-25} {"Score",6} {"Weight",7} {"Status",8}");
+        Console.WriteLine($"  {new string('─', 25)} {new string('─', 6)} {new string('─', 7)} {new string('─', 8)}");
+        Console.ForegroundColor = original;
+
+        foreach (var mod in result.ModuleScores)
+        {
+            if (mod.Skipped)
+            {
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.Write($"  {mod.Category,-25}");
+                Console.Write($" {"—",6}");
+                Console.Write($" {"skip",7}");
+                Console.Write($" {"⏭️",8}");
+                Console.ForegroundColor = original;
+                Console.WriteLine();
+                continue;
+            }
+
+            var scoreColor = GetScoreConsoleColor(mod.OriginalScore);
+            var weightStr = $"×{mod.Weight:F1}";
+            var weightColor = mod.Weight > 1.0 ? ConsoleColor.Yellow
+                : mod.Weight < 1.0 ? ConsoleColor.DarkGray
+                : original;
+
+            Console.Write($"  {mod.Category,-25}");
+            Console.ForegroundColor = scoreColor;
+            Console.Write($" {mod.OriginalScore,6}");
+            Console.ForegroundColor = weightColor;
+            Console.Write($" {weightStr,7}");
+            Console.ForegroundColor = original;
+
+            if (mod.OverridesInModule > 0)
+            {
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.Write($" 🔄{mod.OverridesInModule}");
+            }
+
+            Console.ForegroundColor = original;
+            Console.WriteLine();
+        }
+
+        Console.WriteLine();
+
+        // Applied overrides detail
+        if (result.AppliedOverrides.Count > 0)
+        {
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine("  ── Severity Overrides Applied ────────────────");
+            Console.ForegroundColor = original;
+            Console.WriteLine();
+
+            foreach (var ov in result.AppliedOverrides)
+            {
+                var fromColor = GetSeverityConsoleColor(ov.OriginalSeverity);
+                var toColor = GetSeverityConsoleColor(ov.NewSeverity);
+
+                Console.Write("  ");
+                Console.ForegroundColor = fromColor;
+                Console.Write($"{ov.OriginalSeverity}");
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.Write(" → ");
+                Console.ForegroundColor = toColor;
+                Console.Write($"{ov.NewSeverity}");
+                Console.ForegroundColor = ConsoleColor.White;
+                Console.Write($"  {ov.FindingTitle}");
+                Console.ForegroundColor = original;
+                Console.WriteLine();
+
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.WriteLine($"       {ov.Reason}");
+                Console.ForegroundColor = original;
+            }
+
+            Console.WriteLine();
+        }
+
+        // Recommendations
+        if (result.Recommendations.Count > 0)
+        {
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine("  ── Profile Recommendations ───────────────────");
+            Console.ForegroundColor = original;
+            Console.WriteLine();
+
+            foreach (var rec in result.Recommendations)
+            {
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.Write("  💡 ");
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.WriteLine(rec);
+            }
+
+            Console.ForegroundColor = original;
+            Console.WriteLine();
+        }
+    }
+
+    /// <summary>
+    /// Get console color for a severity level.
+    /// </summary>
+    private static ConsoleColor GetSeverityConsoleColor(Severity severity) => severity switch
+    {
+        Severity.Critical => ConsoleColor.Red,
+        Severity.Warning => ConsoleColor.Yellow,
+        Severity.Info => ConsoleColor.Cyan,
+        Severity.Pass => ConsoleColor.Green,
+        _ => ConsoleColor.DarkGray
     };
 }

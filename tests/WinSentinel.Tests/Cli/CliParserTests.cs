@@ -875,4 +875,197 @@ public class CliParserTests
         var options = new CliOptions();
         Assert.Null(options.ProfileName);
     }
+
+    // ── Ignore Rule CLI Tests ──
+
+    [Fact]
+    public void Parse_IgnoreList_DefaultAction()
+    {
+        var result = CliParser.Parse(["--ignore"]);
+        Assert.Equal(CliCommand.Ignore, result.Command);
+        Assert.Equal(IgnoreAction.List, result.IgnoreAction);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_IgnoreListExplicit()
+    {
+        var result = CliParser.Parse(["--ignore", "list"]);
+        Assert.Equal(CliCommand.Ignore, result.Command);
+        Assert.Equal(IgnoreAction.List, result.IgnoreAction);
+    }
+
+    [Fact]
+    public void Parse_IgnoreAdd_RequiresPattern()
+    {
+        var result = CliParser.Parse(["--ignore", "add"]);
+        Assert.NotNull(result.Error);
+        Assert.Contains("Missing pattern", result.Error);
+    }
+
+    [Fact]
+    public void Parse_IgnoreAdd_WithPattern()
+    {
+        var result = CliParser.Parse(["--ignore", "add", "SMB"]);
+        Assert.Equal(CliCommand.Ignore, result.Command);
+        Assert.Equal(IgnoreAction.Add, result.IgnoreAction);
+        Assert.Equal("SMB", result.IgnorePattern);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_IgnoreAdd_WithAllOptions()
+    {
+        var result = CliParser.Parse(["--ignore", "add", "SMB",
+            "--ignore-module", "network",
+            "--ignore-severity", "critical",
+            "--ignore-reason", "Accepted risk",
+            "--match-mode", "exact",
+            "--expire-days", "30"]);
+        Assert.Equal(CliCommand.Ignore, result.Command);
+        Assert.Equal(IgnoreAction.Add, result.IgnoreAction);
+        Assert.Equal("SMB", result.IgnorePattern);
+        Assert.Equal("network", result.IgnoreModule);
+        Assert.Equal("critical", result.IgnoreSeverity);
+        Assert.Equal("Accepted risk", result.IgnoreReason);
+        Assert.Equal("exact", result.IgnoreMatchMode);
+        Assert.Equal(30, result.IgnoreExpireDays);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_IgnoreRemove_RequiresId()
+    {
+        var result = CliParser.Parse(["--ignore", "remove"]);
+        Assert.NotNull(result.Error);
+        Assert.Contains("Missing rule ID", result.Error);
+    }
+
+    [Fact]
+    public void Parse_IgnoreRemove_WithId()
+    {
+        var result = CliParser.Parse(["--ignore", "remove", "abc12345"]);
+        Assert.Equal(CliCommand.Ignore, result.Command);
+        Assert.Equal(IgnoreAction.Remove, result.IgnoreAction);
+        Assert.Equal("abc12345", result.IgnoreRuleId);
+    }
+
+    [Fact]
+    public void Parse_IgnoreRm_AliasForRemove()
+    {
+        var result = CliParser.Parse(["--ignore", "rm", "abc12345"]);
+        Assert.Equal(IgnoreAction.Remove, result.IgnoreAction);
+    }
+
+    [Fact]
+    public void Parse_IgnoreClear()
+    {
+        var result = CliParser.Parse(["--ignore", "clear"]);
+        Assert.Equal(CliCommand.Ignore, result.Command);
+        Assert.Equal(IgnoreAction.Clear, result.IgnoreAction);
+    }
+
+    [Fact]
+    public void Parse_IgnorePurge()
+    {
+        var result = CliParser.Parse(["--ignore", "purge"]);
+        Assert.Equal(CliCommand.Ignore, result.Command);
+        Assert.Equal(IgnoreAction.Purge, result.IgnoreAction);
+    }
+
+    [Fact]
+    public void Parse_IgnoreUnknownAction_ReturnsError()
+    {
+        var result = CliParser.Parse(["--ignore", "unknown"]);
+        Assert.NotNull(result.Error);
+        Assert.Contains("Unknown ignore action", result.Error);
+    }
+
+    [Fact]
+    public void Parse_ShowIgnored_Flag()
+    {
+        var result = CliParser.Parse(["--audit", "--show-ignored"]);
+        Assert.Equal(CliCommand.Audit, result.Command);
+        Assert.True(result.ShowIgnored);
+    }
+
+    [Fact]
+    public void Parse_IgnoreModule_MissingValue()
+    {
+        var result = CliParser.Parse(["--ignore", "add", "test", "--ignore-module"]);
+        Assert.NotNull(result.Error);
+        Assert.Contains("Missing value for --ignore-module", result.Error);
+    }
+
+    [Fact]
+    public void Parse_IgnoreSeverity_MissingValue()
+    {
+        var result = CliParser.Parse(["--ignore", "add", "test", "--ignore-severity"]);
+        Assert.NotNull(result.Error);
+        Assert.Contains("Missing value for --ignore-severity", result.Error);
+    }
+
+    [Fact]
+    public void Parse_IgnoreReason_MissingValue()
+    {
+        var result = CliParser.Parse(["--ignore", "add", "test", "--ignore-reason"]);
+        Assert.NotNull(result.Error);
+        Assert.Contains("Missing value for --ignore-reason", result.Error);
+    }
+
+    [Fact]
+    public void Parse_MatchMode_MissingValue()
+    {
+        var result = CliParser.Parse(["--ignore", "add", "test", "--match-mode"]);
+        Assert.NotNull(result.Error);
+        Assert.Contains("Missing value for --match-mode", result.Error);
+    }
+
+    [Fact]
+    public void Parse_ExpireDays_MissingValue()
+    {
+        var result = CliParser.Parse(["--ignore", "add", "test", "--expire-days"]);
+        Assert.NotNull(result.Error);
+        Assert.Contains("Missing value for --expire-days", result.Error);
+    }
+
+    [Fact]
+    public void Parse_ExpireDays_InvalidValue()
+    {
+        var result = CliParser.Parse(["--ignore", "add", "test", "--expire-days", "0"]);
+        Assert.NotNull(result.Error);
+        Assert.Contains("Invalid expire-days", result.Error);
+    }
+
+    [Fact]
+    public void Parse_ExpireDays_OutOfRange()
+    {
+        var result = CliParser.Parse(["--ignore", "add", "test", "--expire-days", "5000"]);
+        Assert.NotNull(result.Error);
+        Assert.Contains("Invalid expire-days", result.Error);
+    }
+
+    [Fact]
+    public void Parse_IgnoreListWithJson()
+    {
+        var result = CliParser.Parse(["--ignore", "list", "--json"]);
+        Assert.Equal(CliCommand.Ignore, result.Command);
+        Assert.Equal(IgnoreAction.List, result.IgnoreAction);
+        Assert.True(result.Json);
+    }
+
+    [Fact]
+    public void CliOptions_IgnoreDefaults()
+    {
+        var options = new CliOptions();
+        Assert.Equal(IgnoreAction.None, options.IgnoreAction);
+        Assert.Null(options.IgnorePattern);
+        Assert.Null(options.IgnoreModule);
+        Assert.Null(options.IgnoreSeverity);
+        Assert.Null(options.IgnoreReason);
+        Assert.Null(options.IgnoreMatchMode);
+        Assert.Null(options.IgnoreRuleId);
+        Assert.Null(options.IgnoreExpireDays);
+        Assert.False(options.ShowIgnored);
+    }
 }

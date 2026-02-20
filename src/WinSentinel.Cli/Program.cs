@@ -28,6 +28,7 @@ return options.Command switch
     CliCommand.Baseline => await HandleBaseline(options),
     CliCommand.Checklist => await HandleChecklist(options),
     CliCommand.Profiles => HandleProfiles(options),
+    CliCommand.Ignore => HandleIgnore(options),
     _ => HandleHelp()
 };
 
@@ -122,6 +123,15 @@ static async Task<int> HandleAudit(CliOptions options)
     var report = await engine.RunFullAuditAsync(progress);
     sw.Stop();
 
+    // Apply ignore rules if any exist
+    var ignoreService = new IgnoreRuleService();
+    var activeIgnoreRules = ignoreService.GetActiveRules();
+    List<IgnoredFinding>? ignoredFindings = null;
+    if (activeIgnoreRules.Count > 0)
+    {
+        report = ignoreService.ApplyRulesToReport(report, out ignoredFindings);
+    }
+
     if (options.Json)
     {
         var generator = new ReportGenerator();
@@ -165,8 +175,16 @@ static async Task<int> HandleAudit(CliOptions options)
         ConsoleFormatter.PrintProgressDone(engine.Modules.Count, sw.Elapsed);
         ConsoleFormatter.PrintScore(report.SecurityScore);
         ConsoleFormatter.PrintSummary(report);
+        if (ignoredFindings != null && ignoredFindings.Count > 0)
+        {
+            ConsoleFormatter.PrintIgnoredSummary(ignoredFindings.Count);
+        }
         ConsoleFormatter.PrintModuleTable(report);
         ConsoleFormatter.PrintFindings(report);
+        if (options.ShowIgnored && ignoredFindings != null && ignoredFindings.Count > 0)
+        {
+            ConsoleFormatter.PrintIgnoredFindings(ignoredFindings);
+        }
     }
 
     return DetermineExitCode(report, options.Threshold);
@@ -269,6 +287,234 @@ static async Task<int> HandleFixAll(CliOptions options)
     }
 
     return DetermineExitCode(report, options.Threshold);
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────
+
+static int HandleIgnore(CliOptions options)
+{
+    var service = new IgnoreRuleService();
+
+    return options.IgnoreAction switch
+    {
+        IgnoreAction.Add => HandleIgnoreAdd(service, options),
+        IgnoreAction.List => HandleIgnoreList(service, options),
+        IgnoreAction.Remove => HandleIgnoreRemove(service, options),
+        IgnoreAction.Clear => HandleIgnoreClear(service, options),
+        IgnoreAction.Purge => HandleIgnorePurge(service, options),
+        _ => HandleIgnoreList(service, options)
+    };
+}
+
+static int HandleIgnoreAdd(IgnoreRuleService service, CliOptions options)
+{
+    var pattern = options.IgnorePattern!;
+
+    // Parse match mode
+    var matchMode = IgnoreMatchMode.Contains;
+    if (!string.IsNullOrEmpty(options.IgnoreMatchMode))
+    {
+        matchMode = options.IgnoreMatchMode.ToLowerInvariant() switch
+        {
+            "exact" => IgnoreMatchMode.Exact,
+            "contains" => IgnoreMatchMode.Contains,
+            "regex" => IgnoreMatchMode.Regex,
+            _ => IgnoreMatchMode.Contains
+        };
+    }
+
+    // Parse severity
+    Severity? severity = null;
+    if (!string.IsNullOrEmpty(options.IgnoreSeverity))
+    {
+        severity = options.IgnoreSeverity.ToLowerInvariant() switch
+        {
+            "critical" => Severity.Critical,
+            "warning" => Severity.Warning,
+            "info" => Severity.Info,
+            "pass" => Severity.Pass,
+            _ => null
+        };
+        if (severity == null)
+        {
+            ConsoleFormatter.PrintError($"Unknown severity: {options.IgnoreSeverity}. Use critical, warning, info, or pass.");
+            return 3;
+        }
+    }
+
+    // Parse expiration
+    DateTimeOffset? expiresAt = null;
+    if (options.IgnoreExpireDays.HasValue)
+    {
+        expiresAt = DateTimeOffset.UtcNow.AddDays(options.IgnoreExpireDays.Value);
+    }
+
+    try
+    {
+        var rule = service.AddRule(pattern, matchMode, options.IgnoreModule, severity,
+            options.IgnoreReason, expiresAt);
+
+        if (options.Json)
+        {
+            var jsonResult = new
+            {
+                action = "added",
+                id = rule.Id,
+                pattern = rule.Pattern,
+                matchMode = rule.MatchMode.ToString(),
+                module = rule.Module,
+                severity = rule.Severity?.ToString(),
+                reason = rule.Reason,
+                expiresAt = rule.ExpiresAt,
+                createdAt = rule.CreatedAt
+            };
+            var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+            var json = JsonSerializer.Serialize(jsonResult, jsonOptions);
+            WriteOutput(json, options.OutputFile);
+        }
+        else if (!options.Quiet)
+        {
+            ConsoleFormatter.PrintIgnoreRuleAdded(rule);
+        }
+
+        return 0;
+    }
+    catch (ArgumentException ex)
+    {
+        ConsoleFormatter.PrintError(ex.Message);
+        return 3;
+    }
+}
+
+static int HandleIgnoreList(IgnoreRuleService service, CliOptions options)
+{
+    var rules = service.GetAllRules();
+
+    if (rules.Count == 0)
+    {
+        if (options.Json)
+        {
+            WriteOutput("[]", options.OutputFile);
+        }
+        else if (!options.Quiet)
+        {
+            var original = Console.ForegroundColor;
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine("  No ignore rules defined. Add one with: winsentinel --ignore add <pattern>");
+            Console.ForegroundColor = original;
+            Console.WriteLine();
+        }
+        return 0;
+    }
+
+    if (options.Json)
+    {
+        var jsonRules = rules.Select(r => new
+        {
+            id = r.Id,
+            pattern = r.Pattern,
+            matchMode = r.MatchMode.ToString(),
+            module = r.Module,
+            severity = r.Severity?.ToString(),
+            reason = r.Reason,
+            enabled = r.Enabled,
+            isActive = r.IsActive,
+            isExpired = r.IsExpired,
+            createdAt = r.CreatedAt,
+            expiresAt = r.ExpiresAt
+        });
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        var json = JsonSerializer.Serialize(jsonRules, jsonOptions);
+        WriteOutput(json, options.OutputFile);
+    }
+    else
+    {
+        ConsoleFormatter.PrintIgnoreRuleList(rules, options.Quiet);
+    }
+
+    return 0;
+}
+
+static int HandleIgnoreRemove(IgnoreRuleService service, CliOptions options)
+{
+    var id = options.IgnoreRuleId!;
+
+    if (service.RemoveRule(id))
+    {
+        if (options.Json)
+        {
+            WriteOutput($"{{\"action\": \"removed\", \"id\": \"{id}\"}}", options.OutputFile);
+        }
+        else if (!options.Quiet)
+        {
+            var original = Console.ForegroundColor;
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"  ✓ Ignore rule '{id}' removed.");
+            Console.ForegroundColor = original;
+            Console.WriteLine();
+        }
+        return 0;
+    }
+    else
+    {
+        if (options.Json)
+        {
+            WriteOutput($"{{\"error\": \"Rule '{id}' not found.\"}}", options.OutputFile);
+        }
+        else
+        {
+            ConsoleFormatter.PrintError($"Ignore rule '{id}' not found. Use --ignore list to see rules.");
+        }
+        return 3;
+    }
+}
+
+static int HandleIgnoreClear(IgnoreRuleService service, CliOptions options)
+{
+    var count = service.ClearAllRules();
+
+    if (options.Json)
+    {
+        WriteOutput($"{{\"action\": \"cleared\", \"removed\": {count}}}", options.OutputFile);
+    }
+    else if (!options.Quiet)
+    {
+        var original = Console.ForegroundColor;
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.WriteLine($"  ✓ Cleared {count} ignore rule(s).");
+        Console.ForegroundColor = original;
+        Console.WriteLine();
+    }
+
+    return 0;
+}
+
+static int HandleIgnorePurge(IgnoreRuleService service, CliOptions options)
+{
+    var count = service.PurgeExpiredRules();
+
+    if (options.Json)
+    {
+        WriteOutput($"{{\"action\": \"purged\", \"removed\": {count}}}", options.OutputFile);
+    }
+    else if (!options.Quiet)
+    {
+        var original = Console.ForegroundColor;
+        if (count > 0)
+        {
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"  ✓ Purged {count} expired ignore rule(s).");
+        }
+        else
+        {
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine("  No expired rules to purge.");
+        }
+        Console.ForegroundColor = original;
+        Console.WriteLine();
+    }
+
+    return 0;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────

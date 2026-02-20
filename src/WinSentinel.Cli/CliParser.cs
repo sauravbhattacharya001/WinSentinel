@@ -25,6 +25,15 @@ public class CliOptions
     public string? BaselineDescription { get; set; }
     public bool Force { get; set; }
     public string? ProfileName { get; set; }
+    public IgnoreAction IgnoreAction { get; set; } = IgnoreAction.None;
+    public string? IgnorePattern { get; set; }
+    public string? IgnoreModule { get; set; }
+    public string? IgnoreSeverity { get; set; }
+    public string? IgnoreReason { get; set; }
+    public string? IgnoreMatchMode { get; set; }
+    public string? IgnoreRuleId { get; set; }
+    public int? IgnoreExpireDays { get; set; }
+    public bool ShowIgnored { get; set; }
 }
 
 public enum CliCommand
@@ -37,6 +46,7 @@ public enum CliCommand
     Baseline,
     Checklist,
     Profiles,
+    Ignore,
     Help,
     Version
 }
@@ -48,6 +58,16 @@ public enum BaselineAction
     List,
     Check,
     Delete
+}
+
+public enum IgnoreAction
+{
+    None,
+    Add,
+    List,
+    Remove,
+    Clear,
+    Purge
 }
 
 /// <summary>
@@ -103,6 +123,132 @@ public static class CliParser
 
                 case "--profiles":
                     options.Command = CliCommand.Profiles;
+                    break;
+
+                case "--ignore":
+                    options.Command = CliCommand.Ignore;
+                    // Next arg should be the action: add, list, remove, clear, purge
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                    {
+                        var action = args[++i].ToLowerInvariant();
+                        options.IgnoreAction = action switch
+                        {
+                            "add" => IgnoreAction.Add,
+                            "list" => IgnoreAction.List,
+                            "remove" or "rm" => IgnoreAction.Remove,
+                            "clear" => IgnoreAction.Clear,
+                            "purge" => IgnoreAction.Purge,
+                            _ => IgnoreAction.None
+                        };
+                        if (options.IgnoreAction == IgnoreAction.None)
+                        {
+                            options.Error = $"Unknown ignore action: {action}. Use add, list, remove, clear, or purge.";
+                            return options;
+                        }
+                        // For add: next arg is the pattern
+                        if (options.IgnoreAction == IgnoreAction.Add)
+                        {
+                            if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                            {
+                                options.IgnorePattern = args[++i];
+                            }
+                            else
+                            {
+                                options.Error = "Missing pattern for 'ignore add'. Usage: --ignore add <pattern>";
+                                return options;
+                            }
+                        }
+                        // For remove: next arg is the rule ID
+                        if (options.IgnoreAction == IgnoreAction.Remove)
+                        {
+                            if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                            {
+                                options.IgnoreRuleId = args[++i];
+                            }
+                            else
+                            {
+                                options.Error = "Missing rule ID for 'ignore remove'. Usage: --ignore remove <id>";
+                                return options;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // No action specified, default to list
+                        options.IgnoreAction = IgnoreAction.List;
+                    }
+                    break;
+
+                case "--ignore-module":
+                    if (i + 1 < args.Length)
+                    {
+                        options.IgnoreModule = args[++i];
+                    }
+                    else
+                    {
+                        options.Error = "Missing value for --ignore-module.";
+                        return options;
+                    }
+                    break;
+
+                case "--ignore-severity":
+                    if (i + 1 < args.Length)
+                    {
+                        options.IgnoreSeverity = args[++i];
+                    }
+                    else
+                    {
+                        options.Error = "Missing value for --ignore-severity.";
+                        return options;
+                    }
+                    break;
+
+                case "--ignore-reason":
+                    if (i + 1 < args.Length)
+                    {
+                        options.IgnoreReason = args[++i];
+                    }
+                    else
+                    {
+                        options.Error = "Missing value for --ignore-reason.";
+                        return options;
+                    }
+                    break;
+
+                case "--match-mode":
+                    if (i + 1 < args.Length)
+                    {
+                        options.IgnoreMatchMode = args[++i];
+                    }
+                    else
+                    {
+                        options.Error = "Missing value for --match-mode. Use exact, contains, or regex.";
+                        return options;
+                    }
+                    break;
+
+                case "--expire-days":
+                    if (i + 1 < args.Length)
+                    {
+                        if (int.TryParse(args[++i], out int expDays) && expDays >= 1 && expDays <= 3650)
+                        {
+                            options.IgnoreExpireDays = expDays;
+                        }
+                        else
+                        {
+                            options.Error = "Invalid expire-days value. Must be 1-3650.";
+                            return options;
+                        }
+                    }
+                    else
+                    {
+                        options.Error = "Missing value for --expire-days.";
+                        return options;
+                    }
+                    break;
+
+                case "--show-ignored":
+                    options.ShowIgnored = true;
                     break;
 
                 case "--profile" or "-p":

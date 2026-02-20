@@ -336,6 +336,10 @@ public static class ConsoleFormatter
         Console.ForegroundColor = original;
         Console.WriteLine("List available compliance profiles");
         Console.ForegroundColor = ConsoleColor.White;
+        Console.Write("    --ignore <action>    ");
+        Console.ForegroundColor = original;
+        Console.WriteLine("Manage finding ignore rules (add/list/remove/clear/purge)");
+        Console.ForegroundColor = ConsoleColor.White;
         Console.Write("    --help, -h           ");
         Console.ForegroundColor = original;
         Console.WriteLine("Show this help message");
@@ -401,6 +405,30 @@ public static class ConsoleFormatter
         Console.Write("    --force              ");
         Console.ForegroundColor = original;
         Console.WriteLine("Overwrite existing baseline (with --baseline save)");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.Write("    --show-ignored       ");
+        Console.ForegroundColor = original;
+        Console.WriteLine("Show suppressed findings in audit output");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.Write("    --ignore-module <m>  ");
+        Console.ForegroundColor = original;
+        Console.WriteLine("Scope ignore rule to a specific module (with --ignore add)");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.Write("    --ignore-severity <s>");
+        Console.ForegroundColor = original;
+        Console.WriteLine(" Scope ignore rule to a severity (critical/warning/info/pass)");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.Write("    --ignore-reason <r>  ");
+        Console.ForegroundColor = original;
+        Console.WriteLine("Reason for ignoring (with --ignore add)");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.Write("    --match-mode <mode>  ");
+        Console.ForegroundColor = original;
+        Console.WriteLine("Pattern matching: exact, contains (default), or regex");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.Write("    --expire-days <n>    ");
+        Console.ForegroundColor = original;
+        Console.WriteLine("Auto-expire ignore rule after n days (1-3650)");
         Console.WriteLine();
         Console.WriteLine("  EXAMPLES:");
         Console.ForegroundColor = ConsoleColor.DarkGray;
@@ -431,6 +459,18 @@ public static class ConsoleFormatter
         Console.WriteLine("    winsentinel --audit --profile home               # Audit with Home profile");
         Console.WriteLine("    winsentinel --audit --profile enterprise         # Audit with Enterprise profile");
         Console.WriteLine("    winsentinel --audit --profile server --json      # Server profile as JSON");
+        Console.WriteLine("    winsentinel --ignore add \"Remote Desktop\"          # Suppress findings containing text");
+        Console.WriteLine("    winsentinel --ignore add \"SMB\" --ignore-reason \"Accepted risk\"");
+        Console.WriteLine("    winsentinel --ignore add \"Telemetry\" --match-mode exact  # Exact title match");
+        Console.WriteLine("    winsentinel --ignore add \"^BitLocker\" --match-mode regex  # Regex pattern");
+        Console.WriteLine("    winsentinel --ignore add \"LLMNR\" --ignore-module network  # Module-scoped");
+        Console.WriteLine("    winsentinel --ignore add \"audit\" --ignore-severity warning  # Severity-scoped");
+        Console.WriteLine("    winsentinel --ignore add \"test\" --expire-days 30   # Auto-expire in 30 days");
+        Console.WriteLine("    winsentinel --ignore list                          # Show all ignore rules");
+        Console.WriteLine("    winsentinel --ignore remove abc12345               # Remove rule by ID");
+        Console.WriteLine("    winsentinel --ignore clear                         # Remove all rules");
+        Console.WriteLine("    winsentinel --ignore purge                         # Remove expired rules");
+        Console.WriteLine("    winsentinel --audit --show-ignored                 # Audit showing suppressed findings");
         Console.ForegroundColor = original;
         Console.WriteLine();
         Console.WriteLine("  EXIT CODES:");
@@ -1779,4 +1819,256 @@ public static class ConsoleFormatter
         Severity.Pass => ConsoleColor.Green,
         _ => ConsoleColor.DarkGray
     };
+
+    // ── Ignore Rule Display ──────────────────────────────────────────
+
+    /// <summary>
+    /// Print a summary of how many findings were suppressed by ignore rules.
+    /// </summary>
+    public static void PrintIgnoredSummary(int count)
+    {
+        var original = Console.ForegroundColor;
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write("  🔇 ");
+        Console.ForegroundColor = ConsoleColor.DarkYellow;
+        Console.Write($"{count} finding(s) suppressed");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine(" by ignore rules (use --show-ignored to reveal)");
+        Console.ForegroundColor = original;
+        Console.WriteLine();
+    }
+
+    /// <summary>
+    /// Print details of all ignored/suppressed findings.
+    /// </summary>
+    public static void PrintIgnoredFindings(List<IgnoredFinding> ignored)
+    {
+        var original = Console.ForegroundColor;
+
+        Console.ForegroundColor = ConsoleColor.DarkYellow;
+        Console.WriteLine($"  ┌─ Suppressed Findings ({ignored.Count})");
+        Console.ForegroundColor = original;
+
+        foreach (var item in ignored.OrderByDescending(i => i.Finding.Severity).ThenBy(i => i.Finding.Title))
+        {
+            var severityColor = item.Finding.Severity switch
+            {
+                Severity.Critical => ConsoleColor.Red,
+                Severity.Warning => ConsoleColor.Yellow,
+                Severity.Info => ConsoleColor.Cyan,
+                _ => ConsoleColor.Green
+            };
+
+            Console.ForegroundColor = ConsoleColor.DarkYellow;
+            Console.Write("  │  🔇 ");
+            Console.ForegroundColor = severityColor;
+            Console.Write($"[{item.Finding.Severity,-8}]");
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.Write($" {item.Finding.Title}");
+            Console.ForegroundColor = original;
+            Console.WriteLine();
+
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.Write($"  │     Rule: {item.MatchedRule.Id}");
+            Console.Write($"  Pattern: \"{item.MatchedRule.Pattern}\" ({item.MatchedRule.MatchMode})");
+            if (!string.IsNullOrEmpty(item.MatchedRule.Reason))
+            {
+                Console.Write($"  Reason: {item.MatchedRule.Reason}");
+            }
+            Console.ForegroundColor = original;
+            Console.WriteLine();
+        }
+
+        Console.ForegroundColor = ConsoleColor.DarkYellow;
+        Console.WriteLine("  └─────────────────────────────────");
+        Console.ForegroundColor = original;
+        Console.WriteLine();
+    }
+
+    /// <summary>
+    /// Print confirmation after adding an ignore rule.
+    /// </summary>
+    public static void PrintIgnoreRuleAdded(IgnoreRule rule)
+    {
+        var original = Console.ForegroundColor;
+
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.WriteLine();
+        Console.WriteLine("  ╔══════════════════════════════════════════════╗");
+        Console.WriteLine("  ║       🔇 Ignore Rule Added                  ║");
+        Console.WriteLine("  ╚══════════════════════════════════════════════╝");
+        Console.ForegroundColor = original;
+        Console.WriteLine();
+
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.Write("  ID:       ");
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.WriteLine(rule.Id);
+
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.Write("  Pattern:  ");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write($"\"{rule.Pattern}\"");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine($"  ({rule.MatchMode})");
+
+        if (!string.IsNullOrEmpty(rule.Module))
+        {
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.Write("  Module:   ");
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine(rule.Module);
+        }
+
+        if (rule.Severity.HasValue)
+        {
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.Write("  Severity: ");
+            Console.ForegroundColor = GetSeverityConsoleColor(rule.Severity.Value);
+            Console.WriteLine(rule.Severity.Value);
+        }
+
+        if (!string.IsNullOrEmpty(rule.Reason))
+        {
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.Write("  Reason:   ");
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine(rule.Reason);
+        }
+
+        if (rule.ExpiresAt.HasValue)
+        {
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.Write("  Expires:  ");
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine(rule.ExpiresAt.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm"));
+        }
+
+        Console.ForegroundColor = original;
+        Console.WriteLine();
+
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.WriteLine("  ✓ Matching findings will be suppressed in future audits.");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine("    Use --show-ignored with --audit to see suppressed findings.");
+        Console.WriteLine($"    Remove with: winsentinel --ignore remove {rule.Id}");
+        Console.ForegroundColor = original;
+        Console.WriteLine();
+    }
+
+    /// <summary>
+    /// Print a table of all ignore rules.
+    /// </summary>
+    public static void PrintIgnoreRuleList(List<IgnoreRule> rules, bool quiet = false)
+    {
+        var original = Console.ForegroundColor;
+
+        if (!quiet)
+        {
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine();
+            Console.WriteLine("  ╔══════════════════════════════════════════════╗");
+            Console.WriteLine("  ║       🔇 Ignore Rules                       ║");
+            Console.WriteLine("  ╚══════════════════════════════════════════════╝");
+            Console.ForegroundColor = original;
+            Console.WriteLine();
+        }
+
+        // Table header
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine($"  {"ID",-10} {"Pattern",-30} {"Mode",-10} {"Module",-15} {"Severity",-10} {"Status",-10}");
+        Console.WriteLine($"  {new string('─', 10)} {new string('─', 30)} {new string('─', 10)} {new string('─', 15)} {new string('─', 10)} {new string('─', 10)}");
+        Console.ForegroundColor = original;
+
+        foreach (var rule in rules)
+        {
+            var statusColor = rule.IsActive ? ConsoleColor.Green
+                : rule.IsExpired ? ConsoleColor.Red
+                : ConsoleColor.DarkGray;
+            var statusText = rule.IsActive ? "Active"
+                : rule.IsExpired ? "Expired"
+                : "Disabled";
+
+            // Truncate pattern if too long
+            var displayPattern = rule.Pattern.Length > 28
+                ? rule.Pattern[..25] + "..."
+                : rule.Pattern;
+
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.Write($"  {rule.Id,-10}");
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.Write($" {displayPattern,-30}");
+            Console.ForegroundColor = original;
+            Console.Write($" {rule.MatchMode,-10}");
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.Write($" {(rule.Module ?? "—"),-15}");
+
+            if (rule.Severity.HasValue)
+            {
+                Console.ForegroundColor = GetSeverityConsoleColor(rule.Severity.Value);
+                Console.Write($" {rule.Severity.Value,-10}");
+            }
+            else
+            {
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.Write($" {"Any",-10}");
+            }
+
+            Console.ForegroundColor = statusColor;
+            Console.Write($" {statusText,-10}");
+            Console.ForegroundColor = original;
+            Console.WriteLine();
+
+            // Show reason and expiry details if not quiet
+            if (!quiet)
+            {
+                if (!string.IsNullOrEmpty(rule.Reason))
+                {
+                    Console.ForegroundColor = ConsoleColor.DarkGray;
+                    Console.WriteLine($"  └ {rule.Reason}");
+                }
+                if (rule.ExpiresAt.HasValue)
+                {
+                    Console.ForegroundColor = ConsoleColor.DarkGray;
+                    var expiresStr = rule.IsExpired
+                        ? $"Expired {rule.ExpiresAt.Value.ToLocalTime():yyyy-MM-dd}"
+                        : $"Expires {rule.ExpiresAt.Value.ToLocalTime():yyyy-MM-dd}";
+                    Console.WriteLine($"  └ ⏰ {expiresStr}");
+                }
+                Console.ForegroundColor = original;
+            }
+        }
+
+        Console.WriteLine();
+
+        if (!quiet)
+        {
+            var activeCount = rules.Count(r => r.IsActive);
+            var expiredCount = rules.Count(r => r.IsExpired);
+            var disabledCount = rules.Count(r => !r.Enabled);
+
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.Write("  ");
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.Write($"{activeCount} active");
+            if (expiredCount > 0)
+            {
+                Console.ForegroundColor = original;
+                Console.Write("  │  ");
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.Write($"{expiredCount} expired");
+            }
+            if (disabledCount > 0)
+            {
+                Console.ForegroundColor = original;
+                Console.Write("  │  ");
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.Write($"{disabledCount} disabled");
+            }
+            Console.ForegroundColor = original;
+            Console.WriteLine($"  │  {rules.Count} total");
+            Console.ForegroundColor = original;
+            Console.WriteLine();
+        }
+    }
 }

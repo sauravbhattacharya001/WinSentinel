@@ -23,7 +23,7 @@ jobs:
         target: [cli, service]
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
 
     - name: Log in to GitHub Container Registry
       if: github.event_name != 'pull_request'

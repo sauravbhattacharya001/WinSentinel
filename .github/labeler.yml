@@ -1,0 +1,115 @@
+# Auto-labeler configuration for WinSentinel
+# Labels PRs based on the files they change
+
+# --- Core Library ---
+core:
+  - changed-files:
+      - any-glob-to-any-file: 'src/WinSentinel.Core/**/*'
+
+# --- Security Audits ---
+audits:
+  - changed-files:
+      - any-glob-to-any-file: 'src/WinSentinel.Core/Audits/**/*'
+
+# --- Agent (real-time monitoring) ---
+agent:
+  - changed-files:
+      - any-glob-to-any-file: 'src/WinSentinel.Agent/**/*'
+
+# --- CLI ---
+cli:
+  - changed-files:
+      - any-glob-to-any-file: 'src/WinSentinel.Cli/**/*'
+
+# --- Desktop App (WPF) ---
+app:
+  - changed-files:
+      - any-glob-to-any-file: 'src/WinSentinel.App/**/*'
+
+# --- Windows Service ---
+service:
+  - changed-files:
+      - any-glob-to-any-file: 'src/WinSentinel.Service/**/*'
+
+# --- Installer / Packaging ---
+installer:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'src/WinSentinel.Installer/**/*'
+          - '*.ps1'
+
+# --- Tests ---
+tests:
+  - changed-files:
+      - any-glob-to-any-file: 'tests/**/*'
+
+# --- CI/CD & DevOps ---
+ci:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '.github/workflows/**/*'
+          - '.github/dependabot.yml'
+          - '.github/labeler.yml'
+
+# --- Docker ---
+docker:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'Dockerfile'
+          - '.dockerignore'
+          - '.github/workflows/docker.yml'
+
+# --- Documentation ---
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'docs/**/*'
+          - 'README.md'
+          - 'SECURITY.md'
+          - 'LICENSE'
+          - '.github/copilot-instructions.md'
+
+# --- IPC (inter-process communication) ---
+ipc:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'src/WinSentinel.Agent/Ipc/**/*'
+          - 'src/WinSentinel.Core/Services/IpcClient.cs'
+
+# --- Threat Detection ---
+threat-detection:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'src/WinSentinel.Agent/Modules/**/*'
+          - 'src/WinSentinel.Agent/Services/ThreatCorrelator.cs'
+          - 'src/WinSentinel.Agent/Services/AgentBrain.cs'
+          - 'src/WinSentinel.Agent/ThreatEvent.cs'
+          - 'src/WinSentinel.Agent/ThreatLog.cs'
+
+# --- Remediation ---
+remediation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'src/WinSentinel.Agent/Services/AutoRemediator.cs'
+          - 'src/WinSentinel.Agent/Services/ResponsePolicy.cs'
+          - 'src/WinSentinel.Core/Services/FixEngine.cs'
+          - 'src/WinSentinel.Core/Services/RemediationPlanner.cs'
+          - 'src/WinSentinel.Core/Models/RemediationModels.cs'
+          - 'src/WinSentinel.Core/Models/FixResult.cs'
+
+# --- UI / XAML ---
+ui:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'src/WinSentinel.App/Views/**/*'
+          - 'src/WinSentinel.App/ViewModels/**/*'
+          - 'src/WinSentinel.App/Controls/**/*'
+          - '**/*.xaml'
+          - '**/*.xaml.cs'
+
+# --- Solution / Project Files ---
+build:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '*.sln'
+          - '**/*.csproj'

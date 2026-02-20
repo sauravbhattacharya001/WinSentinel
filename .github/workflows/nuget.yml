@@ -1,0 +1,125 @@
+name: Publish NuGet Package
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Package version override (leave empty to use csproj version)'
+        required: false
+        type: string
+      push_to_nuget:
+        description: 'Push to NuGet.org (requires NUGET_API_KEY secret)'
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Determine version
+      id: version
+      shell: pwsh
+      run: |
+        $version = "${{ inputs.version }}"
+
+        if (-not $version -and "${{ github.event_name }}" -eq "release") {
+          # Extract version from tag (strip leading 'v')
+          $tag = "${{ github.event.release.tag_name }}"
+          $version = $tag -replace '^v', ''
+        }
+
+        if (-not $version) {
+          # Fall back to csproj version
+          [xml]$csproj = Get-Content src/WinSentinel.Core/WinSentinel.Core.csproj
+          $version = $csproj.Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+          if (-not $version) { $version = "1.0.0" }
+        }
+
+        Write-Host "Package version: $version"
+        "version=$version" >> $env:GITHUB_OUTPUT
+
+    - name: Restore dependencies
+      run: dotnet restore src/WinSentinel.Core/WinSentinel.Core.csproj
+
+    - name: Build
+      run: dotnet build src/WinSentinel.Core/WinSentinel.Core.csproj --no-restore -c Release -p:Version=${{ steps.version.outputs.version }}
+
+    - name: Run tests
+      run: dotnet test tests/WinSentinel.Tests/WinSentinel.Tests.csproj -c Release --verbosity normal
+      continue-on-error: true
+
+    - name: Pack NuGet package
+      run: |
+        dotnet pack src/WinSentinel.Core/WinSentinel.Core.csproj `
+          --no-build -c Release `
+          -p:Version=${{ steps.version.outputs.version }} `
+          -o ./nupkg
+
+    - name: List packages
+      shell: pwsh
+      run: |
+        Get-ChildItem ./nupkg -Recurse | ForEach-Object {
+          $sizeMB = [math]::Round($_.Length / 1KB, 1)
+          Write-Host "$($_.Name) — ${sizeMB} KB"
+        }
+
+    - name: Upload NuGet artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: nuget-packages
+        path: ./nupkg/*
+        retention-days: 30
+
+    - name: Push to GitHub Packages
+      run: |
+        dotnet nuget push ./nupkg/*.nupkg `
+          --source "https://nuget.pkg.github.com/sauravbhattacharya001/index.json" `
+          --api-key ${{ secrets.GITHUB_TOKEN }} `
+          --skip-duplicate
+
+    - name: Push to NuGet.org
+      if: ${{ (github.event_name == 'release' || inputs.push_to_nuget == true) && secrets.NUGET_API_KEY != '' }}
+      run: |
+        dotnet nuget push ./nupkg/*.nupkg `
+          --source "https://api.nuget.org/v3/index.json" `
+          --api-key ${{ secrets.NUGET_API_KEY }} `
+          --skip-duplicate
+      env:
+        NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+
+    - name: Package summary
+      shell: pwsh
+      run: |
+        $version = "${{ steps.version.outputs.version }}"
+        $pkg = Get-ChildItem ./nupkg -Filter *.nupkg | Select-Object -First 1
+        $sizeMB = if ($pkg) { [math]::Round($pkg.Length / 1KB, 1) } else { "?" }
+
+        "## 📦 NuGet Package Published" >> $env:GITHUB_STEP_SUMMARY
+        "" >> $env:GITHUB_STEP_SUMMARY
+        "| Property | Value |" >> $env:GITHUB_STEP_SUMMARY
+        "|----------|-------|" >> $env:GITHUB_STEP_SUMMARY
+        "| Package | ``WinSentinel.Core`` |" >> $env:GITHUB_STEP_SUMMARY
+        "| Version | ``$version`` |" >> $env:GITHUB_STEP_SUMMARY
+        "| Size | ${sizeMB} KB |" >> $env:GITHUB_STEP_SUMMARY
+        "" >> $env:GITHUB_STEP_SUMMARY
+        "### Install" >> $env:GITHUB_STEP_SUMMARY
+        "``````" >> $env:GITHUB_STEP_SUMMARY
+        "dotnet add package WinSentinel.Core --version $version" >> $env:GITHUB_STEP_SUMMARY
+        "``````" >> $env:GITHUB_STEP_SUMMARY

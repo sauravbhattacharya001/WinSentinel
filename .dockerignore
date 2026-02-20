@@ -1,0 +1,17 @@
+# Docker ignore file — exclude build artifacts and dev files
+.git
+.github
+.gitignore
+.vs
+*.md
+!README.md
+docs/
+publish/
+dist/
+**/bin/
+**/obj/
+**/.vs/
+*.user
+*.suo
+*.msix
+*.pfx

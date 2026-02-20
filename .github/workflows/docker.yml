@@ -1,0 +1,132 @@
+name: Docker Build & Push
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  docker:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        target: [cli, service]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Log in to GitHub Container Registry
+      if: github.event_name != 'pull_request'
+      run: |
+        echo "${{ secrets.GITHUB_TOKEN }}" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
+
+    - name: Extract metadata
+      id: meta
+      shell: pwsh
+      run: |
+        $repo = "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}".ToLower()
+        $target = "${{ matrix.target }}"
+        $imageName = if ($target -eq "cli") { $repo } else { "${repo}-${target}" }
+
+        $tags = @()
+        $ref = "${{ github.ref }}"
+
+        if ($ref -match '^refs/tags/v(.+)$') {
+          $version = $Matches[1]
+          $tags += "${imageName}:${version}"
+          $tags += "${imageName}:latest"
+          # Add major.minor tag (e.g., 1.0)
+          if ($version -match '^(\d+\.\d+)') {
+            $tags += "${imageName}:$($Matches[1])"
+          }
+        } elseif ($ref -eq 'refs/heads/main') {
+          $sha = "${{ github.sha }}".Substring(0, 7)
+          $tags += "${imageName}:main"
+          $tags += "${imageName}:sha-${sha}"
+        } else {
+          $sha = "${{ github.sha }}".Substring(0, 7)
+          $tags += "${imageName}:pr-${{ github.event.number }}"
+          $tags += "${imageName}:sha-${sha}"
+        }
+
+        $tagsStr = $tags -join "`n"
+        "tags<<EOF" >> $env:GITHUB_OUTPUT
+        $tagsStr >> $env:GITHUB_OUTPUT
+        "EOF" >> $env:GITHUB_OUTPUT
+        "primary=$($tags[0])" >> $env:GITHUB_OUTPUT
+
+        Write-Host "Tags:"
+        $tags | ForEach-Object { Write-Host "  $_" }
+
+    - name: Build Docker image
+      run: |
+        docker build --target ${{ matrix.target }} -t ${{ steps.meta.outputs.primary }} .
+
+    - name: Tag additional tags
+      if: github.event_name != 'pull_request'
+      shell: pwsh
+      run: |
+        $tags = @"
+        ${{ steps.meta.outputs.tags }}
+        "@.Trim() -split "`n"
+
+        foreach ($tag in $tags) {
+          $tag = $tag.Trim()
+          if ($tag -and $tag -ne "${{ steps.meta.outputs.primary }}") {
+            docker tag "${{ steps.meta.outputs.primary }}" $tag
+            Write-Host "Tagged: $tag"
+          }
+        }
+
+    - name: Push to GHCR
+      if: github.event_name != 'pull_request'
+      shell: pwsh
+      run: |
+        $tags = @"
+        ${{ steps.meta.outputs.tags }}
+        "@.Trim() -split "`n"
+
+        foreach ($tag in $tags) {
+          $tag = $tag.Trim()
+          if ($tag) {
+            docker push $tag
+            Write-Host "Pushed: $tag"
+          }
+        }
+
+    - name: Image summary
+      if: github.event_name != 'pull_request'
+      shell: pwsh
+      run: |
+        $primary = "${{ steps.meta.outputs.primary }}"
+        $size = docker image inspect $primary --format '{{.Size}}'
+        $sizeMB = [math]::Round($size / 1MB, 1)
+        Write-Host "Image: $primary"
+        Write-Host "Size: ${sizeMB} MB"
+
+        # GitHub Actions job summary
+        "## 🐳 Docker Image: ${{ matrix.target }}" >> $env:GITHUB_STEP_SUMMARY
+        "" >> $env:GITHUB_STEP_SUMMARY
+        "| Property | Value |" >> $env:GITHUB_STEP_SUMMARY
+        "|----------|-------|" >> $env:GITHUB_STEP_SUMMARY
+        "| Image | ``$primary`` |" >> $env:GITHUB_STEP_SUMMARY
+        "| Size | ${sizeMB} MB |" >> $env:GITHUB_STEP_SUMMARY
+        "" >> $env:GITHUB_STEP_SUMMARY
+        "### Tags" >> $env:GITHUB_STEP_SUMMARY
+        $tags = @"
+        ${{ steps.meta.outputs.tags }}
+        "@.Trim() -split "`n"
+        foreach ($tag in $tags) {
+          $tag = $tag.Trim()
+          if ($tag) { "- ``$tag``" >> $env:GITHUB_STEP_SUMMARY }
+        }

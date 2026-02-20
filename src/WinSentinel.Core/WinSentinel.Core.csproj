@@ -5,7 +5,27 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <Platforms>AnyCPU;x64;x86;ARM64</Platforms>
+
+    <!-- NuGet Package Metadata -->
+    <PackageId>WinSentinel.Core</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>sauravbhattacharya001</Authors>
+    <Company>WinSentinel</Company>
+    <Description>Core library for WinSentinel — a comprehensive Windows security auditing framework. Provides audit modules for firewall, Defender, encryption, network, processes, startup items, browser security, privacy settings, and more. Includes remediation planning, security scoring, baseline comparison, and report generation.</Description>
+    <PackageTags>windows;security;audit;firewall;defender;encryption;network;privacy;registry;wmi;dotnet</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/sauravbhattacharya001/WinSentinel</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/sauravbhattacharya001/WinSentinel</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.11" />

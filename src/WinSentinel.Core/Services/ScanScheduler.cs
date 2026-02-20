@@ -92,7 +92,15 @@ public class ScanScheduler : IDisposable
     {
         _timer?.Dispose();
         _timer = null;
-        _scanCts?.Cancel();
+
+        // Safely cancel any in-progress scan under the lock
+        CancellationTokenSource? cts;
+        lock (_lock)
+        {
+            cts = _scanCts;
+        }
+        cts?.Cancel();
+
         SchedulerStateChanged?.Invoke(this, false);
     }
 
@@ -125,13 +133,15 @@ public class ScanScheduler : IDisposable
 
     private async Task<SecurityReport?> ExecuteScanAsync(bool isScheduled, CancellationToken externalToken)
     {
+        CancellationTokenSource scanCts;
+
         lock (_lock)
         {
             if (_isRunning) return null; // Don't overlap scans
             _isRunning = true;
+            scanCts = CancellationTokenSource.CreateLinkedTokenSource(externalToken);
+            _scanCts = scanCts;
         }
-
-        _scanCts = CancellationTokenSource.CreateLinkedTokenSource(externalToken);
 
         try
         {
@@ -159,7 +169,7 @@ public class ScanScheduler : IDisposable
                 }
             }
 
-            var report = await scanEngine.RunFullAuditAsync(progress, _scanCts.Token, isScheduled);
+            var report = await scanEngine.RunFullAuditAsync(progress, scanCts.Token, isScheduled);
 
             var previousScore = _settings.LastScore;
             _settings.LastScanTime = DateTimeOffset.UtcNow;
@@ -212,9 +222,12 @@ public class ScanScheduler : IDisposable
         }
         finally
         {
-            lock (_lock) _isRunning = false;
-            _scanCts?.Dispose();
-            _scanCts = null;
+            lock (_lock)
+            {
+                _isRunning = false;
+                _scanCts = null;
+            }
+            scanCts.Dispose();
         }
     }
 

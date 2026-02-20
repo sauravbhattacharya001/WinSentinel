@@ -520,10 +520,10 @@ public class ProcessMonitorModule : IAgentModule
         }
 
         // Check for other suspicious PowerShell flags
-        if (cmdLower.Contains("-noprofile") && cmdLower.Contains("-windowstyle hidden") ||
+        if ((cmdLower.Contains("-noprofile") && cmdLower.Contains("-windowstyle hidden")) ||
             cmdLower.Contains("downloadstring") || cmdLower.Contains("downloadfile") ||
             cmdLower.Contains("invoke-expression") || cmdLower.Contains("iex ") ||
-            cmdLower.Contains("bypass") && cmdLower.Contains("executionpolicy"))
+            (cmdLower.Contains("bypass") && cmdLower.Contains("executionpolicy")))
         {
             threats.Add(new ThreatEvent
             {

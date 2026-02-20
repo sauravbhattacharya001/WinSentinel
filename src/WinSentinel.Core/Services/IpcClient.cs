@@ -288,6 +288,15 @@ public class IpcClient : IDisposable
         if (_disposed) return;
         _disposed = true;
         _eventCts?.Cancel();
+
+        // Wait briefly for event loop to finish before disposing shared resources
+        try
+        {
+            _eventLoop?.Wait(TimeSpan.FromSeconds(2));
+        }
+        catch (AggregateException) { /* Swallow cancellation/IO exceptions */ }
+        catch (ObjectDisposedException) { }
+
         Cleanup();
         _sendLock.Dispose();
         _eventCts?.Dispose();

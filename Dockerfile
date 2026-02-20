@@ -53,7 +53,7 @@ ENTRYPOINT ["winsentinel.exe"]
 CMD ["audit", "--full"]
 
 # --- Runtime Stage (Service) ---
-FROM mcr.microsoft.com/dotnet/runtime:8.0-windowsservercore-ltsc2022 AS service
+FROM mcr.microsoft.com/dotnet/runtime:10.0-windowsservercore-ltsc2022 AS service
 WORKDIR /app
 COPY --from=build /app/service .
 

@@ -29,6 +29,7 @@ return options.Command switch
     CliCommand.Checklist => await HandleChecklist(options),
     CliCommand.Profiles => HandleProfiles(options),
     CliCommand.Ignore => HandleIgnore(options),
+    CliCommand.Trend => HandleTrend(options),
     _ => HandleHelp()
 };
 
@@ -1294,4 +1295,61 @@ static void WriteOutput(string content, string? outputFile)
     {
         Console.WriteLine(content);
     }
+}
+
+// ── Trend Analysis ───────────────────────────────────────────────────
+
+static int HandleTrend(CliOptions options)
+{
+    using var history = new AuditHistoryService();
+    history.EnsureDatabase();
+
+    var runs = history.GetHistory(options.TrendDays);
+
+    // Load module scores for the last 2 runs (for module trend comparison)
+    if (options.TrendModules && runs.Count > 0)
+    {
+        var runIdsToLoad = runs.Take(2).Select(r => r.Id).ToList();
+        foreach (var runId in runIdsToLoad)
+        {
+            var fullRun = history.GetRunDetails(runId);
+            if (fullRun != null)
+            {
+                var match = runs.FirstOrDefault(r => r.Id == runId);
+                if (match != null)
+                {
+                    match.ModuleScores = fullRun.ModuleScores;
+                }
+            }
+        }
+    }
+
+    var analyzer = new TrendAnalyzer();
+    var trendOptions = new TrendOptions
+    {
+        AlertThreshold = options.TrendAlertThreshold,
+    };
+    var report = analyzer.Analyze(runs, trendOptions);
+
+    if (!report.HasData)
+    {
+        ConsoleFormatter.PrintWarning("No audit history found. Run --score or --audit first to generate data.");
+        return 1;
+    }
+
+    if (options.Json)
+    {
+        var json = JsonSerializer.Serialize(report, new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            Converters = { new JsonStringEnumConverter() }
+        });
+        WriteOutput(json, options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintTrendReport(report, options.TrendModules);
+
+    return report.Alerts.Any(a => a.Level == AlertLevel.Critical) ? 2 : 0;
 }

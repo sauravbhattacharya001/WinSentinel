@@ -340,6 +340,10 @@ public static class ConsoleFormatter
         Console.ForegroundColor = original;
         Console.WriteLine("Manage finding ignore rules (add/list/remove/clear/purge)");
         Console.ForegroundColor = ConsoleColor.White;
+        Console.Write("    --trend              ");
+        Console.ForegroundColor = original;
+        Console.WriteLine("Show security score trend analysis over time");
+        Console.ForegroundColor = ConsoleColor.White;
         Console.Write("    --help, -h           ");
         Console.ForegroundColor = original;
         Console.WriteLine("Show this help message");
@@ -429,6 +433,18 @@ public static class ConsoleFormatter
         Console.Write("    --expire-days <n>    ");
         Console.ForegroundColor = original;
         Console.WriteLine("Auto-expire ignore rule after n days (1-3650)");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.Write("    --trend-days <n>     ");
+        Console.ForegroundColor = original;
+        Console.WriteLine("Trend analysis lookback period in days (default: 30)");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.Write("    --alert-below <n>    ");
+        Console.ForegroundColor = original;
+        Console.WriteLine("Alert if current score is below n (with --trend)");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.Write("    --trend-modules      ");
+        Console.ForegroundColor = original;
+        Console.WriteLine("Include per-module trend breakdown (with --trend)");
         Console.WriteLine();
         Console.WriteLine("  EXAMPLES:");
         Console.ForegroundColor = ConsoleColor.DarkGray;
@@ -471,12 +487,17 @@ public static class ConsoleFormatter
         Console.WriteLine("    winsentinel --ignore clear                         # Remove all rules");
         Console.WriteLine("    winsentinel --ignore purge                         # Remove expired rules");
         Console.WriteLine("    winsentinel --audit --show-ignored                 # Audit showing suppressed findings");
+        Console.WriteLine("    winsentinel --trend                                # Score trend analysis");
+        Console.WriteLine("    winsentinel --trend --trend-days 90                # 90-day trend window");
+        Console.WriteLine("    winsentinel --trend --alert-below 80               # Alert if score < 80");
+        Console.WriteLine("    winsentinel --trend --trend-modules                # Include per-module breakdown");
+        Console.WriteLine("    winsentinel --trend --json                         # Trend data as JSON");
         Console.ForegroundColor = original;
         Console.WriteLine();
         Console.WriteLine("  EXIT CODES:");
         Console.WriteLine("    0  All checks pass (or score >= threshold)");
         Console.WriteLine("    1  Warnings found (or score < threshold)");
-        Console.WriteLine("    2  Critical findings found");
+        Console.WriteLine("    2  Critical findings found (or trend alert triggered)");
         Console.WriteLine("    3  Error during execution");
         Console.WriteLine();
         Console.WriteLine("  AVAILABLE MODULES:");
@@ -2071,4 +2092,249 @@ public static class ConsoleFormatter
             Console.WriteLine();
         }
     }
+
+    // ── Trend Analysis Display ───────────────────────────────────────────
+
+    /// <summary>
+    /// Print a warning message (yellow).
+    /// </summary>
+    public static void PrintWarning(string message)
+    {
+        var original = Console.ForegroundColor;
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.Write("  ⚠ ");
+        Console.ForegroundColor = original;
+        Console.WriteLine(message);
+        Console.WriteLine();
+    }
+
+    /// <summary>
+    /// Print the full trend analysis report.
+    /// </summary>
+    public static void PrintTrendReport(TrendReport report, bool showModules = false)
+    {
+        var original = Console.ForegroundColor;
+
+        // ── Header ──────────────────────────────────────────────────
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.WriteLine();
+        Console.WriteLine("  ┌─────────────────────────────────────────────────────┐");
+        Console.WriteLine("  │           🔎 SECURITY SCORE TREND ANALYSIS          │");
+        Console.WriteLine("  └─────────────────────────────────────────────────────┘");
+        Console.ForegroundColor = original;
+        Console.WriteLine();
+
+        // ── Sparkline ───────────────────────────────────────────────
+        if (report.SparklineScores.Count > 1)
+        {
+            var sparkline = TrendAnalyzer.GenerateSparkline(report.SparklineScores);
+            Console.Write("  Score trend:  ");
+            Console.ForegroundColor = report.TrendDirection switch
+            {
+                TrendDirection.Improving => ConsoleColor.Green,
+                TrendDirection.Declining => ConsoleColor.Red,
+                _ => ConsoleColor.Yellow,
+            };
+            Console.Write(sparkline);
+            Console.ForegroundColor = original;
+
+            var arrow = report.TrendDirection switch
+            {
+                TrendDirection.Improving => " ↑ Improving",
+                TrendDirection.Declining => " ↓ Declining",
+                _ => " → Stable",
+            };
+            Console.ForegroundColor = report.TrendDirection switch
+            {
+                TrendDirection.Improving => ConsoleColor.Green,
+                TrendDirection.Declining => ConsoleColor.Red,
+                _ => ConsoleColor.Yellow,
+            };
+            Console.WriteLine(arrow);
+            Console.ForegroundColor = original;
+            Console.WriteLine();
+        }
+
+        // ── Current Score ───────────────────────────────────────────
+        Console.Write("  Current Score:  ");
+        Console.ForegroundColor = GetScoreColor(report.CurrentScore);
+        Console.Write($"{report.CurrentScore}/100 ({report.CurrentGrade})");
+        Console.ForegroundColor = original;
+
+        if (report.PreviousScore.HasValue)
+        {
+            var change = report.ScoreChange;
+            var sign = change > 0 ? "+" : "";
+            Console.ForegroundColor = change > 0 ? ConsoleColor.Green : change < 0 ? ConsoleColor.Red : ConsoleColor.Gray;
+            Console.Write($"  ({sign}{change} from last scan)");
+            Console.ForegroundColor = original;
+        }
+        Console.WriteLine();
+        Console.WriteLine();
+
+        // ── Statistics ──────────────────────────────────────────────
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine("  📊 Statistics");
+        Console.ForegroundColor = original;
+        Console.WriteLine($"  ├── Scans:     {report.TotalScans} over {FormatTimeSpan(report.TimeSpan)}");
+        Console.WriteLine($"  ├── Average:   {report.AverageScore:F1}");
+        Console.WriteLine($"  ├── Median:    {report.MedianScore}");
+        Console.WriteLine($"  ├── Std Dev:   {report.ScoreStdDev:F1}");
+        Console.Write("  ├── Best:      ");
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.WriteLine($"{report.BestScore} ({report.BestScoreGrade}) on {report.BestScoreDate.LocalDateTime:MMM dd, yyyy}");
+        Console.ForegroundColor = original;
+        Console.Write("  └── Worst:     ");
+        Console.ForegroundColor = ConsoleColor.Red;
+        Console.WriteLine($"{report.WorstScore} ({report.WorstScoreGrade}) on {report.WorstScoreDate.LocalDateTime:MMM dd, yyyy}");
+        Console.ForegroundColor = original;
+        Console.WriteLine();
+
+        // ── Score Distribution ──────────────────────────────────────
+        if (report.Distribution.Count > 0)
+        {
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.WriteLine("  📈 Score Distribution");
+            Console.ForegroundColor = original;
+
+            var maxCount = report.Distribution.Values.Max();
+            foreach (var (bucket, count) in report.Distribution)
+            {
+                var barWidth = maxCount > 0 ? (int)Math.Round((double)count / maxCount * 20) : 0;
+                var bar = new string('█', barWidth);
+                var color = bucket switch
+                {
+                    "80-100" => ConsoleColor.Green,
+                    "60-79" => ConsoleColor.Yellow,
+                    "40-59" => ConsoleColor.DarkYellow,
+                    "20-39" => ConsoleColor.Red,
+                    _ => ConsoleColor.DarkRed,
+                };
+                Console.Write($"  {bucket,6}  ");
+                Console.ForegroundColor = color;
+                Console.Write(bar);
+                Console.ForegroundColor = original;
+                Console.WriteLine($" {count}");
+            }
+            Console.WriteLine();
+        }
+
+        // ── Streaks ─────────────────────────────────────────────────
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine("  🔥 Streaks");
+        Console.ForegroundColor = original;
+        if (report.CurrentImprovementStreak > 0)
+        {
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"  ├── Improvement streak: {report.CurrentImprovementStreak} scan(s)");
+            Console.ForegroundColor = original;
+        }
+        if (report.CurrentDeclineStreak > 0)
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"  ├── Decline streak:     {report.CurrentDeclineStreak} scan(s)");
+            Console.ForegroundColor = original;
+        }
+        Console.WriteLine($"  └── Best streak:        {report.BestImprovementStreak} scan(s)");
+        Console.WriteLine();
+
+        // ── Findings Trend ──────────────────────────────────────────
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine("  🔍 Findings");
+        Console.ForegroundColor = original;
+        Console.Write("  ├── Critical:  ");
+        Console.ForegroundColor = report.TotalCriticalCurrent > 0 ? ConsoleColor.Red : ConsoleColor.Green;
+        Console.Write(report.TotalCriticalCurrent);
+        Console.ForegroundColor = original;
+        if (report.CriticalChange != 0)
+        {
+            var sign = report.CriticalChange > 0 ? "+" : "";
+            Console.ForegroundColor = report.CriticalChange > 0 ? ConsoleColor.Red : ConsoleColor.Green;
+            Console.Write($" ({sign}{report.CriticalChange})");
+            Console.ForegroundColor = original;
+        }
+        Console.WriteLine();
+        Console.Write("  └── Warning:   ");
+        Console.ForegroundColor = report.TotalWarningCurrent > 0 ? ConsoleColor.Yellow : ConsoleColor.Green;
+        Console.Write(report.TotalWarningCurrent);
+        Console.ForegroundColor = original;
+        if (report.WarningChange != 0)
+        {
+            var sign = report.WarningChange > 0 ? "+" : "";
+            Console.ForegroundColor = report.WarningChange > 0 ? ConsoleColor.Yellow : ConsoleColor.Green;
+            Console.Write($" ({sign}{report.WarningChange})");
+            Console.ForegroundColor = original;
+        }
+        Console.WriteLine();
+        Console.WriteLine();
+
+        // ── Module Trends ───────────────────────────────────────────
+        if (showModules && report.ModuleTrends.Count > 0)
+        {
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.WriteLine("  📋 Module Trends");
+            Console.ForegroundColor = original;
+
+            foreach (var mod in report.ModuleTrends)
+            {
+                var trendColor = mod.ScoreChange > 0 ? ConsoleColor.Green
+                    : mod.ScoreChange < 0 ? ConsoleColor.Red
+                    : ConsoleColor.Gray;
+                var changeText = mod.PreviousScore.HasValue
+                    ? $" {mod.TrendIndicator} {(mod.ScoreChange > 0 ? "+" : "")}{mod.ScoreChange}"
+                    : "";
+
+                Console.Write($"  │  {mod.ModuleName,-20} ");
+                Console.ForegroundColor = GetScoreColor(mod.CurrentScore);
+                Console.Write($"{mod.CurrentScore,3}/100");
+                Console.ForegroundColor = trendColor;
+                Console.Write(changeText);
+                Console.ForegroundColor = original;
+                Console.WriteLine();
+            }
+            Console.WriteLine();
+        }
+
+        // ── Alerts ──────────────────────────────────────────────────
+        if (report.Alerts.Count > 0)
+        {
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.WriteLine("  ⚠️  Alerts");
+            Console.ForegroundColor = original;
+
+            foreach (var alert in report.Alerts)
+            {
+                var (icon, color) = alert.Level switch
+                {
+                    AlertLevel.Critical => ("🔴", ConsoleColor.Red),
+                    AlertLevel.Warning => ("🟡", ConsoleColor.Yellow),
+                    _ => ("ℹ️", ConsoleColor.Cyan),
+                };
+                Console.ForegroundColor = color;
+                Console.WriteLine($"  {icon} {alert.Message}");
+                Console.ForegroundColor = original;
+            }
+            Console.WriteLine();
+        }
+
+        // ── Bar Chart ───────────────────────────────────────────────
+        if (report.SparklineScores.Count > 1)
+        {
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.WriteLine("  📉 Score History");
+            Console.ForegroundColor = original;
+            Console.WriteLine();
+        }
+    }
+
+    private static ConsoleColor GetScoreColor(int score) =>
+        score >= 80 ? ConsoleColor.Green
+        : score >= 60 ? ConsoleColor.Yellow
+        : score >= 40 ? ConsoleColor.DarkYellow
+        : ConsoleColor.Red;
+
+    private static string FormatTimeSpan(TimeSpan ts) =>
+        ts.TotalDays >= 1 ? $"{ts.Days}d {ts.Hours}h"
+        : ts.TotalHours >= 1 ? $"{ts.Hours}h {ts.Minutes}m"
+        : $"{ts.Minutes}m";
 }

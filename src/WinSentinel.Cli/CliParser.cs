@@ -34,6 +34,9 @@ public class CliOptions
     public string? IgnoreRuleId { get; set; }
     public int? IgnoreExpireDays { get; set; }
     public bool ShowIgnored { get; set; }
+    public int TrendDays { get; set; } = 30;
+    public int? TrendAlertThreshold { get; set; }
+    public bool TrendModules { get; set; }
 }
 
 public enum CliCommand
@@ -47,6 +50,7 @@ public enum CliCommand
     Checklist,
     Profiles,
     Ignore,
+    Trend,
     Help,
     Version
 }
@@ -123,6 +127,10 @@ public static class CliParser
 
                 case "--profiles":
                     options.Command = CliCommand.Profiles;
+                    break;
+
+                case "--trend":
+                    options.Command = CliCommand.Trend;
                     break;
 
                 case "--ignore":
@@ -425,6 +433,50 @@ public static class CliParser
                         options.Error = "Missing value for --threshold (-t).";
                         return options;
                     }
+                    break;
+
+                case "--trend-days":
+                    if (i + 1 < args.Length)
+                    {
+                        if (int.TryParse(args[++i], out int trendDays) && trendDays >= 1 && trendDays <= 365)
+                        {
+                            options.TrendDays = trendDays;
+                        }
+                        else
+                        {
+                            options.Error = "Invalid trend-days value. Must be 1-365.";
+                            return options;
+                        }
+                    }
+                    else
+                    {
+                        options.Error = "Missing value for --trend-days.";
+                        return options;
+                    }
+                    break;
+
+                case "--alert-below":
+                    if (i + 1 < args.Length)
+                    {
+                        if (int.TryParse(args[++i], out int alertThreshold) && alertThreshold >= 0 && alertThreshold <= 100)
+                        {
+                            options.TrendAlertThreshold = alertThreshold;
+                        }
+                        else
+                        {
+                            options.Error = "Invalid alert-below value. Must be 0-100.";
+                            return options;
+                        }
+                    }
+                    else
+                    {
+                        options.Error = "Missing value for --alert-below.";
+                        return options;
+                    }
+                    break;
+
+                case "--trend-modules":
+                    options.TrendModules = true;
                     break;
 
                 default:

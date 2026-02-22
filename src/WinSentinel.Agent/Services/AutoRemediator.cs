@@ -213,7 +213,6 @@ public class AutoRemediator
     /// </summary>
     public RemediationRecord BlockIp(string ipAddress, string reason, string threatEventId)
     {
-        var ruleName = $"WinSentinel_Block_{ipAddress.Replace('.', '_').Replace(':', '_')}";
         var record = new RemediationRecord
         {
             ActionType = RemediationAction.BlockIp,
@@ -221,12 +220,26 @@ public class AutoRemediator
             ThreatEventId = threatEventId
         };
 
+        // Validate IP address to prevent command injection
+        var sanitizedIp = Core.Helpers.InputSanitizer.SanitizeIpAddress(ipAddress);
+        if (sanitizedIp == null)
+        {
+            record.Success = false;
+            record.ErrorMessage = "Invalid IP address format";
+            record.Description = $"Rejected IP address '{ipAddress}' — failed validation";
+            _logger.LogWarning("AUTO-REMEDIATION: Rejected invalid IP address: {Ip}", ipAddress);
+            _history.Add(record);
+            return record;
+        }
+
+        var ruleName = $"WinSentinel_Block_{sanitizedIp.Replace('.', '_').Replace(':', '_')}";
+
         try
         {
             var psi = new ProcessStartInfo
             {
                 FileName = "netsh",
-                Arguments = $"advfirewall firewall add rule name=\"{ruleName}\" dir=in action=block remoteip={ipAddress}",
+                Arguments = $"advfirewall firewall add rule name=\"{ruleName}\" dir=in action=block remoteip={sanitizedIp}",
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -276,12 +289,24 @@ public class AutoRemediator
             ThreatEventId = threatEventId
         };
 
+        // Validate username to prevent command injection
+        var sanitizedUsername = Core.Helpers.InputSanitizer.SanitizeUsername(username);
+        if (sanitizedUsername == null)
+        {
+            record.Success = false;
+            record.ErrorMessage = "Invalid username format";
+            record.Description = $"Rejected username — failed validation (possible injection attempt)";
+            _logger.LogWarning("AUTO-REMEDIATION: Rejected invalid username for disable");
+            _history.Add(record);
+            return record;
+        }
+
         try
         {
             var psi = new ProcessStartInfo
             {
                 FileName = "net",
-                Arguments = $"user \"{username}\" /active:no",
+                Arguments = $"user \"{sanitizedUsername}\" /active:no",
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -551,10 +576,20 @@ public class AutoRemediator
             return;
         }
 
+        // Validate rule name to prevent command injection via stored metadata
+        var sanitizedRuleName = Core.Helpers.InputSanitizer.SanitizeFirewallRuleName(ruleName);
+        if (sanitizedRuleName == null)
+        {
+            undoRecord.Success = false;
+            undoRecord.ErrorMessage = "Firewall rule name contains invalid characters";
+            undoRecord.Description = "Cannot undo — stored rule name failed validation";
+            return;
+        }
+
         var psi = new ProcessStartInfo
         {
             FileName = "netsh",
-            Arguments = $"advfirewall firewall delete rule name=\"{ruleName}\"",
+            Arguments = $"advfirewall firewall delete rule name=\"{sanitizedRuleName}\"",
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -583,10 +618,20 @@ public class AutoRemediator
             return;
         }
 
+        // Validate stored username to prevent command injection
+        var sanitizedUsername = Core.Helpers.InputSanitizer.SanitizeUsername(username);
+        if (sanitizedUsername == null)
+        {
+            undoRecord.Success = false;
+            undoRecord.ErrorMessage = "Stored username contains invalid characters";
+            undoRecord.Description = "Cannot undo — stored username failed validation";
+            return;
+        }
+
         var psi = new ProcessStartInfo
         {
             FileName = "net",
-            Arguments = $"user \"{username}\" /active:yes",
+            Arguments = $"user \"{sanitizedUsername}\" /active:yes",
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -645,6 +690,23 @@ public class AutoRemediator
                 Success = false,
                 ErrorMessage = "No fix command available",
                 Description = "Threat has no associated fix command"
+            };
+        }
+
+        // Check for dangerous command patterns before execution
+        var dangerCheck = Core.Helpers.InputSanitizer.CheckDangerousCommand(threat.FixCommand);
+        if (dangerCheck != null)
+        {
+            _logger.LogWarning("AUTO-REMEDIATION: Blocked dangerous fix command for '{Title}': {Reason}",
+                threat.Title, dangerCheck);
+            return new RemediationRecord
+            {
+                ActionType = RemediationAction.Custom,
+                Target = threat.Title,
+                ThreatEventId = threat.Id,
+                Success = false,
+                ErrorMessage = $"Command blocked: {dangerCheck}",
+                Description = $"Fix command rejected by safety check: {dangerCheck}"
             };
         }
 

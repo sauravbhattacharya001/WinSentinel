@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
 using System.IO.Pipes;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using WinSentinel.Agent.Ipc;
@@ -66,12 +68,29 @@ public class IpcServer : BackgroundService
         {
             try
             {
-                var pipe = new NamedPipeServerStream(
+                // Create pipe with ACL restricted to current user only.
+                // This prevents other local users/processes from connecting and sending
+                // RunFix commands, which could lead to arbitrary code execution.
+                var pipeSecurity = new PipeSecurity();
+                var currentIdentity = WindowsIdentity.GetCurrent();
+                var currentUser = currentIdentity.User;
+                if (currentUser != null)
+                {
+                    pipeSecurity.AddAccessRule(new PipeAccessRule(
+                        currentUser,
+                        PipeAccessRights.FullControl,
+                        AccessControlType.Allow));
+                }
+
+                var pipe = NamedPipeServerStreamAcl.Create(
                     PipeName,
                     PipeDirection.InOut,
                     NamedPipeServerStream.MaxAllowedServerInstances,
                     PipeTransmissionMode.Byte,
-                    PipeOptions.Asynchronous);
+                    PipeOptions.Asynchronous,
+                    inBufferSize: 0,
+                    outBufferSize: 0,
+                    pipeSecurity);
 
                 await pipe.WaitForConnectionAsync(stoppingToken);
 
@@ -314,6 +333,14 @@ public class IpcServer : BackgroundService
         var payload = message.GetPayload<RunFixPayload>();
         if (payload == null || string.IsNullOrWhiteSpace(payload.FixCommand))
             return IpcMessage.ErrorResponse("No fix command provided.", message.RequestId);
+
+        // Safety check: block dangerous commands even from IPC
+        var dangerReason = Core.Helpers.InputSanitizer.CheckDangerousCommand(payload.FixCommand);
+        if (dangerReason != null)
+        {
+            _logger.LogWarning("IPC RunFix blocked: {Reason} — command: {Cmd}", dangerReason, payload.FixCommand);
+            return IpcMessage.ErrorResponse($"Command blocked by safety check: {dangerReason}", message.RequestId);
+        }
 
         var fixEngine = new FixEngine();
         var finding = new WinSentinel.Core.Models.Finding

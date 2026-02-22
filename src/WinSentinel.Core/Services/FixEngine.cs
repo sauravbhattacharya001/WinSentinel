@@ -39,6 +39,17 @@ public class FixEngine
         if (string.IsNullOrWhiteSpace(finding.FixCommand))
             return FixResult.NoFixAvailable(finding.Title);
 
+        // Safety check: block obviously dangerous commands
+        var dangerReason = Helpers.InputSanitizer.CheckDangerousCommand(finding.FixCommand);
+        if (dangerReason != null)
+        {
+            return FixResult.Failed(
+                finding.FixCommand,
+                $"Command blocked by safety check: {dangerReason}",
+                TimeSpan.Zero,
+                findingTitle: finding.Title);
+        }
+
         if (dryRun)
             return FixResult.DryRunResult(finding.FixCommand, finding.Title);
 

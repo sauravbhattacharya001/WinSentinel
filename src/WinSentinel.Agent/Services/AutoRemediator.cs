@@ -159,6 +159,18 @@ public class AutoRemediator
 
         try
         {
+            // Validate the path is not a protected system file
+            var validatedPath = Core.Helpers.InputSanitizer.ValidateFilePath(filePath);
+            if (validatedPath == null)
+            {
+                record.Success = false;
+                record.ErrorMessage = "Protected or invalid path";
+                record.Description = $"Cannot quarantine protected/system file: {filePath}";
+                _history.Add(record);
+                return record;
+            }
+            filePath = validatedPath;
+
             if (!File.Exists(filePath))
             {
                 record.Success = false;

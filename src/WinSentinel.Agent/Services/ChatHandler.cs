@@ -128,13 +128,17 @@ public class ChatHandler
 
             if (lower.StartsWith("kill "))
             {
-                var proc = trimmed[5..].Trim();
+                var proc = Core.Helpers.InputSanitizer.SanitizeProcessInput(trimmed[5..].Trim());
+                if (proc == null)
+                    return SimpleResponse("Invalid process name or PID. Use a process name (e.g., notepad.exe) or PID (> 4).", ChatResponseCategory.Error);
                 return HandleKillProcess(proc);
             }
 
             if (lower.StartsWith("quarantine "))
             {
-                var file = trimmed[11..].Trim();
+                var file = Core.Helpers.InputSanitizer.ValidateFilePath(trimmed[11..].Trim());
+                if (file == null)
+                    return SimpleResponse("Invalid or protected file path. Path traversal, system files, and UNC paths are not allowed.", ChatResponseCategory.Error);
                 return HandleQuarantineFile(file);
             }
 

@@ -261,10 +261,14 @@ public class AgentJournal
             .ToList();
     }
 
-    /// <summary>Get events from today.</summary>
+    /// <summary>Get events from today (UTC).</summary>
     public List<JournalEntry> GetToday() => Query(new JournalQuery
     {
-        After = DateTimeOffset.UtcNow.Date,
+        // Use explicit UTC offset to avoid local timezone skew.
+        // DateTimeOffset.Date returns Kind=Unspecified, which would get
+        // the local timezone offset in the implicit conversion, shifting
+        // the filter forward/backward from midnight UTC.
+        After = new DateTimeOffset(DateTimeOffset.UtcNow.Date, TimeSpan.Zero),
         Limit = 500
     });
 

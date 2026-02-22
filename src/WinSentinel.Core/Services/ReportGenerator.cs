@@ -660,12 +660,7 @@ public class ReportGenerator
 
     private static string HtmlEncode(string text)
     {
-        return text
-            .Replace("&", "&amp;")
-            .Replace("<", "&lt;")
-            .Replace(">", "&gt;")
-            .Replace("\"", "&quot;")
-            .Replace("'", "&#39;");
+        return System.Net.WebUtility.HtmlEncode(text);
     }
 
     private static string GetCss()

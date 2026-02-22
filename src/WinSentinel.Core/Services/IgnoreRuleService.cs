@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
@@ -13,6 +14,14 @@ public class IgnoreRuleService
 {
     private readonly string _rulesFilePath;
     private List<IgnoreRule>? _cachedRules;
+
+    /// <summary>
+    /// Cache of compiled Regex objects keyed by pattern string.
+    /// Avoids recompiling the same regex on every match call,
+    /// which is O(parse + NFA build) per call otherwise.
+    /// Thread-safe via ConcurrentDictionary.
+    /// </summary>
+    private static readonly ConcurrentDictionary<string, Regex?> _regexCache = new();
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -357,9 +366,22 @@ public class IgnoreRuleService
     {
         try
         {
-            return Regex.IsMatch(input, pattern, RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1));
+            var regex = _regexCache.GetOrAdd(pattern, p =>
+            {
+                try
+                {
+                    return new Regex(p, RegexOptions.IgnoreCase | RegexOptions.Compiled,
+                        TimeSpan.FromSeconds(1));
+                }
+                catch
+                {
+                    return null; // Cache the failure too — don't retry bad patterns
+                }
+            });
+
+            return regex?.IsMatch(input) ?? false;
         }
-        catch
+        catch (RegexMatchTimeoutException)
         {
             return false;
         }

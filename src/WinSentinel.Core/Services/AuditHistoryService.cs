@@ -137,39 +137,56 @@ public class AuditHistoryService : IDisposable
 
             var runId = (long)runCmd.ExecuteScalar()!;
 
-            // Insert ModuleScores
+            // Insert ModuleScores — reuse a single prepared command for all modules
+            using var modCmd = conn.CreateCommand();
+            modCmd.Transaction = transaction;
+            modCmd.CommandText = @"
+                INSERT INTO ModuleScores (RunId, ModuleName, Category, Score, FindingCount, CriticalCount, WarningCount)
+                VALUES (@runId, @name, @category, @score, @findings, @critical, @warning);
+            ";
+            var modRunIdParam = modCmd.Parameters.Add("@runId", Microsoft.Data.Sqlite.SqliteType.Integer);
+            var modNameParam = modCmd.Parameters.Add("@name", Microsoft.Data.Sqlite.SqliteType.Text);
+            var modCategoryParam = modCmd.Parameters.Add("@category", Microsoft.Data.Sqlite.SqliteType.Text);
+            var modScoreParam = modCmd.Parameters.Add("@score", Microsoft.Data.Sqlite.SqliteType.Integer);
+            var modFindingsParam = modCmd.Parameters.Add("@findings", Microsoft.Data.Sqlite.SqliteType.Integer);
+            var modCriticalParam = modCmd.Parameters.Add("@critical", Microsoft.Data.Sqlite.SqliteType.Integer);
+            var modWarningParam = modCmd.Parameters.Add("@warning", Microsoft.Data.Sqlite.SqliteType.Integer);
+            modCmd.Prepare();
+
+            // Insert Findings — reuse a single prepared command for all findings
+            using var findCmd = conn.CreateCommand();
+            findCmd.Transaction = transaction;
+            findCmd.CommandText = @"
+                INSERT INTO Findings (RunId, ModuleName, Title, Severity, Description, Remediation)
+                VALUES (@runId, @module, @title, @severity, @desc, @remediation);
+            ";
+            var findRunIdParam = findCmd.Parameters.Add("@runId", Microsoft.Data.Sqlite.SqliteType.Integer);
+            var findModuleParam = findCmd.Parameters.Add("@module", Microsoft.Data.Sqlite.SqliteType.Text);
+            var findTitleParam = findCmd.Parameters.Add("@title", Microsoft.Data.Sqlite.SqliteType.Text);
+            var findSeverityParam = findCmd.Parameters.Add("@severity", Microsoft.Data.Sqlite.SqliteType.Text);
+            var findDescParam = findCmd.Parameters.Add("@desc", Microsoft.Data.Sqlite.SqliteType.Text);
+            var findRemediationParam = findCmd.Parameters.Add("@remediation", Microsoft.Data.Sqlite.SqliteType.Text);
+            findCmd.Prepare();
+
             foreach (var result in report.Results)
             {
-                using var modCmd = conn.CreateCommand();
-                modCmd.Transaction = transaction;
-                modCmd.CommandText = @"
-                    INSERT INTO ModuleScores (RunId, ModuleName, Category, Score, FindingCount, CriticalCount, WarningCount)
-                    VALUES (@runId, @name, @category, @score, @findings, @critical, @warning);
-                ";
-                modCmd.Parameters.AddWithValue("@runId", runId);
-                modCmd.Parameters.AddWithValue("@name", result.ModuleName);
-                modCmd.Parameters.AddWithValue("@category", result.Category);
-                modCmd.Parameters.AddWithValue("@score", result.Score);
-                modCmd.Parameters.AddWithValue("@findings", result.Findings.Count);
-                modCmd.Parameters.AddWithValue("@critical", result.CriticalCount);
-                modCmd.Parameters.AddWithValue("@warning", result.WarningCount);
+                modRunIdParam.Value = runId;
+                modNameParam.Value = result.ModuleName;
+                modCategoryParam.Value = result.Category;
+                modScoreParam.Value = result.Score;
+                modFindingsParam.Value = result.Findings.Count;
+                modCriticalParam.Value = result.CriticalCount;
+                modWarningParam.Value = result.WarningCount;
                 modCmd.ExecuteNonQuery();
 
-                // Insert Findings for this module
                 foreach (var finding in result.Findings)
                 {
-                    using var findCmd = conn.CreateCommand();
-                    findCmd.Transaction = transaction;
-                    findCmd.CommandText = @"
-                        INSERT INTO Findings (RunId, ModuleName, Title, Severity, Description, Remediation)
-                        VALUES (@runId, @module, @title, @severity, @desc, @remediation);
-                    ";
-                    findCmd.Parameters.AddWithValue("@runId", runId);
-                    findCmd.Parameters.AddWithValue("@module", result.ModuleName);
-                    findCmd.Parameters.AddWithValue("@title", finding.Title);
-                    findCmd.Parameters.AddWithValue("@severity", finding.Severity.ToString());
-                    findCmd.Parameters.AddWithValue("@desc", finding.Description);
-                    findCmd.Parameters.AddWithValue("@remediation", (object?)finding.Remediation ?? DBNull.Value);
+                    findRunIdParam.Value = runId;
+                    findModuleParam.Value = result.ModuleName;
+                    findTitleParam.Value = finding.Title;
+                    findSeverityParam.Value = finding.Severity.ToString();
+                    findDescParam.Value = finding.Description;
+                    findRemediationParam.Value = (object?)finding.Remediation ?? DBNull.Value;
                     findCmd.ExecuteNonQuery();
                 }
             }

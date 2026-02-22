@@ -1,0 +1,13 @@
+apiRules:
+  - exclude:
+      uidRegex: ^System\.
+      type: Namespace
+  - exclude:
+      uidRegex: ^Microsoft\.
+      type: Namespace
+  - exclude:
+      uidRegex: \.Internal\.
+      type: Namespace
+  - include:
+      uidRegex: ^WinSentinel\.
+      type: Namespace

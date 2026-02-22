@@ -1,0 +1,10 @@
+- name: Getting Started
+  href: getting-started.md
+- name: Architecture
+  href: architecture.md
+- name: CLI Reference
+  href: cli-reference.md
+- name: Extending WinSentinel
+  href: extending.md
+- name: Audit Modules
+  href: audit-modules.md

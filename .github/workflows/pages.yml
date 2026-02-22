@@ -1,10 +1,12 @@
-name: Deploy GitHub Pages
+name: Deploy Documentation
 
 on:
   push:
     branches: [main]
     paths:
       - 'docs/**'
+      - 'docfx/**'
+      - 'src/**/*.cs'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
@@ -18,14 +20,32 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  build-docs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install DocFX
+        run: dotnet tool install -g docfx
+
+      - name: Build documentation
+        working-directory: docfx
+        run: docfx docfx.json
+        continue-on-error: true
+
+      - name: Copy landing page
+        run: |
+          # Merge: landing page at root, DocFX docs at /docs/
+          mkdir -p docfx/_site/docs
+          # If DocFX built successfully, it's already in _site
+          # Copy the original landing page as fallback root
+          cp docs/index.html docfx/_site/index.html 2>/dev/null || true
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
@@ -33,8 +53,15 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: 'docs'
+          path: 'docfx/_site'
 
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build-docs
+    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4

@@ -114,6 +114,37 @@ jobs:
         path: '**/TestResults/**/coverage.cobertura.xml'
         retention-days: 14
 
+    - name: Upload to Codecov
+      if: matrix.configuration == 'Release'
+      uses: codecov/codecov-action@v4
+      with:
+        files: '**/TestResults/**/coverage.cobertura.xml'
+        flags: unittests
+        fail_ci_if_error: false
+      env:
+        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+    - name: Generate coverage report summary
+      if: matrix.configuration == 'Release'
+      shell: pwsh
+      run: |
+        $coverageFiles = Get-ChildItem -Recurse -Filter "coverage.cobertura.xml" -Path TestResults
+        if ($coverageFiles.Count -gt 0) {
+          $xml = [xml](Get-Content $coverageFiles[0].FullName)
+          $lineRate = [math]::Round([double]$xml.coverage.'line-rate' * 100, 1)
+          $branchRate = [math]::Round([double]$xml.coverage.'branch-rate' * 100, 1)
+          $linesValid = $xml.coverage.'lines-valid'
+          $linesCovered = $xml.coverage.'lines-covered'
+
+          Write-Output "## 📊 Code Coverage Summary" >> $env:GITHUB_STEP_SUMMARY
+          Write-Output "" >> $env:GITHUB_STEP_SUMMARY
+          Write-Output "| Metric | Value |" >> $env:GITHUB_STEP_SUMMARY
+          Write-Output "|--------|-------|" >> $env:GITHUB_STEP_SUMMARY
+          Write-Output "| Line Coverage | **$lineRate%** |" >> $env:GITHUB_STEP_SUMMARY
+          Write-Output "| Branch Coverage | **$branchRate%** |" >> $env:GITHUB_STEP_SUMMARY
+          Write-Output "| Lines Covered | $linesCovered / $linesValid |" >> $env:GITHUB_STEP_SUMMARY
+        }
+
   # ─────────────────────────────────────────────
   # Security: check for vulnerable packages
   # ─────────────────────────────────────────────

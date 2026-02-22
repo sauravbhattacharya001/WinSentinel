@@ -6,6 +6,7 @@
 
 [![Build & Test](https://github.com/sauravbhattacharya001/WinSentinel/actions/workflows/build.yml/badge.svg)](https://github.com/sauravbhattacharya001/WinSentinel/actions/workflows/build.yml)
 [![CodeQL](https://github.com/sauravbhattacharya001/WinSentinel/actions/workflows/codeql.yml/badge.svg)](https://github.com/sauravbhattacharya001/WinSentinel/actions/workflows/codeql.yml)
+[![codecov](https://codecov.io/gh/sauravbhattacharya001/WinSentinel/graph/badge.svg)](https://codecov.io/gh/sauravbhattacharya001/WinSentinel)
 [![Release](https://img.shields.io/github/v/release/sauravbhattacharya001/WinSentinel?include_prereleases&logo=github)](https://github.com/sauravbhattacharya001/WinSentinel/releases)
 [![.NET 8](https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
 [![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4?logo=windows11)](https://www.microsoft.com/windows)

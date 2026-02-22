@@ -1,0 +1,62 @@
+codecov:
+  require_ci_to_pass: false
+
+coverage:
+  precision: 1
+  round: down
+  range: "40...80"
+
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 2%
+        if_ci_failed: success
+    patch:
+      default:
+        target: 60%
+        threshold: 5%
+
+  paths:
+    - "src/**"
+
+ignore:
+  - "tests/**"
+  - "docs/**"
+  - "*.md"
+  - "*.ps1"
+  - "src/WinSentinel.Installer/**"
+  - "src/WinSentinel.App/obj/**"
+  - "**/Migrations/**"
+
+comment:
+  layout: "reach,diff,flags,components"
+  behavior: default
+  require_changes: false
+  require_base: false
+  require_head: true
+
+flags:
+  unittests:
+    paths:
+      - src/
+    carryforward: true
+
+component_management:
+  default_rules:
+    statuses:
+      - type: project
+        target: auto
+  individual_components:
+    - component_id: core
+      name: Core Library
+      paths:
+        - src/WinSentinel.Core/**
+    - component_id: cli
+      name: CLI
+      paths:
+        - src/WinSentinel.Cli/**
+    - component_id: agent
+      name: Agent
+      paths:
+        - src/WinSentinel.Agent/**

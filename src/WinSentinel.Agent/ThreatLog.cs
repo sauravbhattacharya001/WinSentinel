@@ -9,6 +9,7 @@ namespace WinSentinel.Agent;
 public class ThreatLog
 {
     private readonly ConcurrentQueue<ThreatEvent> _events = new();
+    private readonly ConcurrentDictionary<string, ThreatEvent> _index = new();
     private int _count;
     private int _maxSize;
 
@@ -27,14 +28,19 @@ public class ThreatLog
         TrimExcess();
     }
 
-    /// <summary>Add a threat event and notify subscribers.</summary>
+    /// <summary>Add a threat event, index it, and notify subscribers.</summary>
     public void Add(ThreatEvent threat)
     {
         _events.Enqueue(threat);
+        _index[threat.Id] = threat;
         Interlocked.Increment(ref _count);
         TrimExcess();
         ThreatDetected?.Invoke(threat);
     }
+
+    /// <summary>O(1) lookup of a threat event by its ID.</summary>
+    public ThreatEvent? FindById(string id) =>
+        _index.TryGetValue(id, out var e) ? e : null;
 
     /// <summary>Get all events (newest first).</summary>
     public List<ThreatEvent> GetAll() =>
@@ -63,8 +69,9 @@ public class ThreatLog
 
     private void TrimExcess()
     {
-        while (_count > _maxSize && _events.TryDequeue(out _))
+        while (_count > _maxSize && _events.TryDequeue(out var evicted))
         {
+            _index.TryRemove(evicted.Id, out _);
             Interlocked.Decrement(ref _count);
         }
     }

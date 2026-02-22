@@ -157,9 +157,8 @@ public class AgentBrain
 
         if (createOverride)
         {
-            // Find the original threat
-            var threats = _threatLog.GetAll();
-            var threat = threats.FirstOrDefault(t => t.Id == threatEventId);
+            // O(1) indexed lookup instead of O(n) full-scan
+            var threat = _threatLog.FindById(threatEventId);
 
             if (threat != null)
             {
@@ -210,10 +209,17 @@ public class AgentBrain
 
     private void OnThreatDetected(ThreatEvent threat)
     {
-        // Skip events from the brain itself to avoid recursion
-        if (threat.Source == "Agent" || threat.Source == "ThreatCorrelator")
+        // Skip events from the brain itself to avoid recursion.
+        // ThreatCorrelator events are already logged via OnCorrelationDetected,
+        // so don't duplicate them in the journal here.
+        if (threat.Source == "ThreatCorrelator")
         {
-            // Still record in journal, but don't process through the pipeline
+            return;
+        }
+
+        if (threat.Source == "Agent")
+        {
+            // Record agent-generated threats in journal but don't re-process
             _journal.RecordThreat(threat);
             return;
         }

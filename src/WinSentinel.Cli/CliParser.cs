@@ -9,6 +9,8 @@ public class CliOptions
     public bool Json { get; set; }
     public bool Html { get; set; }
     public bool Markdown { get; set; }
+    public bool Sarif { get; set; }
+    public bool SarifIncludePass { get; set; }
     public string? OutputFile { get; set; }
     public string? ModulesFilter { get; set; }
     public bool Quiet { get; set; }
@@ -387,6 +389,14 @@ public static class CliParser
                     options.Markdown = true;
                     break;
 
+                case "--sarif":
+                    options.Sarif = true;
+                    break;
+
+                case "--sarif-include-pass":
+                    options.SarifIncludePass = true;
+                    break;
+
                 case "--quiet" or "-q":
                     options.Quiet = true;
                     break;
@@ -486,7 +496,7 @@ public static class CliParser
         }
 
         // If no command was specified but flags were set, default to audit
-        if (options.Command == CliCommand.None && (options.Json || options.Html || options.Markdown || options.Quiet || options.ModulesFilter != null))
+        if (options.Command == CliCommand.None && (options.Json || options.Html || options.Markdown || options.Sarif || options.Quiet || options.ModulesFilter != null))
         {
             options.Command = CliCommand.Audit;
         }

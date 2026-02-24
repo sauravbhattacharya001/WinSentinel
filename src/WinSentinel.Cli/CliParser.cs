@@ -39,6 +39,8 @@ public class CliOptions
     public int TrendDays { get; set; } = 30;
     public int? TrendAlertThreshold { get; set; }
     public bool TrendModules { get; set; }
+    public BadgeBadgeAction BadgeAction { get; set; } = BadgeBadgeAction.None;
+    public string? BadgeStyle { get; set; }
 }
 
 public enum CliCommand
@@ -53,6 +55,7 @@ public enum CliCommand
     Profiles,
     Ignore,
     Trend,
+    Badge,
     Help,
     Version
 }
@@ -74,6 +77,16 @@ public enum IgnoreAction
     Remove,
     Clear,
     Purge
+}
+
+public enum BadgeBadgeAction
+{
+    None,
+    Score,
+    Grade,
+    Findings,
+    Module,
+    All
 }
 
 /// <summary>
@@ -133,6 +146,63 @@ public static class CliParser
 
                 case "--trend":
                     options.Command = CliCommand.Trend;
+                    break;
+
+                case "--badge":
+                    options.Command = CliCommand.Badge;
+                    // Next arg should be the badge type: score, grade, findings, module, all
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                    {
+                        var badgeType = args[++i].ToLowerInvariant();
+                        options.BadgeAction = badgeType switch
+                        {
+                            "score" => BadgeBadgeAction.Score,
+                            "grade" => BadgeBadgeAction.Grade,
+                            "findings" => BadgeBadgeAction.Findings,
+                            "module" => BadgeBadgeAction.Module,
+                            "all" => BadgeBadgeAction.All,
+                            _ => BadgeBadgeAction.None
+                        };
+                        if (options.BadgeAction == BadgeBadgeAction.None)
+                        {
+                            options.Error = $"Unknown badge type: {badgeType}. Use score, grade, findings, module, or all.";
+                            return options;
+                        }
+                        // For module: next arg is the module filter
+                        if (options.BadgeAction == BadgeBadgeAction.Module)
+                        {
+                            if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                            {
+                                options.ModulesFilter = args[++i];
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // Default to score badge
+                        options.BadgeAction = BadgeBadgeAction.Score;
+                    }
+                    break;
+
+                case "--badge-style":
+                    if (i + 1 < args.Length)
+                    {
+                        var s = args[++i].ToLowerInvariant();
+                        if (s is "flat" or "flat-square" or "for-the-badge")
+                        {
+                            options.BadgeStyle = s;
+                        }
+                        else
+                        {
+                            options.Error = "Invalid badge style. Use flat, flat-square, or for-the-badge.";
+                            return options;
+                        }
+                    }
+                    else
+                    {
+                        options.Error = "Missing value for --badge-style. Use flat, flat-square, or for-the-badge.";
+                        return options;
+                    }
                     break;
 
                 case "--ignore":

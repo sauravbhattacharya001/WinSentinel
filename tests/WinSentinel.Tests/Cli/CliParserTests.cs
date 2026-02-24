@@ -1068,4 +1068,100 @@ public class CliParserTests
         Assert.Null(options.IgnoreExpireDays);
         Assert.False(options.ShowIgnored);
     }
+
+    // ── Badge CLI ───────────────────────────────────────────────────
+
+    [Fact]
+    public void Parse_Badge_DefaultsToScore()
+    {
+        var result = CliParser.Parse(["--badge"]);
+        Assert.Equal(CliCommand.Badge, result.Command);
+        Assert.Equal(BadgeBadgeAction.Score, result.BadgeAction);
+        Assert.Null(result.Error);
+    }
+
+    [Theory]
+    [InlineData("score", BadgeBadgeAction.Score)]
+    [InlineData("grade", BadgeBadgeAction.Grade)]
+    [InlineData("findings", BadgeBadgeAction.Findings)]
+    [InlineData("module", BadgeBadgeAction.Module)]
+    [InlineData("all", BadgeBadgeAction.All)]
+    public void Parse_Badge_AllTypes(string type, BadgeBadgeAction expected)
+    {
+        var result = CliParser.Parse(["--badge", type]);
+        Assert.Equal(CliCommand.Badge, result.Command);
+        Assert.Equal(expected, result.BadgeAction);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_Badge_UnknownType_ReturnsError()
+    {
+        var result = CliParser.Parse(["--badge", "unknown"]);
+        Assert.NotNull(result.Error);
+        Assert.Contains("Unknown badge type", result.Error);
+    }
+
+    [Fact]
+    public void Parse_Badge_ModuleWithFilter()
+    {
+        var result = CliParser.Parse(["--badge", "module", "Firewall"]);
+        Assert.Equal(CliCommand.Badge, result.Command);
+        Assert.Equal(BadgeBadgeAction.Module, result.BadgeAction);
+        Assert.Equal("Firewall", result.ModulesFilter);
+    }
+
+    [Fact]
+    public void Parse_Badge_WithOutput()
+    {
+        var result = CliParser.Parse(["--badge", "score", "-o", "badge.svg"]);
+        Assert.Equal(CliCommand.Badge, result.Command);
+        Assert.Equal(BadgeBadgeAction.Score, result.BadgeAction);
+        Assert.Equal("badge.svg", result.OutputFile);
+    }
+
+    [Theory]
+    [InlineData("flat")]
+    [InlineData("flat-square")]
+    [InlineData("for-the-badge")]
+    public void Parse_BadgeStyle_ValidValues(string style)
+    {
+        var result = CliParser.Parse(["--badge", "score", "--badge-style", style]);
+        Assert.Equal(CliCommand.Badge, result.Command);
+        Assert.Equal(style, result.BadgeStyle);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_BadgeStyle_InvalidValue_ReturnsError()
+    {
+        var result = CliParser.Parse(["--badge", "score", "--badge-style", "rounded"]);
+        Assert.NotNull(result.Error);
+        Assert.Contains("Invalid badge style", result.Error);
+    }
+
+    [Fact]
+    public void Parse_BadgeStyle_MissingValue_ReturnsError()
+    {
+        var result = CliParser.Parse(["--badge", "score", "--badge-style"]);
+        Assert.NotNull(result.Error);
+        Assert.Contains("Missing value for --badge-style", result.Error);
+    }
+
+    [Fact]
+    public void Parse_Badge_WithJson()
+    {
+        var result = CliParser.Parse(["--badge", "all", "--json"]);
+        Assert.Equal(CliCommand.Badge, result.Command);
+        Assert.Equal(BadgeBadgeAction.All, result.BadgeAction);
+        Assert.True(result.Json);
+    }
+
+    [Fact]
+    public void CliOptions_BadgeDefaults()
+    {
+        var options = new CliOptions();
+        Assert.Equal(BadgeBadgeAction.None, options.BadgeAction);
+        Assert.Null(options.BadgeStyle);
+    }
 }

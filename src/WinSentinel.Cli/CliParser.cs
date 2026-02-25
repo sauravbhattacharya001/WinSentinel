@@ -41,6 +41,9 @@ public class CliOptions
     public bool TrendModules { get; set; }
     public BadgeBadgeAction BadgeAction { get; set; } = BadgeBadgeAction.None;
     public string? BadgeStyle { get; set; }
+    public string? TimelineSeverityFilter { get; set; }
+    public int? TimelineMaxEvents { get; set; }
+    public string? TimelineModuleFilter { get; set; }
 }
 
 public enum CliCommand
@@ -56,6 +59,7 @@ public enum CliCommand
     Ignore,
     Trend,
     Badge,
+    Timeline,
     Help,
     Version
 }
@@ -146,6 +150,54 @@ public static class CliParser
 
                 case "--trend":
                     options.Command = CliCommand.Trend;
+                    break;
+
+                case "--timeline":
+                    options.Command = CliCommand.Timeline;
+                    break;
+
+                case "--timeline-severity":
+                    if (i + 1 < args.Length)
+                    {
+                        options.TimelineSeverityFilter = args[++i];
+                    }
+                    else
+                    {
+                        options.Error = "Missing value for --timeline-severity. Use info, notice, warning, or critical.";
+                        return options;
+                    }
+                    break;
+
+                case "--timeline-max":
+                    if (i + 1 < args.Length)
+                    {
+                        if (int.TryParse(args[++i], out int tlMax) && tlMax >= 1)
+                        {
+                            options.TimelineMaxEvents = tlMax;
+                        }
+                        else
+                        {
+                            options.Error = "Invalid timeline-max value. Must be a positive integer.";
+                            return options;
+                        }
+                    }
+                    else
+                    {
+                        options.Error = "Missing value for --timeline-max.";
+                        return options;
+                    }
+                    break;
+
+                case "--timeline-module":
+                    if (i + 1 < args.Length)
+                    {
+                        options.TimelineModuleFilter = args[++i];
+                    }
+                    else
+                    {
+                        options.Error = "Missing value for --timeline-module.";
+                        return options;
+                    }
                     break;
 
                 case "--badge":

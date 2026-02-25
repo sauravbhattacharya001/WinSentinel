@@ -30,6 +30,7 @@ return options.Command switch
     CliCommand.Profiles => HandleProfiles(options),
     CliCommand.Ignore => HandleIgnore(options),
     CliCommand.Trend => HandleTrend(options),
+    CliCommand.Timeline => HandleTimeline(options),
     _ => HandleHelp()
 };
 
@@ -1366,4 +1367,69 @@ static int HandleTrend(CliOptions options)
     ConsoleFormatter.PrintTrendReport(report, options.TrendModules);
 
     return report.Alerts.Any(a => a.Level == AlertLevel.Critical) ? 2 : 0;
+}
+
+// ── Security Timeline ────────────────────────────────────────────────
+
+static int HandleTimeline(CliOptions options)
+{
+    using var history = new AuditHistoryService();
+    history.EnsureDatabase();
+
+    var runs = history.GetHistory(options.HistoryDays);
+
+    if (runs.Count == 0)
+    {
+        ConsoleFormatter.PrintWarning("No audit history found. Run --score or --audit first to generate data.");
+        return 1;
+    }
+
+    // Load full details (findings + module scores) for each run
+    for (int i = 0; i < runs.Count; i++)
+    {
+        var fullRun = history.GetRunDetails(runs[i].Id);
+        if (fullRun != null)
+        {
+            runs[i].Findings = fullRun.Findings;
+            runs[i].ModuleScores = fullRun.ModuleScores;
+        }
+    }
+
+    var timeline = new SecurityTimeline();
+    var timelineOptions = new TimelineOptions
+    {
+        MaxEvents = options.TimelineMaxEvents,
+        ModuleFilter = options.TimelineModuleFilter,
+    };
+
+    // Parse severity filter
+    if (!string.IsNullOrEmpty(options.TimelineSeverityFilter))
+    {
+        timelineOptions.MinSeverity = options.TimelineSeverityFilter.ToLowerInvariant() switch
+        {
+            "info" => TimelineSeverity.Info,
+            "notice" => TimelineSeverity.Notice,
+            "warning" => TimelineSeverity.Warning,
+            "critical" => TimelineSeverity.Critical,
+            _ => null,
+        };
+    }
+
+    var report = timeline.Build(runs, timelineOptions);
+
+    if (options.Json)
+    {
+        var json = JsonSerializer.Serialize(report, new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            Converters = { new JsonStringEnumConverter() }
+        });
+        WriteOutput(json, options.OutputFile);
+        return 0;
+    }
+
+    var text = SecurityTimeline.FormatText(report);
+    WriteOutput(text, options.OutputFile);
+    return 0;
 }

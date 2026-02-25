@@ -8,6 +8,9 @@ public class CliOptions
     public CliCommand Command { get; set; } = CliCommand.None;
     public bool Json { get; set; }
     public bool Html { get; set; }
+    public bool HtmlDark { get; set; }
+    public bool HtmlIncludePass { get; set; }
+    public string? HtmlTitle { get; set; }
     public bool Markdown { get; set; }
     public bool Sarif { get; set; }
     public bool SarifIncludePass { get; set; }
@@ -505,6 +508,26 @@ public static class CliParser
 
                 case "--html":
                     options.Html = true;
+                    break;
+
+                case "--html-dark":
+                    options.HtmlDark = true;
+                    break;
+
+                case "--html-include-pass":
+                    options.HtmlIncludePass = true;
+                    break;
+
+                case "--html-title":
+                    if (i + 1 < args.Length)
+                    {
+                        options.HtmlTitle = args[++i];
+                    }
+                    else
+                    {
+                        options.Error = "Missing value for --html-title.";
+                        return options;
+                    }
                     break;
 
                 case "--markdown" or "--md":

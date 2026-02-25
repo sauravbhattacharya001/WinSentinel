@@ -142,15 +142,28 @@ static async Task<int> HandleAudit(CliOptions options)
     }
     else if (options.Html)
     {
-        var generator = new ReportGenerator();
-        var html = generator.GenerateHtmlReport(report);
-        WriteOutput(html, options.OutputFile);
+        var dashGen = new HtmlDashboardGenerator();
+        var dashOptions = new HtmlDashboardOptions
+        {
+            DarkMode = options.HtmlDark,
+            IncludePassedChecks = options.HtmlIncludePass,
+            Title = options.HtmlTitle ?? "WinSentinel Security Dashboard"
+        };
+        var html = dashGen.Generate(report, dashOptions);
+        if (options.OutputFile != null)
+        {
+            dashGen.SaveDashboard(html, options.OutputFile);
+        }
+        else
+        {
+            Console.Write(html);
+        }
 
         if (!options.Quiet && options.OutputFile != null)
         {
             var original = Console.ForegroundColor;
             Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine($"  ✓ HTML report saved to {options.OutputFile}");
+            Console.WriteLine($"  ✓ HTML dashboard saved to {options.OutputFile}");
             Console.ForegroundColor = original;
         }
     }

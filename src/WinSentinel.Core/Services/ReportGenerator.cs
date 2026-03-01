@@ -607,6 +607,69 @@ public class ReportGenerator
     }
 
     /// <summary>
+    /// Generate a CSV report with one row per finding.
+    /// Ideal for importing into Excel, Google Sheets, or data analysis tools.
+    /// </summary>
+    public string GenerateCsvReport(SecurityReport report)
+    {
+        var sb = new StringBuilder();
+
+        // Header row
+        sb.AppendLine("Module,Category,ModuleScore,ModuleGrade,Severity,Title,Description,Remediation,FixCommand,Timestamp");
+
+        foreach (var result in report.Results)
+        {
+            var modScore = SecurityScorer.CalculateCategoryScore(result);
+            var modGrade = SecurityScorer.GetGrade(modScore);
+
+            if (result.Findings.Count == 0)
+            {
+                // Still emit a row for modules with no findings so the CSV is complete
+                sb.AppendLine($"{CsvEscape(result.ModuleName)},{CsvEscape(result.Category)},{modScore},{modGrade},,No findings,,,,");
+                continue;
+            }
+
+            foreach (var finding in result.Findings.OrderByDescending(f => f.Severity).ThenBy(f => f.Title))
+            {
+                sb.Append(CsvEscape(result.ModuleName));
+                sb.Append(',');
+                sb.Append(CsvEscape(result.Category));
+                sb.Append(',');
+                sb.Append(modScore);
+                sb.Append(',');
+                sb.Append(modGrade);
+                sb.Append(',');
+                sb.Append(finding.Severity);
+                sb.Append(',');
+                sb.Append(CsvEscape(finding.Title));
+                sb.Append(',');
+                sb.Append(CsvEscape(finding.Description));
+                sb.Append(',');
+                sb.Append(CsvEscape(finding.Remediation ?? ""));
+                sb.Append(',');
+                sb.Append(CsvEscape(finding.FixCommand ?? ""));
+                sb.Append(',');
+                sb.AppendLine(finding.Timestamp.ToString("o"));
+            }
+        }
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Escape a value for CSV output (RFC 4180).
+    /// </summary>
+    private static string CsvEscape(string value)
+    {
+        if (string.IsNullOrEmpty(value)) return "";
+        if (value.Contains('"') || value.Contains(',') || value.Contains('\n') || value.Contains('\r'))
+        {
+            return $"\"{value.Replace("\"", "\"\"")}\"";
+        }
+        return value;
+    }
+
+    /// <summary>
     /// Get an emoji representing the grade.
     /// </summary>
     private static string GetGradeEmoji(string grade) => grade switch
@@ -629,6 +692,7 @@ public class ReportGenerator
             ReportFormat.Json => GenerateJsonReport(report, trend),
             ReportFormat.Text => GenerateTextReport(report, trend),
             ReportFormat.Markdown => GenerateMarkdownReport(report, trend),
+            ReportFormat.Csv => GenerateCsvReport(report),
             _ => throw new ArgumentException($"Unknown report format: {format}", nameof(format))
         };
 
@@ -653,6 +717,7 @@ public class ReportGenerator
             ReportFormat.Json => "json",
             ReportFormat.Text => "txt",
             ReportFormat.Markdown => "md",
+            ReportFormat.Csv => "csv",
             _ => "html"
         };
         return $"WinSentinel-Report-{ts:yyyy-MM-dd-HHmm}.{extension}";
@@ -1084,5 +1149,6 @@ public enum ReportFormat
     Html,
     Json,
     Text,
-    Markdown
+    Markdown,
+    Csv
 }

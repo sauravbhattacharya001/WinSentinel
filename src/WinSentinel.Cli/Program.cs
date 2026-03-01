@@ -31,6 +31,7 @@ return options.Command switch
     CliCommand.Ignore => HandleIgnore(options),
     CliCommand.Trend => HandleTrend(options),
     CliCommand.Timeline => HandleTimeline(options),
+    CliCommand.FindingAge => HandleFindingAge(options),
     _ => HandleHelp()
 };
 
@@ -1445,4 +1446,139 @@ static int HandleTimeline(CliOptions options)
     var text = SecurityTimeline.FormatText(report);
     WriteOutput(text, options.OutputFile);
     return 0;
+}
+
+// ── Finding Age Tracker ──────────────────────────────────────────────
+
+static int HandleFindingAge(CliOptions options)
+{
+    using var history = new AuditHistoryService();
+    history.EnsureDatabase();
+
+    var runs = history.GetHistory(options.AgeDays);
+
+    if (runs.Count == 0)
+    {
+        ConsoleFormatter.PrintWarning("No audit history found. Run --score or --audit first to generate data.");
+        return 1;
+    }
+
+    // Load full details (findings) for each run
+    for (int i = 0; i < runs.Count; i++)
+    {
+        var fullRun = history.GetRunDetails(runs[i].Id);
+        if (fullRun != null)
+        {
+            runs[i].Findings = fullRun.Findings;
+            runs[i].ModuleScores = fullRun.ModuleScores;
+        }
+    }
+
+    var tracker = new FindingAgeTracker();
+    var report = tracker.Analyze(runs);
+
+    // Apply filters if specified
+    if (!string.IsNullOrEmpty(options.AgeSeverityFilter))
+    {
+        report.Findings = report.Findings
+            .Where(f => f.Severity.Equals(options.AgeSeverityFilter, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+    }
+
+    if (!string.IsNullOrEmpty(options.AgeModuleFilter))
+    {
+        report.Findings = report.Findings
+            .Where(f => f.ModuleName.Contains(options.AgeModuleFilter, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+    }
+
+    if (!string.IsNullOrEmpty(options.AgeClassification))
+    {
+        report.Findings = report.Findings
+            .Where(f => f.Classification.Equals(options.AgeClassification, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+    }
+
+    if (options.Json)
+    {
+        var dict = tracker.ToDict(report);
+        var json = JsonSerializer.Serialize(dict, new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            Converters = { new JsonStringEnumConverter() }
+        });
+        WriteOutput(json, options.OutputFile);
+        return 0;
+    }
+
+    // Format based on sub-action
+    switch (options.AgeAction)
+    {
+        case FindingAgeAction.Priority:
+            PrintFindingList("Priority Queue (fix these first)", report.PriorityQueue, options.AgeTop);
+            break;
+        case FindingAgeAction.Chronic:
+            PrintFindingList("Chronic Findings (90%+ persistence)", report.ChronicFindings, options.AgeTop);
+            break;
+        case FindingAgeAction.New:
+            PrintFindingList("New Findings", report.NewFindings, options.AgeTop);
+            break;
+        case FindingAgeAction.Resolved:
+            PrintFindingList("Resolved Findings", report.ResolvedFindings, options.AgeTop);
+            break;
+        default:
+            var text = tracker.FormatReport(report);
+            WriteOutput(text, options.OutputFile);
+            break;
+    }
+
+    return 0;
+}
+
+static void PrintFindingList(string header, List<FindingLifecycle> findings, int top)
+{
+    Console.WriteLine();
+    Console.WriteLine($"  {header}:");
+    Console.WriteLine($"  {new string('─', header.Length + 1)}");
+    Console.WriteLine();
+
+    if (findings.Count == 0)
+    {
+        var original = Console.ForegroundColor;
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine("    (none)");
+        Console.ForegroundColor = original;
+        Console.WriteLine();
+        return;
+    }
+
+    var display = findings.Take(top).ToList();
+    for (int i = 0; i < display.Count; i++)
+    {
+        var f = display[i];
+        var severityColor = f.Severity.ToUpperInvariant() switch
+        {
+            "CRITICAL" => ConsoleColor.Red,
+            "WARNING" => ConsoleColor.Yellow,
+            "INFO" => ConsoleColor.Cyan,
+            _ => ConsoleColor.Gray
+        };
+
+        var original = Console.ForegroundColor;
+        Console.Write($"  {i + 1,3}. ");
+        Console.ForegroundColor = severityColor;
+        Console.Write($"[{f.Severity}]");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine($" {f.Title}");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine($"       Module: {f.ModuleName} | Age: {f.AgeText} | Runs: {f.ConsecutiveRuns}/{f.TotalRunsAnalyzed} | {f.Classification}");
+        Console.ForegroundColor = original;
+    }
+
+    if (findings.Count > top)
+    {
+        Console.WriteLine($"  ... and {findings.Count - top} more");
+    }
+    Console.WriteLine();
 }

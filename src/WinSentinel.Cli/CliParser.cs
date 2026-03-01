@@ -47,6 +47,12 @@ public class CliOptions
     public string? TimelineSeverityFilter { get; set; }
     public int? TimelineMaxEvents { get; set; }
     public string? TimelineModuleFilter { get; set; }
+    public FindingAgeAction AgeAction { get; set; } = FindingAgeAction.None;
+    public string? AgeSeverityFilter { get; set; }
+    public string? AgeModuleFilter { get; set; }
+    public string? AgeClassification { get; set; }
+    public int AgeDays { get; set; } = 90;
+    public int AgeTop { get; set; } = 10;
 }
 
 public enum CliCommand
@@ -63,6 +69,7 @@ public enum CliCommand
     Trend,
     Badge,
     Timeline,
+    FindingAge,
     Help,
     Version
 }
@@ -94,6 +101,16 @@ public enum BadgeBadgeAction
     Findings,
     Module,
     All
+}
+
+public enum FindingAgeAction
+{
+    None,
+    Report,
+    Priority,
+    Chronic,
+    New,
+    Resolved
 }
 
 /// <summary>
@@ -157,6 +174,110 @@ public static class CliParser
 
                 case "--timeline":
                     options.Command = CliCommand.Timeline;
+                    break;
+
+                case "--age":
+                    options.Command = CliCommand.FindingAge;
+                    // Next arg should be the action: report, priority, chronic, new, resolved
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                    {
+                        var ageAction = args[++i].ToLowerInvariant();
+                        options.AgeAction = ageAction switch
+                        {
+                            "report" => FindingAgeAction.Report,
+                            "priority" => FindingAgeAction.Priority,
+                            "chronic" => FindingAgeAction.Chronic,
+                            "new" => FindingAgeAction.New,
+                            "resolved" => FindingAgeAction.Resolved,
+                            _ => FindingAgeAction.None
+                        };
+                        if (options.AgeAction == FindingAgeAction.None)
+                        {
+                            options.Error = $"Unknown age action: {ageAction}. Use report, priority, chronic, new, or resolved.";
+                            return options;
+                        }
+                    }
+                    else
+                    {
+                        // Default to full report
+                        options.AgeAction = FindingAgeAction.Report;
+                    }
+                    break;
+
+                case "--age-severity":
+                    if (i + 1 < args.Length)
+                    {
+                        options.AgeSeverityFilter = args[++i];
+                    }
+                    else
+                    {
+                        options.Error = "Missing value for --age-severity.";
+                        return options;
+                    }
+                    break;
+
+                case "--age-module":
+                    if (i + 1 < args.Length)
+                    {
+                        options.AgeModuleFilter = args[++i];
+                    }
+                    else
+                    {
+                        options.Error = "Missing value for --age-module.";
+                        return options;
+                    }
+                    break;
+
+                case "--age-class":
+                    if (i + 1 < args.Length)
+                    {
+                        options.AgeClassification = args[++i];
+                    }
+                    else
+                    {
+                        options.Error = "Missing value for --age-class. Use chronic, recurring, new, or intermittent.";
+                        return options;
+                    }
+                    break;
+
+                case "--age-days":
+                    if (i + 1 < args.Length)
+                    {
+                        if (int.TryParse(args[++i], out int ageDays) && ageDays >= 1 && ageDays <= 365)
+                        {
+                            options.AgeDays = ageDays;
+                        }
+                        else
+                        {
+                            options.Error = "Invalid age-days value. Must be 1-365.";
+                            return options;
+                        }
+                    }
+                    else
+                    {
+                        options.Error = "Missing value for --age-days.";
+                        return options;
+                    }
+                    break;
+
+                case "--age-top":
+                    if (i + 1 < args.Length)
+                    {
+                        if (int.TryParse(args[++i], out int ageTop) && ageTop >= 1 && ageTop <= 100)
+                        {
+                            options.AgeTop = ageTop;
+                        }
+                        else
+                        {
+                            options.Error = "Invalid age-top value. Must be 1-100.";
+                            return options;
+                        }
+                    }
+                    else
+                    {
+                        options.Error = "Missing value for --age-top.";
+                        return options;
+                    }
                     break;
 
                 case "--timeline-severity":

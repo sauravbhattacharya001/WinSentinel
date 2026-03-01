@@ -21,20 +21,10 @@ public class AuditResult
 
     /// <summary>
     /// Computed score (0-100) based on finding severities.
+    /// Delegates to <see cref="Services.SecurityScorer.CalculateCategoryScore"/>
+    /// to keep the scoring formula in a single place.
     /// </summary>
-    public int Score
-    {
-        get
-        {
-            int deductions = Findings.Sum(f => f.Severity switch
-            {
-                Severity.Critical => 20,
-                Severity.Warning => 5,
-                _ => 0  // Info and Pass don't penalize
-            });
-            return Math.Max(0, 100 - deductions);
-        }
-    }
+    public int Score => Services.SecurityScorer.CalculateCategoryScore(this);
 
     public Severity OverallSeverity
     {

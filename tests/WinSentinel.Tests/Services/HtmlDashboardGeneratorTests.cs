@@ -725,4 +725,49 @@ public class HtmlDashboardGeneratorTests : IDisposable
     {
         Assert.Equal(string.Empty, HtmlDashboardGenerator.HtmlEncode(""));
     }
+
+    // ── Severity Bar Width Precision ──
+
+    [Fact]
+    public void Generate_SeverityBarWidth_UsesFloatingPointDivision()
+    {
+        // When critical=1 and maxCount is large (e.g. 200 passes),
+        // integer division would produce 0% width. The fix uses
+        // floating-point division so the bar is visible.
+        var report = CreateTestReport(criticals: 1, warnings: 0, infos: 0, passes: 200);
+        var html = _generator.Generate(report);
+
+        // With floating-point: 1 * 100.0 / 200 = 0.5%
+        // With integer division: 1 * 100 / 200 = 0% (bug)
+        Assert.Contains("width: 0.5%", html);
+    }
+
+    [Fact]
+    public void Generate_SeverityBarWidth_EqualCounts_Shows100Percent()
+    {
+        // When all severities have the same count, the bar should be 100%
+        var report = CreateTestReport(criticals: 5, warnings: 5, infos: 5, passes: 5);
+        var html = _generator.Generate(report);
+        Assert.Contains("width: 100.0%", html);
+    }
+
+    [Fact]
+    public void Generate_SeverityBarWidth_ZeroCount_ShowsZeroPercent()
+    {
+        // Zero findings should show 0% width
+        var report = CreateTestReport(criticals: 0, warnings: 3, infos: 0, passes: 0);
+        var html = _generator.Generate(report);
+        // Critical bar should be 0%
+        Assert.Contains("width: 0.0%", html);
+    }
+
+    [Fact]
+    public void Generate_SeverityBarWidth_SmallFractions_AreVisible()
+    {
+        // 1 critical, 1000 passes — critical should show 0.1%, not 0%
+        var report = CreateTestReport(criticals: 1, warnings: 0, infos: 0, passes: 1000);
+        var html = _generator.Generate(report);
+        // 1/1000 * 100 = 0.1%
+        Assert.Contains("width: 0.1%", html);
+    }
 }

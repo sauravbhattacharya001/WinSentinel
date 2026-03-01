@@ -90,10 +90,10 @@ public class HtmlDashboardGenerator
         sb.AppendLine("<section class=\"severity-distribution\">");
         sb.AppendLine("<h2>Severity Distribution</h2>");
         sb.AppendLine("<div class=\"bar-chart\">");
-        sb.AppendLine($"<div class=\"bar-row\"><span class=\"bar-label\">Critical</span><div class=\"bar\" style=\"width: {(critical * 100 / maxCount)}%; background: #dc2626;\">{critical}</div></div>");
-        sb.AppendLine($"<div class=\"bar-row\"><span class=\"bar-label\">Warning</span><div class=\"bar\" style=\"width: {(warning * 100 / maxCount)}%; background: #f59e0b;\">{warning}</div></div>");
-        sb.AppendLine($"<div class=\"bar-row\"><span class=\"bar-label\">Info</span><div class=\"bar\" style=\"width: {(info * 100 / maxCount)}%; background: #3b82f6;\">{info}</div></div>");
-        sb.AppendLine($"<div class=\"bar-row\"><span class=\"bar-label\">Pass</span><div class=\"bar\" style=\"width: {(pass * 100 / maxCount)}%; background: #22c55e;\">{pass}</div></div>");
+        sb.AppendLine($"<div class=\"bar-row\"><span class=\"bar-label\">Critical</span><div class=\"bar\" style=\"width: {(double)critical * 100 / maxCount:F1}%; background: #dc2626;\">{critical}</div></div>");
+        sb.AppendLine($"<div class=\"bar-row\"><span class=\"bar-label\">Warning</span><div class=\"bar\" style=\"width: {(double)warning * 100 / maxCount:F1}%; background: #f59e0b;\">{warning}</div></div>");
+        sb.AppendLine($"<div class=\"bar-row\"><span class=\"bar-label\">Info</span><div class=\"bar\" style=\"width: {(double)info * 100 / maxCount:F1}%; background: #3b82f6;\">{info}</div></div>");
+        sb.AppendLine($"<div class=\"bar-row\"><span class=\"bar-label\">Pass</span><div class=\"bar\" style=\"width: {(double)pass * 100 / maxCount:F1}%; background: #22c55e;\">{pass}</div></div>");
         sb.AppendLine("</div>");
         sb.AppendLine("</section>");
 

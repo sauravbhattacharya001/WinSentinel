@@ -244,37 +244,49 @@ public class AutoRemediator
             return record;
         }
 
-        var ruleName = $"WinSentinel_Block_{sanitizedIp.Replace('.', '_').Replace(':', '_')}";
+        var ruleBaseName = $"WinSentinel_Block_{sanitizedIp.Replace('.', '_').Replace(':', '_')}";
 
         try
         {
-            var psi = new ProcessStartInfo
+            var directions = new[] { ("in", $"{ruleBaseName}_in"), ("out", $"{ruleBaseName}_out") };
+            var allSucceeded = true;
+            string? lastError = null;
+
+            foreach (var (dir, ruleName) in directions)
             {
-                FileName = "netsh",
-                Arguments = $"advfirewall firewall add rule name=\"{ruleName}\" dir=in action=block remoteip={sanitizedIp}",
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
-            };
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "netsh",
+                    Arguments = $"advfirewall firewall add rule name=\"{ruleName}\" dir={dir} action=block remoteip={sanitizedIp}",
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
+                };
 
-            using var proc = Process.Start(psi);
-            proc?.WaitForExit(10000);
+                using var proc = Process.Start(psi);
+                proc?.WaitForExit(10000);
 
-            if (proc?.ExitCode == 0)
+                if (proc?.ExitCode != 0)
+                {
+                    allSucceeded = false;
+                    lastError = proc?.StandardError.ReadToEnd() ?? "Unknown error";
+                }
+            }
+
+            if (allSucceeded)
             {
                 record.Success = true;
-                record.Description = $"Blocked inbound traffic from {ipAddress}. Reason: {reason}";
-                record.UndoCommand = $"netsh advfirewall firewall delete rule name=\"{ruleName}\"";
-                record.UndoMetadata["RuleName"] = ruleName;
-                _logger.LogWarning("AUTO-REMEDIATION: Blocked IP {Ip}", ipAddress);
+                record.Description = $"Blocked inbound and outbound traffic for {ipAddress}. Reason: {reason}";
+                record.UndoCommand = $"netsh advfirewall firewall delete rule name=\"{ruleBaseName}_in\" & netsh advfirewall firewall delete rule name=\"{ruleBaseName}_out\"";
+                record.UndoMetadata["RuleName"] = ruleBaseName;
+                _logger.LogWarning("AUTO-REMEDIATION: Blocked IP {Ip} (inbound + outbound)", ipAddress);
             }
             else
             {
-                var error = proc?.StandardError.ReadToEnd() ?? "Unknown error";
                 record.Success = false;
-                record.ErrorMessage = error;
-                record.Description = $"Failed to block {ipAddress}: {error}";
+                record.ErrorMessage = lastError ?? "Unknown error";
+                record.Description = $"Failed to block {ipAddress}: {lastError}";
             }
         }
         catch (Exception ex)
@@ -598,25 +610,57 @@ public class AutoRemediator
             return;
         }
 
-        var psi = new ProcessStartInfo
+        var allSucceeded = true;
+        string? lastError = null;
+
+        foreach (var suffix in new[] { "_in", "_out" })
         {
-            FileName = "netsh",
-            Arguments = $"advfirewall firewall delete rule name=\"{sanitizedRuleName}\"",
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true
-        };
+            var fullRuleName = $"{sanitizedRuleName}{suffix}";
+            var psi = new ProcessStartInfo
+            {
+                FileName = "netsh",
+                Arguments = $"advfirewall firewall delete rule name=\"{fullRuleName}\"",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
 
-        using var proc = Process.Start(psi);
-        proc?.WaitForExit(10000);
+            using var proc = Process.Start(psi);
+            proc?.WaitForExit(10000);
 
-        undoRecord.Success = proc?.ExitCode == 0;
-        undoRecord.Description = undoRecord.Success
-            ? $"Removed firewall block rule '{ruleName}'"
-            : $"Failed to remove firewall rule: {proc?.StandardError.ReadToEnd()}";
+            if (proc?.ExitCode != 0)
+            {
+                // Also try the legacy rule name (without suffix) for backward compatibility
+                if (suffix == "_in")
+                {
+                    var legacyPsi = new ProcessStartInfo
+                    {
+                        FileName = "netsh",
+                        Arguments = $"advfirewall firewall delete rule name=\"{sanitizedRuleName}\"",
+                        UseShellExecute = false,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        CreateNoWindow = true
+                    };
+                    using var legacyProc = Process.Start(legacyPsi);
+                    legacyProc?.WaitForExit(10000);
+                    if (legacyProc?.ExitCode != 0)
+                    {
+                        allSucceeded = false;
+                        lastError = proc?.StandardError.ReadToEnd();
+                    }
+                }
+                // _out rule may not exist for legacy blocks, that's ok
+            }
+        }
 
-        if (undoRecord.Success)
+        undoRecord.Success = allSucceeded;
+        undoRecord.Description = allSucceeded
+            ? $"Removed firewall block rules for '{ruleName}'"
+            : $"Failed to remove firewall rule: {lastError}";
+
+        if (allSucceeded)
             _logger.LogInformation("UNDO: Removed firewall block for {Ip}", original.Target);
     }
 

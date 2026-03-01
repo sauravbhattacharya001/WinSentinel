@@ -35,22 +35,27 @@ public class SecurityTimeline
 
         var events = new List<TimelineEvent>();
 
-        // Track state across runs
+        // Track state across runs — use composite key (ModuleName::Title)
+        // to avoid crashes and silent bugs when different modules produce
+        // findings with identical titles (fixes #19).
         int bestScore = int.MinValue;
         int worstScore = int.MaxValue;
-        HashSet<string> previousFindings = new();  // finding titles from previous run
-        Dictionary<string, string> previousSeverities = new();  // finding → severity
+        HashSet<string> previousFindings = new();  // composite keys from previous run
+        Dictionary<string, string> previousSeverities = new();  // composite key → severity
         bool hadCriticals = false;
 
         // Track finding lifetimes for resolution stats
         Dictionary<string, DateTimeOffset> findingFirstSeen = new();
         List<TimeSpan> resolutionTimes = new();
 
+        // Composite key helper: unique per module+title
+        static string FindingKey(FindingRecord f) => $"{f.ModuleName}::{f.Title}";
+
         for (int i = 0; i < chronological.Count; i++)
         {
             var run = chronological[i];
-            var currentFindings = new HashSet<string>(run.Findings.Select(f => f.Title));
-            var currentSeverities = run.Findings.ToDictionary(f => f.Title, f => f.Severity, StringComparer.OrdinalIgnoreCase);
+            var currentFindings = new HashSet<string>(run.Findings.Select(FindingKey));
+            var currentSeverities = run.Findings.ToDictionary(FindingKey, f => f.Severity, StringComparer.OrdinalIgnoreCase);
 
             if (i == 0)
             {
@@ -72,7 +77,7 @@ public class SecurityTimeline
 
                 // Track all initial findings
                 foreach (var f in run.Findings)
-                    findingFirstSeen[f.Title] = run.Timestamp;
+                    findingFirstSeen[FindingKey(f)] = run.Timestamp;
             }
             else
             {
@@ -172,9 +177,9 @@ public class SecurityTimeline
 
                 // New findings
                 var newFindings = currentFindings.Except(previousFindings).ToList();
-                foreach (var title in newFindings)
+                foreach (var key in newFindings)
                 {
-                    var finding = run.Findings.First(f => f.Title == title);
+                    var finding = run.Findings.First(f => FindingKey(f) == key);
                     var isCritical = finding.Severity.Equals("Critical", StringComparison.OrdinalIgnoreCase);
 
                     events.Add(new TimelineEvent
@@ -189,49 +194,52 @@ public class SecurityTimeline
                         Module = finding.ModuleName,
                         FindingTitle = finding.Title,
                     });
-                    findingFirstSeen.TryAdd(title, run.Timestamp);
+                    findingFirstSeen.TryAdd(key, run.Timestamp);
                 }
 
                 // Resolved findings
                 var resolved = previousFindings.Except(currentFindings).ToList();
-                foreach (var title in resolved)
+                foreach (var key in resolved)
                 {
+                    // Extract display title from composite key
+                    var displayTitle = key.Contains("::") ? key[(key.IndexOf("::") + 2)..] : key;
                     events.Add(new TimelineEvent
                     {
                         Timestamp = run.Timestamp,
                         RunId = run.Id,
                         EventType = TimelineEventType.FindingResolved,
                         Severity = TimelineSeverity.Notice,
-                        Title = $"Resolved: {title}",
-                        Description = $"Finding '{title}' is no longer present.",
-                        FindingTitle = title,
+                        Title = $"Resolved: {displayTitle}",
+                        Description = $"Finding '{displayTitle}' is no longer present.",
+                        FindingTitle = displayTitle,
                     });
 
                     // Calculate resolution time
-                    if (findingFirstSeen.TryGetValue(title, out var firstSeen))
+                    if (findingFirstSeen.TryGetValue(key, out var firstSeen))
                     {
                         resolutionTimes.Add(run.Timestamp - firstSeen);
-                        findingFirstSeen.Remove(title);
+                        findingFirstSeen.Remove(key);
                     }
                 }
 
                 // Severity changes for persistent findings
                 var persistent = currentFindings.Intersect(previousFindings);
-                foreach (var title in persistent)
+                foreach (var key in persistent)
                 {
-                    if (currentSeverities.TryGetValue(title, out var curSev) &&
-                        previousSeverities.TryGetValue(title, out var prevSev) &&
+                    if (currentSeverities.TryGetValue(key, out var curSev) &&
+                        previousSeverities.TryGetValue(key, out var prevSev) &&
                         !curSev.Equals(prevSev, StringComparison.OrdinalIgnoreCase))
                     {
+                        var displayTitle = key.Contains("::") ? key[(key.IndexOf("::") + 2)..] : key;
                         events.Add(new TimelineEvent
                         {
                             Timestamp = run.Timestamp,
                             RunId = run.Id,
                             EventType = TimelineEventType.SeverityChanged,
                             Severity = curSev.Equals("Critical", StringComparison.OrdinalIgnoreCase) ? TimelineSeverity.Warning : TimelineSeverity.Info,
-                            Title = $"{title}: {prevSev} → {curSev}",
+                            Title = $"{displayTitle}: {prevSev} → {curSev}",
                             Description = $"Finding severity changed from {prevSev} to {curSev}.",
-                            FindingTitle = title,
+                            FindingTitle = displayTitle,
                         });
                     }
                 }

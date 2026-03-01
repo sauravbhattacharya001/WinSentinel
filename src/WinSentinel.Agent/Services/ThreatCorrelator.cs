@@ -218,7 +218,9 @@ public class ThreatCorrelator
         }
 
         // Also trigger if the new event IS the Defender disable and there are already suspicious processes
-        if (newEvent.Title.Contains("Defender", StringComparison.OrdinalIgnoreCase) &&
+        // Skip if we already emitted a correlation from the first branch above
+        if (results.All(r => r.RuleName != "DefenderPlusUnsigned") &&
+            newEvent.Title.Contains("Defender", StringComparison.OrdinalIgnoreCase) &&
             newEvent.Title.Contains("Disabled", StringComparison.OrdinalIgnoreCase) &&
             suspiciousProcess &&
             !IsRecentCorrelation("DefenderPlusUnsigned", "reverse"))

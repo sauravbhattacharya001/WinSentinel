@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text;
 using WinSentinel.Core.Models;
 
@@ -227,11 +228,7 @@ public class HtmlDashboardGenerator
     public static string HtmlEncode(string text)
     {
         if (string.IsNullOrEmpty(text)) return text ?? string.Empty;
-        return text
-            .Replace("&", "&amp;")
-            .Replace("<", "&lt;")
-            .Replace(">", "&gt;")
-            .Replace("\"", "&quot;");
+        return WebUtility.HtmlEncode(text);
     }
 
     private static string GenerateCss(HtmlDashboardOptions options)

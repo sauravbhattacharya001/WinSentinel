@@ -741,7 +741,7 @@ public class AutoRemediator
             {
                 FileName = isPowerShell ? "powershell" : "cmd.exe",
                 Arguments = isPowerShell
-                    ? $"-NoProfile -Command \"{threat.FixCommand}\""
+                    ? $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"{EscapeCommand(threat.FixCommand)}\""
                     : $"/c {threat.FixCommand}",
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
@@ -777,4 +777,11 @@ public class AutoRemediator
 
     private static string Truncate(string s, int maxLen) =>
         s.Length <= maxLen ? s : s[..maxLen] + "...";
+
+    /// <summary>
+    /// Escape double quotes in commands for safe interpolation into
+    /// PowerShell -Command "..." arguments, preventing command injection.
+    /// </summary>
+    private static string EscapeCommand(string command) =>
+        command.Replace("\"", "\\\"");
 }

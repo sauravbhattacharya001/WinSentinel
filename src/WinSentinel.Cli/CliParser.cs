@@ -12,6 +12,7 @@ public class CliOptions
     public bool HtmlIncludePass { get; set; }
     public string? HtmlTitle { get; set; }
     public bool Markdown { get; set; }
+    public bool Csv { get; set; }
     public bool Sarif { get; set; }
     public bool SarifIncludePass { get; set; }
     public string? OutputFile { get; set; }
@@ -655,6 +656,10 @@ public static class CliParser
                     options.Markdown = true;
                     break;
 
+                case "--csv":
+                    options.Csv = true;
+                    break;
+
                 case "--sarif":
                     options.Sarif = true;
                     break;
@@ -762,7 +767,7 @@ public static class CliParser
         }
 
         // If no command was specified but flags were set, default to audit
-        if (options.Command == CliCommand.None && (options.Json || options.Html || options.Markdown || options.Sarif || options.Quiet || options.ModulesFilter != null))
+        if (options.Command == CliCommand.None && (options.Json || options.Html || options.Markdown || options.Csv || options.Sarif || options.Quiet || options.ModulesFilter != null))
         {
             options.Command = CliCommand.Audit;
         }

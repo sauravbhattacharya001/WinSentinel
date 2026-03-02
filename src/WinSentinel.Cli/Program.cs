@@ -113,12 +113,12 @@ static async Task<int> HandleAudit(CliOptions options)
     var engine = BuildEngine(options.ModulesFilter);
     var sw = Stopwatch.StartNew();
 
-    if (!options.Quiet && !options.Json && !options.Html && !options.Markdown && !options.Sarif)
+    if (!options.Quiet && !options.Json && !options.Html && !options.Markdown && !options.Csv && !options.Sarif)
     {
         ConsoleFormatter.PrintBanner();
     }
 
-    var progress = options.Quiet || options.Json || options.Html || options.Markdown || options.Sarif
+    var progress = options.Quiet || options.Json || options.Html || options.Markdown || options.Csv || options.Sarif
         ? null
         : new Progress<(string module, int current, int total)>(p =>
             ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
@@ -193,6 +193,20 @@ static async Task<int> HandleAudit(CliOptions options)
             var original = Console.ForegroundColor;
             Console.ForegroundColor = ConsoleColor.Green;
             Console.WriteLine($"  ✓ SARIF report saved to {options.OutputFile}");
+            Console.ForegroundColor = original;
+        }
+    }
+    else if (options.Csv)
+    {
+        var generator = new ReportGenerator();
+        var csv = generator.GenerateCsvReport(report);
+        WriteOutput(csv, options.OutputFile);
+
+        if (!options.Quiet && options.OutputFile != null)
+        {
+            var original = Console.ForegroundColor;
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"  ✓ CSV report saved to {options.OutputFile}");
             Console.ForegroundColor = original;
         }
     }

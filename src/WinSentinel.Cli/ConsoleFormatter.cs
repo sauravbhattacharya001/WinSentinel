@@ -370,6 +370,10 @@ public static class ConsoleFormatter
         Console.ForegroundColor = original;
         Console.WriteLine("Output results as Markdown (GitHub-flavored)");
         Console.ForegroundColor = ConsoleColor.White;
+        Console.Write("    --csv                ");
+        Console.ForegroundColor = original;
+        Console.WriteLine("Output results as CSV (one row per finding)");
+        Console.ForegroundColor = ConsoleColor.White;
         Console.Write("    -o, --output <file>  ");
         Console.ForegroundColor = original;
         Console.WriteLine("Save output to file instead of stdout");

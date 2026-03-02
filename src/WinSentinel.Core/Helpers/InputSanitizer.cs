@@ -296,6 +296,11 @@ public static partial class InputSanitizer
         if (command.Contains("$("))
             return "Contains PowerShell subexpression (potential injection)";
 
+        // Backtick escape sequences (PowerShell uses ` as escape character;
+        // `$(...) or `n / `0 can bypass blocklists or inject control chars)
+        if (command.Contains('`'))
+            return "Contains PowerShell backtick escape (potential bypass)";
+
         return null;
     }
 

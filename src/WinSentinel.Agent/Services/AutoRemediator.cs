@@ -775,18 +775,18 @@ public class AutoRemediator
 
         try
         {
-            // Determine if this is a PowerShell or cmd command
-            var isPowerShell = threat.FixCommand.Contains("Set-MpPreference") ||
-                               threat.FixCommand.Contains("Remove-Item") ||
-                               threat.FixCommand.Contains("Move-Item") ||
-                               threat.FixCommand.Contains("$");
+            // Always use PowerShell with -EncodedCommand for safety.
+            // Base64 encoding prevents $() subexpression expansion, variable
+            // interpolation, and backtick escape sequences. Previous code used
+            // a fragile heuristic to choose between PowerShell and cmd.exe /c
+            // (which had no escaping at all).
+            var encodedCmd = Convert.ToBase64String(
+                System.Text.Encoding.Unicode.GetBytes(threat.FixCommand));
 
             var psi = new ProcessStartInfo
             {
-                FileName = isPowerShell ? "powershell" : "cmd.exe",
-                Arguments = isPowerShell
-                    ? $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command '{EscapeCommand(threat.FixCommand)}'"
-                    : $"/c {threat.FixCommand}",
+                FileName = "powershell",
+                Arguments = $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {encodedCmd}",
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -822,11 +822,4 @@ public class AutoRemediator
     private static string Truncate(string s, int maxLen) =>
         s.Length <= maxLen ? s : s[..maxLen] + "...";
 
-    /// <summary>
-    /// Escape a command for safe inclusion in a PowerShell -Command '...' argument.
-    /// Uses single-quote wrapping which prevents $() subexpression expansion,
-    /// variable interpolation, and backtick escapes.
-    /// </summary>
-    private static string EscapeCommand(string command) =>
-        command.Replace("'", "''");
 }

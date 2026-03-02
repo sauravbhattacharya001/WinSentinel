@@ -106,7 +106,7 @@ public class FixEngine
         var psi = new ProcessStartInfo
         {
             FileName = "powershell.exe",
-            Arguments = $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"{EscapeCommand(command)}\"",
+            Arguments = $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {EncodeCommand(command)}",
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
@@ -187,7 +187,7 @@ public class FixEngine
             var psi = new ProcessStartInfo
             {
                 FileName = "powershell.exe",
-                Arguments = $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"{EscapeCommand(wrappedCommand)}\"",
+                Arguments = $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {EncodeCommand(wrappedCommand)}",
                 UseShellExecute = true,
                 Verb = "runas",     // Triggers UAC elevation
                 CreateNoWindow = true,
@@ -275,12 +275,14 @@ public class FixEngine
     }
 
     /// <summary>
-    /// Escape double quotes in PowerShell commands for passing via -Command argument.
+    /// Encode a command as Base64 UTF-16LE for PowerShell's -EncodedCommand parameter.
+    /// This prevents variable expansion, subexpression execution ($(...)), backtick
+    /// escapes, and quote-breaking from crossing the process argument boundary.
     /// </summary>
-    private static string EscapeCommand(string command)
+    private static string EncodeCommand(string command)
     {
-        // Replace double quotes with escaped double quotes for the outer shell
-        return command.Replace("\"", "\\\"");
+        var bytes = System.Text.Encoding.Unicode.GetBytes(command);
+        return Convert.ToBase64String(bytes);
     }
 
     private static void KillProcess(Process process)

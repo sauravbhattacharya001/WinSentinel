@@ -17,10 +17,11 @@ public static class ShellHelper
 
     public static async Task<string> RunPowerShellAsync(string command, TimeSpan timeout, CancellationToken ct = default)
     {
+        var encodedCmd = Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes(command));
         var psi = new ProcessStartInfo
         {
             FileName = "powershell.exe",
-            Arguments = $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"{command}\"",
+            Arguments = $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {encodedCmd}",
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,

@@ -62,22 +62,26 @@ public class AuditEngine
         bool isScheduled = false)
     {
         var report = new SecurityReport();
-        int current = 0;
 
-        foreach (var module in _modules)
+        // Run all audit modules concurrently.  Each module inspects
+        // independent system facets (firewall, defender, accounts, …)
+        // so there are no shared-state conflicts.  Running in parallel
+        // cuts wall-clock time from O(n × avg_module) to roughly
+        // O(max_module) — a significant win when modules wait on WMI
+        // queries, registry reads, or process enumeration.
+        var tasks = _modules.Select(async (module, index) =>
         {
             cancellationToken.ThrowIfCancellationRequested();
-            current++;
-            progress?.Report((module.Name, current, _modules.Count));
-
             try
             {
                 var result = await module.RunAuditAsync(cancellationToken);
-                report.Results.Add(result);
+                progress?.Report((module.Name, index + 1, _modules.Count));
+                return result;
             }
             catch (Exception ex)
             {
-                report.Results.Add(new AuditResult
+                progress?.Report((module.Name, index + 1, _modules.Count));
+                return new AuditResult
                 {
                     ModuleName = module.Name,
                     Category = module.Category,
@@ -85,9 +89,12 @@ public class AuditEngine
                     Error = ex.Message,
                     StartTime = DateTimeOffset.UtcNow,
                     EndTime = DateTimeOffset.UtcNow
-                });
+                };
             }
-        }
+        }).ToList();
+
+        var results = await Task.WhenAll(tasks);
+        report.Results.AddRange(results);
 
         report.SecurityScore = SecurityScorer.CalculateScore(report);
         report.GeneratedAt = DateTimeOffset.UtcNow;

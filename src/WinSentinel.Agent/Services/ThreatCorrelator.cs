@@ -273,6 +273,30 @@ public class ThreatCorrelator
                 });
             }
         }
+
+        // Reverse: escalation/account creation arrives after brute force is already in window
+        if (newEvent.Title.Contains("Privilege", StringComparison.OrdinalIgnoreCase) ||
+            newEvent.Title.Contains("Account Created", StringComparison.OrdinalIgnoreCase) ||
+            newEvent.Title.Contains("Kill Chain", StringComparison.OrdinalIgnoreCase))
+        {
+            var bruteForce = window.FirstOrDefault(e =>
+                e.Source == "EventLogMonitor" &&
+                e.Id != newEvent.Id &&
+                e.Title.Contains("Brute Force", StringComparison.OrdinalIgnoreCase));
+
+            if (bruteForce != null && !IsRecentCorrelation("BruteForceChain", $"rev-{newEvent.Id}"))
+            {
+                results.Add(new CorrelatedThreat
+                {
+                    ContributingEvents = { bruteForce, newEvent },
+                    CombinedSeverity = ThreatSeverity.Critical,
+                    RuleName = "BruteForceChain",
+                    ChainDescription = $"{newEvent.Title} detected following brute force activity. " +
+                                       $"An attacker may have successfully breached and is escalating privileges.",
+                    ThreatScore = CalculateChainScore(bruteForce, newEvent) + 40
+                });
+            }
+        }
     }
 
     /// <summary>

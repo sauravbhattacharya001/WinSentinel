@@ -116,7 +116,7 @@ jobs:
 
     - name: Upload to Codecov
       if: matrix.configuration == 'Release'
-      uses: codecov/codecov-action@v4
+      uses: codecov/codecov-action@v5
       with:
         files: '**/TestResults/**/coverage.cobertura.xml'
         flags: unittests

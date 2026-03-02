@@ -262,6 +262,20 @@ public static partial class InputSanitizer
             lower.Contains("wget ") || lower.Contains("iwr "))
             return "Contains network request command";
 
+        // .NET download methods (bypass Invoke-WebRequest blocks)
+        if (lower.Contains("system.net.webclient") || lower.Contains("net.webclient") ||
+            lower.Contains("downloadstring") || lower.Contains("downloadfile") ||
+            lower.Contains("downloaddata") || lower.Contains("system.net.http.httpclient"))
+            return "Contains .NET network download method";
+
+        // Arbitrary code execution
+        if (lower.Contains("invoke-expression") || lower.Contains("iex ") || lower.Contains("iex("))
+            return "Contains Invoke-Expression (arbitrary code execution)";
+        if (lower.Contains("add-type") && (lower.Contains("-typedefinition") || lower.Contains("-memberdef")))
+            return "Contains Add-Type with inline code (arbitrary C# execution)";
+        if (lower.Contains("start-process") && (lower.Contains("-verb runas") || lower.Contains("powershell") || lower.Contains("cmd")))
+            return "Contains Start-Process launching shell (potential escalation)";
+
         // Credential access
         if (lower.Contains("mimikatz") || lower.Contains("get-credential") ||
             lower.Contains("cmdkey") || lower.Contains("sekurlsa"))

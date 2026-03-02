@@ -785,7 +785,7 @@ public class AutoRemediator
             {
                 FileName = isPowerShell ? "powershell" : "cmd.exe",
                 Arguments = isPowerShell
-                    ? $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"{EscapeCommand(threat.FixCommand)}\""
+                    ? $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command '{EscapeCommand(threat.FixCommand)}'"
                     : $"/c {threat.FixCommand}",
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
@@ -823,9 +823,10 @@ public class AutoRemediator
         s.Length <= maxLen ? s : s[..maxLen] + "...";
 
     /// <summary>
-    /// Escape double quotes in commands for safe interpolation into
-    /// PowerShell -Command "..." arguments, preventing command injection.
+    /// Escape a command for safe inclusion in a PowerShell -Command '...' argument.
+    /// Uses single-quote wrapping which prevents $() subexpression expansion,
+    /// variable interpolation, and backtick escapes.
     /// </summary>
     private static string EscapeCommand(string command) =>
-        command.Replace("\"", "\\\"");
+        command.Replace("'", "''");
 }

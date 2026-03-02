@@ -292,6 +292,10 @@ public static partial class InputSanitizer
             lower.Contains("-e ") && lower.Contains("powershell"))
             return "Contains encoded command (potential bypass)";
 
+        // Subexpression injection (PowerShell $(...) executes inside double-quoted strings)
+        if (command.Contains("$("))
+            return "Contains PowerShell subexpression (potential injection)";
+
         return null;
     }
 

@@ -31,6 +31,7 @@ public class AuditEngine
             new EventLogAudit(),
             new SoftwareInventoryAudit(),
             new CertificateAudit(),
+            new PowerShellAudit(),
         };
     }
 

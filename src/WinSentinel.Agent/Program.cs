@@ -41,6 +41,7 @@ builder.ConfigureServices((context, services) =>
     services.AddSingleton<IAgentModule, FileSystemMonitorModule>();
     services.AddSingleton<IAgentModule, EventLogMonitorModule>();
     services.AddSingleton<IAgentModule, NetworkMonitorModule>();
+    services.AddSingleton<IAgentModule, ClipboardMonitorModule>();
 
     // Main orchestrator
     services.AddHostedService<AgentService>();

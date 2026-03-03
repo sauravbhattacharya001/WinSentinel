@@ -71,6 +71,11 @@ public class AutoRemediator
     private readonly ConcurrentBag<RemediationRecord> _history = new();
     private readonly string _quarantineDir;
     private readonly string _hostsBackupDir;
+    private readonly string _historyFilePath;
+    private readonly object _persistLock = new();
+
+    /// <summary>Maximum number of records to retain in the persisted history file.</summary>
+    private const int MaxPersistedRecords = 1000;
 
     private static readonly string DataDir =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WinSentinel");
@@ -86,8 +91,68 @@ public class AutoRemediator
         _logger = logger;
         _quarantineDir = Path.Combine(DataDir, "Quarantine");
         _hostsBackupDir = Path.Combine(DataDir, "HostsBackup");
+        _historyFilePath = Path.Combine(DataDir, "remediation-history.json");
         Directory.CreateDirectory(_quarantineDir);
         Directory.CreateDirectory(_hostsBackupDir);
+        LoadHistory();
+    }
+
+    /// <summary>
+    /// Load persisted remediation history from disk on startup.
+    /// </summary>
+    private void LoadHistory()
+    {
+        try
+        {
+            if (!File.Exists(_historyFilePath)) return;
+
+            var json = File.ReadAllText(_historyFilePath);
+            var records = JsonSerializer.Deserialize<List<RemediationRecord>>(json, JsonOpts);
+            if (records == null) return;
+
+            foreach (var record in records)
+                AddRecord(record);
+
+            _logger.LogInformation("Loaded {Count} remediation records from disk", records.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load remediation history from {Path}. Starting with empty history", _historyFilePath);
+        }
+    }
+
+    /// <summary>
+    /// Persist current history to disk, keeping only the most recent <see cref="MaxPersistedRecords"/> records.
+    /// </summary>
+    private void PersistHistory()
+    {
+        lock (_persistLock)
+        {
+            try
+            {
+                var records = _history
+                    .OrderByDescending(r => r.Timestamp)
+                    .Take(MaxPersistedRecords)
+                    .ToList();
+
+                var tempPath = _historyFilePath + ".tmp";
+                File.WriteAllText(tempPath, JsonSerializer.Serialize(records, JsonOpts));
+                File.Move(tempPath, _historyFilePath, overwrite: true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to persist remediation history to {Path}", _historyFilePath);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Add a record to the in-memory history and persist to disk.
+    /// </summary>
+    private void AddRecord(RemediationRecord record)
+    {
+        _history.Add(record);
+        PersistHistory();
     }
 
     /// <summary>Get all remediation records.</summary>
@@ -141,7 +206,7 @@ public class AutoRemediator
             _logger.LogError(ex, "Failed to kill process {Name} (PID {Pid})", processName, processId);
         }
 
-        _history.Add(record);
+        AddRecord(record);
         return record;
     }
 
@@ -166,7 +231,7 @@ public class AutoRemediator
                 record.Success = false;
                 record.ErrorMessage = "Protected or invalid path";
                 record.Description = $"Cannot quarantine protected/system file: {filePath}";
-                _history.Add(record);
+                AddRecord(record);
                 return record;
             }
             filePath = validatedPath;
@@ -176,7 +241,7 @@ public class AutoRemediator
                 record.Success = false;
                 record.ErrorMessage = "File not found";
                 record.Description = $"File no longer exists: {filePath}";
-                _history.Add(record);
+                AddRecord(record);
                 return record;
             }
 
@@ -216,7 +281,7 @@ public class AutoRemediator
             _logger.LogError(ex, "Failed to quarantine {Path}", filePath);
         }
 
-        _history.Add(record);
+        AddRecord(record);
         return record;
     }
 
@@ -240,7 +305,7 @@ public class AutoRemediator
             record.ErrorMessage = "Invalid IP address format";
             record.Description = $"Rejected IP address '{ipAddress}' — failed validation";
             _logger.LogWarning("AUTO-REMEDIATION: Rejected invalid IP address: {Ip}", ipAddress);
-            _history.Add(record);
+            AddRecord(record);
             return record;
         }
 
@@ -297,7 +362,7 @@ public class AutoRemediator
             _logger.LogError(ex, "Failed to block IP {Ip}", ipAddress);
         }
 
-        _history.Add(record);
+        AddRecord(record);
         return record;
     }
 
@@ -321,7 +386,7 @@ public class AutoRemediator
             record.ErrorMessage = "Invalid username format";
             record.Description = $"Rejected username — failed validation (possible injection attempt)";
             _logger.LogWarning("AUTO-REMEDIATION: Rejected invalid username for disable");
-            _history.Add(record);
+            AddRecord(record);
             return record;
         }
 
@@ -364,7 +429,7 @@ public class AutoRemediator
             _logger.LogError(ex, "Failed to disable user account {User}", username);
         }
 
-        _history.Add(record);
+        AddRecord(record);
         return record;
     }
 
@@ -436,7 +501,7 @@ public class AutoRemediator
             _logger.LogError(ex, "Failed to restore hosts file");
         }
 
-        _history.Add(record);
+        AddRecord(record);
         return record;
     }
 
@@ -489,7 +554,7 @@ public class AutoRemediator
             _logger.LogError(ex, "Failed to re-enable Defender");
         }
 
-        _history.Add(record);
+        AddRecord(record);
         return record;
     }
 
@@ -559,9 +624,12 @@ public class AutoRemediator
         }
 
         if (undoRecord.Success)
+        {
             original.Undone = true;
+            PersistHistory(); // persist the updated Undone flag
+        }
 
-        _history.Add(undoRecord);
+        AddRecord(undoRecord);
         return undoRecord;
     }
 
@@ -815,7 +883,7 @@ public class AutoRemediator
             _logger.LogError(ex, "Fix command failed for '{Title}'", threat.Title);
         }
 
-        _history.Add(record);
+        AddRecord(record);
         return record;
     }
 

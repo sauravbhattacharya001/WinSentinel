@@ -160,7 +160,7 @@ public class TrendAnalyzer
             var date = run.Timestamp.LocalDateTime.ToString("MM/dd HH:mm");
             var filled = (int)Math.Round((double)run.OverallScore / 100 * barWidth);
             var bar = new string('█', filled) + new string('░', barWidth - filled);
-            var color = run.OverallScore >= 80 ? "A" : run.OverallScore >= 60 ? "B" : run.OverallScore >= 40 ? "C" : "F";
+            var color = SecurityScorer.GetGrade(run.OverallScore);
             lines.Add($"  {date}  {bar} {run.OverallScore,3}/100 ({color})");
         }
 

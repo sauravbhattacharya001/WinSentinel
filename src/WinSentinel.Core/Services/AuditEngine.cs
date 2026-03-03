@@ -30,6 +30,7 @@ public class AuditEngine
             new EncryptionAudit(),
             new EventLogAudit(),
             new SoftwareInventoryAudit(),
+            new CertificateAudit(),
         };
     }
 

@@ -29,6 +29,7 @@ public class AuditEngine
             new AppSecurityAudit(),
             new EncryptionAudit(),
             new EventLogAudit(),
+            new SoftwareInventoryAudit(),
         };
     }
 

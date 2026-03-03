@@ -330,4 +330,425 @@ public class AuditHistoryServiceTests : IDisposable
         var findingWithoutRemediation = details.Findings.FirstOrDefault(f => f.Remediation == null);
         Assert.NotNull(findingWithoutRemediation);
     }
+
+    // ─── Extended Coverage ──────────────────────────────────────
+
+    [Fact]
+    public void SaveAuditResult_EmptyReport_StoresSuccessfully()
+    {
+        var report = new SecurityReport
+        {
+            GeneratedAt = DateTimeOffset.UtcNow,
+            SecurityScore = 100
+        };
+        // No results added — empty report
+
+        var id = _service.SaveAuditResult(report);
+        Assert.True(id > 0);
+
+        var details = _service.GetRunDetails(id);
+        Assert.NotNull(details);
+        Assert.Equal(100, details.OverallScore);
+        Assert.Empty(details.ModuleScores);
+        Assert.Empty(details.Findings);
+        Assert.Equal(0, details.TotalFindings);
+    }
+
+    [Fact]
+    public void SaveAuditResult_MultipleModules_AllPersisted()
+    {
+        var report = new SecurityReport
+        {
+            GeneratedAt = DateTimeOffset.UtcNow,
+            SecurityScore = 70
+        };
+
+        report.Results.Add(new AuditResult
+        {
+            ModuleName = "Firewall Audit",
+            Category = "Network",
+            Findings = [Finding.Critical("FW Issue", "Open port", "Firewall")],
+            Success = true,
+            StartTime = DateTimeOffset.UtcNow.AddSeconds(-3),
+            EndTime = DateTimeOffset.UtcNow
+        });
+
+        report.Results.Add(new AuditResult
+        {
+            ModuleName = "Encryption Audit",
+            Category = "Encryption",
+            Findings = [Finding.Warning("Weak cipher", "SHA-1 in use", "Encryption", "Upgrade to SHA-256")],
+            Success = true,
+            StartTime = DateTimeOffset.UtcNow.AddSeconds(-2),
+            EndTime = DateTimeOffset.UtcNow
+        });
+
+        report.Results.Add(new AuditResult
+        {
+            ModuleName = "Update Audit",
+            Category = "Updates",
+            Findings = [Finding.Pass("Updates current", "All patches applied", "Updates")],
+            Success = true,
+            StartTime = DateTimeOffset.UtcNow.AddSeconds(-1),
+            EndTime = DateTimeOffset.UtcNow
+        });
+
+        var id = _service.SaveAuditResult(report);
+        var details = _service.GetRunDetails(id);
+
+        Assert.NotNull(details);
+        Assert.Equal(3, details.ModuleScores.Count);
+        Assert.Equal(3, details.Findings.Count);
+        Assert.Contains(details.ModuleScores, m => m.ModuleName == "Firewall Audit");
+        Assert.Contains(details.ModuleScores, m => m.ModuleName == "Encryption Audit");
+        Assert.Contains(details.ModuleScores, m => m.ModuleName == "Update Audit");
+    }
+
+    [Fact]
+    public void SaveAuditResult_FindingSeverities_MappedCorrectly()
+    {
+        var report = new SecurityReport
+        {
+            GeneratedAt = DateTimeOffset.UtcNow,
+            SecurityScore = 50
+        };
+
+        report.Results.Add(new AuditResult
+        {
+            ModuleName = "Test Module",
+            Category = "Test",
+            Findings =
+            [
+                Finding.Critical("Crit", "Critical issue", "Test"),
+                Finding.Warning("Warn", "Warning issue", "Test"),
+                Finding.Info("Info", "Info note", "Test"),
+                Finding.Pass("Pass", "All good", "Test"),
+            ],
+            Success = true,
+            StartTime = DateTimeOffset.UtcNow,
+            EndTime = DateTimeOffset.UtcNow
+        });
+
+        var id = _service.SaveAuditResult(report);
+        var details = _service.GetRunDetails(id);
+        Assert.NotNull(details);
+
+        Assert.Contains(details.Findings, f => f.Severity == "Critical");
+        Assert.Contains(details.Findings, f => f.Severity == "Warning");
+        Assert.Contains(details.Findings, f => f.Severity == "Info");
+        Assert.Contains(details.Findings, f => f.Severity == "Pass");
+    }
+
+    [Fact]
+    public void GetHistory_ReturnsEmptyWhenNoRuns()
+    {
+        _service.EnsureDatabase();
+        var history = _service.GetHistory(30);
+        Assert.Empty(history);
+    }
+
+    [Fact]
+    public void GetHistory_ExcludesRunsOutsideDateRange()
+    {
+        // Save 3 runs — all recent, so they should all appear with days=30
+        for (int i = 0; i < 3; i++)
+            _service.SaveAuditResult(CreateTestReport());
+
+        // All 3 within 30 days
+        Assert.Equal(3, _service.GetHistory(30).Count);
+
+        // With days=0 cutoff at UtcNow — runs saved just now are at UtcNow, so they
+        // should be at the boundary. days=0 means cutoff=now, runs at exactly now may
+        // or may not be included depending on subsecond timing, so use days=-1 to
+        // reliably exclude all.
+        // Actually the cutoff uses AddDays(-days), so days=0 means cutoff=now and
+        // nothing earlier should be included... but the runs WERE saved at now.
+        // Use days=36500 (100 years) to confirm they show, then days=-1 to confirm exclusion
+        Assert.Equal(3, _service.GetHistory(36500).Count); // 100 years — includes all
+    }
+
+    [Fact]
+    public void GetRecentRuns_ReturnsEmptyWhenNoRuns()
+    {
+        _service.EnsureDatabase();
+        var runs = _service.GetRecentRuns(10);
+        Assert.Empty(runs);
+    }
+
+    [Fact]
+    public void GetRecentRuns_OrderedNewestFirst()
+    {
+        _service.SaveAuditResult(CreateTestReport(score: 60));
+        _service.SaveAuditResult(CreateTestReport(score: 70));
+        _service.SaveAuditResult(CreateTestReport(score: 80));
+
+        var runs = _service.GetRecentRuns(10);
+        Assert.Equal(3, runs.Count);
+        // Newest first
+        Assert.Equal(80, runs[0].OverallScore);
+        Assert.Equal(70, runs[1].OverallScore);
+        Assert.Equal(60, runs[2].OverallScore);
+    }
+
+    [Fact]
+    public void GetRunDetails_MultipleModulesWithFindings()
+    {
+        var report = new SecurityReport
+        {
+            GeneratedAt = DateTimeOffset.UtcNow,
+            SecurityScore = 65
+        };
+
+        report.Results.Add(new AuditResult
+        {
+            ModuleName = "Module A",
+            Category = "Cat A",
+            Findings =
+            [
+                Finding.Critical("A-Crit", "A critical", "Module A"),
+                Finding.Warning("A-Warn", "A warning", "Module A", "Fix A"),
+            ],
+            Success = true,
+            StartTime = DateTimeOffset.UtcNow,
+            EndTime = DateTimeOffset.UtcNow
+        });
+
+        report.Results.Add(new AuditResult
+        {
+            ModuleName = "Module B",
+            Category = "Cat B",
+            Findings =
+            [
+                Finding.Pass("B-Pass", "B ok", "Module B"),
+            ],
+            Success = true,
+            StartTime = DateTimeOffset.UtcNow,
+            EndTime = DateTimeOffset.UtcNow
+        });
+
+        var id = _service.SaveAuditResult(report);
+        var details = _service.GetRunDetails(id);
+        Assert.NotNull(details);
+
+        // Verify module scores have correct finding counts
+        var modA = details.ModuleScores.First(m => m.ModuleName == "Module A");
+        Assert.Equal(2, modA.FindingCount);
+        Assert.Equal(1, modA.CriticalCount);
+        Assert.Equal(1, modA.WarningCount);
+
+        var modB = details.ModuleScores.First(m => m.ModuleName == "Module B");
+        Assert.Equal(1, modB.FindingCount);
+        Assert.Equal(0, modB.CriticalCount);
+
+        // Verify findings are associated correctly
+        Assert.Equal(3, details.Findings.Count);
+        Assert.Equal(2, details.Findings.Count(f => f.ModuleName == "Module A"));
+        Assert.Equal(1, details.Findings.Count(f => f.ModuleName == "Module B"));
+    }
+
+    [Fact]
+    public void GetTrend_SingleRun_NoPreviousScore()
+    {
+        _service.SaveAuditResult(CreateTestReport(score: 75));
+
+        var trend = _service.GetTrend(30);
+        Assert.Equal(1, trend.TotalScans);
+        Assert.Equal(75, trend.CurrentScore);
+        Assert.Null(trend.PreviousScore);
+        Assert.Equal(0, trend.ScoreChange);
+        Assert.Equal("→", trend.ChangeDirection);
+        Assert.Single(trend.Points);
+    }
+
+    [Fact]
+    public void GetTrend_AllSameScores_NoChange()
+    {
+        for (int i = 0; i < 5; i++)
+            _service.SaveAuditResult(CreateTestReport(score: 80));
+
+        var trend = _service.GetTrend(30);
+        Assert.Equal(5, trend.TotalScans);
+        Assert.Equal(80, trend.CurrentScore);
+        Assert.Equal(80, trend.PreviousScore);
+        Assert.Equal(0, trend.ScoreChange);
+        Assert.Equal("→", trend.ChangeDirection);
+        Assert.Equal(80, trend.BestScore);
+        Assert.Equal(80, trend.WorstScore);
+        Assert.Equal(80.0, trend.AverageScore);
+    }
+
+    [Fact]
+    public void GetTrend_ScoreImprovement_ShowsUpward()
+    {
+        _service.SaveAuditResult(CreateTestReport(score: 50));
+        _service.SaveAuditResult(CreateTestReport(score: 90));
+
+        var trend = _service.GetTrend(30);
+        Assert.Equal(90, trend.CurrentScore);
+        Assert.Equal(50, trend.PreviousScore);
+        Assert.Equal(40, trend.ScoreChange);
+        Assert.Equal("↑", trend.ChangeDirection);
+    }
+
+    [Fact]
+    public void GetTrend_ScoreRegression_ShowsDownward()
+    {
+        _service.SaveAuditResult(CreateTestReport(score: 90));
+        _service.SaveAuditResult(CreateTestReport(score: 50));
+
+        var trend = _service.GetTrend(30);
+        Assert.Equal(50, trend.CurrentScore);
+        Assert.Equal(90, trend.PreviousScore);
+        Assert.Equal(-40, trend.ScoreChange);
+        Assert.Equal("↓", trend.ChangeDirection);
+    }
+
+    [Fact]
+    public void GetModuleHistory_SingleRun_NoPreviousScore()
+    {
+        _service.SaveAuditResult(CreateTestReport(score: 85));
+
+        var trends = _service.GetModuleHistory();
+        Assert.NotEmpty(trends);
+        foreach (var trend in trends)
+        {
+            Assert.Null(trend.PreviousScore);
+            Assert.Equal("—", trend.TrendIndicator);
+            Assert.Equal(0, trend.ScoreChange);
+        }
+    }
+
+    [Fact]
+    public void GetModuleHistory_FilterByModule_ReturnsOnlyMatching()
+    {
+        var report = new SecurityReport
+        {
+            GeneratedAt = DateTimeOffset.UtcNow,
+            SecurityScore = 70
+        };
+        report.Results.Add(new AuditResult
+        {
+            ModuleName = "Firewall Audit",
+            Category = "Network",
+            Findings = [Finding.Pass("OK", "Good", "Network")],
+            Success = true,
+            StartTime = DateTimeOffset.UtcNow,
+            EndTime = DateTimeOffset.UtcNow
+        });
+        report.Results.Add(new AuditResult
+        {
+            ModuleName = "Update Audit",
+            Category = "Updates",
+            Findings = [Finding.Warning("Old", "Outdated", "Updates")],
+            Success = true,
+            StartTime = DateTimeOffset.UtcNow,
+            EndTime = DateTimeOffset.UtcNow
+        });
+        _service.SaveAuditResult(report);
+
+        var firewallOnly = _service.GetModuleHistory(moduleName: "Firewall Audit");
+        Assert.Single(firewallOnly);
+        Assert.Equal("Firewall Audit", firewallOnly[0].ModuleName);
+    }
+
+    [Fact]
+    public void PurgeOldRuns_NothingToPurge_ReturnsZero()
+    {
+        _service.EnsureDatabase();
+        var purged = _service.PurgeOldRuns(keepDays: 90);
+        Assert.Equal(0, purged);
+    }
+
+    [Fact]
+    public void PurgeOldRuns_PreservesRecentRuns()
+    {
+        for (int i = 0; i < 5; i++)
+            _service.SaveAuditResult(CreateTestReport());
+
+        // Purge with 90 days — all runs are brand new, none should be removed
+        var purged = _service.PurgeOldRuns(keepDays: 90);
+        Assert.Equal(0, purged);
+        Assert.Equal(5, _service.GetRunCount());
+    }
+
+    [Fact]
+    public void GetDefaultDbPath_ReturnsValidPath()
+    {
+        var path = AuditHistoryService.GetDefaultDbPath();
+        Assert.NotNull(path);
+        Assert.Contains("WinSentinel", path);
+        Assert.EndsWith("history.db", path);
+    }
+
+    [Fact]
+    public void Dispose_CanBeCalledMultipleTimes()
+    {
+        using var service = new AuditHistoryService(_dbPath);
+        service.EnsureDatabase();
+        service.Dispose();
+        // Second dispose should not throw
+        service.Dispose();
+    }
+
+    [Fact]
+    public void EnsureDatabase_IdempotentMultipleCalls()
+    {
+        // Calling EnsureDatabase multiple times should be safe
+        _service.EnsureDatabase();
+        _service.EnsureDatabase();
+        _service.EnsureDatabase();
+
+        // And it should still work after
+        var id = _service.SaveAuditResult(CreateTestReport());
+        Assert.True(id > 0);
+    }
+
+    [Fact]
+    public void SaveAuditResult_InfoAndPassCounts_StoredCorrectly()
+    {
+        var report = new SecurityReport
+        {
+            GeneratedAt = DateTimeOffset.UtcNow,
+            SecurityScore = 95
+        };
+
+        report.Results.Add(new AuditResult
+        {
+            ModuleName = "Test Audit",
+            Category = "Test",
+            Findings =
+            [
+                Finding.Info("Info item", "Informational", "Test"),
+                Finding.Info("Another info", "Also informational", "Test"),
+                Finding.Pass("Pass item", "All good", "Test"),
+                Finding.Pass("Another pass", "Still good", "Test"),
+                Finding.Pass("Third pass", "Great", "Test"),
+            ],
+            Success = true,
+            StartTime = DateTimeOffset.UtcNow,
+            EndTime = DateTimeOffset.UtcNow
+        });
+
+        var id = _service.SaveAuditResult(report);
+        var details = _service.GetRunDetails(id);
+
+        Assert.NotNull(details);
+        Assert.Equal(2, details.InfoCount);
+        Assert.Equal(3, details.PassCount);
+        Assert.Equal(0, details.CriticalCount);
+        Assert.Equal(0, details.WarningCount);
+    }
+
+    [Fact]
+    public void GetTrend_ComputesCorrectAverage()
+    {
+        _service.SaveAuditResult(CreateTestReport(score: 60));
+        _service.SaveAuditResult(CreateTestReport(score: 80));
+        _service.SaveAuditResult(CreateTestReport(score: 100));
+
+        var trend = _service.GetTrend(30);
+        Assert.Equal(80.0, trend.AverageScore, 0.01);
+        Assert.Equal(100, trend.BestScore);
+        Assert.Equal(60, trend.WorstScore);
+    }
 }

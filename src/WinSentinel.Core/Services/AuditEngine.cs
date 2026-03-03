@@ -32,6 +32,7 @@ public class AuditEngine
             new SoftwareInventoryAudit(),
             new CertificateAudit(),
             new PowerShellAudit(),
+            new DnsAudit(),
         };
     }
 

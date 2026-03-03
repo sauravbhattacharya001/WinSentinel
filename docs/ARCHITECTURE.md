@@ -344,6 +344,70 @@ The `ConsoleFormatter` supports four output modes:
 | 2 | Critical findings found |
 | 3 | Error during execution |
 
+## Analysis & Reporting Services (WinSentinel.Core)
+
+Beyond the audit modules, Core includes a suite of analysis services that process audit results over time. These are used by both the CLI and dashboard.
+
+### Service Catalog
+
+| Service | Purpose |
+|:---|:---|
+| `SecurityPostureService` | Generates executive-level posture reports: score, trend, module breakdown, top risks, quick wins, recommendations. Synthesizes data from multiple analysis services into a single `PostureReport`. |
+| `SecurityTimeline` | Builds a chronological view of security events across audit runs. Shows how findings appear, persist, and resolve over time. |
+| `FindingPersistenceAnalyzer` | Classifies findings as **Transient**, **Recurring**, **Chronic**, or **Resolved** by tracking appearances across multiple audit runs. |
+| `FindingAgeTracker` | Tracks how long each finding has been present. Computes age-based metrics: mean time to resolve, oldest open findings, age distribution. |
+| `FindingCorrelator` | Links related findings across different audit modules (e.g., "Firewall disabled" + "Suspicious inbound connection") into correlated groups. |
+| `TrendAnalyzer` | Computes score trends over time: direction (improving/declining/stable), velocity, moving averages, forecasting. |
+| `RiskAssessmentService` | Multi-factor risk scoring that combines finding severity, persistence, exploitability, and environmental context into a risk matrix. |
+| `SecurityScorer` | Computes per-module and overall security scores, letter grades (A–F), and score breakdowns. |
+| `AuditDiffService` | Compares two audit runs to show what changed: new findings, resolved findings, score delta, module-level diffs. |
+| `SecurityAdvisor` | Context-aware advice engine that generates actionable security recommendations based on current findings and system context. |
+| `ComplianceProfileService` | Evaluates audit results against compliance profiles (e.g., CIS, HIPAA). Adjusts scores and flags gaps. |
+| `ScanProfileManager` | Manages named scan profiles that control which modules run, how often, and with what thresholds. |
+| `AlertRuleEngine` | Configurable alert rules with 8 condition types, AND/OR rule groups, and actions (log, notify, block). |
+
+### Security Posture Pipeline
+
+The `SecurityPostureService` orchestrates multiple analyzers into a single executive report:
+
+```
+SecurityReport (current audit)
+    │
+    ├──► SecurityScorer.GetGrade()
+    ├──► ClassifyPosture() → Excellent/Good/Fair/Poor/Critical
+    ├──► Score delta + TrendDirection (if previous score available)
+    │
+    ├──► Module breakdown (ordered by score, health classification)
+    ├──► Top risks (critical-first, capped at 10)
+    ├──► Quick wins (auto-fixable criticals/warnings)
+    │
+    ├──► FindingPersistenceAnalyzer (if history available)
+    │        └──► Chronic/New/Resolved counts
+    │
+    ├──► ComplianceProfileService (if profile specified)
+    │        └──► Compliance score + status
+    │
+    ├──► GenerateExecutiveSummary() → human-readable paragraph
+    └──► GenerateRecommendations() → prioritized action items
+              │
+              └──► PostureReport (complete document)
+```
+
+### Audit History
+
+The `AuditHistoryService` persists audit results to a SQLite database (`~/.winsentinel/history.db`). Each run is stored as an `AuditRunRecord` with per-module scores and individual findings.
+
+```
+AuditHistoryService
+    │
+    ├──► SaveRun(SecurityReport) → stores run + module scores + findings
+    ├──► GetHistory(limit) → List<AuditRunRecord>
+    ├──► GetRun(id) → single run details
+    └──► GetFindings(runId) → List<FindingRecord>
+```
+
+This history powers the persistence, age, trend, and diff services.
+
 ## Data Flow Summary
 
 ```

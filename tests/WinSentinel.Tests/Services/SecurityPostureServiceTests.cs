@@ -481,4 +481,424 @@ public class SecurityPostureServiceTests
         Assert.Equal(PostureLevel.Critical, posture.PostureLevel);
         Assert.Equal("F", posture.Grade);
     }
+
+    // ── Executive summary: singular forms ────────────────────────────
+
+    [Fact]
+    public void ExecutiveSummary_SingleCritical_SingularForm()
+    {
+        var report = MakeReport(40,
+            MakeAudit("Test", 40,
+                MakeFinding("One Critical", Severity.Critical))
+        );
+
+        var posture = _service.Generate(report);
+        Assert.Contains("1 critical finding ", posture.ExecutiveSummary);
+        Assert.DoesNotContain("findings ", posture.ExecutiveSummary.Replace("1 critical finding require", ""));
+    }
+
+    [Fact]
+    public void ExecutiveSummary_SingleQuickWin_SingularForm()
+    {
+        var report = MakeReport(50,
+            MakeAudit("Test", 50,
+                MakeFinding("Fix Me", Severity.Warning, fixCommand: "fix"))
+        );
+
+        var posture = _service.Generate(report);
+        Assert.Contains("1 issue ", posture.ExecutiveSummary);
+    }
+
+    [Fact]
+    public void ExecutiveSummary_MultipleQuickWins_PluralForm()
+    {
+        var report = MakeReport(40,
+            MakeAudit("Test", 40,
+                MakeFinding("Fix1", Severity.Warning, fixCommand: "fix1"),
+                MakeFinding("Fix2", Severity.Critical, fixCommand: "fix2"))
+        );
+
+        var posture = _service.Generate(report);
+        Assert.Contains("2 issues", posture.ExecutiveSummary);
+    }
+
+    [Fact]
+    public void ExecutiveSummary_UnchangedScore_MentionsUnchanged()
+    {
+        var report = MakeReport(75);
+        var posture = _service.Generate(report, previousScore: 75);
+
+        Assert.Contains("unchanged", posture.ExecutiveSummary);
+    }
+
+    [Fact]
+    public void ExecutiveSummary_ImprovingScore_MentionsUp()
+    {
+        var report = MakeReport(80);
+        var posture = _service.Generate(report, previousScore: 70);
+
+        Assert.Contains("up", posture.ExecutiveSummary);
+        Assert.Contains("10 point", posture.ExecutiveSummary);
+    }
+
+    [Fact]
+    public void ExecutiveSummary_SinglePointDelta_SingularPoint()
+    {
+        var report = MakeReport(74);
+        var posture = _service.Generate(report, previousScore: 71);
+
+        // Delta = 3, Improving (>2)
+        Assert.Contains("3 points", posture.ExecutiveSummary);
+    }
+
+    // ── Recommendations: priority ordering ───────────────────────────
+
+    [Fact]
+    public void Recommendations_PrioritiesAreSequential()
+    {
+        var report = MakeReport(35,
+            MakeAudit("Weak", 30,
+                MakeFinding("Crit", Severity.Critical, fixCommand: "fix"),
+                MakeFinding("Warn", Severity.Warning, fixCommand: "fix2"))
+        );
+
+        var posture = _service.Generate(report, previousScore: 60);
+        for (int i = 0; i < posture.Recommendations.Count; i++)
+        {
+            Assert.Equal(i + 1, posture.Recommendations[i].Priority);
+        }
+    }
+
+    [Fact]
+    public void Recommendations_DecliningTrend_ContainsTrendAlert()
+    {
+        var report = MakeReport(50);
+        var posture = _service.Generate(report, previousScore: 65);
+
+        Assert.Contains(posture.Recommendations, r => r.Category == "Trend Alert");
+        var trend = posture.Recommendations.First(r => r.Category == "Trend Alert");
+        Assert.Equal("Medium", trend.Impact);
+        Assert.Contains("15 points", trend.Action);
+    }
+
+    // ── Recommendations: quick win effort label ──────────────────────
+
+    [Fact]
+    public void Recommendations_QuickWinsCriticalAutoFix_EffortLowMedium()
+    {
+        // When critical findings have auto-fix, effort should be Low-Medium
+        var report = MakeReport(40,
+            MakeAudit("Test", 40,
+                MakeFinding("Crit with fix", Severity.Critical, fixCommand: "fix-cmd"))
+        );
+
+        var posture = _service.Generate(report);
+        var critRec = posture.Recommendations.FirstOrDefault(r => r.Category == "Critical Findings");
+        Assert.NotNull(critRec);
+        Assert.Equal("Low-Medium", critRec.Effort);
+    }
+
+    [Fact]
+    public void Recommendations_CriticalNoAutoFix_EffortMediumHigh()
+    {
+        // When critical findings have NO auto-fix, effort should be Medium-High
+        var report = MakeReport(40,
+            MakeAudit("Test", 40,
+                MakeFinding("Crit no fix", Severity.Critical),
+                MakeFinding("Crit no fix 2", Severity.Critical))
+        );
+
+        var posture = _service.Generate(report);
+        var critRec = posture.Recommendations.FirstOrDefault(r => r.Category == "Critical Findings");
+        Assert.NotNull(critRec);
+        Assert.Equal("Medium-High", critRec.Effort);
+    }
+
+    // ── FormatReport: persistence section ────────────────────────────
+
+    [Fact]
+    public void FormatReport_WithPersistenceData_ShowsChronicCounts()
+    {
+        var report = MakeReport(70);
+        var posture = _service.Generate(report);
+        posture.HasPersistenceData = true;
+        posture.NewCount = 3;
+        posture.PersistentCount = 2;
+        posture.ResolvedCount = 1;
+
+        var text = SecurityPostureService.FormatReport(posture);
+
+        Assert.Contains("New:", text);
+        Assert.Contains("Chronic:", text);
+        Assert.Contains("Resolved:", text);
+    }
+
+    [Fact]
+    public void FormatReport_WithoutPersistenceData_NoChronic()
+    {
+        var report = MakeReport(70);
+        var posture = _service.Generate(report);
+        posture.HasPersistenceData = false;
+
+        var text = SecurityPostureService.FormatReport(posture);
+
+        Assert.DoesNotContain("Chronic:", text);
+        Assert.DoesNotContain("Resolved:", text);
+    }
+
+    // ── FormatReport: compliance section ─────────────────────────────
+
+    [Fact]
+    public void FormatReport_WithCompliance_ShowsComplianceSection()
+    {
+        var report = MakeReport(75);
+        var posture = _service.Generate(report);
+        posture.ComplianceProfile = "NIST-800-53";
+        posture.ComplianceScore = 72;
+        posture.ComplianceStatus = "Partially Compliant";
+
+        var text = SecurityPostureService.FormatReport(posture);
+
+        Assert.Contains("Compliance", text);
+        Assert.Contains("NIST-800-53", text);
+        Assert.Contains("72/100", text);
+        Assert.Contains("Partially Compliant", text);
+    }
+
+    [Fact]
+    public void FormatReport_NoCompliance_NoComplianceSection()
+    {
+        var report = MakeReport(80);
+        var posture = _service.Generate(report);
+
+        var text = SecurityPostureService.FormatReport(posture);
+
+        // Should NOT have the compliance section header between dividers
+        var lines = text.Split('\n');
+        Assert.DoesNotContain(lines, l => l.Trim() == "── Compliance ──");
+    }
+
+    // ── FormatReport: stable trend arrow ─────────────────────────────
+
+    [Fact]
+    public void FormatReport_StableTrend_RightArrow()
+    {
+        // ScoreDelta = 0 → arrow = "→"
+        var report = MakeReport(75);
+        var posture = _service.Generate(report, previousScore: 75);
+
+        var text = SecurityPostureService.FormatReport(posture);
+
+        Assert.Contains("Stable", text);
+    }
+
+    // ── FormatReport: no trend (no previous) ─────────────────────────
+
+    [Fact]
+    public void FormatReport_NoPreviousScore_NoTrendLine()
+    {
+        var report = MakeReport(80);
+        var posture = _service.Generate(report);
+
+        var text = SecurityPostureService.FormatReport(posture);
+
+        Assert.DoesNotContain("↑", text);
+        Assert.DoesNotContain("↓", text);
+        Assert.DoesNotContain("→", text);
+    }
+
+    // ── Module health boundary tests ─────────────────────────────────
+
+    [Theory]
+    [InlineData(90, false, ModuleHealth.Healthy)]
+    [InlineData(89, false, ModuleHealth.Moderate)]
+    [InlineData(70, false, ModuleHealth.Moderate)]
+    [InlineData(69, false, ModuleHealth.NeedsAttention)]
+    [InlineData(50, true, ModuleHealth.AtRisk)]
+    [InlineData(49, true, ModuleHealth.Critical)]
+    [InlineData(100, false, ModuleHealth.Healthy)]
+    [InlineData(0, false, ModuleHealth.NeedsAttention)]
+    [InlineData(0, true, ModuleHealth.Critical)]
+    public void ClassifyModuleHealth_BoundaryValues(int score, bool hasCritical, ModuleHealth expected)
+    {
+        var findings = new List<Finding>();
+        if (hasCritical)
+            findings.Add(MakeFinding("Crit", Severity.Critical));
+        else
+            findings.Add(MakeFinding("Warn", Severity.Warning));
+
+        Assert.Equal(expected,
+            SecurityPostureService.ClassifyModuleHealth(score, findings));
+    }
+
+    // ── Quick wins: estimated impact ─────────────────────────────────
+
+    [Fact]
+    public void QuickWins_CriticalSeverity_HighImpact()
+    {
+        var report = MakeReport(40,
+            MakeAudit("Test", 40,
+                MakeFinding("Critical Fix", Severity.Critical, fixCommand: "fix"))
+        );
+
+        var posture = _service.Generate(report);
+
+        Assert.Single(posture.QuickWins);
+        Assert.Equal("High", posture.QuickWins[0].EstimatedImpact);
+    }
+
+    [Fact]
+    public void QuickWins_WarningSeverity_MediumImpact()
+    {
+        var report = MakeReport(60,
+            MakeAudit("Test", 60,
+                MakeFinding("Warning Fix", Severity.Warning, fixCommand: "fix"))
+        );
+
+        var posture = _service.Generate(report);
+
+        Assert.Single(posture.QuickWins);
+        Assert.Equal("Medium", posture.QuickWins[0].EstimatedImpact);
+    }
+
+    [Fact]
+    public void QuickWins_InfoWithFixCommand_NotIncluded()
+    {
+        var report = MakeReport(80,
+            MakeAudit("Test", 80,
+                MakeFinding("Info Item", Severity.Info, fixCommand: "some-cmd"))
+        );
+
+        var posture = _service.Generate(report);
+
+        // Info-level findings with fix commands should NOT be quick wins
+        Assert.Empty(posture.QuickWins);
+    }
+
+    // ── Module breakdown: module names and counts ─────────────────────
+
+    [Fact]
+    public void ModuleBreakdown_CapturesCorrectCounts()
+    {
+        var report = MakeReport(60,
+            MakeAudit("Network", 60,
+                MakeFinding("Net1", Severity.Critical),
+                MakeFinding("Net2", Severity.Warning),
+                MakeFinding("Net3", Severity.Info))
+        );
+
+        var posture = _service.Generate(report);
+
+        Assert.Single(posture.ModuleBreakdown);
+        var module = posture.ModuleBreakdown[0];
+        Assert.Equal("Network", module.ModuleName);
+        Assert.Equal(3, module.FindingCount);
+        Assert.Equal(1, module.CriticalCount);
+        Assert.Equal(1, module.WarningCount);
+    }
+
+    // ── Top risks: module association ─────────────────────────────────
+
+    [Fact]
+    public void TopRisks_IncludesCorrectModuleName()
+    {
+        var report = MakeReport(50,
+            MakeAudit("Firewall", 50,
+                MakeFinding("FW Issue", Severity.Critical))
+        );
+
+        var posture = _service.Generate(report);
+
+        Assert.Single(posture.TopRisks);
+        Assert.Equal("Firewall", posture.TopRisks[0].Module);
+    }
+
+    [Fact]
+    public void TopRisks_HasAutoFix_Correct()
+    {
+        var report = MakeReport(50,
+            MakeAudit("Test", 50,
+                MakeFinding("WithFix", Severity.Warning, fixCommand: "cmd"),
+                MakeFinding("NoFix", Severity.Warning))
+        );
+
+        var posture = _service.Generate(report);
+
+        var withFix = posture.TopRisks.First(r => r.Title == "WithFix");
+        var noFix = posture.TopRisks.First(r => r.Title == "NoFix");
+
+        Assert.True(withFix.HasAutoFix);
+        Assert.False(noFix.HasAutoFix);
+    }
+
+    // ── PostureReport defaults ───────────────────────────────────────
+
+    [Fact]
+    public void PostureReport_DefaultValues()
+    {
+        var p = new PostureReport();
+
+        Assert.Equal("", p.Grade);
+        Assert.Equal("", p.ExecutiveSummary);
+        Assert.Null(p.ScoreDelta);
+        Assert.Null(p.TrendDirection);
+        Assert.False(p.HasPersistenceData);
+        Assert.Null(p.ComplianceProfile);
+        Assert.Null(p.ComplianceScore);
+        Assert.Null(p.ComplianceStatus);
+        Assert.Empty(p.ModuleBreakdown);
+        Assert.Empty(p.TopRisks);
+        Assert.Empty(p.QuickWins);
+        Assert.Empty(p.Recommendations);
+    }
+
+    // ── FormatReport: empty sections ─────────────────────────────────
+
+    [Fact]
+    public void FormatReport_NoModules_SkipsModuleSection()
+    {
+        var posture = new PostureReport
+        {
+            OverallScore = 80,
+            Grade = "B",
+            PostureLevel = PostureLevel.Good,
+            ExecutiveSummary = "Test summary.",
+        };
+
+        var text = SecurityPostureService.FormatReport(posture);
+
+        Assert.DoesNotContain("Module Health", text);
+    }
+
+    [Fact]
+    public void FormatReport_NoRisks_SkipsRiskSection()
+    {
+        var posture = new PostureReport
+        {
+            OverallScore = 95,
+            Grade = "A",
+            PostureLevel = PostureLevel.Excellent,
+            ExecutiveSummary = "All clear.",
+        };
+
+        var text = SecurityPostureService.FormatReport(posture);
+
+        Assert.DoesNotContain("Top Risks", text);
+    }
+
+    [Fact]
+    public void FormatReport_NoQuickWins_SkipsQuickWinSection()
+    {
+        var posture = new PostureReport
+        {
+            OverallScore = 90,
+            Grade = "A",
+            PostureLevel = PostureLevel.Excellent,
+            ExecutiveSummary = "Good.",
+        };
+
+        var text = SecurityPostureService.FormatReport(posture);
+
+        Assert.DoesNotContain("Quick Wins", text);
+    }
 }

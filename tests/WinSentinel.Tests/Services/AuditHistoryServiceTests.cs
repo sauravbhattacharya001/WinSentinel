@@ -740,6 +740,158 @@ public class AuditHistoryServiceTests : IDisposable
     }
 
     [Fact]
+    public void PurgeOldRuns_CascadeDeletesModuleScoresAndFindings()
+    {
+        // Save a report with modules and findings
+        var report = CreateTestReport(score: 75, criticals: 2, warnings: 3);
+        var id = _service.SaveAuditResult(report);
+
+        // Verify the data exists
+        var details = _service.GetRunDetails(id);
+        Assert.NotNull(details);
+        Assert.True(details.ModuleScores.Count > 0);
+        Assert.True(details.Findings.Count > 0);
+
+        // Backdate the run's timestamp to make it purgeable (200 days ago)
+        using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={_dbPath}"))
+        {
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            var oldTimestamp = DateTimeOffset.UtcNow.AddDays(-200).ToString("o");
+            cmd.CommandText = "UPDATE AuditRuns SET Timestamp = @ts WHERE Id = @id";
+            cmd.Parameters.AddWithValue("@ts", oldTimestamp);
+            cmd.Parameters.AddWithValue("@id", id);
+            cmd.ExecuteNonQuery();
+        }
+
+        // Count ModuleScores and Findings before purge using direct SQL
+        int moduleScoresBefore, findingsBefore;
+        using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={_dbPath}"))
+        {
+            conn.Open();
+            using var cmd1 = conn.CreateCommand();
+            cmd1.CommandText = "SELECT COUNT(*) FROM ModuleScores WHERE RunId = @id";
+            cmd1.Parameters.AddWithValue("@id", id);
+            moduleScoresBefore = Convert.ToInt32(cmd1.ExecuteScalar());
+
+            using var cmd2 = conn.CreateCommand();
+            cmd2.CommandText = "SELECT COUNT(*) FROM Findings WHERE RunId = @id";
+            cmd2.Parameters.AddWithValue("@id", id);
+            findingsBefore = Convert.ToInt32(cmd2.ExecuteScalar());
+        }
+        Assert.True(moduleScoresBefore > 0, "ModuleScores should exist before purge");
+        Assert.True(findingsBefore > 0, "Findings should exist before purge");
+
+        // Purge with 90 days — our backdated run should be deleted
+        var purged = _service.PurgeOldRuns(keepDays: 90);
+        Assert.Equal(1, purged);
+
+        // Verify cascade: ModuleScores and Findings for the purged run should be gone
+        int moduleScoresAfter, findingsAfter;
+        using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={_dbPath}"))
+        {
+            conn.Open();
+            using var cmd1 = conn.CreateCommand();
+            cmd1.CommandText = "SELECT COUNT(*) FROM ModuleScores WHERE RunId = @id";
+            cmd1.Parameters.AddWithValue("@id", id);
+            moduleScoresAfter = Convert.ToInt32(cmd1.ExecuteScalar());
+
+            using var cmd2 = conn.CreateCommand();
+            cmd2.CommandText = "SELECT COUNT(*) FROM Findings WHERE RunId = @id";
+            cmd2.Parameters.AddWithValue("@id", id);
+            findingsAfter = Convert.ToInt32(cmd2.ExecuteScalar());
+        }
+        Assert.Equal(0, moduleScoresAfter);
+        Assert.Equal(0, findingsAfter);
+    }
+
+    [Fact]
+    public void PurgeOldRuns_CascadePreservesRecentRunChildren()
+    {
+        // Save two reports: one we'll backdate, one we'll keep
+        var oldReport = CreateTestReport(score: 60, criticals: 1, warnings: 1);
+        var oldId = _service.SaveAuditResult(oldReport);
+        var newReport = CreateTestReport(score: 90, criticals: 2, warnings: 2);
+        var newId = _service.SaveAuditResult(newReport);
+
+        // Backdate only the first run
+        using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={_dbPath}"))
+        {
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "UPDATE AuditRuns SET Timestamp = @ts WHERE Id = @id";
+            cmd.Parameters.AddWithValue("@ts", DateTimeOffset.UtcNow.AddDays(-200).ToString("o"));
+            cmd.Parameters.AddWithValue("@id", oldId);
+            cmd.ExecuteNonQuery();
+        }
+
+        // Purge — should remove old run but preserve new run
+        var purged = _service.PurgeOldRuns(keepDays: 90);
+        Assert.Equal(1, purged);
+
+        // Old run's children should be gone
+        var oldDetails = _service.GetRunDetails(oldId);
+        Assert.Null(oldDetails);
+
+        // New run's children should still exist
+        var newDetails = _service.GetRunDetails(newId);
+        Assert.NotNull(newDetails);
+        Assert.True(newDetails.ModuleScores.Count > 0);
+        Assert.True(newDetails.Findings.Count > 0);
+    }
+
+    [Fact]
+    public void PurgeOldRuns_WithoutForeignKeys_WouldLeaveOrphans()
+    {
+        // This test verifies that PRAGMA foreign_keys = ON is necessary
+        // by confirming that cascade actually works (indirectly validating the PRAGMA)
+        var report = CreateTestReport(score: 65, criticals: 3, warnings: 2);
+        var id = _service.SaveAuditResult(report);
+
+        // Count total rows across all tables
+        int totalModuleScores, totalFindings;
+        using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={_dbPath}"))
+        {
+            conn.Open();
+            using var cmd1 = conn.CreateCommand();
+            cmd1.CommandText = "SELECT COUNT(*) FROM ModuleScores";
+            totalModuleScores = Convert.ToInt32(cmd1.ExecuteScalar());
+
+            using var cmd2 = conn.CreateCommand();
+            cmd2.CommandText = "SELECT COUNT(*) FROM Findings";
+            totalFindings = Convert.ToInt32(cmd2.ExecuteScalar());
+        }
+        Assert.True(totalModuleScores > 0);
+        Assert.True(totalFindings > 0);
+
+        // Backdate and purge
+        using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={_dbPath}"))
+        {
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "UPDATE AuditRuns SET Timestamp = @ts WHERE Id = @id";
+            cmd.Parameters.AddWithValue("@ts", DateTimeOffset.UtcNow.AddDays(-200).ToString("o"));
+            cmd.Parameters.AddWithValue("@id", id);
+            cmd.ExecuteNonQuery();
+        }
+
+        _service.PurgeOldRuns(keepDays: 90);
+
+        // After purge, all child rows should also be gone (no orphans)
+        using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={_dbPath}"))
+        {
+            conn.Open();
+            using var cmd1 = conn.CreateCommand();
+            cmd1.CommandText = "SELECT COUNT(*) FROM ModuleScores";
+            Assert.Equal(0, Convert.ToInt32(cmd1.ExecuteScalar()));
+
+            using var cmd2 = conn.CreateCommand();
+            cmd2.CommandText = "SELECT COUNT(*) FROM Findings";
+            Assert.Equal(0, Convert.ToInt32(cmd2.ExecuteScalar()));
+        }
+    }
+
+    [Fact]
     public void GetTrend_ComputesCorrectAverage()
     {
         _service.SaveAuditResult(CreateTestReport(score: 60));

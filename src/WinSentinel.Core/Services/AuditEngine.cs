@@ -33,6 +33,9 @@ public class AuditEngine
             new CertificateAudit(),
             new PowerShellAudit(),
             new DnsAudit(),
+            new ScheduledTaskAudit(),
+            new ServiceAudit(),
+            new RegistryAudit(),
         };
     }
 

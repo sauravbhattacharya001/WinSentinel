@@ -17,7 +17,7 @@ public class AuditEngineTests
     {
         var engine = new AuditEngine();
 
-        Assert.Equal(13, engine.Modules.Count);
+        Assert.Equal(20, engine.Modules.Count);
 
         var categories = engine.Modules.Select(m => m.Category).ToHashSet();
         Assert.Contains("Firewall", categories);
@@ -33,6 +33,13 @@ public class AuditEngineTests
         Assert.Contains("Applications", categories);
         Assert.Contains("Encryption", categories);
         Assert.Contains("Event Logs", categories);
+        Assert.Contains("Software", categories);
+        Assert.Contains("Certificates", categories);
+        Assert.Contains("PowerShell", categories);
+        Assert.Contains("DNS", categories);
+        Assert.Contains("ScheduledTasks", categories);
+        Assert.Contains("Services", categories);
+        Assert.Contains("Registry", categories);
     }
 
     [Fact]

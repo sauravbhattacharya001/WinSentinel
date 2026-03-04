@@ -1290,6 +1290,13 @@ static AuditEngine BuildEngine(string? modulesFilter)
         new AppSecurityAudit(),
         new EncryptionAudit(),
         new EventLogAudit(),
+        new SoftwareInventoryAudit(),
+        new CertificateAudit(),
+        new PowerShellAudit(),
+        new DnsAudit(),
+        new ScheduledTaskAudit(),
+        new ServiceAudit(),
+        new RegistryAudit(),
     };
 
     var filtered = allModules.Where(m =>
@@ -1302,7 +1309,7 @@ static AuditEngine BuildEngine(string? modulesFilter)
     if (filtered.Count == 0)
     {
         ConsoleFormatter.PrintError($"No modules matched filter: {modulesFilter}");
-        ConsoleFormatter.PrintError("Available: firewall, updates, defender, accounts, network, processes, startup, system, privacy, browser, appsecurity, encryption, eventlog");
+        ConsoleFormatter.PrintError("Available: firewall, updates, defender, accounts, network, processes, startup, system, privacy, browser, appsecurity, encryption, eventlog, softwareinventory, certificate, powershell, dns, scheduledtask, service, registry, softwareinventory, certificate, powershell, dns, scheduledtask, service, registry");
         Environment.Exit(3);
     }
 

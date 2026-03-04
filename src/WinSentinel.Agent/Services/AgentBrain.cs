@@ -352,7 +352,11 @@ public class AgentBrain
     internal static string? ExtractFilePath(string description)
     {
         // Pattern: Path: C:\something\file.ext
-        var match = Regex.Match(description, @"Path:\s*([A-Za-z]:\\[^\s,\.\n]+\.\w+)", RegexOptions.IgnoreCase);
+        // The previous regex excluded dots from the path segment ([^\s,\.\n]),
+        // which broke paths containing dots in directory names (e.g.
+        // "C:\Users\onlin\some.folder\file.exe"). The fix allows dots
+        // within path segments while still requiring a file extension.
+        var match = Regex.Match(description, @"Path:\s*([A-Za-z]:\\[^\s,\n]+\.\w+)", RegexOptions.IgnoreCase);
         return match.Success ? match.Groups[1].Value : null;
     }
 

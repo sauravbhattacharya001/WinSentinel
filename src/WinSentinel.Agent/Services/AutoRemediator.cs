@@ -110,8 +110,12 @@ public class AutoRemediator
             var records = JsonSerializer.Deserialize<List<RemediationRecord>>(json, JsonOpts);
             if (records == null) return;
 
+            // Add records directly to the in-memory bag without re-persisting.
+            // Previously this called AddRecord() per record, which calls
+            // PersistHistory() each time — causing O(n²) disk I/O on startup
+            // (N records × full serialization each = N writes of growing data).
             foreach (var record in records)
-                AddRecord(record);
+                _history.Add(record);
 
             _logger.LogInformation("Loaded {Count} remediation records from disk", records.Count);
         }

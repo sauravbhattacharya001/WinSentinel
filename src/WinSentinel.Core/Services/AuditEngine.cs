@@ -37,6 +37,8 @@ public class AuditEngine
             new ServiceAudit(),
             new RegistryAudit(),
             new SmbShareAudit(),
+            new EnvironmentAudit(),
+            new DriverAudit(),
         };
     }
 

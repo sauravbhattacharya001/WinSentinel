@@ -17,7 +17,7 @@ public class AuditEngineTests
     {
         var engine = new AuditEngine();
 
-        Assert.Equal(20, engine.Modules.Count);
+        Assert.Equal(23, engine.Modules.Count);
 
         var categories = engine.Modules.Select(m => m.Category).ToHashSet();
         Assert.Contains("Firewall", categories);

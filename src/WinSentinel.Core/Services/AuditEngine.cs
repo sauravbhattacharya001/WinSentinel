@@ -36,6 +36,7 @@ public class AuditEngine
             new ScheduledTaskAudit(),
             new ServiceAudit(),
             new RegistryAudit(),
+            new SmbShareAudit(),
         };
     }
 
@@ -186,3 +187,4 @@ public class AuditEngine
         return sb.ToString();
     }
 }
+

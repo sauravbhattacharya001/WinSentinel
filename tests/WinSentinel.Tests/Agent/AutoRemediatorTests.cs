@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using WinSentinel.Agent;
 using WinSentinel.Agent.Services;
+using System.Linq;
 
 namespace WinSentinel.Tests.Agent;
 
@@ -34,8 +35,11 @@ public class AutoRemediatorTests
         remediator.KillProcess(99999, "test.exe", "threat-1");
 
         var history = remediator.GetHistory();
-        Assert.Single(history);
-        Assert.Equal("threat-1", history[0].ThreatEventId);
+        // History may contain records from other tests (shared persistence file),
+        // so check that our specific record exists rather than Assert.Single.
+        var match = history.Where(r => r.ThreatEventId == "threat-1").ToList();
+        Assert.NotEmpty(match);
+        Assert.Equal("threat-1", match[0].ThreatEventId);
     }
 
     // ── Quarantine file tests ──

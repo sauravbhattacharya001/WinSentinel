@@ -14,6 +14,7 @@ env:
 permissions:
   contents: read
   packages: write
+  security-events: write
 
 jobs:
   docker:
@@ -130,3 +131,31 @@ jobs:
           $tag = $tag.Trim()
           if ($tag) { "- ``$tag``" >> $env:GITHUB_STEP_SUMMARY }
         }
+
+    - name: Scan image for vulnerabilities
+      if: github.event_name != 'pull_request'
+      uses: aquasecurity/trivy-action@0.28.0
+      with:
+        image-ref: ${{ steps.meta.outputs.primary }}
+        format: 'table'
+        exit-code: '0'
+        severity: 'CRITICAL,HIGH'
+      continue-on-error: true
+
+    - name: Upload vulnerability scan (SARIF)
+      if: github.event_name != 'pull_request'
+      uses: aquasecurity/trivy-action@0.28.0
+      with:
+        image-ref: ${{ steps.meta.outputs.primary }}
+        format: 'sarif'
+        output: 'trivy-results-${{ matrix.target }}.sarif'
+        severity: 'CRITICAL,HIGH,MEDIUM'
+      continue-on-error: true
+
+    - name: Upload Trivy results to GitHub Security
+      if: github.event_name != 'pull_request'
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: 'trivy-results-${{ matrix.target }}.sarif'
+        category: 'trivy-${{ matrix.target }}'
+      continue-on-error: true

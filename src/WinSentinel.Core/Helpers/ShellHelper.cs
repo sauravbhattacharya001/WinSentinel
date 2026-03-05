@@ -69,6 +69,8 @@ public static class ShellHelper
 
     /// <summary>
     /// Core process runner with timeout and cancellation support.
+    /// Reads stdout and stderr concurrently to prevent deadlocks when
+    /// a child process fills one of the OS pipe buffers (typically 4-64 KB).
     /// Returns partial output if the process is killed due to timeout.
     /// </summary>
     private static async Task<string> RunProcessAsync(ProcessStartInfo psi, TimeSpan timeout, CancellationToken ct)
@@ -82,19 +84,37 @@ public static class ShellHelper
 
         try
         {
-            var output = await process.StandardOutput.ReadToEndAsync(token);
+            // Read stdout and stderr concurrently to avoid deadlocks.
+            // If only one stream is read synchronously, the other's OS pipe
+            // buffer can fill up, blocking the child process indefinitely.
+            var stdoutTask = process.StandardOutput.ReadToEndAsync(token);
+            var stderrTask = process.StandardError.ReadToEndAsync(token);
+
+            await Task.WhenAll(stdoutTask, stderrTask);
             await process.WaitForExitAsync(token);
-            return output.Trim();
+
+            var stdout = stdoutTask.Result.Trim();
+
+            // If stdout is empty but stderr has content, return stderr
+            // so callers still get diagnostic output from failed commands.
+            if (string.IsNullOrEmpty(stdout))
+            {
+                var stderr = stderrTask.Result.Trim();
+                if (!string.IsNullOrEmpty(stderr))
+                    return stderr;
+            }
+
+            return stdout;
         }
         catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !ct.IsCancellationRequested)
         {
-            // Timeout — kill the process and return empty
+            // Timeout - kill the process and return empty
             KillProcess(process);
             return string.Empty;
         }
         catch (OperationCanceledException)
         {
-            // Caller cancelled — kill and rethrow
+            // Caller cancelled - kill and rethrow
             KillProcess(process);
             throw;
         }
@@ -120,7 +140,7 @@ public static class ShellHelper
         }
         catch
         {
-            // Process may have already exited — ignore
+            // Process may have already exited - ignore
         }
     }
 }

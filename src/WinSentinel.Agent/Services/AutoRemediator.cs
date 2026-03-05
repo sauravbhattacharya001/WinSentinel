@@ -73,6 +73,7 @@ public class AutoRemediator
     private readonly string _hostsBackupDir;
     private readonly string _historyFilePath;
     private readonly object _persistLock = new();
+    private readonly ConcurrentDictionary<string, object> _undoLocks = new();
 
     /// <summary>Maximum number of records to retain in the persisted history file.</summary>
     private const int MaxPersistedRecords = 1000;
@@ -579,62 +580,71 @@ public class AutoRemediator
             };
         }
 
-        if (original.Undone)
+        // Per-record lock prevents concurrent undo of the same remediation
+        var recordLock = _undoLocks.GetOrAdd(remediationId, _ => new object());
+        lock (recordLock)
         {
-            return new RemediationRecord
+            if (original.Undone)
+            {
+                return new RemediationRecord
+                {
+                    ActionType = RemediationAction.Custom,
+                    Success = false,
+                    ErrorMessage = "Already undone",
+                    Description = $"Remediation {remediationId} was already undone"
+                };
+            }
+
+            // Mark as undone before executing to prevent concurrent attempts
+            original.Undone = true;
+
+            var undoRecord = new RemediationRecord
             {
                 ActionType = RemediationAction.Custom,
-                Success = false,
-                ErrorMessage = "Already undone",
-                Description = $"Remediation {remediationId} was already undone"
+                Target = $"Undo of {original.Id}",
+                ThreatEventId = original.ThreatEventId
             };
-        }
 
-        var undoRecord = new RemediationRecord
-        {
-            ActionType = RemediationAction.Custom,
-            Target = $"Undo of {original.Id}",
-            ThreatEventId = original.ThreatEventId
-        };
-
-        try
-        {
-            switch (original.ActionType)
+            try
             {
-                case RemediationAction.QuarantineFile:
-                    UndoQuarantine(original, undoRecord);
-                    break;
+                switch (original.ActionType)
+                {
+                    case RemediationAction.QuarantineFile:
+                        UndoQuarantine(original, undoRecord);
+                        break;
 
-                case RemediationAction.BlockIp:
-                    UndoBlockIp(original, undoRecord);
-                    break;
+                    case RemediationAction.BlockIp:
+                        UndoBlockIp(original, undoRecord);
+                        break;
 
-                case RemediationAction.DisableUserAccount:
-                    UndoDisableAccount(original, undoRecord);
-                    break;
+                    case RemediationAction.DisableUserAccount:
+                        UndoDisableAccount(original, undoRecord);
+                        break;
 
-                default:
-                    undoRecord.Success = false;
-                    undoRecord.ErrorMessage = $"Undo not supported for {original.ActionType}";
-                    undoRecord.Description = $"Cannot undo {original.ActionType} actions";
-                    break;
+                    default:
+                        undoRecord.Success = false;
+                        undoRecord.ErrorMessage = $"Undo not supported for {original.ActionType}";
+                        undoRecord.Description = $"Cannot undo {original.ActionType} actions";
+                        break;
+                }
             }
-        }
-        catch (Exception ex)
-        {
-            undoRecord.Success = false;
-            undoRecord.ErrorMessage = ex.Message;
-            undoRecord.Description = $"Undo failed: {ex.Message}";
-        }
+            catch (Exception ex)
+            {
+                undoRecord.Success = false;
+                undoRecord.ErrorMessage = ex.Message;
+                undoRecord.Description = $"Undo failed: {ex.Message}";
+            }
 
-        if (undoRecord.Success)
-        {
-            original.Undone = true;
-            PersistHistory(); // persist the updated Undone flag
-        }
+            if (!undoRecord.Success)
+            {
+                // Revert the Undone flag if the undo operation failed
+                original.Undone = false;
+            }
 
-        AddRecord(undoRecord);
-        return undoRecord;
+            // AddRecord already calls PersistHistory, so no separate call needed
+            AddRecord(undoRecord);
+            return undoRecord;
+        }
     }
 
     private void UndoQuarantine(RemediationRecord original, RemediationRecord undoRecord)

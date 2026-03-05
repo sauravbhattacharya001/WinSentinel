@@ -487,4 +487,47 @@ public class FindingDeduplicatorTests
         Assert.Single(result.Groups);
         Assert.True(result.Groups[0].AverageSimilarity > 0.8);
     }
+
+    [Fact]
+    public void ComputeSimilarity_FuzzyMatch_ReasonShowsCorrectPercentage()
+    {
+        // Two findings with similar but not identical titles —
+        // the similarity reason should show a human-readable percentage (e.g. "73%"), not "1%"
+        var a = Finding.Warning("Windows Defender real-time disabled", "Desc A", "Security");
+        var b = Finding.Warning("Windows Defender protection disabled", "Desc B", "Security");
+
+        var (score, reason) = _sut.ComputeSimilarity(a, b);
+
+        // Titles are similar enough that fuzzy match should fire
+        Assert.True(score > 0.3, $"Score {score} should be > 0.3 for similar titles");
+
+        // If a fuzzy title reason is present, the percentage should be > 10
+        // (not "~0%" or "~1%" which would happen if the 0.0-1.0 value wasn't multiplied by 100)
+        if (reason.Contains("title ~"))
+        {
+            // Extract the number from "title ~73%"
+            var match = System.Text.RegularExpressions.Regex.Match(reason, @"title ~(\d+)%");
+            Assert.True(match.Success, $"Reason '{reason}' should contain 'title ~NN%'");
+            var pct = int.Parse(match.Groups[1].Value);
+            Assert.True(pct > 10, $"Percentage {pct} should be > 10 for similar titles (was the 0-1 value displayed instead of 0-100?)");
+        }
+    }
+
+    [Fact]
+    public void ComputeSimilarity_FuzzyDescription_ReasonShowsCorrectPercentage()
+    {
+        // Same title, similar descriptions — description reason should show correct %
+        var a = Finding.Warning("Firewall issue", "Windows Firewall is not properly configured for the domain profile", "Firewall");
+        var b = Finding.Warning("Firewall issue", "Windows Firewall is not properly configured for the public profile", "Firewall");
+
+        var (_, reason) = _sut.ComputeSimilarity(a, b);
+
+        if (reason.Contains("desc ~"))
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(reason, @"desc ~(\d+)%");
+            Assert.True(match.Success, $"Reason '{reason}' should contain 'desc ~NN%'");
+            var pct = int.Parse(match.Groups[1].Value);
+            Assert.True(pct > 10, $"Description percentage {pct} should be > 10 for similar descriptions");
+        }
+    }
 }

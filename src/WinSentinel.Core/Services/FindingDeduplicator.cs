@@ -214,7 +214,7 @@ public class FindingDeduplicator
             double titleSim = NgramSimilarity(normA, normB);
             double titleContribution = 0.50 * titleSim;
             score += titleContribution;
-            if (titleSim > 0.5) reasons.Add($"title ~{titleSim:F0}%");
+            if (titleSim > 0.5) reasons.Add($"title ~{titleSim * 100:F0}%");
         }
 
         // 2. Description similarity (weight: 0.15)
@@ -224,7 +224,7 @@ public class FindingDeduplicator
                 Normalize(a.Description),
                 Normalize(b.Description));
             score += 0.15 * descSim;
-            if (descSim > 0.5) reasons.Add($"desc ~{descSim:F0}%");
+            if (descSim > 0.5) reasons.Add($"desc ~{descSim * 100:F0}%");
         }
 
         // 3. Same category (weight: 0.15)
@@ -255,7 +255,7 @@ public class FindingDeduplicator
             {
                 double fixSim = NgramSimilarity(fixA, fixB);
                 score += 0.15 * fixSim;
-                if (fixSim > 0.5) reasons.Add($"fix ~{fixSim:F0}%");
+                if (fixSim > 0.5) reasons.Add($"fix ~{fixSim * 100:F0}%");
             }
         }
 

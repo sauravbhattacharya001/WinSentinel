@@ -85,7 +85,25 @@ public class TrendAnalyzerTests
         var runs = CreateRuns((50, "D", 5), (60, "C", 3), (70, "C", 1), (80, "B", 0));
         var report = _analyzer.Analyze(runs);
 
-        Assert.Equal(65, report.MedianScore); // (60+70)/2
+        Assert.Equal(65.0, report.MedianScore); // (60+70)/2
+    }
+
+    [Fact]
+    public void Analyze_CalculatesMedian_EvenCount_FractionalResult()
+    {
+        var runs = CreateRuns((70, "C", 3), (75, "C+", 1), (80, "B", 0));
+        var report = _analyzer.Analyze(runs);
+
+        Assert.Equal(75, report.MedianScore); // odd count, exact middle
+    }
+
+    [Fact]
+    public void Analyze_CalculatesMedian_EvenCount_NonInteger()
+    {
+        var runs = CreateRuns((50, "D", 5), (60, "C", 3), (71, "C", 1), (80, "B", 0));
+        var report = _analyzer.Analyze(runs);
+
+        Assert.Equal(65.5, report.MedianScore); // (60+71)/2 = 65.5
     }
 
     [Fact]

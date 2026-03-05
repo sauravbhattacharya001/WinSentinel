@@ -174,6 +174,258 @@ public class AuditEngineTests
         Assert.Equal(expectedCritical, report.TotalCritical);
     }
 
+    // --- Additional unit tests ---
+
+    [Fact]
+    public async Task RunFullAuditAsync_EmptyModuleList_ReturnsEmptyReport()
+    {
+        var engine = new AuditEngine(Array.Empty<IAuditModule>());
+        var report = await engine.RunFullAuditAsync();
+
+        Assert.Empty(report.Results);
+        Assert.Equal(0, report.TotalFindings);
+        Assert.True(report.GeneratedAt > DateTimeOffset.MinValue);
+    }
+
+    [Fact]
+    public async Task RunFullAuditAsync_CancellationRespected()
+    {
+        var modules = new IAuditModule[] { new MockSlowAudit() };
+        var engine = new AuditEngine(modules);
+        using var cts = new CancellationTokenSource();
+        cts.Cancel(); // Cancel immediately
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => engine.RunFullAuditAsync(cancellationToken: cts.Token));
+    }
+
+    [Fact]
+    public async Task RunFullAuditAsync_TimingIsRecorded()
+    {
+        var modules = new IAuditModule[] { new MockPassAudit() };
+        var engine = new AuditEngine(modules);
+        var before = DateTimeOffset.UtcNow;
+
+        var report = await engine.RunFullAuditAsync();
+
+        Assert.True(report.GeneratedAt >= before);
+        Assert.True(report.GeneratedAt <= DateTimeOffset.UtcNow);
+        foreach (var result in report.Results)
+        {
+            Assert.True(result.EndTime >= result.StartTime);
+        }
+    }
+
+    [Fact]
+    public async Task RunFullAuditAsync_ScoreInValidRange()
+    {
+        var modules = new IAuditModule[] { new MockPassAudit(), new MockWarningAudit(), new MockCriticalAudit() };
+        var engine = new AuditEngine(modules);
+        var report = await engine.RunFullAuditAsync();
+
+        Assert.InRange(report.SecurityScore, 0, 100);
+    }
+
+    [Fact]
+    public async Task RunFullAuditAsync_AllPassModules_HighScore()
+    {
+        var modules = new IAuditModule[] { new MockPassAudit(), new MockPassAudit(), new MockPassAudit() };
+        var engine = new AuditEngine(modules);
+        var report = await engine.RunFullAuditAsync();
+
+        // All passing should yield a high (likely 100) score
+        Assert.True(report.SecurityScore >= 80,
+            $"Expected high score for all-pass, got {report.SecurityScore}");
+    }
+
+    [Fact]
+    public async Task RunFullAuditAsync_FailedModule_DoesNotPreventOthers()
+    {
+        var modules = new IAuditModule[] { new MockPassAudit(), new MockFailingAudit(), new MockWarningAudit() };
+        var engine = new AuditEngine(modules);
+        var report = await engine.RunFullAuditAsync();
+
+        Assert.Equal(3, report.Results.Count);
+        var successes = report.Results.Count(r => r.Success);
+        var failures = report.Results.Count(r => !r.Success);
+        Assert.Equal(2, successes);
+        Assert.Equal(1, failures);
+    }
+
+    [Fact]
+    public async Task RunFullAuditAsync_FailedModule_HasErrorMessage()
+    {
+        var modules = new IAuditModule[] { new MockFailingAudit() };
+        var engine = new AuditEngine(modules);
+        var report = await engine.RunFullAuditAsync();
+
+        var result = report.Results.Single();
+        Assert.False(result.Success);
+        Assert.Contains("Simulated audit failure", result.Error);
+    }
+
+    [Fact]
+    public async Task RunSingleAuditAsync_CaseInsensitiveMatch()
+    {
+        var modules = new IAuditModule[] { new MockPassAudit(), new MockWarningAudit() };
+        var engine = new AuditEngine(modules);
+
+        var result = await engine.RunSingleAuditAsync("mockpass");
+        Assert.NotNull(result);
+        Assert.Equal("Mock Pass", result!.ModuleName);
+    }
+
+    [Fact]
+    public async Task RunSingleAuditAsync_PartialNameMatch()
+    {
+        var modules = new IAuditModule[] { new MockWarningAudit() };
+        var engine = new AuditEngine(modules);
+
+        // "Warning" appears in the module Name "Mock Warning"
+        var result = await engine.RunSingleAuditAsync("Warning");
+        Assert.NotNull(result);
+    }
+
+    [Fact]
+    public void Modules_ReadOnlyList_CannotBeModified()
+    {
+        var modules = new IAuditModule[] { new MockPassAudit() };
+        var engine = new AuditEngine(modules);
+
+        var readOnly = engine.Modules;
+        Assert.IsAssignableFrom<IReadOnlyList<IAuditModule>>(readOnly);
+    }
+
+    [Fact]
+    public void SetHistoryService_SetsAndGets()
+    {
+        var engine = new AuditEngine(Array.Empty<IAuditModule>());
+        Assert.Null(engine.HistoryService);
+
+        var tempPath = Path.Combine(Path.GetTempPath(), $"audit_test_{Guid.NewGuid()}.db");
+        try
+        {
+            var hs = new AuditHistoryService(tempPath);
+            engine.SetHistoryService(hs);
+            Assert.Same(hs, engine.HistoryService);
+        }
+        finally
+        {
+            try { File.Delete(tempPath); } catch { }
+        }
+    }
+
+    [Fact]
+    public async Task GenerateTextSummary_ContainsScoreAndFindings()
+    {
+        var modules = new IAuditModule[] { new MockPassAudit(), new MockCriticalAudit() };
+        var engine = new AuditEngine(modules);
+        var report = await engine.RunFullAuditAsync();
+
+        var text = AuditEngine.GenerateTextSummary(report);
+
+        Assert.Contains("WinSentinel Security Report", text);
+        Assert.Contains("Score:", text);
+        Assert.Contains("Grade:", text);
+        Assert.Contains("Mock Pass", text);
+        Assert.Contains("Mock Critical", text);
+        Assert.Contains("Bad Thing", text);
+        Assert.Contains("Critical:", text);
+    }
+
+    [Fact]
+    public async Task GenerateTextSummary_FailedModule_ShowsError()
+    {
+        var modules = new IAuditModule[] { new MockFailingAudit() };
+        var engine = new AuditEngine(modules);
+        var report = await engine.RunFullAuditAsync();
+
+        var text = AuditEngine.GenerateTextSummary(report);
+
+        Assert.Contains("Error", text);
+        Assert.Contains("Simulated audit failure", text);
+    }
+
+    [Fact]
+    public async Task GenerateTextSummary_ShowsRemediation()
+    {
+        var modules = new IAuditModule[] { new MockCriticalAudit() };
+        var engine = new AuditEngine(modules);
+        var report = await engine.RunFullAuditAsync();
+
+        var text = AuditEngine.GenerateTextSummary(report);
+
+        Assert.Contains("Fix now", text);
+    }
+
+    [Fact]
+    public async Task RunFullAuditAsync_MultipleModules_AllResultsPresent()
+    {
+        var modules = new IAuditModule[]
+        {
+            new MockPassAudit(),
+            new MockWarningAudit(),
+            new MockCriticalAudit(),
+            new MockFailingAudit()
+        };
+        var engine = new AuditEngine(modules);
+        var report = await engine.RunFullAuditAsync();
+
+        Assert.Equal(4, report.Results.Count);
+
+        var names = report.Results.Select(r => r.ModuleName).ToHashSet();
+        Assert.Contains("Mock Pass", names);
+        Assert.Contains("Mock Warning", names);
+        Assert.Contains("Mock Critical", names);
+        Assert.Contains("Mock Failing", names);
+    }
+
+    [Fact]
+    public async Task RunFullAuditAsync_FindingCounts_MatchCategories()
+    {
+        var modules = new IAuditModule[]
+        {
+            new MockPassAudit(),
+            new MockWarningAudit(),
+            new MockCriticalAudit()
+        };
+        var engine = new AuditEngine(modules);
+        var report = await engine.RunFullAuditAsync();
+
+        Assert.Equal(report.TotalPass, report.Results.Sum(r => r.Findings.Count(f => f.Severity == Severity.Pass)));
+        Assert.Equal(report.TotalWarnings, report.Results.Sum(r => r.Findings.Count(f => f.Severity == Severity.Warning)));
+        Assert.Equal(report.TotalCritical, report.Results.Sum(r => r.Findings.Count(f => f.Severity == Severity.Critical)));
+    }
+
+    [Fact]
+    public async Task RunSingleAuditAsync_WhitespaceCategory_ReturnsFirstModule()
+    {
+        // Empty string matches via String.Contains — verifies no crash
+        var engine = new AuditEngine(new IAuditModule[] { new MockPassAudit() });
+        var result = await engine.RunSingleAuditAsync("");
+        // Empty string matches any Name via Contains, so first module is returned
+        Assert.NotNull(result);
+    }
+
+    // --- Additional mock for timeout/slow scenarios ---
+
+    private class MockSlowAudit : IAuditModule
+    {
+        public string Name => "Mock Slow";
+        public string Category => "MockSlow";
+        public string Description => "Takes a long time";
+        public async Task<AuditResult> RunAuditAsync(CancellationToken ct = default)
+        {
+            await Task.Delay(10000, ct); // 10 seconds, but should be cancelled
+            return new AuditResult
+            {
+                ModuleName = Name, Category = Category,
+                StartTime = DateTimeOffset.UtcNow, EndTime = DateTimeOffset.UtcNow,
+                Findings = { Finding.Pass("OK", "Done", Category) }
+            };
+        }
+    }
+
     // --- Mock audit modules for fast unit testing ---
 
     private class MockPassAudit : IAuditModule

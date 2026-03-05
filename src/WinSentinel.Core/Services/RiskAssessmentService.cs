@@ -95,61 +95,43 @@ public class RiskAssessmentService
         public RiskLevel HighestRisk { get; init; }
     }
 
-    // ── Category Exploitability Ratings ──
-    // Categories with higher attack surface or remote exploitability score higher.
-    private static readonly Dictionary<string, double> CategoryExploitability = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["Network"]     = 9.0,  // Remote, often automated
-        ["Firewall"]    = 8.5,  // Direct network exposure
-        ["Update"]      = 8.0,  // Known CVEs, public exploits
-        ["Browser"]     = 7.5,  // Large attack surface, user-facing
-        ["Account"]     = 7.0,  // Credential attacks
-        ["Encryption"]  = 6.5,  // Data exposure if breached
-        ["Privacy"]     = 6.0,  // Data leakage
-        ["Defender"]    = 5.5,  // Disabling AV lowers defenses
-        ["EventLog"]    = 5.0,  // Evidence tampering
-        ["Process"]     = 4.5,  // Local exploitation
-        ["AppSecurity"] = 4.0,  // Application-level
-        ["Startup"]     = 3.5,  // Persistence, local access needed
-        ["System"]      = 3.0,  // Misconfiguration, local
-    };
+    // ── Category Risk Factors ──
+    // Consolidated risk profile per audit category.  Each category gets a
+    // single record with exploitability, impact, and environmental exposure
+    // ratings (0–10 scale).  Keeping them in one structure ensures a new
+    // category always has all three dimensions defined.
 
-    // ── Category Impact Ratings ──
-    // How much damage exploitation in this category causes.
-    private static readonly Dictionary<string, double> CategoryImpact = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["Encryption"]  = 9.5,  // Complete data exposure
-        ["Account"]     = 9.0,  // Full system compromise
-        ["Network"]     = 8.5,  // Lateral movement
-        ["Firewall"]    = 8.0,  // Defense bypass
-        ["Update"]      = 7.5,  // Known vulnerability exploitation
-        ["Defender"]    = 7.0,  // AV/EDR blind spots
-        ["Privacy"]     = 6.5,  // Data breach
-        ["Browser"]     = 6.0,  // Session/credential theft
-        ["Process"]     = 5.5,  // Code execution
-        ["EventLog"]    = 5.0,  // Forensic evidence loss
-        ["Startup"]     = 4.5,  // Persistence
-        ["System"]      = 4.0,  // Stability/config issues
-        ["AppSecurity"] = 3.5,  // Limited scope
-    };
+    /// <summary>
+    /// Risk factor profile for a single audit category.
+    /// </summary>
+    /// <param name="Exploitability">How easily findings in this category can be exploited (0–10).</param>
+    /// <param name="Impact">How much damage exploitation would cause (0–10).</param>
+    /// <param name="Environment">How exposed the affected surface is to external threats (0–10).</param>
+    public readonly record struct CategoryRiskProfile(
+        double Exploitability,
+        double Impact,
+        double Environment);
 
-    // ── Environmental Exposure ──
-    // How exposed the affected surface is to external threats.
-    private static readonly Dictionary<string, double> CategoryEnvironment = new(StringComparer.OrdinalIgnoreCase)
+    /// <summary>Default risk factors used when a category is not in the lookup table.</summary>
+    internal static readonly CategoryRiskProfile DefaultProfile = new(5.0, 5.0, 5.0);
+
+    internal static readonly Dictionary<string, CategoryRiskProfile> CategoryRiskFactors =
+        new(StringComparer.OrdinalIgnoreCase)
     {
-        ["Network"]     = 9.0,
-        ["Firewall"]    = 9.0,
-        ["Browser"]     = 8.0,
-        ["Update"]      = 7.0,
-        ["Account"]     = 6.0,
-        ["Encryption"]  = 5.0,
-        ["Privacy"]     = 5.0,
-        ["Defender"]    = 4.0,
-        ["EventLog"]    = 3.0,
-        ["Process"]     = 3.0,
-        ["AppSecurity"] = 3.0,
-        ["Startup"]     = 2.0,
-        ["System"]      = 2.0,
+        //                                        Exploit  Impact  Environ
+        ["Network"]     = new CategoryRiskProfile( 9.0,     8.5,    9.0),  // Remote, lateral movement
+        ["Firewall"]    = new CategoryRiskProfile( 8.5,     8.0,    9.0),  // Direct network exposure
+        ["Update"]      = new CategoryRiskProfile( 8.0,     7.5,    7.0),  // Known CVEs, public exploits
+        ["Browser"]     = new CategoryRiskProfile( 7.5,     6.0,    8.0),  // Large user-facing surface
+        ["Account"]     = new CategoryRiskProfile( 7.0,     9.0,    6.0),  // Credential attacks
+        ["Encryption"]  = new CategoryRiskProfile( 6.5,     9.5,    5.0),  // Data exposure if breached
+        ["Privacy"]     = new CategoryRiskProfile( 6.0,     6.5,    5.0),  // Data leakage
+        ["Defender"]    = new CategoryRiskProfile( 5.5,     7.0,    4.0),  // AV/EDR blind spots
+        ["EventLog"]    = new CategoryRiskProfile( 5.0,     5.0,    3.0),  // Evidence tampering
+        ["Process"]     = new CategoryRiskProfile( 4.5,     5.5,    3.0),  // Local exploitation
+        ["AppSecurity"] = new CategoryRiskProfile( 4.0,     3.5,    3.0),  // Application-level
+        ["Startup"]     = new CategoryRiskProfile( 3.5,     4.5,    2.0),  // Persistence, local access
+        ["System"]      = new CategoryRiskProfile( 3.0,     4.0,    2.0),  // Misconfiguration, local
     };
 
     /// <summary>
@@ -192,9 +174,10 @@ public class RiskAssessmentService
         ArgumentNullException.ThrowIfNull(finding);
 
         double severityScore = SeverityToScore(finding.Severity);
-        double exploitability = GetCategoryFactor(CategoryExploitability, category);
-        double impact = GetCategoryFactor(CategoryImpact, category);
-        double environmental = GetCategoryFactor(CategoryEnvironment, category);
+        var profile = GetCategoryProfile(category);
+        double exploitability = profile.Exploitability;
+        double impact = profile.Impact;
+        double environmental = profile.Environment;
         double persistence = CalculatePersistence(finding);
 
         // Composite score: weighted average, scaled to 0-100
@@ -342,12 +325,11 @@ public class RiskAssessmentService
         _ => 0.0
     };
 
-    private static double GetCategoryFactor(Dictionary<string, double> factors, string category)
+    internal static CategoryRiskProfile GetCategoryProfile(string category)
     {
         if (string.IsNullOrEmpty(category))
-            return 5.0; // Default mid-range
-
-        return factors.GetValueOrDefault(category, 5.0);
+            return DefaultProfile;
+        return CategoryRiskFactors.GetValueOrDefault(category, DefaultProfile);
     }
 
     private static double CalculatePersistence(Finding finding)

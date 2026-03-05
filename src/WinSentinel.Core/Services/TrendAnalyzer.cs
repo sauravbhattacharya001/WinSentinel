@@ -193,12 +193,12 @@ public class TrendAnalyzer
         return Math.Sqrt(variance);
     }
 
-    private static int CalculateMedian(List<int> values)
+    private static double CalculateMedian(List<int> values)
     {
         var sorted = values.OrderBy(v => v).ToList();
         var mid = sorted.Count / 2;
         return sorted.Count % 2 == 0
-            ? (sorted[mid - 1] + sorted[mid]) / 2
+            ? (sorted[mid - 1] + sorted[mid]) / 2.0
             : sorted[mid];
     }
 
@@ -301,7 +301,7 @@ public class TrendReport
 
     // Statistics
     public double AverageScore { get; set; }
-    public int MedianScore { get; set; }
+    public double MedianScore { get; set; }
     public int MinScore { get; set; }
     public int MaxScore { get; set; }
     public double ScoreStdDev { get; set; }

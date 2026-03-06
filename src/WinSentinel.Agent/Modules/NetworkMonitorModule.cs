@@ -30,9 +30,6 @@ public class NetworkMonitorModule : IAgentModule
     /// <summary>Previously known listening ports (port → process name).</summary>
     private readonly ConcurrentDictionary<int, string> _knownListeningPorts = new();
 
-    /// <summary>Connection counts per process in the current window (PID → count).</summary>
-    private readonly ConcurrentDictionary<int, ConnectionBurst> _connectionBursts = new();
-
     /// <summary>Known gateway MAC address (for ARP spoofing detection).</summary>
     private string? _lastGatewayMac;
 
@@ -158,7 +155,6 @@ public class NetworkMonitorModule : IAgentModule
         }
 
         _knownListeningPorts.Clear();
-        _connectionBursts.Clear();
         _recentAlerts.Clear();
         _lastGatewayMac = null;
         _baselineEstablished = false;
@@ -747,13 +743,4 @@ public class NetworkMonitorModule : IAgentModule
                 _recentAlerts.TryRemove(key, out _);
         }
     }
-}
-
-/// <summary>
-/// Tracks connection burst information for a process.
-/// </summary>
-public class ConnectionBurst
-{
-    public int Count { get; set; }
-    public DateTimeOffset WindowStart { get; set; }
 }

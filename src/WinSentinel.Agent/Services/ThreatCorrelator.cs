@@ -192,12 +192,14 @@ public class ThreatCorrelator
 
         if (!defenderDisabled) return;
 
-        bool suspiciousProcess = window.Any(e =>
+        var suspiciousProcessEvent = window.FirstOrDefault(e =>
             e.Source == "ProcessMonitor" &&
             e.Severity >= ThreatSeverity.Medium &&
             (e.Title.Contains("Unsigned", StringComparison.OrdinalIgnoreCase) ||
              e.Title.Contains("Suspicious", StringComparison.OrdinalIgnoreCase) ||
              e.Description.Contains("Temp", StringComparison.OrdinalIgnoreCase)));
+
+        bool suspiciousProcess = suspiciousProcessEvent != null;
 
         if (newEvent.Source == "ProcessMonitor" && suspiciousProcess &&
             !IsRecentCorrelation("DefenderPlusUnsigned", newEvent.Id))
@@ -206,14 +208,18 @@ public class ThreatCorrelator
                 e.Title.Contains("Defender", StringComparison.OrdinalIgnoreCase) &&
                 e.Title.Contains("Disabled", StringComparison.OrdinalIgnoreCase));
 
+            // Use the actual suspicious process event, not newEvent which may be benign
+            var processEvent = (newEvent.Id == suspiciousProcessEvent!.Id) ? newEvent : suspiciousProcessEvent;
+
             results.Add(new CorrelatedThreat
             {
-                ContributingEvents = { defenderEvent, newEvent },
+                ContributingEvents = { defenderEvent, processEvent },
                 CombinedSeverity = ThreatSeverity.Critical,
                 RuleName = "DefenderPlusUnsigned",
                 ChainDescription = $"Windows Defender was disabled, and a suspicious/unsigned process was detected. " +
+                                   $"Process: {processEvent.Title}. " +
                                    $"This is a classic attack pattern: disable defenses, then deploy payload.",
-                ThreatScore = CalculateChainScore(defenderEvent, newEvent) + 50
+                ThreatScore = CalculateChainScore(defenderEvent, processEvent) + 50
             });
         }
 

@@ -238,6 +238,14 @@ public class ThreatCorrelatorTests
         Assert.Null(dir);
     }
 
+    [Fact]
+    public void ExtractDirectory_DottedDirectoryName_ParsesCorrectly()
+    {
+        // Regression: '.' in directory names (e.g. user.name) must not truncate the path
+        var dir = ThreatCorrelator.ExtractDirectory("Alert. Path: C:\\Users\\john.doe\\AppData\\Local\\malware.exe");
+        Assert.Equal(@"C:\Users\john.doe\AppData\Local", dir);
+    }
+
     [Theory]
     [InlineData(ThreatSeverity.Critical, 40)]
     [InlineData(ThreatSeverity.High, 25)]

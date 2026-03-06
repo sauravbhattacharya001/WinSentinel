@@ -348,6 +348,10 @@ public static partial class ConsoleFormatter
         Console.ForegroundColor = original;
         Console.WriteLine("Finding age tracker (report/priority/chronic/new/resolved)");
         Console.ForegroundColor = ConsoleColor.White;
+        Console.Write("    --status             ");
+        Console.ForegroundColor = original;
+        Console.WriteLine("Quick security posture dashboard (no new scan)");
+        Console.ForegroundColor = ConsoleColor.White;
         Console.Write("    --help, -h           ");
         Console.ForegroundColor = original;
         Console.WriteLine("Show this help message");

@@ -71,6 +71,7 @@ public enum CliCommand
     Badge,
     Timeline,
     FindingAge,
+    Status,
     Help,
     Version
 }
@@ -175,6 +176,10 @@ public static class CliParser
 
                 case "--timeline":
                     options.Command = CliCommand.Timeline;
+                    break;
+
+                case "--status":
+                    options.Command = CliCommand.Status;
                     break;
 
                 case "--age":

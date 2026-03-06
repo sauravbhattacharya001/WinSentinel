@@ -32,8 +32,307 @@ return options.Command switch
     CliCommand.Trend => HandleTrend(options),
     CliCommand.Timeline => HandleTimeline(options),
     CliCommand.FindingAge => HandleFindingAge(options),
+    CliCommand.Status => HandleStatus(options),
     _ => HandleHelp()
 };
+
+// ── Status Dashboard ─────────────────────────────────────────────────
+
+static int HandleStatus(CliOptions options)
+{
+    using var historyService = new AuditHistoryService();
+    historyService.EnsureDatabase();
+
+    var ignoreService = new IgnoreRuleService();
+    var baselineService = new BaselineService();
+
+    // Gather data
+    var recentRuns = historyService.GetRecentRuns(5);
+    var ignoreRules = ignoreService.GetActiveRules();
+    var baselines = baselineService.ListBaselines();
+    var totalScans = historyService.GetRunCount();
+
+    var lastRun = recentRuns.Count > 0 ? recentRuns[0] : null;
+    var previousRun = recentRuns.Count > 1 ? recentRuns[1] : null;
+
+    ScoreTrendSummary? trend = null;
+    if (recentRuns.Count > 0)
+    {
+        trend = historyService.GetTrend(30);
+    }
+
+    if (options.Json)
+    {
+        var statusObj = new
+        {
+            system = new
+            {
+                machine = Environment.MachineName,
+                os = Environment.OSVersion.ToString(),
+                user = Environment.UserName,
+                is64bit = Environment.Is64BitOperatingSystem,
+                processors = Environment.ProcessorCount,
+                uptime = TimeSpan.FromMilliseconds(Environment.TickCount64).ToString(@"d\.hh\:mm\:ss"),
+                timestamp = DateTimeOffset.Now
+            },
+            lastScan = lastRun != null ? new
+            {
+                timestamp = lastRun.Timestamp,
+                score = lastRun.OverallScore,
+                grade = lastRun.Grade,
+                critical = lastRun.CriticalCount,
+                warnings = lastRun.WarningCount,
+                totalFindings = lastRun.TotalFindings,
+                ago = FormatTimeAgo(lastRun.Timestamp)
+            } : null,
+            scoreTrend = trend != null ? new
+            {
+                current = trend.CurrentScore,
+                previous = trend.PreviousScore,
+                change = trend.ScoreChange,
+                direction = trend.ChangeDirection,
+                best = trend.BestScore,
+                bestDate = trend.BestScoreDate,
+                worst = trend.WorstScore,
+                worstDate = trend.WorstScoreDate,
+                average = Math.Round(trend.AverageScore, 1),
+                totalScans = trend.TotalScans
+            } : null,
+            ignoreRules = new
+            {
+                active = ignoreRules.Count,
+            },
+            baselines = new
+            {
+                saved = baselines.Count,
+                names = baselines.Select(b => b.Name).ToList()
+            },
+            totalScans
+        };
+
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        var json = JsonSerializer.Serialize(statusObj, jsonOptions);
+        WriteOutput(json, options.OutputFile);
+        return 0;
+    }
+
+    // Console output
+    var orig = Console.ForegroundColor;
+
+    Console.WriteLine();
+    Console.ForegroundColor = ConsoleColor.Cyan;
+    Console.WriteLine("  ╔══════════════════════════════════════════════╗");
+    Console.WriteLine("  ║       🛡️  WinSentinel Status Dashboard      ║");
+    Console.WriteLine("  ╚══════════════════════════════════════════════╝");
+    Console.ForegroundColor = orig;
+    Console.WriteLine();
+
+    // ── System Info ──
+    Console.ForegroundColor = ConsoleColor.White;
+    Console.WriteLine("  SYSTEM");
+    Console.ForegroundColor = ConsoleColor.DarkGray;
+    Console.WriteLine("  ──────────────────────────────────────────");
+    Console.ForegroundColor = orig;
+    Console.Write("  Machine:    ");
+    Console.ForegroundColor = ConsoleColor.White;
+    Console.WriteLine(Environment.MachineName);
+    Console.ForegroundColor = orig;
+    Console.Write("  OS:         ");
+    Console.ForegroundColor = ConsoleColor.White;
+    Console.WriteLine(Environment.OSVersion);
+    Console.ForegroundColor = orig;
+    Console.Write("  User:       ");
+    Console.ForegroundColor = ConsoleColor.White;
+    Console.WriteLine(Environment.UserName);
+    Console.ForegroundColor = orig;
+    var uptime = TimeSpan.FromMilliseconds(Environment.TickCount64);
+    Console.Write("  Uptime:     ");
+    Console.ForegroundColor = ConsoleColor.White;
+    Console.WriteLine($"{(int)uptime.TotalDays}d {uptime.Hours}h {uptime.Minutes}m");
+    Console.ForegroundColor = orig;
+    Console.WriteLine();
+
+    // ── Last Scan ──
+    Console.ForegroundColor = ConsoleColor.White;
+    Console.WriteLine("  LAST SCAN");
+    Console.ForegroundColor = ConsoleColor.DarkGray;
+    Console.WriteLine("  ──────────────────────────────────────────");
+    Console.ForegroundColor = orig;
+
+    if (lastRun != null)
+    {
+        Console.Write("  Score:      ");
+        var scoreColor = GetScoreColor(lastRun.OverallScore);
+        Console.ForegroundColor = scoreColor;
+        Console.WriteLine($"{lastRun.OverallScore}/100 ({lastRun.Grade})");
+        Console.ForegroundColor = orig;
+
+        Console.Write("  When:       ");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine($"{lastRun.Timestamp.LocalDateTime:g} ({FormatTimeAgo(lastRun.Timestamp)})");
+        Console.ForegroundColor = orig;
+
+        Console.Write("  Findings:   ");
+        if (lastRun.CriticalCount > 0)
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.Write($"{lastRun.CriticalCount} critical");
+            Console.ForegroundColor = orig;
+            Console.Write(", ");
+        }
+        if (lastRun.WarningCount > 0)
+        {
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.Write($"{lastRun.WarningCount} warnings");
+            Console.ForegroundColor = orig;
+        }
+        if (lastRun.CriticalCount == 0 && lastRun.WarningCount == 0)
+        {
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.Write("All clear!");
+            Console.ForegroundColor = orig;
+        }
+        Console.WriteLine();
+
+        if (previousRun != null)
+        {
+            var delta = lastRun.OverallScore - previousRun.OverallScore;
+            Console.Write("  Change:     ");
+            if (delta > 0)
+            {
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"↑ +{delta} points (was {previousRun.OverallScore})");
+            }
+            else if (delta < 0)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"↓ {delta} points (was {previousRun.OverallScore})");
+            }
+            else
+            {
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.WriteLine($"→ No change ({previousRun.OverallScore})");
+            }
+            Console.ForegroundColor = orig;
+        }
+    }
+    else
+    {
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.WriteLine("  No scans yet. Run: winsentinel --audit");
+        Console.ForegroundColor = orig;
+    }
+    Console.WriteLine();
+
+    // ── 30-Day Trend ──
+    if (trend != null && trend.TotalScans >= 2)
+    {
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine("  30-DAY TREND");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine("  ──────────────────────────────────────────");
+        Console.ForegroundColor = orig;
+
+        Console.Write("  Scans:      ");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine(trend.TotalScans);
+        Console.ForegroundColor = orig;
+
+        Console.Write("  Average:    ");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine($"{trend.AverageScore:F0}/100");
+        Console.ForegroundColor = orig;
+
+        if (trend.BestScore.HasValue)
+        {
+            Console.Write("  Best:       ");
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.Write($"{trend.BestScore}/100");
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine($" ({trend.BestScoreDate?.LocalDateTime:d})");
+            Console.ForegroundColor = orig;
+        }
+
+        if (trend.WorstScore.HasValue)
+        {
+            Console.Write("  Worst:      ");
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.Write($"{trend.WorstScore}/100");
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine($" ({trend.WorstScoreDate?.LocalDateTime:d})");
+            Console.ForegroundColor = orig;
+        }
+
+        // Mini sparkline of recent scores
+        if (recentRuns.Count >= 2)
+        {
+            Console.Write("  Recent:     ");
+            var recent = recentRuns.AsEnumerable().Reverse().ToList();
+            foreach (var run in recent)
+            {
+                Console.ForegroundColor = GetScoreColor(run.OverallScore);
+                Console.Write($"{run.OverallScore} ");
+            }
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.Write("(oldest → newest)");
+            Console.ForegroundColor = orig;
+            Console.WriteLine();
+        }
+
+        Console.WriteLine();
+    }
+
+    // ── Active Rules & Baselines ──
+    Console.ForegroundColor = ConsoleColor.White;
+    Console.WriteLine("  CONFIGURATION");
+    Console.ForegroundColor = ConsoleColor.DarkGray;
+    Console.WriteLine("  ──────────────────────────────────────────");
+    Console.ForegroundColor = orig;
+
+    Console.Write("  Ignore rules: ");
+    Console.ForegroundColor = ignoreRules.Count > 0 ? ConsoleColor.Yellow : ConsoleColor.DarkGray;
+    Console.WriteLine(ignoreRules.Count > 0 ? $"{ignoreRules.Count} active" : "none");
+    Console.ForegroundColor = orig;
+
+    Console.Write("  Baselines:    ");
+    Console.ForegroundColor = baselines.Count > 0 ? ConsoleColor.Cyan : ConsoleColor.DarkGray;
+    Console.WriteLine(baselines.Count > 0 ? $"{baselines.Count} saved ({string.Join(", ", baselines.Select(b => b.Name))})" : "none");
+    Console.ForegroundColor = orig;
+
+    Console.Write("  Total scans:  ");
+    Console.ForegroundColor = ConsoleColor.White;
+    Console.WriteLine(totalScans);
+    Console.ForegroundColor = orig;
+
+    Console.Write("  History DB:   ");
+    Console.ForegroundColor = ConsoleColor.DarkGray;
+    Console.WriteLine(AuditHistoryService.GetDefaultDbPath());
+    Console.ForegroundColor = orig;
+
+    Console.WriteLine();
+
+    return 0;
+}
+
+static string FormatTimeAgo(DateTimeOffset timestamp)
+{
+    var elapsed = DateTimeOffset.Now - timestamp;
+    if (elapsed.TotalMinutes < 1) return "just now";
+    if (elapsed.TotalMinutes < 60) return $"{(int)elapsed.TotalMinutes}m ago";
+    if (elapsed.TotalHours < 24) return $"{(int)elapsed.TotalHours}h ago";
+    if (elapsed.TotalDays < 7) return $"{(int)elapsed.TotalDays}d ago";
+    return $"{(int)(elapsed.TotalDays / 7)}w ago";
+}
+
+static ConsoleColor GetScoreColor(int score)
+{
+    return score switch
+    {
+        >= 80 => ConsoleColor.Green,
+        >= 60 => ConsoleColor.Yellow,
+        _ => ConsoleColor.Red
+    };
+}
 
 // ── Command Handlers ─────────────────────────────────────────────────
 

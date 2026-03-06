@@ -242,14 +242,19 @@ public class NetworkMonitorModule : IAgentModule
             return;
         }
 
-        // 3. Check for known-bad IPs
-        CheckKnownBadIps(connections);
+        // Track remote IPs already alerted during this poll cycle to avoid
+        // duplicate alerts when a connection matches multiple rules (e.g.,
+        // known-bad IP + Tor exit node + suspicious port).
+        var alertedRemoteIps = new HashSet<string>();
 
-        // 4. Check for Tor connections
-        CheckTorConnections(connections);
+        // 3. Check for known-bad IPs (highest priority — checked first)
+        CheckKnownBadIps(connections, alertedRemoteIps);
 
-        // 5. Check for suspicious port usage
-        CheckSuspiciousPorts(connections);
+        // 4. Check for Tor connections (skip IPs already alerted above)
+        CheckTorConnections(connections, alertedRemoteIps);
+
+        // 5. Check for suspicious port usage (skip IPs already alerted above)
+        CheckSuspiciousPorts(connections, alertedRemoteIps);
 
         // 6. Check outbound burst (connection count per process)
         CheckOutboundBurst(connections);
@@ -348,7 +353,7 @@ public class NetworkMonitorModule : IAgentModule
     /// <summary>
     /// Rule: Detect connections to known-malicious IP ranges.
     /// </summary>
-    internal void CheckKnownBadIps(TcpConnectionInformation[] connections)
+    internal void CheckKnownBadIps(TcpConnectionInformation[] connections, HashSet<string>? alertedRemoteIps = null)
     {
         foreach (var conn in connections)
         {
@@ -372,6 +377,7 @@ public class NetworkMonitorModule : IAgentModule
                         AutoFixable = true,
                         FixCommand = $"netsh advfirewall firewall add rule name=\"Block {remoteIp}\" dir=out action=block remoteip={remoteIp}"
                     });
+                    alertedRemoteIps?.Add(remoteIp);
                     break; // Don't emit multiple alerts for the same connection
                 }
             }
@@ -381,7 +387,7 @@ public class NetworkMonitorModule : IAgentModule
     /// <summary>
     /// Rule: Detect connections to Tor exit nodes.
     /// </summary>
-    internal void CheckTorConnections(TcpConnectionInformation[] connections)
+    internal void CheckTorConnections(TcpConnectionInformation[] connections, HashSet<string>? alertedRemoteIps = null)
     {
         foreach (var conn in connections)
         {
@@ -391,6 +397,10 @@ public class NetworkMonitorModule : IAgentModule
             var remoteIp = conn.RemoteEndPoint.Address.ToString();
             var remotePort = conn.RemoteEndPoint.Port;
             var localPort = conn.LocalEndPoint.Port;
+
+            // Skip IPs already alerted by a higher-priority rule (e.g., known-bad IP)
+            if (alertedRemoteIps?.Contains(remoteIp) == true)
+                continue;
 
             // Check for local Tor SOCKS proxy
             if (localPort == TorSocksPort || localPort == TorBrowserPort ||
@@ -434,7 +444,7 @@ public class NetworkMonitorModule : IAgentModule
     /// <summary>
     /// Rule: Detect connections using suspicious/common RAT ports.
     /// </summary>
-    internal void CheckSuspiciousPorts(TcpConnectionInformation[] connections)
+    internal void CheckSuspiciousPorts(TcpConnectionInformation[] connections, HashSet<string>? alertedRemoteIps = null)
     {
         foreach (var conn in connections)
         {
@@ -447,6 +457,10 @@ public class NetworkMonitorModule : IAgentModule
 
             // Skip localhost connections
             if (IPAddress.IsLoopback(conn.RemoteEndPoint.Address))
+                continue;
+
+            // Skip IPs already alerted by a higher-priority rule
+            if (alertedRemoteIps?.Contains(remoteIp) == true)
                 continue;
 
             // Check if remote port is suspicious

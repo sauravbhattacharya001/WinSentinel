@@ -32,8 +32,132 @@ return options.Command switch
     CliCommand.Trend => HandleTrend(options),
     CliCommand.Timeline => HandleTimeline(options),
     CliCommand.FindingAge => HandleFindingAge(options),
+    CliCommand.Watch => await HandleWatch(options),
     _ => HandleHelp()
 };
+
+// ── Watch Mode ────────────────────────────────────────────────────────
+
+static async Task<int> HandleWatch(CliOptions options)
+{
+    var cts = new CancellationTokenSource();
+    Console.CancelKeyPress += (_, e) =>
+    {
+        e.Cancel = true;
+        cts.Cancel();
+    };
+
+    int? previousScore = null;
+    int? previousCritical = null;
+    int? previousWarnings = null;
+    var scanCount = 0;
+    var startTime = DateTimeOffset.Now;
+
+    if (!options.Quiet)
+    {
+        Console.Clear();
+        ConsoleFormatter.PrintWatchBanner(options.WatchIntervalSeconds, options.ModulesFilter);
+    }
+
+    while (!cts.Token.IsCancellationRequested)
+    {
+        scanCount++;
+        var engine = BuildEngine(options.ModulesFilter);
+        var sw = Stopwatch.StartNew();
+
+        SecurityReport report;
+        try
+        {
+            report = await engine.RunFullAuditAsync(null);
+        }
+        catch (Exception ex)
+        {
+            if (!options.Quiet)
+            {
+                var c = Console.ForegroundColor;
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"  ✗ Scan #{scanCount} failed: {ex.Message}");
+                Console.ForegroundColor = c;
+            }
+            try { await Task.Delay(options.WatchIntervalSeconds * 1000, cts.Token); } catch (TaskCanceledException) { break; }
+            continue;
+        }
+
+        sw.Stop();
+
+        var currentScore = report.SecurityScore;
+        var currentCritical = report.TotalCritical;
+        var currentWarnings = report.TotalWarnings;
+
+        // Detect changes
+        int? scoreDelta = previousScore.HasValue ? currentScore - previousScore.Value : null;
+        int? criticalDelta = previousCritical.HasValue ? currentCritical - previousCritical.Value : null;
+        int? warningDelta = previousWarnings.HasValue ? currentWarnings - previousWarnings.Value : null;
+
+        bool isRegression = scoreDelta < 0 || criticalDelta > 0;
+
+        if (options.Json)
+        {
+            var jsonResult = new
+            {
+                scan = scanCount,
+                timestamp = DateTimeOffset.Now,
+                score = currentScore,
+                grade = SecurityScorer.GetGrade(currentScore),
+                critical = currentCritical,
+                warnings = currentWarnings,
+                totalFindings = report.TotalFindings,
+                scanDuration = sw.Elapsed.TotalSeconds,
+                delta = new
+                {
+                    score = scoreDelta,
+                    critical = criticalDelta,
+                    warnings = warningDelta
+                },
+                isRegression
+            };
+            var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+            Console.WriteLine(JsonSerializer.Serialize(jsonResult, jsonOptions));
+        }
+        else if (options.WatchCompact)
+        {
+            ConsoleFormatter.PrintWatchLineCompact(scanCount, currentScore, currentCritical, currentWarnings,
+                scoreDelta, criticalDelta, warningDelta, sw.Elapsed);
+        }
+        else
+        {
+            ConsoleFormatter.PrintWatchScanResult(scanCount, report, scoreDelta, criticalDelta, warningDelta, sw.Elapsed);
+        }
+
+        // Beep on regression
+        if (options.WatchBeep && isRegression)
+        {
+            Console.Beep();
+        }
+
+        previousScore = currentScore;
+        previousCritical = currentCritical;
+        previousWarnings = currentWarnings;
+
+        // Countdown
+        if (!options.Quiet && !options.Json)
+        {
+            ConsoleFormatter.PrintWatchCountdown(options.WatchIntervalSeconds, cts.Token);
+        }
+        else
+        {
+            try { await Task.Delay(options.WatchIntervalSeconds * 1000, cts.Token); } catch (TaskCanceledException) { break; }
+        }
+    }
+
+    if (!options.Quiet && !options.Json)
+    {
+        var elapsed = DateTimeOffset.Now - startTime;
+        ConsoleFormatter.PrintWatchStopped(scanCount, elapsed);
+    }
+
+    return 0;
+}
 
 // ── Command Handlers ─────────────────────────────────────────────────
 

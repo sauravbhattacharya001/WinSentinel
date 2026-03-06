@@ -122,8 +122,9 @@ public class ChatHandler
 
             if (lower.StartsWith("block "))
             {
-                var ip = ExtractIp(trimmed[6..].Trim());
+                var ip = Core.Helpers.InputSanitizer.SanitizeIpAddress(trimmed[6..].Trim());
                 if (ip != null) return HandleBlockIp(ip);
+                return SimpleResponse("Invalid IP address. Use a valid IPv4 or IPv6 address (e.g., `block 192.168.1.100`).", ChatResponseCategory.Error);
             }
 
             if (lower.StartsWith("kill "))
@@ -145,6 +146,12 @@ public class ChatHandler
             if (lower.StartsWith("ignore "))
             {
                 var threatType = trimmed[7..].Trim();
+                // Validate: reject empty, oversized, or control-character-laden input
+                if (string.IsNullOrWhiteSpace(threatType) || threatType.Length > 256)
+                    return SimpleResponse("Invalid threat type. Must be 1–256 characters.", ChatResponseCategory.Error);
+                // Reject control characters (null bytes, newlines, etc.) that could corrupt the policy JSON
+                if (threatType.Any(c => char.IsControl(c)))
+                    return SimpleResponse("Threat type contains invalid characters.", ChatResponseCategory.Error);
                 return HandleIgnore(threatType);
             }
 
@@ -173,7 +180,7 @@ public class ChatHandler
 
             if (Regex.IsMatch(lower, @"block.+(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})"))
             {
-                var ip = ExtractIp(trimmed);
+                var ip = ExtractAndSanitizeIp(trimmed);
                 if (ip != null) return HandleBlockIp(ip);
             }
 
@@ -1198,5 +1205,17 @@ public class ChatHandler
     {
         var match = Regex.Match(text, @"\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b");
         return match.Success ? match.Groups[1].Value : null;
+    }
+
+    /// <summary>
+    /// Extract an IP-like string from free text, then validate it through InputSanitizer
+    /// to prevent injection. The raw regex match may produce invalid IPs (e.g. 999.999.999.999);
+    /// SanitizeIpAddress canonicalizes and rejects anything that isn't a real IP.
+    /// </summary>
+    private static string? ExtractAndSanitizeIp(string text)
+    {
+        var candidate = ExtractIp(text);
+        if (candidate == null) return null;
+        return Core.Helpers.InputSanitizer.SanitizeIpAddress(candidate);
     }
 }

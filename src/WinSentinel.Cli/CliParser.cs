@@ -48,6 +48,10 @@ public class CliOptions
     public string? TimelineSeverityFilter { get; set; }
     public int? TimelineMaxEvents { get; set; }
     public string? TimelineModuleFilter { get; set; }
+    public bool Watch { get; set; }
+    public int WatchIntervalSeconds { get; set; } = 300;
+    public bool WatchCompact { get; set; }
+    public bool WatchBeep { get; set; }
     public FindingAgeAction AgeAction { get; set; } = FindingAgeAction.None;
     public string? AgeSeverityFilter { get; set; }
     public string? AgeModuleFilter { get; set; }
@@ -71,6 +75,7 @@ public enum CliCommand
     Badge,
     Timeline,
     FindingAge,
+    Watch,
     Help,
     Version
 }
@@ -323,6 +328,39 @@ public static class CliParser
                         options.Error = "Missing value for --timeline-module.";
                         return options;
                     }
+                    break;
+
+                case "--watch" or "-w":
+                    options.Command = CliCommand.Watch;
+                    options.Watch = true;
+                    break;
+
+                case "--watch-interval":
+                    if (i + 1 < args.Length)
+                    {
+                        if (int.TryParse(args[++i], out int interval) && interval >= 10 && interval <= 86400)
+                        {
+                            options.WatchIntervalSeconds = interval;
+                        }
+                        else
+                        {
+                            options.Error = "Invalid watch-interval value. Must be 10-86400 seconds.";
+                            return options;
+                        }
+                    }
+                    else
+                    {
+                        options.Error = "Missing value for --watch-interval (seconds).";
+                        return options;
+                    }
+                    break;
+
+                case "--watch-compact":
+                    options.WatchCompact = true;
+                    break;
+
+                case "--watch-beep":
+                    options.WatchBeep = true;
                     break;
 
                 case "--badge":

@@ -1710,4 +1710,222 @@ public static partial class ConsoleFormatter
         Console.WriteLine();
     }
 
+    // ── Watch Mode Formatting ────────────────────────────────────────
+
+    /// <summary>
+    /// Print the watch mode banner.
+    /// </summary>
+    public static void PrintWatchBanner(int intervalSeconds, string? moduleFilter)
+    {
+        var original = Console.ForegroundColor;
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.WriteLine();
+        Console.WriteLine("  ╔══════════════════════════════════════════════╗");
+        Console.WriteLine("  ║      🛡️  WinSentinel Watch Mode             ║");
+        Console.WriteLine("  ╚══════════════════════════════════════════════╝");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write($"  Interval: {FormatInterval(intervalSeconds)}");
+        if (!string.IsNullOrEmpty(moduleFilter))
+            Console.Write($" │ Modules: {moduleFilter}");
+        Console.WriteLine(" │ Press Ctrl+C to stop");
+        Console.ForegroundColor = original;
+        Console.WriteLine();
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine("  ─────┬────────┬───────┬──────────┬──────────┬──────────────");
+        Console.Write("  Scan │ Score  │ Grade │ Critical │ Warnings │ Changes");
+        Console.WriteLine();
+        Console.WriteLine("  ─────┼────────┼───────┼──────────┼──────────┼──────────────");
+        Console.ForegroundColor = original;
+    }
+
+    /// <summary>
+    /// Print a compact one-line watch result.
+    /// </summary>
+    public static void PrintWatchLineCompact(int scanNumber, int score, int critical, int warnings,
+        int? scoreDelta, int? criticalDelta, int? warningDelta, TimeSpan elapsed)
+    {
+        var original = Console.ForegroundColor;
+        var grade = SecurityScorer.GetGrade(score);
+
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write($"  {scanNumber,4} │ ");
+
+        Console.ForegroundColor = GetScoreColor(score);
+        Console.Write($"{score,4}/100");
+
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write(" │ ");
+
+        Console.ForegroundColor = GetScoreColor(score);
+        Console.Write($"  {grade}  ");
+
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write(" │ ");
+
+        Console.ForegroundColor = critical > 0 ? ConsoleColor.Red : ConsoleColor.Green;
+        Console.Write($"   {critical,3}   ");
+
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write(" │ ");
+
+        Console.ForegroundColor = warnings > 0 ? ConsoleColor.Yellow : ConsoleColor.Green;
+        Console.Write($"   {warnings,3}   ");
+
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write(" │ ");
+
+        if (scoreDelta.HasValue)
+        {
+            PrintDelta("S", scoreDelta.Value, invert: false);
+            Console.Write(" ");
+            PrintDelta("C", criticalDelta ?? 0, invert: true);
+            Console.Write(" ");
+            PrintDelta("W", warningDelta ?? 0, invert: true);
+        }
+        else
+        {
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.Write("  baseline");
+        }
+
+        Console.ForegroundColor = original;
+        Console.WriteLine();
+    }
+
+    /// <summary>
+    /// Print a full watch scan result block (non-compact).
+    /// </summary>
+    public static void PrintWatchScanResult(int scanNumber, SecurityReport report,
+        int? scoreDelta, int? criticalDelta, int? warningDelta, TimeSpan elapsed)
+    {
+        var original = Console.ForegroundColor;
+        var score = report.SecurityScore;
+        var grade = SecurityScorer.GetGrade(score);
+
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write($"  ── Scan #{scanNumber}");
+        Console.Write($" at {DateTimeOffset.Now:HH:mm:ss}");
+        Console.Write($" ({elapsed.TotalSeconds:F1}s)");
+        Console.WriteLine(" ──");
+
+        Console.Write("  Score: ");
+        Console.ForegroundColor = GetScoreColor(score);
+        Console.Write($"{score}/100 ({grade})");
+
+        if (scoreDelta.HasValue && scoreDelta.Value != 0)
+        {
+            Console.Write(" ");
+            Console.ForegroundColor = scoreDelta.Value > 0 ? ConsoleColor.Green : ConsoleColor.Red;
+            Console.Write(scoreDelta.Value > 0 ? $"▲+{scoreDelta.Value}" : $"▼{scoreDelta.Value}");
+        }
+        Console.WriteLine();
+
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write("  ");
+        Console.ForegroundColor = report.TotalCritical > 0 ? ConsoleColor.Red : ConsoleColor.DarkGray;
+        Console.Write($"{report.TotalCritical} critical");
+        if (criticalDelta.HasValue && criticalDelta.Value != 0)
+        {
+            Console.ForegroundColor = criticalDelta.Value > 0 ? ConsoleColor.Red : ConsoleColor.Green;
+            Console.Write(criticalDelta.Value > 0 ? $" (+{criticalDelta.Value})" : $" ({criticalDelta.Value})");
+        }
+
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write(" · ");
+
+        Console.ForegroundColor = report.TotalWarnings > 0 ? ConsoleColor.Yellow : ConsoleColor.DarkGray;
+        Console.Write($"{report.TotalWarnings} warnings");
+        if (warningDelta.HasValue && warningDelta.Value != 0)
+        {
+            Console.ForegroundColor = warningDelta.Value > 0 ? ConsoleColor.Yellow : ConsoleColor.Green;
+            Console.Write(warningDelta.Value > 0 ? $" (+{warningDelta.Value})" : $" ({warningDelta.Value})");
+        }
+
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write($" · {report.TotalFindings} total");
+        Console.ForegroundColor = original;
+        Console.WriteLine();
+
+        var problemModules = report.Results
+            .Where(r => r.Findings.Any(f => f.Severity is Severity.Critical or Severity.Warning))
+            .OrderBy(r => SecurityScorer.CalculateCategoryScore(r))
+            .Take(5)
+            .ToList();
+
+        if (problemModules.Count > 0)
+        {
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.Write("  Hotspots: ");
+            for (int i = 0; i < problemModules.Count; i++)
+            {
+                var m = problemModules[i];
+                var mScore = SecurityScorer.CalculateCategoryScore(m);
+                Console.ForegroundColor = GetScoreColor(mScore);
+                Console.Write($"{m.Category}({mScore})");
+                if (i < problemModules.Count - 1)
+                {
+                    Console.ForegroundColor = ConsoleColor.DarkGray;
+                    Console.Write(", ");
+                }
+            }
+            Console.ForegroundColor = original;
+            Console.WriteLine();
+        }
+
+        Console.WriteLine();
+    }
+
+    /// <summary>
+    /// Print countdown timer between scans.
+    /// </summary>
+    public static void PrintWatchCountdown(int totalSeconds, CancellationToken ct)
+    {
+        var original = Console.ForegroundColor;
+        for (int remaining = totalSeconds; remaining > 0; remaining--)
+        {
+            if (ct.IsCancellationRequested) break;
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.Write($"\r  Next scan in {remaining}s...  ");
+            Console.ForegroundColor = original;
+            try { Task.Delay(1000, ct).GetAwaiter().GetResult(); } catch (TaskCanceledException) { break; }
+        }
+        Console.Write("\r" + new string(' ', 40) + "\r");
+    }
+
+    /// <summary>
+    /// Print watch mode stopped summary.
+    /// </summary>
+    public static void PrintWatchStopped(int totalScans, TimeSpan totalElapsed)
+    {
+        var original = Console.ForegroundColor;
+        Console.WriteLine();
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.Write("  ■ Watch stopped");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine($" — {totalScans} scans over {FormatInterval((int)totalElapsed.TotalSeconds)}");
+        Console.ForegroundColor = original;
+        Console.WriteLine();
+    }
+
+    private static void PrintDelta(string label, int delta, bool invert)
+    {
+        if (delta == 0)
+        {
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.Write($"{label}=");
+            return;
+        }
+
+        bool isBad = invert ? delta > 0 : delta < 0;
+        Console.ForegroundColor = isBad ? ConsoleColor.Red : ConsoleColor.Green;
+        Console.Write(delta > 0 ? $"{label}+{delta}" : $"{label}{delta}");
+    }
+
+    private static string FormatInterval(int seconds)
+    {
+        if (seconds < 60) return $"{seconds}s";
+        if (seconds < 3600) return $"{seconds / 60}m {seconds % 60}s";
+        return $"{seconds / 3600}h {seconds % 3600 / 60}m";
+    }
+
 }

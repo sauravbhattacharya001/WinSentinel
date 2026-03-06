@@ -417,7 +417,7 @@ public class ThreatCorrelator
             while (pathStart < description.Length && description[pathStart] == ' ')
                 pathStart++;
 
-            var pathEnd = description.IndexOfAny(new[] { '\n', '\r', '.', ',' }, pathStart);
+            var pathEnd = description.IndexOfAny(new[] { '\n', '\r', ',' }, pathStart);
             if (pathEnd < 0) pathEnd = description.Length;
 
             var fullPath = description[pathStart..pathEnd].Trim();

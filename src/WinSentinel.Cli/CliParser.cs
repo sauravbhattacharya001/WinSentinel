@@ -64,6 +64,8 @@ public class CliOptions
     public ExemptionAction ExemptionAction { get; set; } = ExemptionAction.None;
     public int ExemptionWarningDays { get; set; } = 7;
     public int ExemptionStaleDays { get; set; } = 90;
+    public int DigestTrendDays { get; set; } = 30;
+    public bool DigestNoTrend { get; set; }
 }
 
 public enum CliCommand
@@ -85,6 +87,7 @@ public enum CliCommand
     Harden,
     Policy,
     Exemptions,
+    Digest,
     Help,
     Version
 }
@@ -216,6 +219,34 @@ public static class CliParser
 
                 case "--harden":
                     options.Command = CliCommand.Harden;
+                    break;
+
+                case "--digest" or "-d":
+                    options.Command = CliCommand.Digest;
+                    break;
+
+                case "--digest-days":
+                    if (i + 1 < args.Length)
+                    {
+                        if (int.TryParse(args[++i], out int digestDays) && digestDays >= 1 && digestDays <= 365)
+                        {
+                            options.DigestTrendDays = digestDays;
+                        }
+                        else
+                        {
+                            options.Error = "Invalid digest-days value. Must be 1-365.";
+                            return options;
+                        }
+                    }
+                    else
+                    {
+                        options.Error = "Missing value for --digest-days.";
+                        return options;
+                    }
+                    break;
+
+                case "--no-trend":
+                    options.DigestNoTrend = true;
                     break;
 
                 case "--policy":

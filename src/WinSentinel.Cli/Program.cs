@@ -36,6 +36,7 @@ return options.Command switch
     CliCommand.Harden => await HandleHarden(options),
     CliCommand.Policy => HandlePolicy(options),
     CliCommand.Exemptions => HandleExemptions(options),
+    CliCommand.Digest => await HandleDigest(options),
     _ => HandleHelp()
 };
 
@@ -114,6 +115,243 @@ static async Task<int> HandleHarden(CliOptions options)
     }
 
     return 0;
+}
+
+// ── Security Digest ──────────────────────────────────────────────────
+
+static async Task<int> HandleDigest(CliOptions options)
+{
+    var engine = BuildEngine(options.ModulesFilter);
+    var sw = Stopwatch.StartNew();
+
+    if (!options.Quiet && !options.Json)
+    {
+        ConsoleFormatter.PrintBanner();
+        Console.WriteLine("  Generating security digest...");
+        Console.WriteLine();
+    }
+
+    var progress = options.Quiet || options.Json
+        ? null
+        : new Progress<(string module, int current, int total)>(p =>
+            ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
+
+    var report = await engine.RunFullAuditAsync(progress);
+    sw.Stop();
+
+    if (!options.Quiet && !options.Json)
+    {
+        ConsoleFormatter.PrintProgressDone(engine.Modules.Count, sw.Elapsed);
+    }
+
+    // Load history for trend data
+    List<AuditRunRecord>? history = null;
+    if (!options.DigestNoTrend)
+    {
+        using var historyService = new AuditHistoryService();
+        historyService.EnsureDatabase();
+        history = historyService.GetHistory(options.DigestTrendDays);
+    }
+
+    var digestService = new SecurityDigestService();
+    var digest = digestService.Generate(report, history);
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Converters = { new JsonStringEnumConverter() },
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        };
+        var json = JsonSerializer.Serialize(digest, jsonOptions);
+        WriteOutput(json, options.OutputFile);
+    }
+    else
+    {
+        PrintDigestConsole(digest, options.Quiet);
+    }
+
+    return DetermineExitCode(report, options.Threshold);
+}
+
+static void PrintDigestConsole(SecurityDigest digest, bool quiet)
+{
+    var orig = Console.ForegroundColor;
+
+    if (!quiet)
+    {
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.WriteLine("  ╔══════════════════════════════════════════════╗");
+        Console.WriteLine("  ║       🛡️  Security Digest                   ║");
+        Console.WriteLine("  ╚══════════════════════════════════════════════╝");
+        Console.ForegroundColor = orig;
+        Console.WriteLine();
+    }
+
+    // Score + Grade
+    var scoreColor = digest.Score switch
+    {
+        >= 80 => ConsoleColor.Green,
+        >= 60 => ConsoleColor.Yellow,
+        _ => ConsoleColor.Red
+    };
+
+    Console.Write("  Score: ");
+    Console.ForegroundColor = scoreColor;
+    Console.Write($"{digest.Score}/100 ({digest.Grade})");
+    Console.ForegroundColor = orig;
+
+    // Trend indicator inline
+    if (digest.Trend != null)
+    {
+        var trendColor = digest.Trend.Direction == "Improving" ? ConsoleColor.Green
+                       : digest.Trend.Direction == "Declining" ? ConsoleColor.Red
+                       : ConsoleColor.DarkGray;
+        var arrow = digest.Trend.Direction == "Improving" ? "↑"
+                  : digest.Trend.Direction == "Declining" ? "↓"
+                  : "→";
+        Console.Write("  ");
+        Console.ForegroundColor = trendColor;
+        Console.Write($"{arrow} {(digest.Trend.ScoreChange >= 0 ? "+" : "")}{digest.Trend.ScoreChange}");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write($" (avg: {digest.Trend.AverageScore}, {digest.Trend.TotalScans} scans)");
+    }
+    Console.ForegroundColor = orig;
+    Console.WriteLine();
+
+    // Findings summary line
+    Console.Write("  Findings: ");
+    if (digest.CriticalCount > 0)
+    {
+        Console.ForegroundColor = ConsoleColor.Red;
+        Console.Write($"{digest.CriticalCount} critical");
+        Console.ForegroundColor = orig;
+        Console.Write("  ");
+    }
+    if (digest.WarningCount > 0)
+    {
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.Write($"{digest.WarningCount} warnings");
+        Console.ForegroundColor = orig;
+        Console.Write("  ");
+    }
+    Console.ForegroundColor = ConsoleColor.DarkGray;
+    Console.Write($"{digest.InfoCount} info  {digest.PassCount} pass");
+    Console.ForegroundColor = orig;
+    Console.WriteLine();
+
+    // Assessment
+    Console.Write("  Status: ");
+    Console.ForegroundColor = digest.CriticalCount > 0 ? ConsoleColor.Red
+                            : digest.Score >= 80 ? ConsoleColor.Green
+                            : ConsoleColor.Yellow;
+    Console.WriteLine(digest.Assessment);
+    Console.ForegroundColor = orig;
+    Console.WriteLine();
+
+    // Top Risks
+    if (digest.TopRisks.Count > 0)
+    {
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine("  TOP RISKS");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine("  ──────────────────────────────────────────");
+        Console.ForegroundColor = orig;
+
+        foreach (var risk in digest.TopRisks)
+        {
+            var sColor = risk.Severity == Severity.Critical ? ConsoleColor.Red : ConsoleColor.Yellow;
+            Console.ForegroundColor = sColor;
+            Console.Write($"  [{risk.Severity}] ");
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.Write(risk.Title);
+            if (risk.HasAutoFix)
+            {
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.Write(" [auto-fix]");
+            }
+            Console.ForegroundColor = orig;
+            Console.WriteLine();
+
+            if (risk.Remediation != null)
+            {
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.WriteLine($"    → {risk.Remediation}");
+                Console.ForegroundColor = orig;
+            }
+        }
+        Console.WriteLine();
+    }
+
+    // Module Heat Map (compact)
+    Console.ForegroundColor = ConsoleColor.White;
+    Console.WriteLine("  MODULE SCORES");
+    Console.ForegroundColor = ConsoleColor.DarkGray;
+    Console.WriteLine("  ──────────────────────────────────────────");
+    Console.ForegroundColor = orig;
+
+    foreach (var mod in digest.ModuleBreakdown)
+    {
+        var mColor = mod.Score switch
+        {
+            >= 80 => ConsoleColor.Green,
+            >= 60 => ConsoleColor.Yellow,
+            _ => ConsoleColor.Red
+        };
+
+        Console.Write("  ");
+        Console.ForegroundColor = mColor;
+
+        // Mini bar
+        int barLen = mod.Score / 5;
+        Console.Write(new string('█', barLen));
+        Console.Write(new string('░', 20 - barLen));
+
+        Console.Write($" {mod.Score,3}/100");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.Write($"  {mod.Name}");
+
+        if (mod.Critical > 0)
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.Write($"  ({mod.Critical}C)");
+        }
+        else if (mod.Warnings > 0)
+        {
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.Write($"  ({mod.Warnings}W)");
+        }
+
+        Console.ForegroundColor = orig;
+        Console.WriteLine();
+    }
+    Console.WriteLine();
+
+    // Next Steps
+    if (digest.NextSteps.Count > 0)
+    {
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine("  NEXT STEPS");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine("  ──────────────────────────────────────────");
+        Console.ForegroundColor = orig;
+
+        for (int i = 0; i < digest.NextSteps.Count; i++)
+        {
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.Write($"  {i + 1}. ");
+            Console.ForegroundColor = orig;
+            Console.WriteLine(digest.NextSteps[i]);
+        }
+        Console.WriteLine();
+    }
+
+    // Footer
+    Console.ForegroundColor = ConsoleColor.DarkGray;
+    Console.WriteLine($"  {digest.MachineName} | {digest.GeneratedAt.LocalDateTime:g}");
+    Console.ForegroundColor = orig;
+    Console.WriteLine();
 }
 
 // ── Status Dashboard ─────────────────────────────────────────────────

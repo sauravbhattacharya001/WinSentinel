@@ -352,6 +352,10 @@ public static partial class ConsoleFormatter
         Console.ForegroundColor = original;
         Console.WriteLine("Quick security posture dashboard (no new scan)");
         Console.ForegroundColor = ConsoleColor.White;
+        Console.Write("    --harden             ");
+        Console.ForegroundColor = original;
+        Console.WriteLine("Generate reviewable PowerShell hardening script");
+        Console.ForegroundColor = ConsoleColor.White;
         Console.Write("    --help, -h           ");
         Console.ForegroundColor = original;
         Console.WriteLine("Show this help message");

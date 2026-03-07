@@ -54,6 +54,9 @@ public class CliOptions
     public string? AgeClassification { get; set; }
     public int AgeDays { get; set; } = 90;
     public int AgeTop { get; set; } = 10;
+    public bool HardenInteractive { get; set; } = true;
+    public bool HardenDryRun { get; set; }
+    public bool HardenIncludeInfo { get; set; }
 }
 
 public enum CliCommand
@@ -72,6 +75,7 @@ public enum CliCommand
     Timeline,
     FindingAge,
     Status,
+    Harden,
     Help,
     Version
 }
@@ -180,6 +184,22 @@ public static class CliParser
 
                 case "--status":
                     options.Command = CliCommand.Status;
+                    break;
+
+                case "--harden":
+                    options.Command = CliCommand.Harden;
+                    break;
+
+                case "--no-prompt":
+                    options.HardenInteractive = false;
+                    break;
+
+                case "--dry-run":
+                    options.HardenDryRun = true;
+                    break;
+
+                case "--include-info":
+                    options.HardenIncludeInfo = true;
                     break;
 
                 case "--age":

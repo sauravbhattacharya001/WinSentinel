@@ -33,8 +33,86 @@ return options.Command switch
     CliCommand.Timeline => HandleTimeline(options),
     CliCommand.FindingAge => HandleFindingAge(options),
     CliCommand.Status => HandleStatus(options),
+    CliCommand.Harden => await HandleHarden(options),
     _ => HandleHelp()
 };
+
+// ── Harden Script Generator ──────────────────────────────────────────
+
+static async Task<int> HandleHarden(CliOptions options)
+{
+    var engine = BuildEngine(options.ModulesFilter);
+    var sw = Stopwatch.StartNew();
+
+    if (!options.Quiet)
+    {
+        ConsoleFormatter.PrintBanner();
+        Console.WriteLine("  Running audit to generate hardening script...");
+        Console.WriteLine();
+    }
+
+    var progress = options.Quiet
+        ? null
+        : new Progress<(string module, int current, int total)>(p =>
+            ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
+
+    var report = await engine.RunFullAuditAsync(progress);
+    sw.Stop();
+
+    if (!options.Quiet)
+    {
+        ConsoleFormatter.PrintProgressDone(engine.Modules.Count, sw.Elapsed);
+        ConsoleFormatter.PrintScore(report.SecurityScore);
+    }
+
+    var generator = new HardenScriptGenerator();
+    var hardenOptions = new HardenScriptOptions
+    {
+        Interactive = options.HardenInteractive,
+        DryRun = options.HardenDryRun,
+        IncludeInfo = options.HardenIncludeInfo,
+    };
+
+    var script = generator.Generate(report, hardenOptions);
+
+    var outputFile = options.OutputFile ?? "harden.ps1";
+    var dir = Path.GetDirectoryName(Path.GetFullPath(outputFile));
+    if (!string.IsNullOrEmpty(dir))
+    {
+        Directory.CreateDirectory(dir);
+    }
+    File.WriteAllText(outputFile, script);
+
+    if (!options.Quiet)
+    {
+        var fixableCount = report.Results
+            .SelectMany(r => r.Findings)
+            .Count(f => f.Severity is Severity.Critical or Severity.Warning && !string.IsNullOrWhiteSpace(f.FixCommand));
+
+        var original = Console.ForegroundColor;
+        Console.WriteLine();
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.WriteLine($"  ✓ Hardening script saved to {outputFile}");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine($"    {fixableCount} fixable findings included");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine();
+        Console.WriteLine("  Usage:");
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.WriteLine($"    .\\{outputFile}              # Interactive mode (prompts per fix)");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine();
+        Console.WriteLine("  Generation options:");
+        Console.WriteLine("    --no-prompt       Skip prompts (auto-apply all)");
+        Console.WriteLine("    --dry-run         Preview without executing");
+        Console.WriteLine("    --include-info    Include info-level fixes too");
+        Console.WriteLine("    -o <file>         Custom output path (default: harden.ps1)");
+        Console.ForegroundColor = original;
+        Console.WriteLine();
+    }
+
+    return 0;
+}
 
 // ── Status Dashboard ─────────────────────────────────────────────────
 

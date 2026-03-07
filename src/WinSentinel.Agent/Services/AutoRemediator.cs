@@ -68,14 +68,19 @@ public enum RemediationAction
 public class AutoRemediator
 {
     private readonly ILogger<AutoRemediator> _logger;
-    private readonly ConcurrentBag<RemediationRecord> _history = new();
+    // Bounded, sorted list replaces the former ConcurrentBag.
+    // All access is synchronized via _persistLock, eliminating the
+    // ConcurrentBag misuse (add-only, cross-thread ToList locks) and
+    // the unbounded memory leak described in issue #41.
+    // Records are kept sorted newest-first so GetRecent(n) is O(n).
+    private readonly List<RemediationRecord> _history = new();
     private readonly string _quarantineDir;
     private readonly string _hostsBackupDir;
     private readonly string _historyFilePath;
     private readonly object _persistLock = new();
     private readonly ConcurrentDictionary<string, object> _undoLocks = new();
 
-    /// <summary>Maximum number of records to retain in the persisted history file.</summary>
+    /// <summary>Maximum number of records to retain in memory and on disk.</summary>
     private const int MaxPersistedRecords = 1000;
 
     private static readonly string DataDir =
@@ -111,14 +116,17 @@ public class AutoRemediator
             var records = JsonSerializer.Deserialize<List<RemediationRecord>>(json, JsonOpts);
             if (records == null) return;
 
-            // Add records directly to the in-memory bag without re-persisting.
-            // Previously this called AddRecord() per record, which calls
-            // PersistHistory() each time — causing O(n²) disk I/O on startup
-            // (N records × full serialization each = N writes of growing data).
-            foreach (var record in records)
-                _history.Add(record);
+            lock (_persistLock)
+            {
+                // Sort newest-first so GetRecent is a simple Take.
+                records.Sort((a, b) => b.Timestamp.CompareTo(a.Timestamp));
+                // Respect the cap even on load (file could be hand-edited).
+                _history.AddRange(records.Count > MaxPersistedRecords
+                    ? records.GetRange(0, MaxPersistedRecords)
+                    : records);
+            }
 
-            _logger.LogInformation("Loaded {Count} remediation records from disk", records.Count);
+            _logger.LogInformation("Loaded {Count} remediation records from disk", _history.Count);
         }
         catch (Exception ex)
         {
@@ -127,45 +135,62 @@ public class AutoRemediator
     }
 
     /// <summary>
-    /// Persist current history to disk, keeping only the most recent <see cref="MaxPersistedRecords"/> records.
+    /// Persist current history to disk.
+    /// Caller must hold <see cref="_persistLock"/>.
     /// </summary>
-    private void PersistHistory()
+    private void PersistHistoryLocked()
     {
-        lock (_persistLock)
+        try
         {
-            try
-            {
-                var records = _history
-                    .OrderByDescending(r => r.Timestamp)
-                    .Take(MaxPersistedRecords)
-                    .ToList();
-
-                var tempPath = _historyFilePath + ".tmp";
-                File.WriteAllText(tempPath, JsonSerializer.Serialize(records, JsonOpts));
-                File.Move(tempPath, _historyFilePath, overwrite: true);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to persist remediation history to {Path}", _historyFilePath);
-            }
+            // _history is already bounded and sorted newest-first.
+            var tempPath = _historyFilePath + ".tmp";
+            File.WriteAllText(tempPath, JsonSerializer.Serialize(_history, JsonOpts));
+            File.Move(tempPath, _historyFilePath, overwrite: true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to persist remediation history to {Path}", _historyFilePath);
         }
     }
 
     /// <summary>
-    /// Add a record to the in-memory history and persist to disk.
+    /// Add a record to the in-memory history (bounded) and persist to disk.
     /// </summary>
     private void AddRecord(RemediationRecord record)
     {
-        _history.Add(record);
-        PersistHistory();
+        lock (_persistLock)
+        {
+            // Insert at the front so _history stays sorted newest-first.
+            _history.Insert(0, record);
+
+            // Evict oldest entries if we exceed the cap.
+            if (_history.Count > MaxPersistedRecords)
+            {
+                _history.RemoveRange(MaxPersistedRecords, _history.Count - MaxPersistedRecords);
+            }
+
+            PersistHistoryLocked();
+        }
     }
 
-    /// <summary>Get all remediation records.</summary>
-    public List<RemediationRecord> GetHistory() => _history.ToList();
+    /// <summary>Get all remediation records (defensive copy).</summary>
+    public List<RemediationRecord> GetHistory()
+    {
+        lock (_persistLock)
+        {
+            return new List<RemediationRecord>(_history);
+        }
+    }
 
-    /// <summary>Get recent remediation records.</summary>
-    public List<RemediationRecord> GetRecent(int count = 50) =>
-        _history.OrderByDescending(r => r.Timestamp).Take(count).ToList();
+    /// <summary>Get recent remediation records. O(n) where n = count, not total history size.</summary>
+    public List<RemediationRecord> GetRecent(int count = 50)
+    {
+        lock (_persistLock)
+        {
+            // _history is sorted newest-first, so Take is all we need.
+            return _history.Take(Math.Min(count, _history.Count)).ToList();
+        }
+    }
 
     // ══════════════════════════════════════════
     //  Remediation Actions
@@ -568,7 +593,11 @@ public class AutoRemediator
     /// </summary>
     public RemediationRecord Undo(string remediationId)
     {
-        var original = _history.FirstOrDefault(r => r.Id == remediationId);
+        RemediationRecord? original;
+        lock (_persistLock)
+        {
+            original = _history.FirstOrDefault(r => r.Id == remediationId);
+        }
         if (original == null)
         {
             return new RemediationRecord

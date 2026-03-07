@@ -87,6 +87,28 @@ public class FindingDeduplicator
                 ReductionPercent: 0.0);
         }
 
+        // Pre-compute normalised strings and n-gram sets so each finding
+        // is processed once (O(n)) instead of being re-normalised and
+        // re-tokenised on every pairwise comparison (O(n²)).
+        var cachedTitles = new string[findings.Count];
+        var cachedDescs = new string[findings.Count];
+        var cachedFixes = new string[findings.Count];
+        var cachedTitleNgrams = new HashSet<string>[findings.Count];
+        var cachedDescNgrams = new HashSet<string>[findings.Count];
+        var cachedFixNgrams = new HashSet<string>[findings.Count];
+
+        for (int i = 0; i < findings.Count; i++)
+        {
+            cachedTitles[i] = Normalize(findings[i].Title);
+            cachedDescs[i] = Normalize(findings[i].Description);
+            cachedFixes[i] = Normalize(findings[i].FixCommand);
+            cachedTitleNgrams[i] = ExtractNgrams(cachedTitles[i]);
+            cachedDescNgrams[i] = string.IsNullOrEmpty(cachedDescs[i])
+                ? null! : ExtractNgrams(cachedDescs[i]);
+            cachedFixNgrams[i] = string.IsNullOrEmpty(cachedFixes[i])
+                ? null! : ExtractNgrams(cachedFixes[i]);
+        }
+
         // Union-Find to group duplicates
         var parent = Enumerable.Range(0, findings.Count).ToArray();
         var matchReasons = new Dictionary<(int, int), string>();
@@ -98,12 +120,19 @@ public class FindingDeduplicator
         }
         void Union(int a, int b) { parent[Find(a)] = Find(b); }
 
-        // Pairwise comparison
+        // Pairwise comparison using cached data
         for (int i = 0; i < findings.Count; i++)
         {
             for (int j = i + 1; j < findings.Count; j++)
             {
-                var (sim, reason) = ComputeSimilarity(findings[i], findings[j]);
+                var (sim, reason) = ComputeSimilarityCached(
+                    findings[i], findings[j],
+                    cachedTitles[i], cachedTitles[j],
+                    cachedTitleNgrams[i], cachedTitleNgrams[j],
+                    cachedDescs[i], cachedDescs[j],
+                    cachedDescNgrams[i], cachedDescNgrams[j],
+                    cachedFixes[i], cachedFixes[j],
+                    cachedFixNgrams[i], cachedFixNgrams[j]);
                 if (sim >= _threshold)
                 {
                     Union(i, j);
@@ -267,6 +296,100 @@ public class FindingDeduplicator
     /// Compute character n-gram Jaccard similarity between two strings.
     /// Returns a value in [0, 1].
     /// </summary>
+    /// <summary>
+    /// Compute similarity using pre-computed normalised strings and n-gram
+    /// sets.  This avoids redundant Normalize() and ExtractNgrams() calls
+    /// during the O(n²) pairwise comparison in Deduplicate().
+    /// </summary>
+    private (double Score, string Reason) ComputeSimilarityCached(
+        Finding a, Finding b,
+        string normTitleA, string normTitleB,
+        HashSet<string> titleNgramsA, HashSet<string> titleNgramsB,
+        string normDescA, string normDescB,
+        HashSet<string>? descNgramsA, HashSet<string>? descNgramsB,
+        string normFixA, string normFixB,
+        HashSet<string>? fixNgramsA, HashSet<string>? fixNgramsB)
+    {
+        double score = 0.0;
+        var reasons = new List<string>();
+
+        // 1. Title match (weight: 0.50)
+        if (normTitleA == normTitleB)
+        {
+            score += 0.50;
+            reasons.Add("exact title");
+        }
+        else
+        {
+            double titleSim = NgramSimilarityFromSets(titleNgramsA, titleNgramsB);
+            score += 0.50 * titleSim;
+            if (titleSim > 0.5) reasons.Add($"title ~{titleSim * 100:F0}%");
+        }
+
+        // 2. Description similarity (weight: 0.15)
+        if (descNgramsA != null && descNgramsB != null)
+        {
+            double descSim = normDescA == normDescB
+                ? 1.0
+                : NgramSimilarityFromSets(descNgramsA, descNgramsB);
+            score += 0.15 * descSim;
+            if (descSim > 0.5) reasons.Add($"desc ~{descSim * 100:F0}%");
+        }
+
+        // 3. Same category (weight: 0.15)
+        if (!string.IsNullOrEmpty(a.Category) && !string.IsNullOrEmpty(b.Category)
+            && string.Equals(a.Category, b.Category, StringComparison.OrdinalIgnoreCase))
+        {
+            score += 0.15;
+            reasons.Add("same category");
+        }
+
+        // 4. Same severity (weight: 0.05)
+        if (a.Severity == b.Severity)
+        {
+            score += 0.05;
+        }
+
+        // 5. Fix command equivalence (weight: 0.15)
+        if (fixNgramsA != null && fixNgramsB != null)
+        {
+            if (normFixA == normFixB)
+            {
+                score += 0.15;
+                reasons.Add("same fix");
+            }
+            else
+            {
+                double fixSim = NgramSimilarityFromSets(fixNgramsA, fixNgramsB);
+                score += 0.15 * fixSim;
+                if (fixSim > 0.5) reasons.Add($"fix ~{fixSim * 100:F0}%");
+            }
+        }
+
+        string reason = reasons.Count > 0 ? string.Join(", ", reasons) : "low similarity";
+        return (Math.Min(score, 1.0), reason);
+    }
+
+    /// <summary>
+    /// Compute Jaccard similarity from pre-computed n-gram sets.
+    /// </summary>
+    private static double NgramSimilarityFromSets(HashSet<string> ngramsA, HashSet<string> ngramsB)
+    {
+        if (ngramsA.Count == 0 || ngramsB.Count == 0) return 0.0;
+
+        int intersection = 0;
+        // Iterate over the smaller set for efficiency
+        var smaller = ngramsA.Count <= ngramsB.Count ? ngramsA : ngramsB;
+        var larger = ngramsA.Count <= ngramsB.Count ? ngramsB : ngramsA;
+        foreach (var ng in smaller)
+        {
+            if (larger.Contains(ng)) intersection++;
+        }
+
+        int union = ngramsA.Count + ngramsB.Count - intersection;
+        return union > 0 ? (double)intersection / union : 0.0;
+    }
+
     public double NgramSimilarity(string a, string b)
     {
         if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b)) return 0.0;

@@ -64,6 +64,8 @@ public class CliOptions
     public ExemptionAction ExemptionAction { get; set; } = ExemptionAction.None;
     public int ExemptionWarningDays { get; set; } = 7;
     public int ExemptionStaleDays { get; set; } = 90;
+    public SurfaceAction SurfaceAction { get; set; } = SurfaceAction.None;
+    public int SurfaceTopActions { get; set; } = 10;
 }
 
 public enum CliCommand
@@ -85,6 +87,7 @@ public enum CliCommand
     Harden,
     Policy,
     Exemptions,
+    Surface,
     Help,
     Version
 }
@@ -145,6 +148,15 @@ public enum ExemptionAction
     Stale,
     Unused,
     Summary
+}
+
+public enum SurfaceAction
+{
+    None,
+    Full,
+    Vectors,
+    Actions,
+    Compare
 }
 
 /// <summary>
@@ -212,6 +224,51 @@ public static class CliParser
 
                 case "--status":
                     options.Command = CliCommand.Status;
+                    break;
+
+                case "--surface":
+                    options.Command = CliCommand.Surface;
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                    {
+                        var surfaceAction = args[++i].ToLowerInvariant();
+                        options.SurfaceAction = surfaceAction switch
+                        {
+                            "full" => SurfaceAction.Full,
+                            "vectors" => SurfaceAction.Vectors,
+                            "actions" => SurfaceAction.Actions,
+                            "compare" => SurfaceAction.Compare,
+                            _ => SurfaceAction.None
+                        };
+                        if (options.SurfaceAction == SurfaceAction.None)
+                        {
+                            options.Error = $"Unknown surface action: {surfaceAction}. Use full, vectors, actions, or compare.";
+                            return options;
+                        }
+                    }
+                    else
+                    {
+                        options.SurfaceAction = SurfaceAction.Full;
+                    }
+                    break;
+
+                case "--top-actions":
+                    if (i + 1 < args.Length)
+                    {
+                        if (int.TryParse(args[++i], out int topActions) && topActions >= 1 && topActions <= 50)
+                        {
+                            options.SurfaceTopActions = topActions;
+                        }
+                        else
+                        {
+                            options.Error = "Invalid top-actions value. Must be 1-50.";
+                            return options;
+                        }
+                    }
+                    else
+                    {
+                        options.Error = "Missing value for --top-actions.";
+                        return options;
+                    }
                     break;
 
                 case "--harden":

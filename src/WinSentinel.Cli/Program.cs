@@ -36,6 +36,7 @@ return options.Command switch
     CliCommand.Harden => await HandleHarden(options),
     CliCommand.Policy => HandlePolicy(options),
     CliCommand.Exemptions => HandleExemptions(options),
+    CliCommand.Surface => await HandleSurface(options),
     _ => HandleHelp()
 };
 
@@ -412,6 +413,252 @@ static ConsoleColor GetScoreColor(int score)
         >= 60 => ConsoleColor.Yellow,
         _ => ConsoleColor.Red
     };
+}
+
+// ── Attack Surface Analysis ──────────────────────────────────────────
+
+static async Task<int> HandleSurface(CliOptions options)
+{
+    var engine = BuildEngine(options.ModulesFilter);
+    var sw = Stopwatch.StartNew();
+
+    if (!options.Quiet && !options.Json)
+    {
+        ConsoleFormatter.PrintBanner();
+        Console.WriteLine("  Running audit for attack surface analysis...");
+        Console.WriteLine();
+    }
+
+    var progress = options.Quiet || options.Json
+        ? null
+        : new Progress<(string module, int current, int total)>(p =>
+            ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
+
+    var report = await engine.RunFullAuditAsync(progress);
+    sw.Stop();
+
+    if (!options.Quiet && !options.Json)
+    {
+        ConsoleFormatter.PrintProgressDone(engine.Modules.Count, sw.Elapsed);
+    }
+
+    var analyzer = new AttackSurfaceAnalyzer();
+    var surfaceReport = analyzer.Analyze(report);
+
+    if (options.Json)
+    {
+        var jsonResult = new
+        {
+            overallScore = surfaceReport.OverallScore,
+            overallGrade = surfaceReport.OverallGrade,
+            totalFindings = surfaceReport.TotalFindings,
+            totalCritical = surfaceReport.TotalCritical,
+            totalWarnings = surfaceReport.TotalWarnings,
+            mostExposedVector = surfaceReport.MostExposedVector?.ToString(),
+            leastExposedVector = surfaceReport.LeastExposedVector?.ToString(),
+            vectors = surfaceReport.Vectors
+                .Where(v => v.TotalFindings > 0 || options.SurfaceAction == SurfaceAction.Full)
+                .OrderByDescending(v => v.ExposureScore)
+                .Select(v => new
+                {
+                    vector = v.DisplayName,
+                    exposureScore = v.ExposureScore,
+                    grade = v.Grade,
+                    totalFindings = v.TotalFindings,
+                    critical = v.CriticalCount,
+                    warnings = v.WarningCount,
+                    info = v.InfoCount,
+                    pass = v.PassCount,
+                    modules = v.ContributingModules,
+                    recommendations = v.Recommendations
+                }),
+            topActions = surfaceReport.TopActions.Take(options.SurfaceTopActions).Select(a => new
+            {
+                action = a.Action,
+                vector = a.Vector.ToString(),
+                priority = a.Priority.ToString(),
+                estimatedReduction = a.EstimatedReduction,
+                relatedFinding = a.RelatedFindingTitle
+            }),
+            timestamp = DateTimeOffset.Now
+        };
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        var json = JsonSerializer.Serialize(jsonResult, jsonOptions);
+        WriteOutput(json, options.OutputFile);
+        return 0;
+    }
+
+    // Console output
+    var orig = Console.ForegroundColor;
+    Console.WriteLine();
+    Console.ForegroundColor = ConsoleColor.Cyan;
+    Console.WriteLine("  ╔══════════════════════════════════════════════╗");
+    Console.WriteLine("  ║       🎯 Attack Surface Analysis            ║");
+    Console.WriteLine("  ╚══════════════════════════════════════════════╝");
+    Console.ForegroundColor = orig;
+    Console.WriteLine();
+
+    // Overall score
+    var scoreColor = surfaceReport.OverallScore switch
+    {
+        <= 25 => ConsoleColor.Green,
+        <= 45 => ConsoleColor.Yellow,
+        _ => ConsoleColor.Red
+    };
+
+    Console.Write("  Exposure Score: ");
+    Console.ForegroundColor = scoreColor;
+    Console.Write($"{surfaceReport.OverallScore:F1}/100");
+    Console.ForegroundColor = ConsoleColor.DarkGray;
+    Console.Write($" (Grade: {surfaceReport.OverallGrade})");
+    Console.ForegroundColor = orig;
+    Console.WriteLine();
+
+    Console.Write("  Findings:       ");
+    Console.ForegroundColor = ConsoleColor.White;
+    Console.Write($"{surfaceReport.TotalFindings} total");
+    if (surfaceReport.TotalCritical > 0)
+    {
+        Console.Write(" (");
+        Console.ForegroundColor = ConsoleColor.Red;
+        Console.Write($"{surfaceReport.TotalCritical} critical");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.Write($", {surfaceReport.TotalWarnings} warnings)");
+    }
+    Console.ForegroundColor = orig;
+    Console.WriteLine();
+    Console.WriteLine();
+
+    // Vector breakdown (show if not actions-only)
+    if (options.SurfaceAction != SurfaceAction.Actions)
+    {
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine("  ATTACK VECTORS");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine("  ──────────────────────────────────────────────────────────────");
+        Console.ForegroundColor = orig;
+
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine($"  {"Vector",-18} {"Score",7} {"Grade",6} {"Crit",5} {"Warn",5} {"Info",5} {"Pass",5}");
+        Console.WriteLine($"  {"──────────────────",-18} {"───────",7} {"──────",6} {"─────",5} {"─────",5} {"─────",5} {"─────",5}");
+        Console.ForegroundColor = orig;
+
+        foreach (var v in surfaceReport.Vectors.OrderByDescending(v => v.ExposureScore))
+        {
+            if (v.TotalFindings == 0 && options.SurfaceAction == SurfaceAction.Vectors)
+                continue;
+
+            var vColor = v.ExposureScore switch
+            {
+                <= 10 => ConsoleColor.Green,
+                <= 25 => ConsoleColor.DarkGreen,
+                <= 45 => ConsoleColor.Yellow,
+                <= 65 => ConsoleColor.DarkYellow,
+                _ => ConsoleColor.Red
+            };
+
+            Console.Write($"  {v.DisplayName,-18} ");
+            Console.ForegroundColor = vColor;
+            Console.Write($"{v.ExposureScore,6:F1}");
+            Console.ForegroundColor = orig;
+            Console.Write($"  {v.Grade,4}");
+
+            if (v.CriticalCount > 0)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.Write($"  {v.CriticalCount,4}");
+            }
+            else
+            {
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.Write($"  {v.CriticalCount,4}");
+            }
+
+            if (v.WarningCount > 0)
+            {
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.Write($"  {v.WarningCount,4}");
+            }
+            else
+            {
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.Write($"  {v.WarningCount,4}");
+            }
+
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.Write($"  {v.InfoCount,4}  {v.PassCount,4}");
+            Console.ForegroundColor = orig;
+            Console.WriteLine();
+        }
+
+        Console.WriteLine();
+
+        if (surfaceReport.MostExposedVector.HasValue)
+        {
+            Console.Write("  Most Exposed:  ");
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine(surfaceReport.MostExposedVector.Value);
+            Console.ForegroundColor = orig;
+        }
+        if (surfaceReport.LeastExposedVector.HasValue && surfaceReport.LeastExposedVector != surfaceReport.MostExposedVector)
+        {
+            Console.Write("  Least Exposed: ");
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine(surfaceReport.LeastExposedVector.Value);
+            Console.ForegroundColor = orig;
+        }
+        Console.WriteLine();
+    }
+
+    // Top reduction actions (show if not vectors-only)
+    if (options.SurfaceAction != SurfaceAction.Vectors && surfaceReport.TopActions.Count > 0)
+    {
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine("  TOP REDUCTION ACTIONS");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine("  ──────────────────────────────────────────────────────────────");
+        Console.ForegroundColor = orig;
+
+        var displayActions = surfaceReport.TopActions.Take(options.SurfaceTopActions).ToList();
+        for (int i = 0; i < displayActions.Count; i++)
+        {
+            var a = displayActions[i];
+            var priorityColor = a.Priority switch
+            {
+                AttackSurfaceAnalyzer.ActionPriority.Critical => ConsoleColor.Red,
+                AttackSurfaceAnalyzer.ActionPriority.High => ConsoleColor.Yellow,
+                AttackSurfaceAnalyzer.ActionPriority.Medium => ConsoleColor.White,
+                _ => ConsoleColor.DarkGray
+            };
+
+            Console.Write($"  {i + 1,3}. ");
+            Console.ForegroundColor = priorityColor;
+            Console.Write($"[{a.Priority}]");
+            Console.ForegroundColor = ConsoleColor.White;
+
+            // Truncate long action text
+            var actionText = a.Action.Length > 60 ? a.Action[..57] + "..." : a.Action;
+            Console.Write($" {actionText}");
+
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.Write($" ({a.Vector}, ~{a.EstimatedReduction:F0}pt)");
+            Console.ForegroundColor = orig;
+            Console.WriteLine();
+        }
+
+        Console.WriteLine();
+    }
+
+    if (!options.Quiet)
+    {
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine("  Lower exposure score = smaller attack surface = more secure");
+        Console.WriteLine("  Options: --surface vectors | --surface actions | --top-actions N | --json");
+        Console.ForegroundColor = orig;
+        Console.WriteLine();
+    }
+
+    return 0;
 }
 
 // ── Command Handlers ─────────────────────────────────────────────────

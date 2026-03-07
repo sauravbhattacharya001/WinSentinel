@@ -57,6 +57,10 @@ public class CliOptions
     public bool HardenInteractive { get; set; } = true;
     public bool HardenDryRun { get; set; }
     public bool HardenIncludeInfo { get; set; }
+    public PolicyAction PolicyAction { get; set; } = PolicyAction.None;
+    public string? PolicyFile { get; set; }
+    public string? PolicyName { get; set; }
+    public string? PolicyDescription { get; set; }
 }
 
 public enum CliCommand
@@ -76,6 +80,7 @@ public enum CliCommand
     FindingAge,
     Status,
     Harden,
+    Policy,
     Help,
     Version
 }
@@ -117,6 +122,15 @@ public enum FindingAgeAction
     Chronic,
     New,
     Resolved
+}
+
+public enum PolicyAction
+{
+    None,
+    Export,
+    Import,
+    Validate,
+    Diff
 }
 
 /// <summary>
@@ -188,6 +202,41 @@ public static class CliParser
 
                 case "--harden":
                     options.Command = CliCommand.Harden;
+                    break;
+
+                case "--policy":
+                    options.Command = CliCommand.Policy;
+                    break;
+
+                case "export" when options.Command == CliCommand.Policy:
+                    options.PolicyAction = PolicyAction.Export;
+                    break;
+
+                case "import" when options.Command == CliCommand.Policy:
+                    options.PolicyAction = PolicyAction.Import;
+                    break;
+
+                case "validate" when options.Command == CliCommand.Policy:
+                    options.PolicyAction = PolicyAction.Validate;
+                    break;
+
+                case "diff" when options.Command == CliCommand.Policy:
+                    options.PolicyAction = PolicyAction.Diff;
+                    break;
+
+                case "--policy-file":
+                    if (i + 1 < args.Length)
+                        options.PolicyFile = args[++i];
+                    break;
+
+                case "--policy-name":
+                    if (i + 1 < args.Length)
+                        options.PolicyName = args[++i];
+                    break;
+
+                case "--policy-desc":
+                    if (i + 1 < args.Length)
+                        options.PolicyDescription = args[++i];
                     break;
 
                 case "--no-prompt":

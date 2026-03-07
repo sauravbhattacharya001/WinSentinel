@@ -61,6 +61,9 @@ public class CliOptions
     public string? PolicyFile { get; set; }
     public string? PolicyName { get; set; }
     public string? PolicyDescription { get; set; }
+    public ExemptionAction ExemptionAction { get; set; } = ExemptionAction.None;
+    public int ExemptionWarningDays { get; set; } = 7;
+    public int ExemptionStaleDays { get; set; } = 90;
 }
 
 public enum CliCommand
@@ -81,6 +84,7 @@ public enum CliCommand
     Status,
     Harden,
     Policy,
+    Exemptions,
     Help,
     Version
 }
@@ -131,6 +135,16 @@ public enum PolicyAction
     Import,
     Validate,
     Diff
+}
+
+public enum ExemptionAction
+{
+    None,
+    Review,
+    Expiring,
+    Stale,
+    Unused,
+    Summary
 }
 
 /// <summary>
@@ -206,6 +220,74 @@ public static class CliParser
 
                 case "--policy":
                     options.Command = CliCommand.Policy;
+                    break;
+
+                case "--exemptions":
+                    options.Command = CliCommand.Exemptions;
+                    // Next arg should be the action: review, expiring, stale, unused, summary
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                    {
+                        var exemptionAction = args[++i].ToLowerInvariant();
+                        options.ExemptionAction = exemptionAction switch
+                        {
+                            "review" => ExemptionAction.Review,
+                            "expiring" => ExemptionAction.Expiring,
+                            "stale" => ExemptionAction.Stale,
+                            "unused" => ExemptionAction.Unused,
+                            "summary" => ExemptionAction.Summary,
+                            _ => ExemptionAction.None
+                        };
+                        if (options.ExemptionAction == ExemptionAction.None)
+                        {
+                            options.Error = $"Unknown exemption action: {exemptionAction}. Use review, expiring, stale, unused, or summary.";
+                            return options;
+                        }
+                    }
+                    else
+                    {
+                        // Default to full review
+                        options.ExemptionAction = ExemptionAction.Review;
+                    }
+                    break;
+
+                case "--warning-days":
+                    if (i + 1 < args.Length)
+                    {
+                        if (int.TryParse(args[++i], out int warnDays) && warnDays >= 1 && warnDays <= 365)
+                        {
+                            options.ExemptionWarningDays = warnDays;
+                        }
+                        else
+                        {
+                            options.Error = "Invalid warning-days value. Must be 1-365.";
+                            return options;
+                        }
+                    }
+                    else
+                    {
+                        options.Error = "Missing value for --warning-days.";
+                        return options;
+                    }
+                    break;
+
+                case "--stale-days":
+                    if (i + 1 < args.Length)
+                    {
+                        if (int.TryParse(args[++i], out int staleDays) && staleDays >= 1 && staleDays <= 3650)
+                        {
+                            options.ExemptionStaleDays = staleDays;
+                        }
+                        else
+                        {
+                            options.Error = "Invalid stale-days value. Must be 1-3650.";
+                            return options;
+                        }
+                    }
+                    else
+                    {
+                        options.Error = "Missing value for --stale-days.";
+                        return options;
+                    }
                     break;
 
                 case "export" when options.Command == CliCommand.Policy:

@@ -68,14 +68,14 @@ public enum RemediationAction
 public class AutoRemediator
 {
     private readonly ILogger<AutoRemediator> _logger;
-    private readonly ConcurrentBag<RemediationRecord> _history = new();
+    private readonly List<RemediationRecord> _history = new();
     private readonly string _quarantineDir;
     private readonly string _hostsBackupDir;
     private readonly string _historyFilePath;
-    private readonly object _persistLock = new();
+    private readonly object _historyLock = new();
     private readonly ConcurrentDictionary<string, object> _undoLocks = new();
 
-    /// <summary>Maximum number of records to retain in the persisted history file.</summary>
+    /// <summary>Maximum number of records to retain in memory and on disk.</summary>
     private const int MaxPersistedRecords = 1000;
 
     private static readonly string DataDir =
@@ -111,12 +111,12 @@ public class AutoRemediator
             var records = JsonSerializer.Deserialize<List<RemediationRecord>>(json, JsonOpts);
             if (records == null) return;
 
-            // Add records directly to the in-memory bag without re-persisting.
-            // Previously this called AddRecord() per record, which calls
-            // PersistHistory() each time — causing O(n²) disk I/O on startup
-            // (N records × full serialization each = N writes of growing data).
-            foreach (var record in records)
-                _history.Add(record);
+            lock (_historyLock)
+            {
+                _history.AddRange(records);
+                // Ensure loaded records are sorted newest-first
+                _history.Sort((a, b) => b.Timestamp.CompareTo(a.Timestamp));
+            }
 
             _logger.LogInformation("Loaded {Count} remediation records from disk", records.Count);
         }
@@ -131,14 +131,11 @@ public class AutoRemediator
     /// </summary>
     private void PersistHistory()
     {
-        lock (_persistLock)
+        lock (_historyLock)
         {
             try
             {
-                var records = _history
-                    .OrderByDescending(r => r.Timestamp)
-                    .Take(MaxPersistedRecords)
-                    .ToList();
+                var records = _history.Take(MaxPersistedRecords).ToList();
 
                 var tempPath = _historyFilePath + ".tmp";
                 File.WriteAllText(tempPath, JsonSerializer.Serialize(records, JsonOpts));
@@ -156,16 +153,37 @@ public class AutoRemediator
     /// </summary>
     private void AddRecord(RemediationRecord record)
     {
-        _history.Add(record);
+        lock (_historyLock)
+        {
+            // Insert at the front to maintain newest-first order
+            _history.Insert(0, record);
+
+            // Trim to bounded size — evict oldest entries
+            if (_history.Count > MaxPersistedRecords)
+            {
+                _history.RemoveRange(MaxPersistedRecords, _history.Count - MaxPersistedRecords);
+            }
+        }
         PersistHistory();
     }
 
     /// <summary>Get all remediation records.</summary>
-    public List<RemediationRecord> GetHistory() => _history.ToList();
+    public List<RemediationRecord> GetHistory()
+    {
+        lock (_historyLock)
+        {
+            return new List<RemediationRecord>(_history);
+        }
+    }
 
     /// <summary>Get recent remediation records.</summary>
-    public List<RemediationRecord> GetRecent(int count = 50) =>
-        _history.OrderByDescending(r => r.Timestamp).Take(count).ToList();
+    public List<RemediationRecord> GetRecent(int count = 50)
+    {
+        lock (_historyLock)
+        {
+            return _history.Take(count).ToList();
+        }
+    }
 
     // ══════════════════════════════════════════
     //  Remediation Actions
@@ -568,7 +586,11 @@ public class AutoRemediator
     /// </summary>
     public RemediationRecord Undo(string remediationId)
     {
-        var original = _history.FirstOrDefault(r => r.Id == remediationId);
+        RemediationRecord? original;
+        lock (_historyLock)
+        {
+            original = _history.FirstOrDefault(r => r.Id == remediationId);
+        }
         if (original == null)
         {
             return new RemediationRecord

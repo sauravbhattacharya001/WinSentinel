@@ -9,18 +9,37 @@ namespace WinSentinel.Cli;
 /// </summary>
 public static partial class ConsoleFormatter
 {
+    // ── Shared color helpers ────────────────────────────────────────
+    // Eliminates the repetitive save/restore ForegroundColor pattern
+    // that appeared 22+ times across this file.
+
+    /// <summary>Write <paramref name="text"/> in the given color, then restore.</summary>
+    private static void WriteColored(string text, ConsoleColor color)
+    {
+        var prev = Console.ForegroundColor;
+        Console.ForegroundColor = color;
+        Console.Write(text);
+        Console.ForegroundColor = prev;
+    }
+
+    /// <summary>Write <paramref name="text"/> + newline in the given color, then restore.</summary>
+    private static void WriteLineColored(string text, ConsoleColor color)
+    {
+        var prev = Console.ForegroundColor;
+        Console.ForegroundColor = color;
+        Console.WriteLine(text);
+        Console.ForegroundColor = prev;
+    }
+
     /// <summary>
     /// Print the application banner.
     /// </summary>
     public static void PrintBanner()
     {
-        var original = Console.ForegroundColor;
-        Console.ForegroundColor = ConsoleColor.Cyan;
         Console.WriteLine();
-        Console.WriteLine("  ╔══════════════════════════════════════════════╗");
-        Console.WriteLine("  ║       🛡️  WinSentinel Security Audit        ║");
-        Console.WriteLine("  ╚══════════════════════════════════════════════╝");
-        Console.ForegroundColor = original;
+        WriteLineColored("  ╔══════════════════════════════════════════════╗", ConsoleColor.Cyan);
+        WriteLineColored("  ║       🛡️  WinSentinel Security Audit        ║", ConsoleColor.Cyan);
+        WriteLineColored("  ╚══════════════════════════════════════════════╝", ConsoleColor.Cyan);
         Console.WriteLine();
     }
 
@@ -29,10 +48,7 @@ public static partial class ConsoleFormatter
     /// </summary>
     public static void PrintProgress(string moduleName, int current, int total)
     {
-        var original = Console.ForegroundColor;
-        Console.ForegroundColor = ConsoleColor.DarkGray;
-        Console.Write($"\r  [{current}/{total}] Scanning {moduleName,-25}");
-        Console.ForegroundColor = original;
+        WriteColored($"\r  [{current}/{total}] Scanning {moduleName,-25}", ConsoleColor.DarkGray);
     }
 
     /// <summary>
@@ -41,12 +57,8 @@ public static partial class ConsoleFormatter
     public static void PrintProgressDone(int total, TimeSpan elapsed)
     {
         Console.Write("\r" + new string(' ', 60) + "\r");
-        var original = Console.ForegroundColor;
-        Console.ForegroundColor = ConsoleColor.Green;
-        Console.Write($"  ✓ Scanned {total} modules");
-        Console.ForegroundColor = ConsoleColor.DarkGray;
-        Console.WriteLine($" in {elapsed.TotalSeconds:F1}s");
-        Console.ForegroundColor = original;
+        WriteColored($"  ✓ Scanned {total} modules", ConsoleColor.Green);
+        WriteLineColored($" in {elapsed.TotalSeconds:F1}s", ConsoleColor.DarkGray);
         Console.WriteLine();
     }
 
@@ -57,34 +69,24 @@ public static partial class ConsoleFormatter
     {
         var grade = SecurityScorer.GetGrade(score);
         var color = GetScoreConsoleColor(score);
-        var original = Console.ForegroundColor;
 
         if (quiet)
         {
-            Console.ForegroundColor = color;
-            Console.WriteLine($"{score}/100 ({grade})");
-            Console.ForegroundColor = original;
+            WriteLineColored($"{score}/100 ({grade})", color);
             return;
         }
 
         Console.Write("  Security Score: ");
-        Console.ForegroundColor = color;
-        Console.Write($"{score}/100");
-        Console.ForegroundColor = original;
+        WriteColored($"{score}/100", color);
         Console.Write("  Grade: ");
-        Console.ForegroundColor = color;
-        Console.WriteLine(grade);
-        Console.ForegroundColor = original;
+        WriteLineColored(grade, color);
 
         // Score bar
         int barLength = 40;
         int filled = (int)(score / 100.0 * barLength);
         Console.Write("  ");
-        Console.ForegroundColor = color;
-        Console.Write(new string('█', filled));
-        Console.ForegroundColor = ConsoleColor.DarkGray;
-        Console.Write(new string('░', barLength - filled));
-        Console.ForegroundColor = original;
+        WriteColored(new string('█', filled), color);
+        WriteColored(new string('░', barLength - filled), ConsoleColor.DarkGray);
         Console.WriteLine($"  {score}%");
         Console.WriteLine();
     }
@@ -94,24 +96,14 @@ public static partial class ConsoleFormatter
     /// </summary>
     public static void PrintSummary(SecurityReport report)
     {
-        var original = Console.ForegroundColor;
-
         Console.Write("  Findings: ");
-        Console.ForegroundColor = ConsoleColor.Red;
-        Console.Write($"{report.TotalCritical} critical");
-        Console.ForegroundColor = original;
+        WriteColored($"{report.TotalCritical} critical", ConsoleColor.Red);
         Console.Write(" │ ");
-        Console.ForegroundColor = ConsoleColor.Yellow;
-        Console.Write($"{report.TotalWarnings} warnings");
-        Console.ForegroundColor = original;
+        WriteColored($"{report.TotalWarnings} warnings", ConsoleColor.Yellow);
         Console.Write(" │ ");
-        Console.ForegroundColor = ConsoleColor.Cyan;
-        Console.Write($"{report.TotalInfo} info");
-        Console.ForegroundColor = original;
+        WriteColored($"{report.TotalInfo} info", ConsoleColor.Cyan);
         Console.Write(" │ ");
-        Console.ForegroundColor = ConsoleColor.Green;
-        Console.Write($"{report.TotalPass} pass");
-        Console.ForegroundColor = original;
+        WriteColored($"{report.TotalPass} pass", ConsoleColor.Green);
         Console.WriteLine($" │ {report.TotalFindings} total");
         Console.WriteLine();
     }
@@ -121,19 +113,16 @@ public static partial class ConsoleFormatter
     /// </summary>
     public static void PrintModuleTable(SecurityReport report)
     {
-        var original = Console.ForegroundColor;
-
         // Header
-        Console.ForegroundColor = ConsoleColor.DarkGray;
-        Console.WriteLine($"  {"Module",-22} {"Score",6} {"Grade",6} {"Crit",6} {"Warn",6} {"Total",6}  Status");
-        Console.WriteLine($"  {new string('─', 22)} {new string('─', 6)} {new string('─', 6)} {new string('─', 6)} {new string('─', 6)} {new string('─', 6)}  {new string('─', 6)}");
-        Console.ForegroundColor = original;
+        WriteLineColored($"  {"Module",-22} {"Score",6} {"Grade",6} {"Crit",6} {"Warn",6} {"Total",6}  Status", ConsoleColor.DarkGray);
+        WriteLineColored($"  {new string('─', 22)} {new string('─', 6)} {new string('─', 6)} {new string('─', 6)} {new string('─', 6)} {new string('─', 6)}  {new string('─', 6)}", ConsoleColor.DarkGray);
 
         foreach (var result in report.Results)
         {
             var modScore = SecurityScorer.CalculateCategoryScore(result);
             var modGrade = SecurityScorer.GetGrade(modScore);
             var color = GetScoreConsoleColor(modScore);
+            var original = Console.ForegroundColor;
             var status = result.Success
                 ? (modScore >= 80 ? "PASS" : modScore >= 60 ? "WARN" : "FAIL")
                 : "ERROR";
@@ -147,17 +136,11 @@ public static partial class ConsoleFormatter
             };
 
             Console.Write($"  {result.Category,-22} ");
-            Console.ForegroundColor = color;
-            Console.Write($"{modScore,6} {modGrade,6}");
-            Console.ForegroundColor = result.CriticalCount > 0 ? ConsoleColor.Red : original;
-            Console.Write($" {result.CriticalCount,6}");
-            Console.ForegroundColor = result.WarningCount > 0 ? ConsoleColor.Yellow : original;
-            Console.Write($" {result.WarningCount,6}");
-            Console.ForegroundColor = original;
+            WriteColored($"{modScore,6} {modGrade,6}", color);
+            WriteColored($" {result.CriticalCount,6}", result.CriticalCount > 0 ? ConsoleColor.Red : original);
+            WriteColored($" {result.WarningCount,6}", result.WarningCount > 0 ? ConsoleColor.Yellow : original);
             Console.Write($" {result.Findings.Count,6}  ");
-            Console.ForegroundColor = statusColor;
-            Console.WriteLine(status);
-            Console.ForegroundColor = original;
+            WriteLineColored(status, statusColor);
         }
 
         Console.WriteLine();
@@ -168,8 +151,6 @@ public static partial class ConsoleFormatter
     /// </summary>
     public static void PrintFindings(SecurityReport report)
     {
-        var original = Console.ForegroundColor;
-
         foreach (var result in report.Results)
         {
             var actionableFindings = result.Findings
@@ -180,9 +161,7 @@ public static partial class ConsoleFormatter
 
             if (actionableFindings.Count == 0) continue;
 
-            Console.ForegroundColor = ConsoleColor.White;
-            Console.WriteLine($"  ┌─ {result.Category}");
-            Console.ForegroundColor = original;
+            WriteLineColored($"  ┌─ {result.Category}", ConsoleColor.White);
 
             foreach (var finding in actionableFindings)
             {
@@ -194,25 +173,17 @@ public static partial class ConsoleFormatter
                 };
 
                 Console.Write("  │  ");
-                Console.ForegroundColor = color;
-                Console.Write($"[{icon}]");
-                Console.ForegroundColor = ConsoleColor.White;
-                Console.WriteLine($" {finding.Title}");
-                Console.ForegroundColor = ConsoleColor.DarkGray;
-                Console.WriteLine($"  │    {finding.Description}");
+                WriteColored($"[{icon}]", color);
+                WriteLineColored($" {finding.Title}", ConsoleColor.White);
+                WriteLineColored($"  │    {finding.Description}", ConsoleColor.DarkGray);
 
                 if (!string.IsNullOrEmpty(finding.Remediation))
                 {
-                    Console.ForegroundColor = ConsoleColor.Green;
-                    Console.WriteLine($"  │    → {finding.Remediation}");
+                    WriteLineColored($"  │    → {finding.Remediation}", ConsoleColor.Green);
                 }
-
-                Console.ForegroundColor = original;
             }
 
-            Console.ForegroundColor = ConsoleColor.DarkGray;
-            Console.WriteLine("  └─────────────────────────────────");
-            Console.ForegroundColor = original;
+            WriteLineColored("  └─────────────────────────────────", ConsoleColor.DarkGray);
         }
 
         Console.WriteLine();
@@ -223,11 +194,7 @@ public static partial class ConsoleFormatter
     /// </summary>
     public static void PrintFixResults(List<(Finding finding, FixResult result)> results)
     {
-        var original = Console.ForegroundColor;
-
-        Console.ForegroundColor = ConsoleColor.White;
-        Console.WriteLine("  Fix Results:");
-        Console.ForegroundColor = original;
+        WriteLineColored("  Fix Results:", ConsoleColor.White);
         Console.WriteLine();
 
         int success = 0, failed = 0, skipped = 0;
@@ -237,57 +204,42 @@ public static partial class ConsoleFormatter
             if (fixResult.Success)
             {
                 success++;
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.Write("  ✓ ");
+                WriteColored("  ✓ ", ConsoleColor.Green);
             }
             else if (string.IsNullOrWhiteSpace(finding.FixCommand))
             {
                 skipped++;
-                Console.ForegroundColor = ConsoleColor.DarkGray;
-                Console.Write("  ○ ");
+                WriteColored("  ○ ", ConsoleColor.DarkGray);
             }
             else
             {
                 failed++;
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.Write("  ✗ ");
+                WriteColored("  ✗ ", ConsoleColor.Red);
             }
 
-            Console.ForegroundColor = original;
             Console.Write(finding.Title);
 
             if (fixResult.Success)
             {
-                Console.ForegroundColor = ConsoleColor.DarkGray;
-                Console.WriteLine(" (fixed)");
+                WriteLineColored(" (fixed)", ConsoleColor.DarkGray);
             }
             else if (string.IsNullOrWhiteSpace(finding.FixCommand))
             {
-                Console.ForegroundColor = ConsoleColor.DarkGray;
-                Console.WriteLine(" (no fix available)");
+                WriteLineColored(" (no fix available)", ConsoleColor.DarkGray);
             }
             else
             {
-                Console.ForegroundColor = ConsoleColor.DarkGray;
-                Console.WriteLine($" ({fixResult.Error ?? "failed"})");
+                WriteLineColored($" ({fixResult.Error ?? "failed"})", ConsoleColor.DarkGray);
             }
-
-            Console.ForegroundColor = original;
         }
 
         Console.WriteLine();
         Console.Write($"  Summary: ");
-        Console.ForegroundColor = ConsoleColor.Green;
-        Console.Write($"{success} fixed");
-        Console.ForegroundColor = original;
+        WriteColored($"{success} fixed", ConsoleColor.Green);
         Console.Write(" │ ");
-        Console.ForegroundColor = ConsoleColor.Red;
-        Console.Write($"{failed} failed");
-        Console.ForegroundColor = original;
+        WriteColored($"{failed} failed", ConsoleColor.Red);
         Console.Write(" │ ");
-        Console.ForegroundColor = ConsoleColor.DarkGray;
-        Console.WriteLine($"{skipped} skipped");
-        Console.ForegroundColor = original;
+        WriteLineColored($"{skipped} skipped", ConsoleColor.DarkGray);
         Console.WriteLine();
     }
 

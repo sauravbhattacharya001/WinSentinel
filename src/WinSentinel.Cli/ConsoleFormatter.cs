@@ -360,6 +360,10 @@ public static partial class ConsoleFormatter
         Console.ForegroundColor = original;
         Console.WriteLine("Security Policy as Code (export/import/validate/diff)");
         Console.ForegroundColor = ConsoleColor.White;
+        Console.Write("    --digest, -d         ");
+        Console.ForegroundColor = original;
+        Console.WriteLine("Executive security digest (score, risks, trend, next steps)");
+        Console.ForegroundColor = ConsoleColor.White;
         Console.Write("    --help, -h           ");
         Console.ForegroundColor = original;
         Console.WriteLine("Show this help message");

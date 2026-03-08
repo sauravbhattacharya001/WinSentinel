@@ -36,6 +36,7 @@ return options.Command switch
     CliCommand.Harden => await HandleHarden(options),
     CliCommand.Policy => HandlePolicy(options),
     CliCommand.Exemptions => HandleExemptions(options),
+    CliCommand.Changelog => HandleChangelog(options),
     _ => HandleHelp()
 };
 
@@ -2490,4 +2491,38 @@ static object FormatReviewedRuleJson(ExemptionReviewService.ReviewedRule r)
         matchCount = r.MatchCount,
         recommendation = r.Recommendation
     };
+}
+
+// ── Security Changelog ───────────────────────────────────────────────
+
+static int HandleChangelog(CliOptions options)
+{
+    using var history = new AuditHistoryService();
+    var service = new SecurityChangelogService(history);
+    var report = service.Generate(options.ChangelogDays, options.ChangelogModuleFilter);
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            Converters = { new JsonStringEnumConverter() }
+        };
+        var json = JsonSerializer.Serialize(report, jsonOptions);
+
+        if (options.OutputFile != null)
+        {
+            File.WriteAllText(options.OutputFile, json);
+            Console.WriteLine($"  Changelog written to {options.OutputFile}");
+        }
+        else
+        {
+            Console.WriteLine(json);
+        }
+        return 0;
+    }
+
+    ConsoleFormatter.PrintChangelog(report, options.Quiet);
+    return 0;
 }

@@ -64,6 +64,10 @@ public class CliOptions
     public ExemptionAction ExemptionAction { get; set; } = ExemptionAction.None;
     public int ExemptionWarningDays { get; set; } = 7;
     public int ExemptionStaleDays { get; set; } = 90;
+    public int QuizQuestionCount { get; set; } = 10;
+    public string? QuizDifficulty { get; set; }
+    public string? QuizCategory { get; set; }
+    public bool QuizExport { get; set; }
 }
 
 public enum CliCommand
@@ -85,6 +89,7 @@ public enum CliCommand
     Harden,
     Policy,
     Exemptions,
+    Quiz,
     Help,
     Version
 }
@@ -288,6 +293,58 @@ public static class CliParser
                         options.Error = "Missing value for --stale-days.";
                         return options;
                     }
+                    break;
+
+                case "--quiz":
+                    options.Command = CliCommand.Quiz;
+                    break;
+
+                case "--quiz-count":
+                    if (i + 1 < args.Length)
+                    {
+                        if (int.TryParse(args[++i], out int qCount) && qCount >= 1 && qCount <= 50)
+                        {
+                            options.QuizQuestionCount = qCount;
+                        }
+                        else
+                        {
+                            options.Error = "Invalid quiz-count value. Must be 1-50.";
+                            return options;
+                        }
+                    }
+                    else
+                    {
+                        options.Error = "Missing value for --quiz-count.";
+                        return options;
+                    }
+                    break;
+
+                case "--quiz-difficulty":
+                    if (i + 1 < args.Length)
+                    {
+                        options.QuizDifficulty = args[++i].ToLowerInvariant();
+                    }
+                    else
+                    {
+                        options.Error = "Missing value for --quiz-difficulty.";
+                        return options;
+                    }
+                    break;
+
+                case "--quiz-category":
+                    if (i + 1 < args.Length)
+                    {
+                        options.QuizCategory = args[++i];
+                    }
+                    else
+                    {
+                        options.Error = "Missing value for --quiz-category.";
+                        return options;
+                    }
+                    break;
+
+                case "--quiz-export":
+                    options.QuizExport = true;
                     break;
 
                 case "export" when options.Command == CliCommand.Policy:

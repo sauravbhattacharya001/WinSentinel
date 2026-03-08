@@ -36,6 +36,7 @@ return options.Command switch
     CliCommand.Harden => await HandleHarden(options),
     CliCommand.Policy => HandlePolicy(options),
     CliCommand.Exemptions => HandleExemptions(options),
+    CliCommand.Quiz => await HandleQuiz(options),
     _ => HandleHelp()
 };
 
@@ -2491,3 +2492,77 @@ static object FormatReviewedRuleJson(ExemptionReviewService.ReviewedRule r)
         recommendation = r.Recommendation
     };
 }
+
+// ── Security Quiz ────────────────────────────────────────────────────
+
+static async Task<int> HandleQuiz(CliOptions options)
+{
+    ConsoleFormatter.PrintBanner();
+
+    var auditEngine = new AuditEngine();
+    var report = await auditEngine.RunFullAuditAsync();
+
+    var quizService = new SecurityQuizService();
+    var quizOptions = new QuizOptions
+    {
+        QuestionCount = options.QuizQuestionCount
+    };
+
+    if (!string.IsNullOrEmpty(options.QuizDifficulty))
+    {
+        if (Enum.TryParse<QuizDifficulty>(options.QuizDifficulty, true, out var diff))
+            quizOptions.Difficulty = diff;
+        else
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"  Unknown difficulty: {options.QuizDifficulty}. Use easy, medium, or hard.");
+            Console.ResetColor();
+            return 1;
+        }
+    }
+
+    if (!string.IsNullOrEmpty(options.QuizCategory))
+    {
+        quizOptions.Categories.Add(options.QuizCategory);
+    }
+
+    var quiz = quizService.GenerateQuiz(report, quizOptions);
+
+    if (options.QuizExport)
+    {
+        var json = quizService.ExportToJson(quiz);
+        if (!string.IsNullOrEmpty(options.OutputFile))
+        {
+            File.WriteAllText(options.OutputFile, json);
+            Console.WriteLine($"  Quiz exported to {options.OutputFile}");
+        }
+        else
+        {
+            Console.WriteLine(json);
+        }
+        return 0;
+    }
+
+    if (options.Json)
+    {
+        var json = quizService.ExportToJson(quiz);
+        Console.WriteLine(json);
+        return 0;
+    }
+
+    // Print quiz with answers shown (non-interactive review mode)
+    ConsoleFormatter.PrintQuiz(quiz, showAnswers: true);
+
+    // Show available categories
+    var categories = quizService.GetAvailableCategories(report);
+    if (categories.Count > 0)
+    {
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine($"  Available categories: {string.Join(", ", categories)}");
+        Console.WriteLine("  Use --quiz-category <name> to filter by category.");
+        Console.ResetColor();
+    }
+
+    return 0;
+}
+

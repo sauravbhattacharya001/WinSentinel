@@ -64,6 +64,8 @@ public class CliOptions
     public ExemptionAction ExemptionAction { get; set; } = ExemptionAction.None;
     public int ExemptionWarningDays { get; set; } = 7;
     public int ExemptionStaleDays { get; set; } = 90;
+    public int ChangelogDays { get; set; } = 30;
+    public string? ChangelogModuleFilter { get; set; }
 }
 
 public enum CliCommand
@@ -85,6 +87,7 @@ public enum CliCommand
     Harden,
     Policy,
     Exemptions,
+    Changelog,
     Help,
     Version
 }
@@ -247,6 +250,42 @@ public static class CliParser
                     {
                         // Default to full review
                         options.ExemptionAction = ExemptionAction.Review;
+                    }
+                    break;
+
+                case "--changelog":
+                    options.Command = CliCommand.Changelog;
+                    break;
+
+                case "--changelog-days":
+                    if (i + 1 < args.Length)
+                    {
+                        if (int.TryParse(args[++i], out int clDays) && clDays >= 1 && clDays <= 365)
+                        {
+                            options.ChangelogDays = clDays;
+                        }
+                        else
+                        {
+                            options.Error = "Invalid changelog-days value. Must be 1-365.";
+                            return options;
+                        }
+                    }
+                    else
+                    {
+                        options.Error = "Missing value for --changelog-days.";
+                        return options;
+                    }
+                    break;
+
+                case "--changelog-module":
+                    if (i + 1 < args.Length)
+                    {
+                        options.ChangelogModuleFilter = args[++i];
+                    }
+                    else
+                    {
+                        options.Error = "Missing value for --changelog-module.";
+                        return options;
                     }
                     break;
 

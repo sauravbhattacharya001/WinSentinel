@@ -417,6 +417,10 @@ public class NetworkMonitorModule : IAgentModule
     /// </summary>
     internal void CheckTorConnections(TcpConnectionInformation[] connections, HashSet<string>? alertedRemoteIps = null)
     {
+        // Track IPs already alerted within this poll cycle to avoid duplicate
+        // alerts when multiple connections exist to the same Tor exit node.
+        var seenTorIps = new HashSet<string>();
+
         foreach (var conn in connections)
         {
             if (conn.State != TcpState.Established)
@@ -429,6 +433,13 @@ public class NetworkMonitorModule : IAgentModule
             // Skip IPs already alerted by a higher-priority rule (e.g., known-bad IP)
             if (alertedRemoteIps?.Contains(remoteIp) == true)
                 continue;
+
+            // Skip IPs already alerted within this Tor check
+            if (seenTorIps.Contains(remoteIp))
+            {
+                alertedRemoteIps?.Add(remoteIp);
+                continue;
+            }
 
             // Check for local Tor SOCKS proxy
             if (localPort == TorSocksPort || localPort == TorBrowserPort ||
@@ -444,6 +455,8 @@ public class NetworkMonitorModule : IAgentModule
                                   $"Tor can be used to anonymize malicious traffic.",
                     AutoFixable = false
                 });
+                seenTorIps.Add(remoteIp);
+                alertedRemoteIps?.Add(remoteIp);
                 continue;
             }
 
@@ -452,17 +465,23 @@ public class NetworkMonitorModule : IAgentModule
             {
                 if (remoteIp.StartsWith(prefix))
                 {
+                    var connCount = connections.Count(c =>
+                        c.State == TcpState.Established &&
+                        c.RemoteEndPoint.Address.ToString() == remoteIp);
+
                     EmitThreat(new ThreatEvent
                     {
                         Source = "NetworkMonitor",
                         Severity = ThreatSeverity.High,
                         Title = "Connection to Tor Exit Node",
-                        Description = $"Connection to known Tor exit node IP {remoteIp}:{remotePort}. " +
+                        Description = $"{connCount} connection(s) to known Tor exit node IP {remoteIp}:{remotePort}. " +
                                       $"Local endpoint: {conn.LocalEndPoint}. " +
                                       $"This may indicate anonymized C2 communication.",
                         AutoFixable = true,
                         FixCommand = $"netsh advfirewall firewall add rule name=\"Block Tor {remoteIp}\" dir=out action=block remoteip={remoteIp}"
                     });
+                    seenTorIps.Add(remoteIp);
+                    alertedRemoteIps?.Add(remoteIp);
                     break;
                 }
             }
@@ -474,6 +493,10 @@ public class NetworkMonitorModule : IAgentModule
     /// </summary>
     internal void CheckSuspiciousPorts(TcpConnectionInformation[] connections, HashSet<string>? alertedRemoteIps = null)
     {
+        // Track remote IP:port pairs already alerted to avoid duplicate alerts
+        // when multiple connections exist to the same suspicious endpoint.
+        var seenEndpoints = new HashSet<string>();
+
         foreach (var conn in connections)
         {
             if (conn.State != TcpState.Established)
@@ -494,16 +517,25 @@ public class NetworkMonitorModule : IAgentModule
             // Check if remote port is suspicious
             if (SuspiciousPorts.Contains(remotePort))
             {
+                var endpointKey = $"{remoteIp}:{remotePort}";
+                if (seenEndpoints.Contains(endpointKey))
+                    continue;
+
+                var connCount = connections.Count(c =>
+                    c.State == TcpState.Established &&
+                    c.RemoteEndPoint.Address.ToString() == remoteIp &&
+                    c.RemoteEndPoint.Port == remotePort);
+
                 EmitThreat(new ThreatEvent
                 {
                     Source = "NetworkMonitor",
                     Severity = ThreatSeverity.Medium,
                     Title = "Suspicious Port Usage",
-                    Description = $"Connection to {remoteIp}:{remotePort} — port {remotePort} is commonly " +
-                                  $"associated with RATs, backdoors, or C2 frameworks. " +
-                                  $"Local endpoint: {conn.LocalEndPoint}.",
+                    Description = $"{connCount} connection(s) to {remoteIp}:{remotePort} — port {remotePort} is commonly " +
+                                  $"associated with RATs, backdoors, or C2 frameworks.",
                     AutoFixable = false
                 });
+                seenEndpoints.Add(endpointKey);
             }
         }
     }

@@ -355,6 +355,11 @@ public class NetworkMonitorModule : IAgentModule
     /// </summary>
     internal void CheckKnownBadIps(TcpConnectionInformation[] connections, HashSet<string>? alertedRemoteIps = null)
     {
+        // Group connections by remote IP to avoid flooding the threat log with
+        // duplicate Critical alerts when multiple connections exist to the same
+        // malicious IP (e.g. parallel C2 channels or retries).
+        var seenBadIps = new HashSet<string>();
+
         foreach (var conn in connections)
         {
             if (conn.State != TcpState.Established)
@@ -362,23 +367,46 @@ public class NetworkMonitorModule : IAgentModule
 
             var remoteIp = conn.RemoteEndPoint.Address.ToString();
 
+            // Skip if we already emitted an alert for this IP in this poll cycle
+            if (seenBadIps.Contains(remoteIp))
+            {
+                alertedRemoteIps?.Add(remoteIp);
+                continue;
+            }
+
             foreach (var prefix in KnownBadIpPrefixes)
             {
                 if (remoteIp.StartsWith(prefix))
                 {
+                    // Count how many connections exist to this IP for richer context
+                    var connCount = connections.Count(c =>
+                        c.State == TcpState.Established &&
+                        c.RemoteEndPoint.Address.ToString() == remoteIp);
+
+                    var ports = connections
+                        .Where(c => c.State == TcpState.Established &&
+                                    c.RemoteEndPoint.Address.ToString() == remoteIp)
+                        .Select(c => c.RemoteEndPoint.Port)
+                        .Distinct()
+                        .OrderBy(p => p)
+                        .ToList();
+
+                    var portList = string.Join(", ", ports);
+
                     EmitThreat(new ThreatEvent
                     {
                         Source = "NetworkMonitor",
                         Severity = ThreatSeverity.Critical,
                         Title = "Connection to Known-Malicious IP",
-                        Description = $"Active connection to known-malicious IP {remoteIp}:{conn.RemoteEndPoint.Port}. " +
-                                      $"Local endpoint: {conn.LocalEndPoint}. " +
+                        Description = $"{connCount} active connection(s) to known-malicious IP {remoteIp} " +
+                                      $"on port(s) {portList}. " +
                                       $"This IP is in a known C2/malware hosting range.",
                         AutoFixable = true,
                         FixCommand = $"netsh advfirewall firewall add rule name=\"Block {remoteIp}\" dir=out action=block remoteip={remoteIp}"
                     });
+                    seenBadIps.Add(remoteIp);
                     alertedRemoteIps?.Add(remoteIp);
-                    break; // Don't emit multiple alerts for the same connection
+                    break;
                 }
             }
         }

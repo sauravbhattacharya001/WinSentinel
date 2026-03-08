@@ -124,6 +124,32 @@ jobs:
       env:
         CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
+    - name: Install ReportGenerator
+      if: matrix.configuration == 'Release'
+      run: dotnet tool install --global dotnet-reportgenerator-globaltool
+
+    - name: Generate HTML coverage report
+      if: matrix.configuration == 'Release'
+      shell: pwsh
+      run: |
+        $coverageFiles = Get-ChildItem -Recurse -Filter "coverage.cobertura.xml" -Path TestResults
+        if ($coverageFiles.Count -gt 0) {
+          $files = ($coverageFiles | ForEach-Object { $_.FullName }) -join ";"
+          reportgenerator `
+            -reports:"$files" `
+            -targetdir:"CoverageReport" `
+            -reporttypes:"HtmlInline_AzurePipelines;Badges;TextSummary" `
+            -assemblyfilters:"-WinSentinel.Tests;-WinSentinel.Installer"
+        }
+
+    - name: Upload HTML coverage report
+      uses: actions/upload-artifact@v7
+      if: always() && matrix.configuration == 'Release'
+      with:
+        name: coverage-html-report
+        path: CoverageReport/
+        retention-days: 30
+
     - name: Generate coverage report summary
       if: matrix.configuration == 'Release'
       shell: pwsh

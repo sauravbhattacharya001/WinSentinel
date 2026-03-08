@@ -8,6 +8,18 @@
 
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+
+    <!-- Coverlet MSBuild integration: coverage thresholds -->
+    <CollectCoverage>true</CollectCoverage>
+    <CoverletOutputFormat>cobertura</CoverletOutputFormat>
+    <CoverletOutput>TestResults/</CoverletOutput>
+    <!-- Fail build if line coverage drops below 40% -->
+    <Threshold>40</Threshold>
+    <ThresholdType>line</ThresholdType>
+    <ThresholdStat>total</ThresholdStat>
+    <!-- Exclude generated code, test infra, and installer from coverage -->
+    <ExcludeByFile>**/*.g.cs,**/obj/**</ExcludeByFile>
+    <Exclude>[WinSentinel.Tests]*,[WinSentinel.Installer]*,[WinSentinel.App]*.Views.*,[WinSentinel.App]*.Controls.*</Exclude>
   </PropertyGroup>
 
   <ItemGroup>

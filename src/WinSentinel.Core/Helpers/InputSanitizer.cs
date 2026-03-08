@@ -301,6 +301,55 @@ public static partial class InputSanitizer
         if (command.Contains('`'))
             return "Contains PowerShell backtick escape (potential bypass)";
 
+        // LOLBins (Living Off The Land Binaries) — legitimate Windows tools
+        // commonly abused for download, execution, or lateral movement
+        if (lower.Contains("certutil") && (lower.Contains("-urlcache") || lower.Contains("-decode") || lower.Contains("-encode")))
+            return "Contains certutil download/decode (LOLBin abuse)";
+        if (lower.Contains("bitsadmin") && (lower.Contains("/transfer") || lower.Contains("/addfile")))
+            return "Contains bitsadmin file transfer (LOLBin abuse)";
+        if (lower.Contains("mshta") || lower.Contains("mshta.exe"))
+            return "Contains mshta execution (LOLBin — runs HTA/script from URL)";
+        if (lower.Contains("regsvr32") && (lower.Contains("/s") || lower.Contains("/i:http")))
+            return "Contains regsvr32 script execution (Squiblydoo LOLBin)";
+        if (lower.Contains("rundll32") && (lower.Contains("javascript:") || lower.Contains("http")))
+            return "Contains rundll32 script/URL execution (LOLBin abuse)";
+        if (lower.Contains("wmic") && (lower.Contains("process call create") || lower.Contains("/format:") && lower.Contains("http")))
+            return "Contains WMIC remote execution (LOLBin abuse)";
+        if (lower.Contains("cscript") || lower.Contains("wscript"))
+            return "Contains Windows Script Host execution (potential malicious script)";
+
+        // AMSI bypass attempts
+        if (lower.Contains("amsiutils") || lower.Contains("amsiinitfailed") ||
+            lower.Contains("amsi.dll") || lower.Contains("amsiscanbuffer"))
+            return "Contains AMSI bypass attempt";
+
+        // PowerShell execution policy bypass (beyond -ExecutionPolicy Bypass which we control)
+        if (lower.Contains("set-executionpolicy") && (lower.Contains("unrestricted") || lower.Contains("bypass")))
+            return "Contains Set-ExecutionPolicy override";
+
+        // Reflection-based .NET method invocation (bypasses Add-Type blocks)
+        if (lower.Contains("[system.reflection") || lower.Contains("getmethod") ||
+            lower.Contains("invoke(") || lower.Contains("assembly::load"))
+            return "Contains .NET reflection invocation (potential bypass)";
+
+        // Registry Run key persistence
+        if (lower.Contains("hklm\\software\\microsoft\\windows\\currentversion\\run") ||
+            lower.Contains("hkcu\\software\\microsoft\\windows\\currentversion\\run"))
+            return "Contains registry Run key modification (persistence mechanism)";
+
+        // Scheduled task creation (persistence)
+        if (lower.Contains("schtasks") && lower.Contains("/create"))
+            return "Contains scheduled task creation (persistence mechanism)";
+
+        // Service creation (persistence / privilege escalation)
+        if (lower.Contains("sc.exe") && lower.Contains("create") ||
+            lower.Contains("new-service"))
+            return "Contains service creation (persistence/escalation)";
+
+        // Pipe-based command chaining (can bypass individual command checks)
+        if (command.Contains('|') && (lower.Contains("powershell") || lower.Contains("cmd")))
+            return "Contains piped shell execution (potential bypass)";
+
         return null;
     }
 

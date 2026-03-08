@@ -64,6 +64,9 @@ public class CliOptions
     public ExemptionAction ExemptionAction { get; set; } = ExemptionAction.None;
     public int ExemptionWarningDays { get; set; } = 7;
     public int ExemptionStaleDays { get; set; } = 90;
+    public string? BenchmarkGroup { get; set; }
+    public bool BenchmarkAll { get; set; }
+    public bool BenchmarkSuggest { get; set; }
 }
 
 public enum CliCommand
@@ -85,6 +88,7 @@ public enum CliCommand
     Harden,
     Policy,
     Exemptions,
+    Benchmark,
     Help,
     Version
 }
@@ -673,6 +677,32 @@ public static class CliParser
                     {
                         options.Error = "Missing value for --profile (-p). Available: home, developer, enterprise, server";
                         return options;
+                    }
+                    break;
+
+                case "--benchmark":
+                    options.Command = CliCommand.Benchmark;
+                    // Optional: next arg is the peer group (home/developer/enterprise/server)
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                    {
+                        var groupArg = args[++i].ToLowerInvariant();
+                        if (groupArg == "all")
+                        {
+                            options.BenchmarkAll = true;
+                        }
+                        else if (groupArg == "suggest")
+                        {
+                            options.BenchmarkSuggest = true;
+                        }
+                        else if (groupArg is "home" or "developer" or "enterprise" or "server")
+                        {
+                            options.BenchmarkGroup = groupArg;
+                        }
+                        else
+                        {
+                            options.Error = $"Unknown benchmark group: {groupArg}. Use home, developer, enterprise, server, all, or suggest.";
+                            return options;
+                        }
                     }
                     break;
 

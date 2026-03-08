@@ -1164,4 +1164,80 @@ public class CliParserTests
         Assert.Equal(BadgeBadgeAction.None, options.BadgeAction);
         Assert.Null(options.BadgeStyle);
     }
+
+    // ── Benchmark ────────────────────────────────────────────────────
+
+    [Fact]
+    public void Parse_Benchmark_NoGroup_DefaultsToCommand()
+    {
+        var result = CliParser.Parse(["--benchmark"]);
+        Assert.Equal(CliCommand.Benchmark, result.Command);
+        Assert.Null(result.BenchmarkGroup);
+        Assert.False(result.BenchmarkAll);
+        Assert.False(result.BenchmarkSuggest);
+        Assert.Null(result.Error);
+    }
+
+    [Theory]
+    [InlineData("home")]
+    [InlineData("developer")]
+    [InlineData("enterprise")]
+    [InlineData("server")]
+    public void Parse_Benchmark_ValidGroup(string group)
+    {
+        var result = CliParser.Parse(["--benchmark", group]);
+        Assert.Equal(CliCommand.Benchmark, result.Command);
+        Assert.Equal(group, result.BenchmarkGroup);
+        Assert.False(result.BenchmarkAll);
+        Assert.False(result.BenchmarkSuggest);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_Benchmark_All()
+    {
+        var result = CliParser.Parse(["--benchmark", "all"]);
+        Assert.Equal(CliCommand.Benchmark, result.Command);
+        Assert.True(result.BenchmarkAll);
+        Assert.Null(result.BenchmarkGroup);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_Benchmark_Suggest()
+    {
+        var result = CliParser.Parse(["--benchmark", "suggest"]);
+        Assert.Equal(CliCommand.Benchmark, result.Command);
+        Assert.True(result.BenchmarkSuggest);
+        Assert.Null(result.BenchmarkGroup);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_Benchmark_InvalidGroup_ReturnsError()
+    {
+        var result = CliParser.Parse(["--benchmark", "invalid"]);
+        Assert.NotNull(result.Error);
+        Assert.Contains("Unknown benchmark group", result.Error);
+    }
+
+    [Fact]
+    public void Parse_Benchmark_WithJson()
+    {
+        var result = CliParser.Parse(["--benchmark", "developer", "--json"]);
+        Assert.Equal(CliCommand.Benchmark, result.Command);
+        Assert.Equal("developer", result.BenchmarkGroup);
+        Assert.True(result.Json);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_Benchmark_WithModulesFilter()
+    {
+        var result = CliParser.Parse(["--benchmark", "home", "--modules", "firewall,network"]);
+        Assert.Equal(CliCommand.Benchmark, result.Command);
+        Assert.Equal("home", result.BenchmarkGroup);
+        Assert.Equal("firewall,network", result.ModulesFilter);
+        Assert.Null(result.Error);
+    }
 }

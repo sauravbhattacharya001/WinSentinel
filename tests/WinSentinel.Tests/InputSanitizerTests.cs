@@ -451,7 +451,7 @@ public class InputSanitizerTests
     [InlineData("Set-MpPreference -DisableRealtimeMonitoring $false")]
     [InlineData("Get-Service WinDefend")]
     [InlineData("netsh advfirewall firewall add rule name=\"Block\" dir=in action=block remoteip=1.2.3.4")]
-    public void CheckDangerousCommand_SafeCommands_ReturnsNull(string input)
+    public void CheckDangerousCommand_SafeRemediationCommands_ReturnsNull(string input)
     {
         // These legitimate remediation commands should NOT be blocked
         Assert.Null(InputSanitizer.CheckDangerousCommand(input));

@@ -36,6 +36,7 @@ return options.Command switch
     CliCommand.Harden => await HandleHarden(options),
     CliCommand.Policy => HandlePolicy(options),
     CliCommand.Exemptions => HandleExemptions(options),
+    CliCommand.Benchmark => await HandleBenchmark(options),
     _ => HandleHelp()
 };
 
@@ -2491,3 +2492,174 @@ static object FormatReviewedRuleJson(ExemptionReviewService.ReviewedRule r)
         recommendation = r.Recommendation
     };
 }
+
+// ── Peer Benchmark ───────────────────────────────────────────────────
+
+static async Task<int> HandleBenchmark(CliOptions options)
+{
+    var engine = BuildEngine(options.ModulesFilter);
+    var sw = Stopwatch.StartNew();
+
+    if (!options.Quiet)
+    {
+        ConsoleFormatter.PrintBanner();
+        Console.WriteLine("  Running audit for peer benchmark comparison...");
+        Console.WriteLine();
+    }
+
+    var progress = options.Quiet
+        ? null
+        : new Progress<(string module, int current, int total)>(p =>
+            ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
+
+    var report = await engine.RunFullAuditAsync(progress);
+    sw.Stop();
+
+    if (!options.Quiet)
+    {
+        ConsoleFormatter.PrintProgressDone(engine.Modules.Count, sw.Elapsed);
+        ConsoleFormatter.PrintScore(report.SecurityScore);
+    }
+
+    var benchmarkService = new PeerBenchmarkService();
+
+    // Handle "suggest" mode — find best peer group
+    if (options.BenchmarkSuggest)
+    {
+        var suggested = benchmarkService.SuggestPeerGroup(report);
+        if (options.Json)
+        {
+            var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+            var suggestObj = new
+            {
+                suggestedGroup = suggested.ToString(),
+                systemScore = report.SecurityScore,
+                rationale = $"Your score of {report.SecurityScore} is closest to the {suggested} peer group median"
+            };
+            var json = JsonSerializer.Serialize(suggestObj, jsonOptions);
+            WriteOutput(json, options.OutputFile);
+        }
+        else
+        {
+            Console.WriteLine();
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.Write("  Suggested peer group: ");
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.WriteLine(suggested);
+            Console.ResetColor();
+            Console.WriteLine($"  Based on your system score of {report.SecurityScore}/100");
+            Console.WriteLine();
+            Console.WriteLine("  Run with that group:");
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine($"    winsentinel --benchmark {suggested.ToString().ToLowerInvariant()}");
+            Console.ResetColor();
+            Console.WriteLine();
+        }
+        return 0;
+    }
+
+    // Handle "all" mode — compare against all peer groups
+    if (options.BenchmarkAll)
+    {
+        var allResults = benchmarkService.CompareAll(report);
+
+        if (options.Json)
+        {
+            var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+            var allObj = allResults.ToDictionary(
+                kv => kv.Key.ToString(),
+                kv => FormatBenchmarkResultJson(kv.Value));
+            var json = JsonSerializer.Serialize(allObj, jsonOptions);
+            WriteOutput(json, options.OutputFile);
+        }
+        else
+        {
+            ConsoleFormatter.PrintBenchmarkAllResults(allResults, options.Quiet);
+        }
+        return 0;
+    }
+
+    // Single peer group comparison (default to auto-suggested group)
+    var peerGroup = PeerBenchmarkService.PeerGroup.Home;
+    if (options.BenchmarkGroup != null)
+    {
+        peerGroup = options.BenchmarkGroup.ToLowerInvariant() switch
+        {
+            "home" => PeerBenchmarkService.PeerGroup.Home,
+            "developer" => PeerBenchmarkService.PeerGroup.Developer,
+            "enterprise" => PeerBenchmarkService.PeerGroup.Enterprise,
+            "server" => PeerBenchmarkService.PeerGroup.Server,
+            _ => PeerBenchmarkService.PeerGroup.Home
+        };
+    }
+    else
+    {
+        // Auto-suggest best group
+        peerGroup = benchmarkService.SuggestPeerGroup(report);
+    }
+
+    var result = benchmarkService.Compare(report, peerGroup);
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        var json = JsonSerializer.Serialize(FormatBenchmarkResultJson(result), jsonOptions);
+        WriteOutput(json, options.OutputFile);
+    }
+    else
+    {
+        ConsoleFormatter.PrintBenchmarkResult(result, options.Quiet);
+    }
+
+    return 0;
+}
+
+static object FormatBenchmarkResultJson(PeerBenchmarkService.BenchmarkResult result) => new
+{
+    peerGroup = result.Group.ToString(),
+    systemScore = result.SystemOverallScore,
+    peerMedian = result.PeerOverallMedian,
+    overallPercentile = Math.Round(result.OverallPercentile, 1),
+    overallRating = result.OverallRating,
+    categoriesAbovePeer = result.CategoriesAbovePeer,
+    categoriesAtPeer = result.CategoriesAtPeer,
+    categoriesBelowPeer = result.CategoriesBelowPeer,
+    strengths = result.TopStrengths.Select(s => new
+    {
+        category = s.Category,
+        systemScore = s.SystemScore,
+        peerMedian = s.PeerMedian,
+        delta = s.Delta,
+        percentile = Math.Round(s.Percentile, 1),
+        rating = s.Rating.ToString()
+    }),
+    weaknesses = result.TopWeaknesses.Select(w => new
+    {
+        category = w.Category,
+        systemScore = w.SystemScore,
+        peerMedian = w.PeerMedian,
+        delta = w.Delta,
+        percentile = Math.Round(w.Percentile, 1),
+        rating = w.Rating.ToString()
+    }),
+    categories = result.Categories.Select(c => new
+    {
+        category = c.Category,
+        systemScore = c.SystemScore,
+        peerMedian = c.PeerMedian,
+        peerP25 = c.PeerP25,
+        peerP75 = c.PeerP75,
+        delta = c.Delta,
+        percentile = Math.Round(c.Percentile, 1),
+        rating = c.Rating.ToString()
+    }),
+    suggestions = result.Suggestions.Select(s => new
+    {
+        category = s.Category,
+        currentScore = s.CurrentScore,
+        peerMedian = s.PeerMedian,
+        gap = s.Gap,
+        recommendation = s.Recommendation,
+        priority = s.Priority.ToString()
+    })
+};

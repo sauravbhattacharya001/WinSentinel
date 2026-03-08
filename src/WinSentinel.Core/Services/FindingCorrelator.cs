@@ -135,7 +135,9 @@ public class FindingCorrelator
     /// <summary>
     /// Find findings that match a correlation rule.
     /// A rule matches when ALL RequiredPatterns have at least one matching finding,
-    /// and ALL RequiredCategories have at least one matching finding.
+    /// ALL RequiredCategories have at least one matching finding, and each pattern
+    /// is satisfied by a <b>distinct</b> finding — a single finding cannot satisfy
+    /// two different patterns (but a finding may satisfy both a pattern and a category).
     /// </summary>
     private static List<Finding> FindMatchingFindings(List<Finding> findings, CorrelationRule rule)
     {
@@ -143,19 +145,34 @@ public class FindingCorrelator
         bool allPatternsMatched = true;
         bool allCategoriesMatched = true;
 
-        // Check required patterns
+        // Track which findings are already claimed by a pattern to enforce
+        // the "distinct finding per pattern" rule.  Without this, a single
+        // finding whose title contains both "Defender" and "Firewall" (e.g.
+        // "Windows Defender Firewall disabled") would satisfy CORR-001 on its
+        // own even though the intent is two independently broken defenses.
+        var claimedByPattern = new HashSet<Finding>();
+
+        // Check required patterns — each must match a *different* finding
         foreach (var pattern in rule.RequiredPatterns)
         {
             var match = findings.FirstOrDefault(f =>
-                f.Title.Contains(pattern, StringComparison.OrdinalIgnoreCase) ||
-                f.Description.Contains(pattern, StringComparison.OrdinalIgnoreCase));
+                !claimedByPattern.Contains(f) &&
+                (f.Title.Contains(pattern, StringComparison.OrdinalIgnoreCase) ||
+                 f.Description.Contains(pattern, StringComparison.OrdinalIgnoreCase)));
             if (match != null)
+            {
                 matched.Add(match);
+                claimedByPattern.Add(match);
+            }
             else
+            {
                 allPatternsMatched = false;
+            }
         }
 
-        // Check required categories
+        // Check required categories — a finding already claimed by a pattern
+        // MAY also satisfy a category (categories are complementary filters,
+        // not independent conditions that need distinct findings).
         foreach (var category in rule.RequiredCategories)
         {
             var match = findings.FirstOrDefault(f =>

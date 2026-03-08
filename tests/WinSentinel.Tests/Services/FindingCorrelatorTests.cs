@@ -672,17 +672,32 @@ public class FindingCorrelatorTests
     }
 
     [Fact]
-    public void EdgeCase_SameFindingCanSatisfyMultiplePatterns()
+    public void EdgeCase_SameFindingCannotSatisfyMultiplePatterns()
     {
         var correlator = new FindingCorrelator();
         // A single finding that contains both "Defender" and "Firewall" text
+        // should NOT trigger CORR-001, which requires two *distinct* broken
+        // defenses (not one finding describing both in its title).
         var report = CreateReport(
             ("Defender and Firewall both disabled", "Both are off", "Security", Severity.Critical));
         var result = correlator.Analyze(report);
         var corr001 = result.Matches.FirstOrDefault(m => m.Rule.Id == "CORR-001");
+        Assert.Null(corr001);
+    }
+
+    [Fact]
+    public void EdgeCase_TwoDistinctFindingsForSameRule_Matches()
+    {
+        var correlator = new FindingCorrelator();
+        // Two separate findings — one about Defender, one about Firewall —
+        // should trigger CORR-001 "Unprotected System".
+        var report = CreateReport(
+            ("Windows Defender disabled", "AV is off", "Security", Severity.Critical),
+            ("Firewall disabled", "All profiles off", "Network", Severity.Critical));
+        var result = correlator.Analyze(report);
+        var corr001 = result.Matches.FirstOrDefault(m => m.Rule.Id == "CORR-001");
         Assert.NotNull(corr001);
-        // HashSet deduplicates: same finding matched twice → 1 unique finding
-        Assert.Single(corr001.MatchedFindings);
+        Assert.Equal(2, corr001!.MatchedFindings.Count);
     }
 
     [Fact]

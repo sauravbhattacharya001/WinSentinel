@@ -39,6 +39,7 @@ return options.Command switch
     CliCommand.Quiz => await HandleQuiz(options),
     CliCommand.RootCause => await HandleRootCause(options),
     CliCommand.Threats => await HandleThreats(options),
+    CliCommand.Burndown => await HandleBurndown(options),
     _ => HandleHelp()
 };
 
@@ -2385,5 +2386,66 @@ static async Task<int> HandleThreats(CliOptions options)
     }
 
     ConsoleFormatter.PrintThreatModel(model);
+    return 0;
+}
+
+// ── Burndown Chart ───────────────────────────────────────────────────
+
+static async Task<int> HandleBurndown(CliOptions options)
+{
+    ConsoleFormatter.PrintBanner();
+
+    using var history = new AuditHistoryService();
+    history.EnsureDatabase();
+
+    var runs = history.GetHistory(options.HistoryDays);
+
+    if (runs.Count == 0)
+    {
+        ConsoleFormatter.PrintWarning("No audit history found. Run --score or --audit first to generate data.");
+        return 1;
+    }
+
+    // Load full details (findings) for each run
+    for (int i = 0; i < runs.Count; i++)
+    {
+        var fullRun = history.GetRunDetails(runs[i].Id);
+        if (fullRun != null)
+        {
+            runs[i].Findings = fullRun.Findings;
+            runs[i].ModuleScores = fullRun.ModuleScores;
+        }
+    }
+
+    var service = new FindingBurndownService();
+    var report = service.Generate(runs, options.BurndownPeriodDays);
+
+    if (options.Json)
+    {
+        var jsonOpts = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Converters = { new JsonStringEnumConverter() }
+        };
+        Console.WriteLine(JsonSerializer.Serialize(report, jsonOpts));
+        return 0;
+    }
+
+    switch (options.BurndownAction)
+    {
+        case BurndownAction.Projection:
+            ConsoleFormatter.Burndown.PrintProjection(report.Projection);
+            break;
+        case BurndownAction.Periods:
+            ConsoleFormatter.Burndown.PrintPeriods(report.Periods);
+            break;
+        case BurndownAction.Grade:
+            ConsoleFormatter.Burndown.PrintGrade(report);
+            break;
+        default:
+            ConsoleFormatter.Burndown.PrintReport(report);
+            break;
+    }
+
     return 0;
 }

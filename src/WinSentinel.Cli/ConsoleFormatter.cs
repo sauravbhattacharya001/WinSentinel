@@ -312,6 +312,10 @@ public static partial class ConsoleFormatter
         Console.ForegroundColor = original;
         Console.WriteLine("Security Policy as Code (export/import/validate/diff)");
         Console.ForegroundColor = ConsoleColor.White;
+        Console.Write("    --threats            ");
+        Console.ForegroundColor = original;
+        Console.WriteLine("STRIDE threat model from audit findings");
+        Console.ForegroundColor = ConsoleColor.White;
         Console.Write("    --help, -h           ");
         Console.ForegroundColor = original;
         Console.WriteLine("Show this help message");

@@ -94,6 +94,7 @@ public enum CliCommand
     Exemptions,
     Quiz,
     RootCause,
+    Threats,
     Help,
     Version
 }
@@ -415,6 +416,10 @@ public static class CliParser
                         options.Error = "Missing value for --rootcause-severity.";
                         return options;
                     }
+                    break;
+
+                case "--threats":
+                    options.Command = CliCommand.Threats;
                     break;
 
                 case "export" when options.Command == CliCommand.Policy:

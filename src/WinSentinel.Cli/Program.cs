@@ -38,6 +38,7 @@ return options.Command switch
     CliCommand.Exemptions => HandleExemptions(options),
     CliCommand.Quiz => await HandleQuiz(options),
     CliCommand.RootCause => await HandleRootCause(options),
+    CliCommand.Threats => await HandleThreats(options),
     _ => HandleHelp()
 };
 
@@ -2357,5 +2358,32 @@ static async Task<int> HandleRootCause(CliOptions options)
             break;
     }
 
+    return 0;
+}
+
+// ── Threat Model ─────────────────────────────────────────────────────
+
+static async Task<int> HandleThreats(CliOptions options)
+{
+    ConsoleFormatter.PrintBanner();
+
+    var auditEngine = new AuditEngine();
+    var report = await auditEngine.RunFullAuditAsync();
+
+    var service = new ThreatModelService();
+    var model = service.Analyze(report);
+
+    if (options.Json)
+    {
+        var jsonOpts = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Converters = { new JsonStringEnumConverter() }
+        };
+        Console.WriteLine(JsonSerializer.Serialize(model, jsonOpts));
+        return 0;
+    }
+
+    ConsoleFormatter.PrintThreatModel(model);
     return 0;
 }

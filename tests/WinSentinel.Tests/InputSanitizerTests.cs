@@ -226,6 +226,7 @@ public class InputSanitizerTests
     [Theory]
     [InlineData("format C: /y", "destructive format")]
     [InlineData("del /s /q C:\\*", "recursive delete")]
+    [InlineData("Remove-Item -Recurse -Force C:\\Users\\temp", "recursive delete")]
     public void CheckDangerousCommand_DestructiveCommands_ReturnsReason(string input, string reasonContains)
     {
         var result = InputSanitizer.CheckDangerousCommand(input);

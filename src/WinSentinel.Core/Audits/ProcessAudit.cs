@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using WinSentinel.Core.Helpers;
-using WinSentinel.Core.Interfaces;
 using WinSentinel.Core.Models;
 
 namespace WinSentinel.Core.Audits;
@@ -8,11 +7,11 @@ namespace WinSentinel.Core.Audits;
 /// <summary>
 /// Audits running processes for unsigned executables and suspicious locations.
 /// </summary>
-public class ProcessAudit : IAuditModule
+public class ProcessAudit : AuditModuleBase
 {
-    public string Name => "Process Audit";
-    public string Category => "Processes";
-    public string Description => "Checks running processes for unsigned executables, suspicious locations, and known risks.";
+    public override string Name => "Process Audit";
+    public override string Category => "Processes";
+    public override string Description => "Checks running processes for unsigned executables, suspicious locations, and known risks.";
 
     private static readonly HashSet<string> SuspiciousDirectories = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -34,30 +33,12 @@ public class ProcessAudit : IAuditModule
         "Advanced Micro Devices",
     };
 
-    public async Task<AuditResult> RunAuditAsync(CancellationToken cancellationToken = default)
+    protected override async Task ExecuteAuditAsync(AuditResult result, CancellationToken cancellationToken)
     {
-        var result = new AuditResult
-        {
-            ModuleName = Name,
-            Category = Category,
-            StartTime = DateTimeOffset.UtcNow
-        };
-
-        try
-        {
-            await CheckSuspiciousProcessLocations(result, cancellationToken);
-            await CheckUnsignedProcesses(result, cancellationToken);
-            await CheckHighPrivilegeProcesses(result, cancellationToken);
-            await CheckProcessCount(result, cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            result.Success = false;
-            result.Error = ex.Message;
-        }
-
-        result.EndTime = DateTimeOffset.UtcNow;
-        return result;
+        await CheckSuspiciousProcessLocations(result, cancellationToken);
+        await CheckUnsignedProcesses(result, cancellationToken);
+        await CheckHighPrivilegeProcesses(result, cancellationToken);
+        await CheckProcessCount(result, cancellationToken);
     }
 
     private async Task CheckSuspiciousProcessLocations(AuditResult result, CancellationToken ct)

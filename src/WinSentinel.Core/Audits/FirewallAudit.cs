@@ -1,5 +1,4 @@
 using WinSentinel.Core.Helpers;
-using WinSentinel.Core.Interfaces;
 using WinSentinel.Core.Models;
 
 namespace WinSentinel.Core.Audits;
@@ -7,35 +6,17 @@ namespace WinSentinel.Core.Audits;
 /// <summary>
 /// Audits Windows Firewall status, profile states, and rules.
 /// </summary>
-public class FirewallAudit : IAuditModule
+public class FirewallAudit : AuditModuleBase
 {
-    public string Name => "Firewall Audit";
-    public string Category => "Firewall";
-    public string Description => "Checks Windows Firewall status, profile states, and rule analysis.";
+    public override string Name => "Firewall Audit";
+    public override string Category => "Firewall";
+    public override string Description => "Checks Windows Firewall status, profile states, and rule analysis.";
 
-    public async Task<AuditResult> RunAuditAsync(CancellationToken cancellationToken = default)
+    protected override async Task ExecuteAuditAsync(AuditResult result, CancellationToken cancellationToken)
     {
-        var result = new AuditResult
-        {
-            ModuleName = Name,
-            Category = Category,
-            StartTime = DateTimeOffset.UtcNow
-        };
-
-        try
-        {
-            await CheckFirewallProfiles(result, cancellationToken);
-            await CheckFirewallRules(result, cancellationToken);
-            await CheckInboundDefaults(result, cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            result.Success = false;
-            result.Error = ex.Message;
-        }
-
-        result.EndTime = DateTimeOffset.UtcNow;
-        return result;
+        await CheckFirewallProfiles(result, cancellationToken);
+        await CheckFirewallRules(result, cancellationToken);
+        await CheckInboundDefaults(result, cancellationToken);
     }
 
     private async Task CheckFirewallProfiles(AuditResult result, CancellationToken ct)

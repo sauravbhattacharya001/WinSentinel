@@ -1,6 +1,5 @@
 using System.Management;
 using WinSentinel.Core.Helpers;
-using WinSentinel.Core.Interfaces;
 using WinSentinel.Core.Models;
 using Microsoft.Win32;
 
@@ -9,37 +8,19 @@ namespace WinSentinel.Core.Audits;
 /// <summary>
 /// Audits local user accounts, admin accounts, password policies, and guest account status.
 /// </summary>
-public class AccountAudit : IAuditModule
+public class AccountAudit : AuditModuleBase
 {
-    public string Name => "Account Audit";
-    public string Category => "Accounts";
-    public string Description => "Checks local user accounts, admin membership, password policies, and guest account status.";
+    public override string Name => "Account Audit";
+    public override string Category => "Accounts";
+    public override string Description => "Checks local user accounts, admin membership, password policies, and guest account status.";
 
-    public async Task<AuditResult> RunAuditAsync(CancellationToken cancellationToken = default)
+    protected override async Task ExecuteAuditAsync(AuditResult result, CancellationToken cancellationToken)
     {
-        var result = new AuditResult
-        {
-            ModuleName = Name,
-            Category = Category,
-            StartTime = DateTimeOffset.UtcNow
-        };
-
-        try
-        {
-            await CheckGuestAccount(result, cancellationToken);
-            await CheckAdminAccounts(result, cancellationToken);
-            await CheckPasswordPolicy(result, cancellationToken);
-            await CheckLockedOutAccounts(result, cancellationToken);
-            CheckAutoLogon(result);
-        }
-        catch (Exception ex)
-        {
-            result.Success = false;
-            result.Error = ex.Message;
-        }
-
-        result.EndTime = DateTimeOffset.UtcNow;
-        return result;
+        await CheckGuestAccount(result, cancellationToken);
+        await CheckAdminAccounts(result, cancellationToken);
+        await CheckPasswordPolicy(result, cancellationToken);
+        await CheckLockedOutAccounts(result, cancellationToken);
+        CheckAutoLogon(result);
     }
 
     private async Task CheckGuestAccount(AuditResult result, CancellationToken ct)

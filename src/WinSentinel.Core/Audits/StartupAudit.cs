@@ -1,5 +1,4 @@
 using WinSentinel.Core.Helpers;
-using WinSentinel.Core.Interfaces;
 using WinSentinel.Core.Models;
 using Microsoft.Win32;
 
@@ -8,11 +7,11 @@ namespace WinSentinel.Core.Audits;
 /// <summary>
 /// Audits startup items, scheduled tasks, and registry run keys.
 /// </summary>
-public class StartupAudit : IAuditModule
+public class StartupAudit : AuditModuleBase
 {
-    public string Name => "Startup Audit";
-    public string Category => "Startup";
-    public string Description => "Checks startup items, scheduled tasks, and registry run keys for persistence mechanisms.";
+    public override string Name => "Startup Audit";
+    public override string Category => "Startup";
+    public override string Description => "Checks startup items, scheduled tasks, and registry run keys for persistence mechanisms.";
 
     private static readonly string[] RunKeyPaths = new[]
     {
@@ -22,30 +21,12 @@ public class StartupAudit : IAuditModule
         @"SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\RunOnce",
     };
 
-    public async Task<AuditResult> RunAuditAsync(CancellationToken cancellationToken = default)
+    protected override async Task ExecuteAuditAsync(AuditResult result, CancellationToken cancellationToken)
     {
-        var result = new AuditResult
-        {
-            ModuleName = Name,
-            Category = Category,
-            StartTime = DateTimeOffset.UtcNow
-        };
-
-        try
-        {
-            CheckRegistryRunKeys(result);
-            await CheckStartupFolder(result, cancellationToken);
-            await CheckScheduledTasks(result, cancellationToken);
-            await CheckServices(result, cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            result.Success = false;
-            result.Error = ex.Message;
-        }
-
-        result.EndTime = DateTimeOffset.UtcNow;
-        return result;
+        CheckRegistryRunKeys(result);
+        await CheckStartupFolder(result, cancellationToken);
+        await CheckScheduledTasks(result, cancellationToken);
+        await CheckServices(result, cancellationToken);
     }
 
     private void CheckRegistryRunKeys(AuditResult result)

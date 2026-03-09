@@ -1,5 +1,4 @@
 using WinSentinel.Core.Helpers;
-using WinSentinel.Core.Interfaces;
 using WinSentinel.Core.Models;
 
 namespace WinSentinel.Core.Audits;
@@ -7,36 +6,18 @@ namespace WinSentinel.Core.Audits;
 /// <summary>
 /// Audits Windows Update status, pending updates, and last update date.
 /// </summary>
-public class UpdateAudit : IAuditModule
+public class UpdateAudit : AuditModuleBase
 {
-    public string Name => "Update Audit";
-    public string Category => "Updates";
-    public string Description => "Checks Windows Update status, pending updates, and last install date.";
+    public override string Name => "Update Audit";
+    public override string Category => "Updates";
+    public override string Description => "Checks Windows Update status, pending updates, and last install date.";
 
-    public async Task<AuditResult> RunAuditAsync(CancellationToken cancellationToken = default)
+    protected override async Task ExecuteAuditAsync(AuditResult result, CancellationToken cancellationToken)
     {
-        var result = new AuditResult
-        {
-            ModuleName = Name,
-            Category = Category,
-            StartTime = DateTimeOffset.UtcNow
-        };
-
-        try
-        {
-            await CheckLastUpdateDate(result, cancellationToken);
-            await CheckPendingUpdates(result, cancellationToken);
-            await CheckAutoUpdateSettings(result, cancellationToken);
-            await CheckPendingReboot(result, cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            result.Success = false;
-            result.Error = ex.Message;
-        }
-
-        result.EndTime = DateTimeOffset.UtcNow;
-        return result;
+        await CheckLastUpdateDate(result, cancellationToken);
+        await CheckPendingUpdates(result, cancellationToken);
+        await CheckAutoUpdateSettings(result, cancellationToken);
+        await CheckPendingReboot(result, cancellationToken);
     }
 
     private async Task CheckLastUpdateDate(AuditResult result, CancellationToken ct)

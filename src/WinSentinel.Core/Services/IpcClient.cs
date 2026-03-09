@@ -19,6 +19,7 @@ public class IpcClient : IDisposable
     private CancellationTokenSource? _eventCts;
     private Task? _eventLoop;
     private bool _disposed;
+    private int _disconnectedFired;
 
     /// <summary>Whether we're currently connected to the agent.</summary>
     public bool IsConnected => _pipe?.IsConnected ?? false;
@@ -43,6 +44,7 @@ public class IpcClient : IDisposable
     {
         try
         {
+            Interlocked.Exchange(ref _disconnectedFired, 0);
             _pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
             await _pipe.ConnectAsync(ConnectTimeoutMs, ct);
 
@@ -67,7 +69,7 @@ public class IpcClient : IDisposable
     {
         _eventCts?.Cancel();
         Cleanup();
-        Disconnected?.Invoke();
+        FireDisconnected();
     }
 
     /// <summary>Ping the agent to check connectivity.</summary>
@@ -244,7 +246,7 @@ public class IpcClient : IDisposable
         catch (Exception) { }
         finally
         {
-            Disconnected?.Invoke();
+            FireDisconnected();
         }
     }
 
@@ -270,6 +272,15 @@ public class IpcClient : IDisposable
             case "AgentShutdown":
                 AgentShutdown?.Invoke();
                 break;
+        }
+    }
+
+    /// <summary>Fire Disconnected at most once to prevent duplicate event notifications.</summary>
+    private void FireDisconnected()
+    {
+        if (Interlocked.Exchange(ref _disconnectedFired, 1) == 0)
+        {
+            Disconnected?.Invoke();
         }
     }
 

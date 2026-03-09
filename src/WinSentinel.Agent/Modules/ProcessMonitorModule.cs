@@ -28,8 +28,8 @@ public class ProcessMonitorModule : IAgentModule
     /// <summary>Cache of Authenticode signature results (path → isSigned). Cleared periodically.</summary>
     private readonly ConcurrentDictionary<string, bool> _signatureCache = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Recent alert keys with last-alert timestamp for rate limiting.</summary>
-    private readonly ConcurrentDictionary<string, DateTimeOffset> _recentAlerts = new();
+    /// <summary>Shared rate limiter for threat alert dedup.</summary>
+    private readonly ThreatRateLimiter _rateLimiter = new(RateLimitSeconds, descriptionSnippetLength: 50);
 
     /// <summary>Debounce: track rapid process creation counts per image name.</summary>
     private readonly ConcurrentDictionary<string, (int Count, DateTimeOffset WindowStart)> _processBurst = new();
@@ -208,7 +208,7 @@ public class ProcessMonitorModule : IAgentModule
         catch (Exception ex) { _logger.LogWarning(ex, "Error stopping stop watcher"); }
 
         _signatureCache.Clear();
-        _recentAlerts.Clear();
+        _rateLimiter.Clear();
         _processBurst.Clear();
 
         return Task.CompletedTask;
@@ -711,20 +711,7 @@ public class ProcessMonitorModule : IAgentModule
     }
 
     /// <summary>Rate-limit: returns true if this alert was already sent recently.</summary>
-    private bool ShouldRateLimit(ThreatEvent threat)
-    {
-        // Key = Source + Title + first 50 chars of description
-        var key = $"{threat.Source}|{threat.Title}|{threat.Description?[..Math.Min(threat.Description.Length, 50)]}";
-
-        if (_recentAlerts.TryGetValue(key, out var lastAlert))
-        {
-            if ((DateTimeOffset.UtcNow - lastAlert).TotalSeconds < RateLimitSeconds)
-                return true;
-        }
-
-        _recentAlerts[key] = DateTimeOffset.UtcNow;
-        return false;
-    }
+    private bool ShouldRateLimit(ThreatEvent threat) => _rateLimiter.ShouldRateLimit(threat);
 
     /// <summary>Debounce rapid process creation. Returns true if we should suppress.</summary>
     private bool IsBurst(string processName)
@@ -819,12 +806,7 @@ public class ProcessMonitorModule : IAgentModule
             catch (OperationCanceledException) { return; }
 
             // Purge old rate-limit entries
-            var cutoff = DateTimeOffset.UtcNow.AddSeconds(-RateLimitSeconds * 2);
-            foreach (var key in _recentAlerts.Keys.ToList())
-            {
-                if (_recentAlerts.TryGetValue(key, out var ts) && ts < cutoff)
-                    _recentAlerts.TryRemove(key, out _);
-            }
+            _rateLimiter.PurgeStale();
 
             // Purge burst tracking
             _processBurst.Clear();

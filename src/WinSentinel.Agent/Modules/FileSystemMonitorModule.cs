@@ -32,8 +32,8 @@ public class FileSystemMonitorModule : IAgentModule
     /// <summary>Pending events keyed by full path, coalesced within debounce window.</summary>
     private readonly ConcurrentDictionary<string, BufferedEvent> _pendingEvents = new();
 
-    /// <summary>Rate-limit: recent alert keys with timestamps.</summary>
-    private readonly ConcurrentDictionary<string, DateTimeOffset> _recentAlerts = new();
+    /// <summary>Shared rate limiter for threat alert dedup.</summary>
+    private readonly ThreatRateLimiter _rateLimiter = new(RateLimitSeconds);
 
     /// <summary>File hash cache for change detection.</summary>
     private readonly ConcurrentDictionary<string, string> _fileHashes = new(StringComparer.OrdinalIgnoreCase);
@@ -202,7 +202,7 @@ public class FileSystemMonitorModule : IAgentModule
 
         _watchers.Clear();
         _pendingEvents.Clear();
-        _recentAlerts.Clear();
+        _rateLimiter.Clear();
         _fileHashes.Clear();
         _rapidCreation.Clear();
         _rapidDeletion.Clear();
@@ -897,23 +897,10 @@ public class FileSystemMonitorModule : IAgentModule
     }
 
     /// <summary>Rate-limit by threat content.</summary>
-    private bool ShouldRateLimit(ThreatEvent threat)
-    {
-        var key = $"{threat.Source}|{threat.Title}|{threat.Description?[..Math.Min(threat.Description?.Length ?? 0, 80)]}";
-        return ShouldRateLimitByKey(key);
-    }
+    private bool ShouldRateLimit(ThreatEvent threat) => _rateLimiter.ShouldRateLimit(threat);
 
     /// <summary>Rate-limit by arbitrary key.</summary>
-    private bool ShouldRateLimitByKey(string key)
-    {
-        if (_recentAlerts.TryGetValue(key, out var lastAlert))
-        {
-            if ((DateTimeOffset.UtcNow - lastAlert).TotalSeconds < RateLimitSeconds)
-                return true;
-        }
-        _recentAlerts[key] = DateTimeOffset.UtcNow;
-        return false;
-    }
+    private bool ShouldRateLimitByKey(string key) => _rateLimiter.ShouldRateLimitByKey(key);
 
     /// <summary>Periodically clean up stale cache entries.</summary>
     private async Task CacheCleanupLoopAsync(CancellationToken ct)
@@ -927,12 +914,7 @@ public class FileSystemMonitorModule : IAgentModule
             catch (OperationCanceledException) { return; }
 
             // Purge old rate-limit entries
-            var cutoff = DateTimeOffset.UtcNow.AddSeconds(-RateLimitSeconds * 2);
-            foreach (var key in _recentAlerts.Keys.ToList())
-            {
-                if (_recentAlerts.TryGetValue(key, out var ts) && ts < cutoff)
-                    _recentAlerts.TryRemove(key, out _);
-            }
+            _rateLimiter.PurgeStale();
 
             // Purge rapid activity trackers
             _rapidCreation.Clear();

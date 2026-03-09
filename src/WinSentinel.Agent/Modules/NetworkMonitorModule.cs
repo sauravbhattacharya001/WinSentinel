@@ -33,8 +33,8 @@ public class NetworkMonitorModule : IAgentModule
     /// <summary>Known gateway MAC address (for ARP spoofing detection).</summary>
     private string? _lastGatewayMac;
 
-    /// <summary>Rate-limit: recent alert keys with timestamps.</summary>
-    private readonly ConcurrentDictionary<string, DateTimeOffset> _recentAlerts = new();
+    /// <summary>Shared rate limiter for threat alert dedup.</summary>
+    private readonly ThreatRateLimiter _rateLimiter = new(RateLimitSeconds);
 
     /// <summary>Previously seen active connections (for churn detection).</summary>
     private int _previousConnectionCount;
@@ -155,7 +155,7 @@ public class NetworkMonitorModule : IAgentModule
         }
 
         _knownListeningPorts.Clear();
-        _recentAlerts.Clear();
+        _rateLimiter.Clear();
         _lastGatewayMac = null;
         _baselineEstablished = false;
     }
@@ -790,31 +790,8 @@ public class NetworkMonitorModule : IAgentModule
     }
 
     /// <summary>Rate-limit by threat content.</summary>
-    private bool ShouldRateLimit(ThreatEvent threat)
-    {
-        var descSnippet = threat.Description?.Length > 80
-            ? threat.Description[..80]
-            : threat.Description ?? "";
-        var key = $"{threat.Source}|{threat.Title}|{descSnippet}";
-
-        if (_recentAlerts.TryGetValue(key, out var lastAlert))
-        {
-            if ((DateTimeOffset.UtcNow - lastAlert).TotalSeconds < RateLimitSeconds)
-                return true;
-        }
-
-        _recentAlerts[key] = DateTimeOffset.UtcNow;
-        return false;
-    }
+    private bool ShouldRateLimit(ThreatEvent threat) => _rateLimiter.ShouldRateLimit(threat);
 
     /// <summary>Cleanup stale rate-limit entries.</summary>
-    private void CleanupRateLimits()
-    {
-        var cutoff = DateTimeOffset.UtcNow.AddSeconds(-RateLimitSeconds * 2);
-        foreach (var key in _recentAlerts.Keys.ToList())
-        {
-            if (_recentAlerts.TryGetValue(key, out var ts) && ts < cutoff)
-                _recentAlerts.TryRemove(key, out _);
-        }
-    }
+    private void CleanupRateLimits() => _rateLimiter.PurgeStale();
 }

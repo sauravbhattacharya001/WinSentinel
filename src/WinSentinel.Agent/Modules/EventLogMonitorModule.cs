@@ -39,8 +39,8 @@ public class EventLogMonitorModule : IAgentModule
     private volatile bool _defenderRtpDisabled;
     private DateTimeOffset _defenderRtpDisabledTime;
 
-    /// <summary>Rate-limit: recent alert keys with timestamps.</summary>
-    private readonly ConcurrentDictionary<string, DateTimeOffset> _recentAlerts = new();
+    /// <summary>Shared rate limiter for threat alert dedup.</summary>
+    private readonly ThreatRateLimiter _rateLimiter = new(RateLimitSeconds, descriptionSnippetLength: 60);
 
     // ── Constants ──
 
@@ -199,7 +199,7 @@ public class EventLogMonitorModule : IAgentModule
         _watchers.Clear();
         _failedLogons.Clear();
         _successfulLogonsAfterFailure.Clear();
-        _recentAlerts.Clear();
+        _rateLimiter.Clear();
         _defenderRtpDisabled = false;
 
         return Task.CompletedTask;
@@ -1224,19 +1224,7 @@ public class EventLogMonitorModule : IAgentModule
     }
 
     /// <summary>Rate-limit by threat content.</summary>
-    private bool ShouldRateLimit(ThreatEvent threat)
-    {
-        var key = $"{threat.Source}|{threat.Title}|{threat.Description?[..Math.Min(threat.Description?.Length ?? 0, 60)]}";
-
-        if (_recentAlerts.TryGetValue(key, out var lastAlert))
-        {
-            if ((DateTimeOffset.UtcNow - lastAlert).TotalSeconds < RateLimitSeconds)
-                return true;
-        }
-
-        _recentAlerts[key] = DateTimeOffset.UtcNow;
-        return false;
-    }
+    private bool ShouldRateLimit(ThreatEvent threat) => _rateLimiter.ShouldRateLimit(threat);
 
     private static string TruncateString(string? s, int maxLength)
     {
@@ -1340,12 +1328,7 @@ public class EventLogMonitorModule : IAgentModule
                 _defenderRtpDisabled = false;
 
             // Purge rate-limit entries
-            var alertCutoff = DateTimeOffset.UtcNow.AddSeconds(-RateLimitSeconds * 2);
-            foreach (var key in _recentAlerts.Keys.ToList())
-            {
-                if (_recentAlerts.TryGetValue(key, out var ts) && ts < alertCutoff)
-                    _recentAlerts.TryRemove(key, out _);
-            }
+            _rateLimiter.PurgeStale();
 
             _logger.LogDebug("EventLogMonitor correlation cleanup complete");
         }

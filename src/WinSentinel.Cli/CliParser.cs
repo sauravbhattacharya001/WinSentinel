@@ -71,6 +71,8 @@ public class CliOptions
     public RootCauseAction RootCauseAction { get; set; } = RootCauseAction.None;
     public int RootCauseTop { get; set; } = 10;
     public string? RootCauseSeverityFilter { get; set; }
+    public BurndownAction BurndownAction { get; set; } = BurndownAction.None;
+    public int BurndownPeriodDays { get; set; } = 7;
 }
 
 public enum CliCommand
@@ -95,6 +97,7 @@ public enum CliCommand
     Quiz,
     RootCause,
     Threats,
+    Burndown,
     Help,
     Version
 }
@@ -164,6 +167,15 @@ public enum RootCauseAction
     Top,
     Causes,
     Ungrouped
+}
+
+public enum BurndownAction
+{
+    None,
+    Report,
+    Projection,
+    Periods,
+    Grade
 }
 
 /// <summary>
@@ -420,6 +432,51 @@ public static class CliParser
 
                 case "--threats":
                     options.Command = CliCommand.Threats;
+                    break;
+
+                case "--burndown":
+                    options.Command = CliCommand.Burndown;
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                    {
+                        var bdAction = args[++i].ToLowerInvariant();
+                        options.BurndownAction = bdAction switch
+                        {
+                            "report" => BurndownAction.Report,
+                            "projection" => BurndownAction.Projection,
+                            "periods" => BurndownAction.Periods,
+                            "grade" => BurndownAction.Grade,
+                            _ => BurndownAction.None
+                        };
+                        if (options.BurndownAction == BurndownAction.None)
+                        {
+                            options.Error = $"Unknown burndown action: {bdAction}. Use report, projection, periods, or grade.";
+                            return options;
+                        }
+                    }
+                    else
+                    {
+                        options.BurndownAction = BurndownAction.Report;
+                    }
+                    break;
+
+                case "--burndown-period":
+                    if (i + 1 < args.Length)
+                    {
+                        if (int.TryParse(args[++i], out int bpDays) && bpDays >= 1 && bpDays <= 90)
+                        {
+                            options.BurndownPeriodDays = bpDays;
+                        }
+                        else
+                        {
+                            options.Error = "Invalid burndown-period value. Must be 1-90.";
+                            return options;
+                        }
+                    }
+                    else
+                    {
+                        options.Error = "Missing value for --burndown-period.";
+                        return options;
+                    }
                     break;
 
                 case "export" when options.Command == CliCommand.Policy:

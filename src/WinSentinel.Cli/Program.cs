@@ -39,6 +39,7 @@ return options.Command switch
     CliCommand.Quiz => await HandleQuiz(options),
     CliCommand.RootCause => await HandleRootCause(options),
     CliCommand.Threats => await HandleThreats(options),
+    CliCommand.ScheduleOptimize => HandleScheduleOptimize(options),
     _ => HandleHelp()
 };
 
@@ -2385,5 +2386,30 @@ static async Task<int> HandleThreats(CliOptions options)
     }
 
     ConsoleFormatter.PrintThreatModel(model);
+    return 0;
+}
+
+// ── Schedule Optimize ─────────────────────────────────────────────
+
+static int HandleScheduleOptimize(CliOptions options)
+{
+    ConsoleFormatter.PrintBanner();
+
+    using var history = new AuditHistoryService();
+    var optimizer = new AuditScheduleOptimizer();
+    var result = optimizer.Analyze(history, options.ScheduleOptimizeDays);
+
+    if (options.Json)
+    {
+        var jsonOpts = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Converters = { new JsonStringEnumConverter() }
+        };
+        Console.WriteLine(JsonSerializer.Serialize(result, jsonOpts));
+        return 0;
+    }
+
+    ConsoleFormatter.PrintScheduleOptimizeResult(result);
     return 0;
 }

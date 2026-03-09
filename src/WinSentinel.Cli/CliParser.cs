@@ -71,6 +71,7 @@ public class CliOptions
     public RootCauseAction RootCauseAction { get; set; } = RootCauseAction.None;
     public int RootCauseTop { get; set; } = 10;
     public string? RootCauseSeverityFilter { get; set; }
+    public int ScheduleOptimizeDays { get; set; } = 90;
 }
 
 public enum CliCommand
@@ -95,6 +96,7 @@ public enum CliCommand
     Quiz,
     RootCause,
     Threats,
+    ScheduleOptimize,
     Help,
     Version
 }
@@ -420,6 +422,10 @@ public static class CliParser
 
                 case "--threats":
                     options.Command = CliCommand.Threats;
+                    break;
+
+                case "--schedule-optimize":
+                    options.Command = CliCommand.ScheduleOptimize;
                     break;
 
                 case "export" when options.Command == CliCommand.Policy:
@@ -1020,6 +1026,26 @@ public static class CliParser
                     else
                     {
                         options.Error = "Missing value for --trend-days.";
+                        return options;
+                    }
+                    break;
+
+                case "--opt-days":
+                    if (i + 1 < args.Length)
+                    {
+                        if (int.TryParse(args[++i], out int optDays) && optDays >= 1 && optDays <= 365)
+                        {
+                            options.ScheduleOptimizeDays = optDays;
+                        }
+                        else
+                        {
+                            options.Error = "Invalid opt-days value. Must be 1-365.";
+                            return options;
+                        }
+                    }
+                    else
+                    {
+                        options.Error = "Missing value for --opt-days.";
                         return options;
                     }
                     break;

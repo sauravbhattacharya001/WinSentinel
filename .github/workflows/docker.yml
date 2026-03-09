@@ -134,7 +134,7 @@ jobs:
 
     - name: Scan image for vulnerabilities
       if: github.event_name != 'pull_request'
-      uses: aquasecurity/trivy-action@0.28.0
+      uses: aquasecurity/trivy-action@0.35.0
       with:
         image-ref: ${{ steps.meta.outputs.primary }}
         format: 'table'
@@ -144,7 +144,7 @@ jobs:
 
     - name: Upload vulnerability scan (SARIF)
       if: github.event_name != 'pull_request'
-      uses: aquasecurity/trivy-action@0.28.0
+      uses: aquasecurity/trivy-action@0.35.0
       with:
         image-ref: ${{ steps.meta.outputs.primary }}
         format: 'sarif'

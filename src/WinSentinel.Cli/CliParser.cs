@@ -68,6 +68,9 @@ public class CliOptions
     public string? QuizDifficulty { get; set; }
     public string? QuizCategory { get; set; }
     public bool QuizExport { get; set; }
+    public RootCauseAction RootCauseAction { get; set; } = RootCauseAction.None;
+    public int RootCauseTop { get; set; } = 10;
+    public string? RootCauseSeverityFilter { get; set; }
 }
 
 public enum CliCommand
@@ -90,6 +93,7 @@ public enum CliCommand
     Policy,
     Exemptions,
     Quiz,
+    RootCause,
     Help,
     Version
 }
@@ -150,6 +154,15 @@ public enum ExemptionAction
     Stale,
     Unused,
     Summary
+}
+
+public enum RootCauseAction
+{
+    None,
+    Report,
+    Top,
+    Causes,
+    Ungrouped
 }
 
 /// <summary>
@@ -345,6 +358,63 @@ public static class CliParser
 
                 case "--quiz-export":
                     options.QuizExport = true;
+                    break;
+
+                case "--rootcause":
+                    options.Command = CliCommand.RootCause;
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                    {
+                        var rcAction = args[++i].ToLowerInvariant();
+                        options.RootCauseAction = rcAction switch
+                        {
+                            "report" => RootCauseAction.Report,
+                            "top" => RootCauseAction.Top,
+                            "causes" => RootCauseAction.Causes,
+                            "ungrouped" => RootCauseAction.Ungrouped,
+                            _ => RootCauseAction.None
+                        };
+                        if (options.RootCauseAction == RootCauseAction.None)
+                        {
+                            options.Error = $"Unknown rootcause action: {rcAction}. Use report, top, causes, or ungrouped.";
+                            return options;
+                        }
+                    }
+                    else
+                    {
+                        options.RootCauseAction = RootCauseAction.Report;
+                    }
+                    break;
+
+                case "--rootcause-top":
+                    if (i + 1 < args.Length)
+                    {
+                        if (int.TryParse(args[++i], out int rcTop) && rcTop >= 1 && rcTop <= 50)
+                        {
+                            options.RootCauseTop = rcTop;
+                        }
+                        else
+                        {
+                            options.Error = "Invalid rootcause-top value. Must be 1-50.";
+                            return options;
+                        }
+                    }
+                    else
+                    {
+                        options.Error = "Missing value for --rootcause-top.";
+                        return options;
+                    }
+                    break;
+
+                case "--rootcause-severity":
+                    if (i + 1 < args.Length)
+                    {
+                        options.RootCauseSeverityFilter = args[++i];
+                    }
+                    else
+                    {
+                        options.Error = "Missing value for --rootcause-severity.";
+                        return options;
+                    }
                     break;
 
                 case "export" when options.Command == CliCommand.Policy:

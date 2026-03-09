@@ -37,6 +37,7 @@ return options.Command switch
     CliCommand.Policy => PolicyCommandHandler.Handle(options),
     CliCommand.Exemptions => HandleExemptions(options),
     CliCommand.Quiz => await HandleQuiz(options),
+    CliCommand.RootCause => await HandleRootCause(options),
     _ => HandleHelp()
 };
 
@@ -2305,3 +2306,56 @@ static async Task<int> HandleQuiz(CliOptions options)
     return 0;
 }
 
+static async Task<int> HandleRootCause(CliOptions options)
+{
+    ConsoleFormatter.PrintBanner();
+
+    var auditEngine = new AuditEngine();
+    var report = await auditEngine.RunFullAuditAsync();
+
+    var analyzer = new RootCauseAnalyzer();
+    var rcReport = analyzer.Analyze(report);
+
+    // Apply severity filter if specified
+    if (!string.IsNullOrEmpty(options.RootCauseSeverityFilter))
+    {
+        if (Enum.TryParse<Severity>(options.RootCauseSeverityFilter, true, out var sevFilter))
+        {
+            rcReport = rcReport with
+            {
+                RootCauses = rcReport.RootCauses
+                    .Where(rc => rc.WorstSeverity >= sevFilter)
+                    .ToList()
+            };
+        }
+    }
+
+    if (options.Json)
+    {
+        var jsonOpts = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Converters = { new JsonStringEnumConverter() }
+        };
+        Console.WriteLine(JsonSerializer.Serialize(rcReport, jsonOpts));
+        return 0;
+    }
+
+    switch (options.RootCauseAction)
+    {
+        case RootCauseAction.Report:
+            ConsoleFormatter.PrintRootCauseReport(rcReport);
+            break;
+        case RootCauseAction.Top:
+            ConsoleFormatter.PrintRootCauseSummary(rcReport, options.RootCauseTop);
+            break;
+        case RootCauseAction.Causes:
+            ConsoleFormatter.PrintRootCauseReport(rcReport);
+            break;
+        case RootCauseAction.Ungrouped:
+            ConsoleFormatter.PrintUngroupedFindings(rcReport);
+            break;
+    }
+
+    return 0;
+}

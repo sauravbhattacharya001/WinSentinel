@@ -1164,4 +1164,21 @@ public class CliParserTests
         Assert.Equal(BadgeBadgeAction.None, options.BadgeAction);
         Assert.Null(options.BadgeStyle);
     }
+
+    [Fact]
+    public void Parse_ModuleInfo_ReturnsModuleInfoCommand()
+    {
+        var result = CliParser.Parse(["--module-info"]);
+        Assert.Equal(CliCommand.ModuleInfo, result.Command);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_ModuleInfo_WithJson_SetsJsonFlag()
+    {
+        var result = CliParser.Parse(["--module-info", "--json"]);
+        Assert.Equal(CliCommand.ModuleInfo, result.Command);
+        Assert.True(result.Json);
+        Assert.Null(result.Error);
+    }
 }

@@ -41,6 +41,7 @@ return options.Command switch
     CliCommand.Threats => await HandleThreats(options),
     CliCommand.ScheduleOptimize => HandleScheduleOptimize(options),
     CliCommand.Digest => await HandleDigest(options),
+    CliCommand.ModuleInfo => HandleModuleInfo(options),
     _ => HandleHelp()
 };
 
@@ -2413,6 +2414,120 @@ static int HandleScheduleOptimize(CliOptions options)
 
     ConsoleFormatter.PrintScheduleOptimizeResult(result);
     return 0;
+}
+
+// ── Module Info ──────────────────────────────────────────────────────
+
+static int HandleModuleInfo(CliOptions options)
+{
+    var modules = GetAllModules();
+
+    if (options.Json)
+    {
+        var jsonModules = modules.Select(m => new
+        {
+            name = m.Name,
+            category = m.Category,
+            description = m.Description,
+        });
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        var json = JsonSerializer.Serialize(new
+        {
+            totalModules = modules.Count,
+            modules = jsonModules
+        }, jsonOptions);
+        WriteOutput(json, options.OutputFile);
+        return 0;
+    }
+
+    var orig = Console.ForegroundColor;
+
+    Console.WriteLine();
+    Console.ForegroundColor = ConsoleColor.Cyan;
+    Console.WriteLine("  ╔══════════════════════════════════════════════╗");
+    Console.WriteLine("  ║       🛡️  WinSentinel Audit Modules         ║");
+    Console.WriteLine("  ╚══════════════════════════════════════════════╝");
+    Console.ForegroundColor = orig;
+    Console.WriteLine();
+
+    Console.ForegroundColor = ConsoleColor.White;
+    Console.WriteLine($"  {modules.Count} modules available");
+    Console.ForegroundColor = ConsoleColor.DarkGray;
+    Console.WriteLine("  ──────────────────────────────────────────────────────────────");
+    Console.ForegroundColor = orig;
+    Console.WriteLine();
+
+    // Group by first letter of category for visual grouping
+    var grouped = modules
+        .OrderBy(m => m.Category, StringComparer.OrdinalIgnoreCase)
+        .ToList();
+
+    var maxCatLen = grouped.Max(m => m.Category.Length);
+
+    foreach (var mod in grouped)
+    {
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.Write($"  {mod.Category.PadRight(maxCatLen + 2)}");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.Write(mod.Name);
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine();
+        Console.Write($"  {"".PadRight(maxCatLen + 2)}");
+        Console.WriteLine(mod.Description);
+        Console.ForegroundColor = orig;
+        Console.WriteLine();
+    }
+
+    Console.ForegroundColor = ConsoleColor.DarkGray;
+    Console.WriteLine("  ──────────────────────────────────────────────────────────────");
+    Console.ForegroundColor = orig;
+    Console.WriteLine();
+    Console.WriteLine("  Usage:");
+    Console.ForegroundColor = ConsoleColor.Cyan;
+    Console.WriteLine("    winsentinel --audit                       Run all modules");
+    Console.WriteLine("    winsentinel --audit -m firewall,network   Run specific modules");
+    Console.WriteLine("    winsentinel --module-info --json          Machine-readable list");
+    Console.ForegroundColor = orig;
+    Console.WriteLine();
+
+    return 0;
+}
+
+static List<IAuditModule> GetAllModules()
+{
+    return new List<IAuditModule>
+    {
+        new AccountAudit(),
+        new AppSecurityAudit(),
+        new BackupAudit(),
+        new BluetoothAudit(),
+        new BrowserAudit(),
+        new CertificateAudit(),
+        new CredentialExposureAudit(),
+        new DefenderAudit(),
+        new DnsAudit(),
+        new DriverAudit(),
+        new EncryptionAudit(),
+        new EnvironmentAudit(),
+        new EventLogAudit(),
+        new FirewallAudit(),
+        new GroupPolicyAudit(),
+        new NetworkAudit(),
+        new PowerShellAudit(),
+        new PrivacyAudit(),
+        new ProcessAudit(),
+        new RegistryAudit(),
+        new RemoteAccessAudit(),
+        new ScheduledTaskAudit(),
+        new ServiceAudit(),
+        new SmbShareAudit(),
+        new SoftwareInventoryAudit(),
+        new StartupAudit(),
+        new SystemAudit(),
+        new UpdateAudit(),
+        new VirtualizationAudit(),
+        new WifiAudit(),
+    };
 }
 
 // ── Digest ────────────────────────────────────────────────────────

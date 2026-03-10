@@ -316,6 +316,10 @@ public static partial class ConsoleFormatter
         Console.ForegroundColor = original;
         Console.WriteLine("STRIDE threat model from audit findings");
         Console.ForegroundColor = ConsoleColor.White;
+        Console.Write("    --module-info        ");
+        Console.ForegroundColor = original;
+        Console.WriteLine("List all available audit modules with descriptions");
+        Console.ForegroundColor = ConsoleColor.White;
         Console.Write("    --help, -h           ");
         Console.ForegroundColor = original;
         Console.WriteLine("Show this help message");

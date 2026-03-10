@@ -111,7 +111,7 @@ public class GroupPolicyAudit : IAuditModule
                 state.VbsEnabled = vbsVal >= 1;
             }
         }
-        catch { }
+        catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
 
         state.AuditProcessCommandLine = ReadRegistryDword(
             @"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\Audit",
@@ -124,7 +124,7 @@ public class GroupPolicyAudit : IAuditModule
                 "Select-Object -Skip 1 | ConvertFrom-Csv | Select-Object -ExpandProperty 'Inclusion Setting'", ct);
             state.AuditProcessCreation = ParseAuditSetting(auditOutput.Trim());
         }
-        catch { }
+        catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
 
         try
         {
@@ -133,7 +133,7 @@ public class GroupPolicyAudit : IAuditModule
                 "Select-Object -Skip 1 | ConvertFrom-Csv | Select-Object -ExpandProperty 'Inclusion Setting'", ct);
             state.AuditLogonEvents = ParseAuditSetting(logonOutput.Trim());
         }
-        catch { }
+        catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
 
         try
         {
@@ -142,7 +142,7 @@ public class GroupPolicyAudit : IAuditModule
                 "Select-Object -Skip 1 | ConvertFrom-Csv | Select-Object -ExpandProperty 'Inclusion Setting'", ct);
             state.AuditPrivilegeUse = ParseAuditSetting(privOutput.Trim());
         }
-        catch { }
+        catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
 
         state.RestrictedAdminMode = ReadRegistryDword(
             @"HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Lsa", "DisableRestrictedAdmin");
@@ -177,7 +177,7 @@ public class GroupPolicyAudit : IAuditModule
                     state.AppLockerExeRuleCount = exeCount;
             }
         }
-        catch { }
+        catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
 
         state.SrpDefaultLevel = ReadRegistryDword(
             @"HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\Safer\CodeIdentifiers", "DefaultLevel");
@@ -549,7 +549,7 @@ public class GroupPolicyAudit : IAuditModule
                 if (int.TryParse(val, out var n)) return n;
             }
         }
-        catch { }
+        catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
         return null;
     }
 

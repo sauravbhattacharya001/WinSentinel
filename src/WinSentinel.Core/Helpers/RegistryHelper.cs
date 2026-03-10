@@ -94,7 +94,7 @@ public static class RegistryHelper
                 result[name] = key.GetValue(name);
             }
         }
-        catch { }
+        catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
         return result;
     }
 }

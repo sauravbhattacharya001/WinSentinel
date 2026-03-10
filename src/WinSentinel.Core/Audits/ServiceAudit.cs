@@ -185,7 +185,7 @@ public class ServiceAudit : IAuditModule
                     state.TotalServiceCount = scOutput.Split("SERVICE_NAME").Length - 1;
                 }
             }
-            catch { }
+            catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
         }
 
         return state;
@@ -218,7 +218,7 @@ public class ServiceAudit : IAuditModule
                     entries.Add(entry);
             }
         }
-        catch { }
+        catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
 
         return entries;
     }

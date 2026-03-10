@@ -212,7 +212,7 @@ public class AutoRemediator
         {
             using var proc = Process.GetProcessById(processId);
             var exePath = "";
-            try { exePath = proc.MainModule?.FileName ?? ""; } catch { }
+            try { exePath = proc.MainModule?.FileName ?? ""; } catch (Exception ex) { _logger.LogTrace(ex, "Non-critical operation failed"); }
 
             proc.Kill(entireProcessTree: true);
             record.Success = true;

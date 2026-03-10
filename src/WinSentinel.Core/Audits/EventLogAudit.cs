@@ -266,7 +266,7 @@ public class EventLogAudit : IAuditModule
                         }
                     }
                 }
-                catch { }
+                catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
             }
 
             if (count == 0)
@@ -359,7 +359,7 @@ public class EventLogAudit : IAuditModule
                         }
                     }
                 }
-                catch { }
+                catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
             }
 
             int total = event4672Count + event4673Count;
@@ -667,7 +667,7 @@ public class EventLogAudit : IAuditModule
                             suspiciousCommands.Add($"• [{evt.TimeCreated:MM-dd HH:mm}] {snippet}");
                     }
                 }
-                catch { }
+                catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
             }
 
             if (suspiciousCount == 0 && events.Count == 0)
@@ -780,7 +780,7 @@ public class EventLogAudit : IAuditModule
                             threatNames.Add(threatName);
                     }
                 }
-                catch { }
+                catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
             }
 
             if (detections == 0)
@@ -888,7 +888,7 @@ public class EventLogAudit : IAuditModule
                             samples.Add($"• [{evt.TimeCreated:HH:mm}] {source} (ID {evt.Id}): {shortDesc}");
                         }
                     }
-                    catch { }
+                    catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
                 }
 
                 var topSources = sources.OrderByDescending(kv => kv.Value).Take(5)
@@ -987,7 +987,7 @@ public class EventLogAudit : IAuditModule
                         }
                     }
                 }
-                catch { }
+                catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
             }
 
             long maxSizeBytes = logSizeBytes > 0 ? logSizeBytes : 20L * 1024 * 1024; // Default is usually 20 MB

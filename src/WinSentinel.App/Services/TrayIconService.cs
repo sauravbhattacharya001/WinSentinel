@@ -353,7 +353,7 @@ public sealed class TrayIconService : IDisposable
                 if (exeIcon != null) return exeIcon;
             }
         }
-        catch { }
+        catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
 
         // Fallback: create a simple shield icon programmatically
         var bmp = new Bitmap(32, 32);

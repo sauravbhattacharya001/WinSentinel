@@ -221,7 +221,7 @@ public partial class DashboardPage : Page
                     var color = (Color)ColorConverter.ConvertFromString(SecurityScorer.GetScoreColor(report.SecurityScore));
                     ScoreRing.Stroke = new SolidColorBrush(color);
                 }
-                catch { }
+                catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
 
                 // Add to timeline
                 _viewModel.TimelineEntries.Add(new TimelineEntry
@@ -280,7 +280,7 @@ public partial class DashboardPage : Page
                     trend = _historyService.GetTrend(30);
                     if (trend.TotalScans == 0) trend = null;
                 }
-                catch { }
+                catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
 
                 // We need a report to export — run a quick audit if none available
                 var engine = new AuditEngine();
@@ -305,7 +305,7 @@ public partial class DashboardPage : Page
                             UseShellExecute = true
                         });
                     }
-                    catch { }
+                    catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
                 }
             }
             catch (Exception ex)

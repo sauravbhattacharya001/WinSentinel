@@ -1,3 +1,4 @@
+using System.Net;
 using WinSentinel.Core.Helpers;
 using WinSentinel.Core.Interfaces;
 using WinSentinel.Core.Models;
@@ -293,9 +294,9 @@ public class DnsAudit : IAuditModule
                         $"Using {provider} DNS ({server}).",
                         Category));
                 }
-                else if (server.StartsWith("10.") || server.StartsWith("192.168.") || server.StartsWith("172."))
+                else if (IsPrivateOrLinkLocalIp(server))
                 {
-                    // Private/LAN DNS — typical for corporate/home routers
+                    // Private/LAN or link-local DNS — typical for corporate/home routers
                     result.Findings.Add(Finding.Info(
                         $"Private DNS on {adapter.InterfaceAlias}",
                         $"DNS server {server} is a private/LAN address (router or internal DNS). " +
@@ -471,5 +472,25 @@ public class DnsAudit : IAuditModule
                     : "DNS cache TTL is at the system default.",
                 Category));
         }
+    }
+
+    /// <summary>
+    /// Checks whether an IP address belongs to a private (RFC 1918),
+    /// loopback (127.0.0.0/8), or link-local (169.254.0.0/16) range.
+    /// </summary>
+    private static bool IsPrivateOrLinkLocalIp(string ip)
+    {
+        if (!IPAddress.TryParse(ip, out var addr))
+            return false;
+
+        var bytes = addr.GetAddressBytes();
+        if (bytes.Length != 4)
+            return false; // IPv6 not handled here
+
+        return bytes[0] == 10                                                  // 10.0.0.0/8
+               || (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31)        // 172.16.0.0/12
+               || (bytes[0] == 192 && bytes[1] == 168)                         // 192.168.0.0/16
+               || bytes[0] == 127                                              // 127.0.0.0/8 (loopback)
+               || (bytes[0] == 169 && bytes[1] == 254);                        // 169.254.0.0/16 (link-local)
     }
 }

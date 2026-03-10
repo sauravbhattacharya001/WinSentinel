@@ -672,12 +672,12 @@ public class NetworkMonitorModule : IAgentModule
                             using var proc = Process.GetProcessById(pid);
                             return proc.ProcessName;
                         }
-                        catch { }
+                        catch (Exception ex) { _logger.LogTrace(ex, "Non-critical operation failed"); }
                     }
                 }
             }
         }
-        catch { }
+        catch (Exception ex) { _logger.LogTrace(ex, "Non-critical operation failed"); }
 
         return null;
     }
@@ -694,7 +694,7 @@ public class NetworkMonitorModule : IAgentModule
                 return proc.MainModule?.FileName;
             }
         }
-        catch { }
+        catch (Exception ex) { _logger.LogTrace(ex, "Non-critical operation failed"); }
         return null;
     }
 
@@ -753,7 +753,7 @@ public class NetworkMonitorModule : IAgentModule
                 }
             }
         }
-        catch { }
+        catch (Exception ex) { _logger.LogTrace(ex, "Non-critical operation failed"); }
 
         return null;
     }
@@ -780,7 +780,7 @@ public class NetworkMonitorModule : IAgentModule
                 }
             }
         }
-        catch { }
+        catch (Exception ex) { _logger.LogTrace(ex, "Non-critical operation failed"); }
         return null;
     }
 

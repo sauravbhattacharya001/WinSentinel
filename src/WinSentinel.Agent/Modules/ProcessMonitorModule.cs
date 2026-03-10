@@ -281,7 +281,7 @@ public class ProcessMonitorModule : IAgentModule
                     commandLine = obj["CommandLine"]?.ToString();
                 }
             }
-            catch { }
+            catch (Exception ex) { _logger.LogTrace(ex, "Non-critical operation failed"); }
 
             // Get parent process name
             parentName = GetProcessName(parentId);
@@ -352,7 +352,7 @@ public class ProcessMonitorModule : IAgentModule
             var processId = Convert.ToInt32(e.NewEvent["ProcessID"] ?? 0);
             _logger.LogTrace("Process stopped: {Name} (PID {Pid})", processName, processId);
         }
-        catch { }
+        catch (Exception ex) { _logger.LogTrace(ex, "Non-critical operation failed"); }
     }
 
     // ── Threat Analysis Engine ──
@@ -693,7 +693,7 @@ public class ProcessMonitorModule : IAgentModule
                 }
             }
         }
-        catch { }
+        catch (Exception ex) { _logger.LogTrace(ex, "Non-critical operation failed"); }
         return null;
     }
 

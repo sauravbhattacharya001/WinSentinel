@@ -146,7 +146,7 @@ public class BackupAudit : IAuditModule
                 state.VssStartType = parts[1].Trim();
             }
         }
-        catch { }
+        catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
 
         // Shadow copies
         try
@@ -169,7 +169,7 @@ public class BackupAudit : IAuditModule
                 }
             }
         }
-        catch { }
+        catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
 
         // System Restore
         try
@@ -194,7 +194,7 @@ public class BackupAudit : IAuditModule
                 @"try {
                     Get-ComputerRestorePoint -ErrorAction Stop |
                     ForEach-Object { '{0}|{1}|{2}|{3}' -f $_.SequenceNumber, $_.Description, $_.CreationTime, $_.RestorePointType }
-                } catch { }", ct);
+                } catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }", ct);
             foreach (var line in rpOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             {
                 var p = line.Split('|');
@@ -210,7 +210,7 @@ public class BackupAudit : IAuditModule
                 }
             }
         }
-        catch { }
+        catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
 
         // File History
         try
@@ -224,7 +224,7 @@ public class BackupAudit : IAuditModule
                 } else { 'DISABLED' }", ct);
             state.FileHistoryEnabled = fh.Trim() == "ENABLED";
         }
-        catch { }
+        catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
 
         // Windows Backup
         try
@@ -242,7 +242,7 @@ public class BackupAudit : IAuditModule
             if (wbParts.Length > 1 && DateTimeOffset.TryParse(wbParts[1].Trim(), out var wbDt))
                 state.WindowsBackupLastRun = wbDt;
         }
-        catch { }
+        catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
 
         // Recovery partition
         try
@@ -251,7 +251,7 @@ public class BackupAudit : IAuditModule
                 @"Get-Partition | Where-Object { $_.Type -eq 'Recovery' } | Measure-Object | Select-Object -ExpandProperty Count", ct);
             state.RecoveryPartitionExists = int.TryParse(rec.Trim(), out var cnt) && cnt > 0;
         }
-        catch { }
+        catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
 
         // BitLocker
         try
@@ -263,7 +263,7 @@ public class BackupAudit : IAuditModule
                 } catch { 'OFF' }", ct);
             state.BitLockerEnabled = bl.Trim() == "ON";
         }
-        catch { }
+        catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
 
         // Controlled folder access
         try
@@ -274,7 +274,7 @@ public class BackupAudit : IAuditModule
                 } catch { '0' }", ct);
             state.ControlledFolderAccessEnabled = cfa.Trim() == "1" || cfa.Trim().Equals("Enabled", StringComparison.OrdinalIgnoreCase);
         }
-        catch { }
+        catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
 
         return state;
     }

@@ -166,7 +166,7 @@ public class BrowserAudit : IAuditModule
                 using var key = Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Edge\BLBeacon");
                 version = key?.GetValue("version")?.ToString();
             }
-            catch { }
+            catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
         }
 
         if (version == null)
@@ -215,7 +215,7 @@ public class BrowserAudit : IAuditModule
             using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Mozilla\Mozilla Firefox");
             version = key?.GetValue("CurrentVersion")?.ToString();
         }
-        catch { }
+        catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
 
         if (version == null)
         {
@@ -224,7 +224,7 @@ public class BrowserAudit : IAuditModule
                 using var key = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\WOW6432Node\Mozilla\Mozilla Firefox");
                 version = key?.GetValue("CurrentVersion")?.ToString();
             }
-            catch { }
+            catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
         }
 
         if (version == null)
@@ -386,7 +386,7 @@ public class BrowserAudit : IAuditModule
                     return name;
             }
         }
-        catch { }
+        catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
 
         return null;
     }
@@ -440,7 +440,7 @@ public class BrowserAudit : IAuditModule
                 }
             }
         }
-        catch { }
+        catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
 
         return found;
     }
@@ -465,7 +465,7 @@ public class BrowserAudit : IAuditModule
             if (chromeUpdate != null && Convert.ToInt32(chromeUpdate) == 0)
                 chromeUpdateDisabled = true;
         }
-        catch { }
+        catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
 
         if (chromeUpdateDisabled)
         {
@@ -486,7 +486,7 @@ public class BrowserAudit : IAuditModule
             if (updateDefault != null && Convert.ToInt32(updateDefault) == 0)
                 edgeUpdateDisabled = true;
         }
-        catch { }
+        catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
 
         if (edgeUpdateDisabled)
         {
@@ -528,7 +528,7 @@ public class BrowserAudit : IAuditModule
             if (safeBrowsingEnabled != null && Convert.ToInt32(safeBrowsingEnabled) == 0)
                 chromeSafeBrowsingDisabled = true;
         }
-        catch { }
+        catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
 
         if (chromeSafeBrowsingDisabled)
         {
@@ -549,7 +549,7 @@ public class BrowserAudit : IAuditModule
             if (smartScreen != null && Convert.ToInt32(smartScreen) == 0)
                 edgeSmartScreenDisabled = true;
         }
-        catch { }
+        catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
 
         // Windows SmartScreen (system-wide)
         bool windowsSmartScreenDisabled = false;
@@ -561,7 +561,7 @@ public class BrowserAudit : IAuditModule
             if (smartScreen?.Equals("Off", StringComparison.OrdinalIgnoreCase) == true)
                 windowsSmartScreenDisabled = true;
         }
-        catch { }
+        catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
 
         if (edgeSmartScreenDisabled)
         {
@@ -613,7 +613,7 @@ public class BrowserAudit : IAuditModule
                 // An empty Login Data SQLite DB is ~40KB. If it's larger, it likely has entries.
                 chromeSavedPasswords = fileInfo.Length > 45000;
             }
-            catch { }
+            catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
         }
 
         // Edge Login Data
@@ -628,7 +628,7 @@ public class BrowserAudit : IAuditModule
                 var fileInfo = new FileInfo(edgeLoginData);
                 edgeSavedPasswords = fileInfo.Length > 45000;
             }
-            catch { }
+            catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
         }
 
         if (chromeSavedPasswords || edgeSavedPasswords)
@@ -672,7 +672,7 @@ public class BrowserAudit : IAuditModule
             if (defaultPopups != null && Convert.ToInt32(defaultPopups) == 1)
                 chromePopupsAllowed = true;
         }
-        catch { }
+        catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
 
         // Edge popup policy
         bool edgePopupsAllowed = false;
@@ -683,7 +683,7 @@ public class BrowserAudit : IAuditModule
             if (defaultPopups != null && Convert.ToInt32(defaultPopups) == 1)
                 edgePopupsAllowed = true;
         }
-        catch { }
+        catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
 
         if (chromePopupsAllowed)
         {
@@ -729,7 +729,7 @@ public class BrowserAudit : IAuditModule
             if (dnt != null && Convert.ToInt32(dnt) == 1)
                 edgeDntEnabled = true;
         }
-        catch { }
+        catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
 
         // Chrome doesn't have a direct registry policy for DNT — it's a user setting.
         // We can check if tracking prevention is enforced via policy on Edge.
@@ -742,7 +742,7 @@ public class BrowserAudit : IAuditModule
             if (trackingLevel != null && Convert.ToInt32(trackingLevel) >= 2)
                 edgeTrackingPrevention = true;
         }
-        catch { }
+        catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
 
         if (!edgeDntEnabled && !edgeTrackingPrevention)
         {
@@ -786,7 +786,7 @@ public class BrowserAudit : IAuditModule
                     Category));
             }
         }
-        catch { }
+        catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
 
         // Check if Chrome password manager is disabled via policy (good if using external manager)
         try
@@ -801,7 +801,7 @@ public class BrowserAudit : IAuditModule
                     Category));
             }
         }
-        catch { }
+        catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
 
         // Check Edge password manager policy
         try
@@ -816,7 +816,7 @@ public class BrowserAudit : IAuditModule
                     Category));
             }
         }
-        catch { }
+        catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
 
         // Check if Chrome site isolation is enforced
         try
@@ -831,7 +831,7 @@ public class BrowserAudit : IAuditModule
                     Category));
             }
         }
-        catch { }
+        catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
 
         // Check if download restrictions are set
         try
@@ -847,7 +847,7 @@ public class BrowserAudit : IAuditModule
                     Category));
             }
         }
-        catch { }
+        catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
     }
 
     #endregion
@@ -863,7 +863,7 @@ public class BrowserAudit : IAuditModule
             var version = key?.GetValue(valueName)?.ToString();
             if (!string.IsNullOrEmpty(version)) return version;
         }
-        catch { }
+        catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
 
         try
         {
@@ -871,7 +871,7 @@ public class BrowserAudit : IAuditModule
             var version = key?.GetValue(fallbackValueName)?.ToString();
             if (!string.IsNullOrEmpty(version)) return version;
         }
-        catch { }
+        catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
 
         // Try HKCU
         try
@@ -880,7 +880,7 @@ public class BrowserAudit : IAuditModule
             var version = key?.GetValue(valueName)?.ToString();
             if (!string.IsNullOrEmpty(version)) return version;
         }
-        catch { }
+        catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
 
         return null;
     }

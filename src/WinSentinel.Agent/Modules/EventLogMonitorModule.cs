@@ -1224,7 +1224,7 @@ public class EventLogMonitorModule : IAgentModule
                 return record.Properties[index]?.Value?.ToString();
             }
         }
-        catch { }
+        catch (Exception ex) { _logger.LogTrace(ex, "Non-critical operation failed"); }
         return null;
     }
 

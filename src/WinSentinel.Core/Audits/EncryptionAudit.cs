@@ -375,7 +375,7 @@ public class EncryptionAudit : IAuditModule
                     RegistryHive.LocalMachine, efsRegPath, "Start", -1);
                 efsServiceExists = startValue >= 0;
             }
-            catch { }
+            catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
 
             // Check for EFS certificates in user's certificate store
             int efsCertCount = 0;
@@ -402,7 +402,7 @@ public class EncryptionAudit : IAuditModule
                     }
                 }
             }
-            catch { }
+            catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
 
             // Check EFS disable policy
             var efsDisabled = RegistryHelper.GetValue<int>(
@@ -500,7 +500,7 @@ public class EncryptionAudit : IAuditModule
                                 issues.Add($"WEAK KEY: {GetCertDisplayName(cert)} (RSA {rsa.KeySize}-bit)");
                             }
                         }
-                        catch { }
+                        catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
                     }
 
                     // Check weak signature algorithm
@@ -908,7 +908,7 @@ public class EncryptionAudit : IAuditModule
                         cgStatus = psOutput.Contains("1") ? "Running" : "Not running";
                     }
                 }
-                catch { }
+                catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
             }
 
             bool isRunning = cgStatus == "Running";
@@ -985,7 +985,7 @@ public class EncryptionAudit : IAuditModule
                     "(Get-WmiObject Win32_ComputerSystem).PartOfDomain", ct);
                 isDomainJoined = domainOutput.Contains("True", StringComparison.OrdinalIgnoreCase);
             }
-            catch { }
+            catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
 
             // Check if DPAPI is backed by TPM or domain controller
             var protectPath = @"SOFTWARE\Microsoft\Cryptography\Protect\Providers";

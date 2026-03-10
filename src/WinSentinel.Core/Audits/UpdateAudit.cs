@@ -76,7 +76,7 @@ public class UpdateAudit : AuditModuleBase
                 $history = $searcher.QueryHistory(0, 20)
                 $failed = @($history | Where-Object { $_.ResultCode -eq 4 -or $_.ResultCode -eq 5 }).Count
                 $indicators += $failed
-            } catch { }
+            } catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
             $indicators", ct);
 
         if (int.TryParse(output.Trim(), out int pendingCount))

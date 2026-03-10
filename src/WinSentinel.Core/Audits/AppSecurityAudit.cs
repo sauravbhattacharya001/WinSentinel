@@ -582,7 +582,7 @@ public class AppSecurityAudit : IAuditModule
                 }
             }
         }
-        catch { }
+        catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
 
         // Also check HKCU policy
         if (!autoUpdateDisabled)
@@ -596,7 +596,7 @@ public class AppSecurityAudit : IAuditModule
                     // This is more about content delivery than security updates, but worth noting
                 }
             }
-            catch { }
+            catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
         }
 
         if (autoUpdateDisabled)

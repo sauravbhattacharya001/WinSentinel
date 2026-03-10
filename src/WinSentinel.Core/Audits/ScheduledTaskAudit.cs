@@ -195,7 +195,7 @@ public class ScheduledTaskAudit : IAuditModule
                     state.TotalTaskCount = psOutput.Split("TaskName").Length - 1;
                 }
             }
-            catch { }
+            catch (Exception) { /* Intentional: operation may fail due to access/permission restrictions */ }
         }
 
         return state;

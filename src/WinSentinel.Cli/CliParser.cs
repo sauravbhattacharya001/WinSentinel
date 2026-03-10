@@ -72,6 +72,13 @@ public class CliOptions
     public int RootCauseTop { get; set; } = 10;
     public string? RootCauseSeverityFilter { get; set; }
     public int ScheduleOptimizeDays { get; set; } = 90;
+    public WebhookAction WebhookAction { get; set; } = WebhookAction.None;
+    public string? WebhookName { get; set; }
+    public string? WebhookUrl { get; set; }
+    public string? WebhookPlatform { get; set; }
+    public int? WebhookScoreThreshold { get; set; }
+    public string? WebhookMinSeverity { get; set; }
+    public string? WebhookAuth { get; set; }
 }
 
 public enum CliCommand
@@ -97,6 +104,7 @@ public enum CliCommand
     RootCause,
     Threats,
     ScheduleOptimize,
+    Webhook,
     Help,
     Version
 }
@@ -166,6 +174,16 @@ public enum RootCauseAction
     Top,
     Causes,
     Ungrouped
+}
+
+public enum WebhookAction
+{
+    None,
+    Add,
+    List,
+    Remove,
+    Test,
+    Send
 }
 
 /// <summary>
@@ -426,6 +444,62 @@ public static class CliParser
 
                 case "--schedule-optimize":
                     options.Command = CliCommand.ScheduleOptimize;
+                    break;
+
+                case "--webhook":
+                    options.Command = CliCommand.Webhook;
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                    {
+                        options.WebhookAction = args[++i].ToLowerInvariant() switch
+                        {
+                            "add" => WebhookAction.Add,
+                            "list" => WebhookAction.List,
+                            "remove" or "rm" => WebhookAction.Remove,
+                            "test" => WebhookAction.Test,
+                            "send" => WebhookAction.Send,
+                            _ => WebhookAction.None
+                        };
+                        if (options.WebhookAction == WebhookAction.None)
+                        {
+                            options.Error = $"Unknown webhook action: {args[i]}. Use add, list, remove, test, or send.";
+                            return options;
+                        }
+                    }
+                    else
+                    {
+                        options.WebhookAction = WebhookAction.List;
+                    }
+                    break;
+
+                case "--webhook-name":
+                    if (i + 1 < args.Length) options.WebhookName = args[++i];
+                    else { options.Error = "Missing value for --webhook-name."; return options; }
+                    break;
+
+                case "--webhook-url":
+                    if (i + 1 < args.Length) options.WebhookUrl = args[++i];
+                    else { options.Error = "Missing value for --webhook-url."; return options; }
+                    break;
+
+                case "--webhook-platform":
+                    if (i + 1 < args.Length) options.WebhookPlatform = args[++i];
+                    else { options.Error = "Missing value for --webhook-platform."; return options; }
+                    break;
+
+                case "--webhook-score":
+                    if (i + 1 < args.Length && int.TryParse(args[++i], out int whScore) && whScore >= 0 && whScore <= 100)
+                        options.WebhookScoreThreshold = whScore;
+                    else { options.Error = "Invalid --webhook-score (0-100)."; return options; }
+                    break;
+
+                case "--webhook-severity":
+                    if (i + 1 < args.Length) options.WebhookMinSeverity = args[++i];
+                    else { options.Error = "Missing value for --webhook-severity."; return options; }
+                    break;
+
+                case "--webhook-auth":
+                    if (i + 1 < args.Length) options.WebhookAuth = args[++i];
+                    else { options.Error = "Missing value for --webhook-auth."; return options; }
                     break;
 
                 case "export" when options.Command == CliCommand.Policy:

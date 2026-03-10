@@ -40,6 +40,7 @@ return options.Command switch
     CliCommand.RootCause => await HandleRootCause(options),
     CliCommand.Threats => await HandleThreats(options),
     CliCommand.ScheduleOptimize => HandleScheduleOptimize(options),
+    CliCommand.Webhook => HandleWebhook(options).Result,
     _ => HandleHelp()
 };
 
@@ -2412,4 +2413,208 @@ static int HandleScheduleOptimize(CliOptions options)
 
     ConsoleFormatter.PrintScheduleOptimizeResult(result);
     return 0;
+}
+
+// ── Webhook Notifications ────────────────────────────────────────────
+
+static async Task<int> HandleWebhook(CliOptions options)
+{
+    var settings = WebhookSettings.Load();
+
+    return options.WebhookAction switch
+    {
+        WebhookAction.Add => HandleWebhookAdd(settings, options),
+        WebhookAction.List => HandleWebhookList(settings, options),
+        WebhookAction.Remove => HandleWebhookRemove(settings, options),
+        WebhookAction.Test => await HandleWebhookTest(settings, options),
+        WebhookAction.Send => await HandleWebhookSend(settings, options),
+        _ => HandleWebhookList(settings, options)
+    };
+}
+
+static int HandleWebhookAdd(WebhookSettings settings, CliOptions options)
+{
+    if (string.IsNullOrEmpty(options.WebhookUrl))
+    {
+        ConsoleFormatter.PrintError("Missing --webhook-url. Usage: winsentinel --webhook add --webhook-url <url> [--webhook-name <name>]");
+        return 3;
+    }
+
+    var endpoint = new WebhookEndpoint
+    {
+        Name = options.WebhookName ?? $"Webhook-{settings.Endpoints.Count + 1}",
+        Url = options.WebhookUrl,
+        ScoreThreshold = options.WebhookScoreThreshold,
+        AuthorizationHeader = options.WebhookAuth
+    };
+
+    if (!string.IsNullOrEmpty(options.WebhookPlatform) &&
+        Enum.TryParse<WebhookPlatform>(options.WebhookPlatform, true, out var plat))
+        endpoint.Platform = plat;
+
+    if (!string.IsNullOrEmpty(options.WebhookMinSeverity) &&
+        Enum.TryParse<Severity>(options.WebhookMinSeverity, true, out var sev))
+        endpoint.MinimumSeverity = sev;
+
+    settings.Endpoints.Add(endpoint);
+    settings.Save();
+
+    var detected = WebhookNotificationService.DetectPlatform(endpoint.Url);
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true };
+        jsonOptions.Converters.Add(new JsonStringEnumConverter());
+        WriteOutput(JsonSerializer.Serialize(new
+        {
+            action = "added", name = endpoint.Name, url = endpoint.Url,
+            platform = (endpoint.Platform ?? detected).ToString(),
+            scoreThreshold = endpoint.ScoreThreshold,
+            minimumSeverity = endpoint.MinimumSeverity?.ToString()
+        }, jsonOptions), options.OutputFile);
+    }
+    else
+    {
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.WriteLine($"  ✓ Webhook '{endpoint.Name}' added ({endpoint.Platform ?? detected}).");
+        Console.ResetColor();
+    }
+
+    return 0;
+}
+
+static int HandleWebhookList(WebhookSettings settings, CliOptions options)
+{
+    if (settings.Endpoints.Count == 0)
+    {
+        if (options.Json) WriteOutput("[]", options.OutputFile);
+        else
+        {
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine("  No webhook endpoints configured. Add one with: winsentinel --webhook add --webhook-url <url>");
+            Console.ResetColor();
+        }
+        return 0;
+    }
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true };
+        jsonOptions.Converters.Add(new JsonStringEnumConverter());
+        WriteOutput(JsonSerializer.Serialize(settings.Endpoints.Select(e => new
+        {
+            name = e.Name, url = e.Url, enabled = e.Enabled,
+            platform = (e.Platform ?? WebhookNotificationService.DetectPlatform(e.Url)).ToString(),
+            scoreThreshold = e.ScoreThreshold, minimumSeverity = e.MinimumSeverity?.ToString(),
+            hasAuth = !string.IsNullOrEmpty(e.AuthorizationHeader)
+        }), jsonOptions), options.OutputFile);
+    }
+    else
+    {
+        Console.WriteLine("\n  WEBHOOK ENDPOINTS");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine("  ──────────────────────────────────────────");
+        Console.ResetColor();
+
+        foreach (var e in settings.Endpoints)
+        {
+            var detected = e.Platform ?? WebhookNotificationService.DetectPlatform(e.Url);
+            Console.ForegroundColor = e.Enabled ? ConsoleColor.Green : ConsoleColor.DarkGray;
+            Console.Write($"  {(e.Enabled ? "●" : "○")} ");
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.Write(e.Name);
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine($"  ({detected})");
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            var url = e.Url;
+            Console.WriteLine($"    URL: {(url.Length > 40 ? $"{url[..30]}...{url[^10..]}" : url)}");
+            Console.ResetColor();
+            Console.WriteLine();
+        }
+    }
+    return 0;
+}
+
+static int HandleWebhookRemove(WebhookSettings settings, CliOptions options)
+{
+    if (string.IsNullOrEmpty(options.WebhookName))
+    {
+        ConsoleFormatter.PrintError("Missing --webhook-name.");
+        return 3;
+    }
+
+    var idx = settings.Endpoints.FindIndex(e => e.Name.Equals(options.WebhookName, StringComparison.OrdinalIgnoreCase));
+    if (idx < 0) { ConsoleFormatter.PrintError($"Webhook '{options.WebhookName}' not found."); return 3; }
+
+    settings.Endpoints.RemoveAt(idx);
+    settings.Save();
+
+    Console.ForegroundColor = ConsoleColor.Green;
+    Console.WriteLine($"  ✓ Webhook '{options.WebhookName}' removed.");
+    Console.ResetColor();
+    return 0;
+}
+
+static async Task<int> HandleWebhookTest(WebhookSettings settings, CliOptions options)
+{
+    WebhookEndpoint? endpoint = null;
+
+    if (!string.IsNullOrEmpty(options.WebhookName))
+        endpoint = settings.Endpoints.FirstOrDefault(e => e.Name.Equals(options.WebhookName, StringComparison.OrdinalIgnoreCase));
+    else if (!string.IsNullOrEmpty(options.WebhookUrl))
+        endpoint = new WebhookEndpoint { Name = "Test", Url = options.WebhookUrl };
+    else if (settings.Endpoints.Count == 1)
+        endpoint = settings.Endpoints[0];
+
+    if (endpoint == null) { ConsoleFormatter.PrintError("Specify --webhook-name or --webhook-url."); return 3; }
+
+    Console.WriteLine($"  Testing webhook '{endpoint.Name}'...");
+    var service = new WebhookNotificationService(settings);
+    var result = await service.TestAsync(endpoint);
+
+    Console.ForegroundColor = result.Success ? ConsoleColor.Green : ConsoleColor.Red;
+    Console.WriteLine(result.Success
+        ? $"  ✓ Test delivery successful (HTTP {result.StatusCode})"
+        : $"  ✗ Test delivery failed: {result.Error}");
+    Console.ResetColor();
+    return result.Success ? 0 : 1;
+}
+
+static async Task<int> HandleWebhookSend(WebhookSettings settings, CliOptions options)
+{
+    if (settings.Endpoints.Count == 0)
+    {
+        ConsoleFormatter.PrintError("No webhook endpoints configured. Add one first with --webhook add.");
+        return 3;
+    }
+
+    var engine = BuildEngine(options.ModulesFilter);
+    if (!options.Quiet && !options.Json)
+    {
+        ConsoleFormatter.PrintBanner();
+        Console.WriteLine("  Running audit to send webhook notification...\n");
+    }
+
+    var progress = options.Quiet || options.Json ? null
+        : new Progress<(string module, int current, int total)>(p => ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
+
+    var report = await engine.RunFullAuditAsync(progress);
+
+    var service = new WebhookNotificationService(settings);
+    var results = await service.NotifyAsync(report);
+
+    foreach (var r in results)
+    {
+        Console.ForegroundColor = r.Success ? ConsoleColor.Green : ConsoleColor.Red;
+        Console.WriteLine(r.Success
+            ? $"  ✓ {r.EndpointName}: delivered (HTTP {r.StatusCode})"
+            : $"  ✗ {r.EndpointName}: failed — {r.Error}");
+    }
+    if (results.Count == 0)
+    {
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.WriteLine("  No webhooks matched the current scan results.");
+    }
+    Console.ResetColor();
+    return results.All(r => r.Success) ? 0 : 1;
 }

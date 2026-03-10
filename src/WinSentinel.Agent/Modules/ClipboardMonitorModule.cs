@@ -129,12 +129,28 @@ public partial class ClipboardMonitorModule : IAgentModule
         {
             if (AutoClearDelaySeconds > 0)
             {
+                var token = _cts?.Token ?? CancellationToken.None;
+                var expectedHash = hash;
                 _ = Task.Run(async () =>
                 {
-                    await Task.Delay(AutoClearDelaySeconds * 1000);
+                    try
+                    {
+                        await Task.Delay(AutoClearDelaySeconds * 1000, token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        _logger.LogDebug("[ClipboardMonitor] Delayed auto-clear cancelled (module stopped)");
+                        return;
+                    }
+                    // Re-check: only clear if clipboard still has the same content
+                    if (_lastContentHash != expectedHash)
+                    {
+                        _logger.LogDebug("[ClipboardMonitor] Skipped auto-clear — clipboard content changed");
+                        return;
+                    }
                     ClearClipboard();
                     _logger.LogInformation("[ClipboardMonitor] Auto-cleared clipboard after {Delay}s", AutoClearDelaySeconds);
-                });
+                }, token);
             }
             else
             {

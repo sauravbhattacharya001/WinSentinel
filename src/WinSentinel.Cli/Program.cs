@@ -41,6 +41,7 @@ return options.Command switch
     CliCommand.Threats => await HandleThreats(options),
     CliCommand.ScheduleOptimize => HandleScheduleOptimize(options),
     CliCommand.Digest => await HandleDigest(options),
+    CliCommand.Search => HandleSearch(options),
     _ => HandleHelp()
 };
 
@@ -1985,6 +1986,118 @@ static void PrintFindingList(string header, List<FindingLifecycle> findings, int
         Console.WriteLine($"  ... and {findings.Count - top} more");
     }
     Console.WriteLine();
+}
+
+// ── Finding Search ───────────────────────────────────────────────────
+
+static int HandleSearch(CliOptions options)
+{
+    using var history = new AuditHistoryService();
+    history.EnsureDatabase();
+
+    var results = history.SearchFindings(
+        options.SearchQuery!,
+        options.SearchSeverityFilter,
+        options.SearchModuleFilter,
+        options.SearchDays);
+
+    var totalMatches = results.Sum(r => r.Findings.Count);
+
+    if (options.Json)
+    {
+        var jsonObj = new
+        {
+            query = options.SearchQuery,
+            filters = new
+            {
+                severity = options.SearchSeverityFilter,
+                module = options.SearchModuleFilter,
+                days = options.SearchDays
+            },
+            totalMatches,
+            totalRuns = results.Count,
+            runs = results.Select(r => new
+            {
+                runId = r.RunId,
+                timestamp = r.RunTimestamp,
+                score = r.RunScore,
+                grade = r.RunGrade,
+                findings = r.Findings.Select(f => new
+                {
+                    id = f.Id,
+                    module = f.ModuleName,
+                    title = f.Title,
+                    severity = f.Severity,
+                    description = f.Description,
+                    remediation = f.Remediation
+                })
+            })
+        };
+
+        var json = JsonSerializer.Serialize(jsonObj, new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            Converters = { new JsonStringEnumConverter() }
+        });
+        WriteOutput(json, options.OutputFile);
+        return 0;
+    }
+
+    if (results.Count == 0)
+    {
+        if (!options.Quiet)
+            ConsoleFormatter.PrintWarning($"No findings matched \"{options.SearchQuery}\" in the last {options.SearchDays} days.");
+        return 0;
+    }
+
+    if (!options.Quiet)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine();
+        sb.AppendLine("  ╔══════════════════════════════════════════════════════════╗");
+        sb.AppendLine("  ║              🔍 Finding Search Results                  ║");
+        sb.AppendLine("  ╚══════════════════════════════════════════════════════════╝");
+        sb.AppendLine();
+        sb.AppendLine($"  Query: \"{options.SearchQuery}\"  |  Window: {options.SearchDays} days");
+        if (!string.IsNullOrEmpty(options.SearchSeverityFilter))
+            sb.AppendLine($"  Severity: {options.SearchSeverityFilter}");
+        if (!string.IsNullOrEmpty(options.SearchModuleFilter))
+            sb.AppendLine($"  Module: {options.SearchModuleFilter}");
+        sb.AppendLine();
+
+        foreach (var run in results)
+        {
+            sb.AppendLine($"  ── Run #{run.RunId}  {run.RunTimestamp:yyyy-MM-dd HH:mm}  Score: {run.RunScore} ({run.RunGrade}) ──");
+            sb.AppendLine();
+
+            foreach (var f in run.Findings)
+            {
+                var icon = f.Severity.ToUpperInvariant() switch
+                {
+                    "CRITICAL" => "🔴",
+                    "WARNING" => "🟡",
+                    "INFO" => "🔵",
+                    "PASS" => "🟢",
+                    _ => "⚪"
+                };
+                sb.AppendLine($"    {icon} [{f.Severity}] {f.Title}");
+                sb.AppendLine($"       Module: {f.ModuleName}");
+                if (!string.IsNullOrEmpty(f.Description))
+                    sb.AppendLine($"       {f.Description}");
+                if (!string.IsNullOrEmpty(f.Remediation))
+                    sb.AppendLine($"       Fix: {f.Remediation}");
+                sb.AppendLine();
+            }
+        }
+
+        sb.AppendLine($"  ─── {totalMatches} match{(totalMatches != 1 ? "es" : "")} across {results.Count} run{(results.Count != 1 ? "s" : "")} ───");
+        sb.AppendLine();
+
+        WriteOutput(sb.ToString(), options.OutputFile);
+    }
+
+    return 0;
 }
 
 // ── Exemption Review ─────────────────────────────────────────────────

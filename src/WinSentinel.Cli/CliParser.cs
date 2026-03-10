@@ -72,6 +72,9 @@ public class CliOptions
     public int RootCauseTop { get; set; } = 10;
     public string? RootCauseSeverityFilter { get; set; }
     public int ScheduleOptimizeDays { get; set; } = 90;
+    public int MetricsDays { get; set; } = 90;
+    public int MetricsWindows { get; set; } = 6;
+    public int MetricsTopRecurring { get; set; } = 10;
 }
 
 public enum CliCommand
@@ -97,6 +100,7 @@ public enum CliCommand
     RootCause,
     Threats,
     ScheduleOptimize,
+    Metrics,
     Help,
     Version
 }
@@ -426,6 +430,25 @@ public static class CliParser
 
                 case "--schedule-optimize":
                     options.Command = CliCommand.ScheduleOptimize;
+                    break;
+
+                case "--metrics":
+                    options.Command = CliCommand.Metrics;
+                    break;
+
+                case "--metrics-days":
+                    if (i + 1 < args.Length && int.TryParse(args[++i], out var metricsDays))
+                        options.MetricsDays = metricsDays;
+                    break;
+
+                case "--metrics-windows":
+                    if (i + 1 < args.Length && int.TryParse(args[++i], out var metricsWindows))
+                        options.MetricsWindows = metricsWindows;
+                    break;
+
+                case "--metrics-top":
+                    if (i + 1 < args.Length && int.TryParse(args[++i], out var metricsTop))
+                        options.MetricsTopRecurring = metricsTop;
                     break;
 
                 case "export" when options.Command == CliCommand.Policy:

@@ -40,6 +40,7 @@ return options.Command switch
     CliCommand.RootCause => await HandleRootCause(options),
     CliCommand.Threats => await HandleThreats(options),
     CliCommand.ScheduleOptimize => HandleScheduleOptimize(options),
+    CliCommand.Metrics => HandleMetrics(options),
     _ => HandleHelp()
 };
 
@@ -2411,5 +2412,31 @@ static int HandleScheduleOptimize(CliOptions options)
     }
 
     ConsoleFormatter.PrintScheduleOptimizeResult(result);
+    return 0;
+}
+
+// ── Security Metrics ──────────────────────────────────────────────
+
+static int HandleMetrics(CliOptions options)
+{
+    ConsoleFormatter.PrintBanner();
+
+    using var history = new AuditHistoryService();
+    var runs = history.GetHistory(options.MetricsDays);
+    var aggregator = new SecurityMetricsAggregator();
+    var report = aggregator.Analyze(runs, options.MetricsWindows, options.MetricsTopRecurring);
+
+    if (options.Json)
+    {
+        var jsonOpts = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Converters = { new JsonStringEnumConverter() }
+        };
+        Console.WriteLine(JsonSerializer.Serialize(report, jsonOpts));
+        return 0;
+    }
+
+    ConsoleFormatter.PrintMetricsReport(report);
     return 0;
 }

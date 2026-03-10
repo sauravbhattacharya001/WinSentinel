@@ -100,6 +100,7 @@ public enum CliCommand
     Threats,
     ScheduleOptimize,
     Digest,
+    ModuleInfo,
     Help,
     Version
 }
@@ -433,6 +434,10 @@ public static class CliParser
 
                 case "--digest":
                     options.Command = CliCommand.Digest;
+                    break;
+
+                case "--module-info":
+                    options.Command = CliCommand.ModuleInfo;
                     break;
 
                 case "--digest-days":

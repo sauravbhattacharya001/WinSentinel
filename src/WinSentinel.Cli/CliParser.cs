@@ -72,6 +72,8 @@ public class CliOptions
     public int RootCauseTop { get; set; } = 10;
     public string? RootCauseSeverityFilter { get; set; }
     public int ScheduleOptimizeDays { get; set; } = 90;
+    public int DigestHistoryDays { get; set; } = 30;
+    public string DigestFormat { get; set; } = "text";
 }
 
 public enum CliCommand
@@ -97,6 +99,7 @@ public enum CliCommand
     RootCause,
     Threats,
     ScheduleOptimize,
+    Digest,
     Help,
     Version
 }
@@ -426,6 +429,20 @@ public static class CliParser
 
                 case "--schedule-optimize":
                     options.Command = CliCommand.ScheduleOptimize;
+                    break;
+
+                case "--digest":
+                    options.Command = CliCommand.Digest;
+                    break;
+
+                case "--digest-days":
+                    if (i + 1 < args.Length && int.TryParse(args[++i], out var digestDays))
+                        options.DigestHistoryDays = digestDays;
+                    break;
+
+                case "--digest-format":
+                    if (i + 1 < args.Length)
+                        options.DigestFormat = args[++i].ToLowerInvariant();
                     break;
 
                 case "export" when options.Command == CliCommand.Policy:

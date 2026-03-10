@@ -40,6 +40,7 @@ return options.Command switch
     CliCommand.RootCause => await HandleRootCause(options),
     CliCommand.Threats => await HandleThreats(options),
     CliCommand.ScheduleOptimize => HandleScheduleOptimize(options),
+    CliCommand.Digest => await HandleDigest(options),
     _ => HandleHelp()
 };
 
@@ -2411,5 +2412,60 @@ static int HandleScheduleOptimize(CliOptions options)
     }
 
     ConsoleFormatter.PrintScheduleOptimizeResult(result);
+    return 0;
+}
+
+// ── Digest ────────────────────────────────────────────────────────
+
+static async Task<int> HandleDigest(CliOptions options)
+{
+    var engine = BuildEngine(options.ModulesFilter);
+    var sw = Stopwatch.StartNew();
+
+    if (!options.Quiet)
+    {
+        ConsoleFormatter.PrintBanner();
+        Console.WriteLine("  Running audit for security digest...");
+        Console.WriteLine();
+    }
+
+    var progress = options.Quiet
+        ? null
+        : new Progress<(string module, int current, int total)>(p =>
+            ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
+
+    var report = await engine.RunFullAuditAsync(progress);
+    sw.Stop();
+
+    if (!options.Quiet)
+    {
+        ConsoleFormatter.PrintProgressDone(engine.Modules.Count, sw.Elapsed);
+    }
+
+    using var historyService = new AuditHistoryService();
+    var digestGenerator = new SecurityDigestGenerator(historyService);
+    var digest = digestGenerator.Generate(report, options.DigestHistoryDays);
+
+    var output = options.DigestFormat switch
+    {
+        "html" => SecurityDigestGenerator.RenderHtml(digest),
+        "json" => SecurityDigestGenerator.RenderJson(digest),
+        _ => SecurityDigestGenerator.RenderText(digest)
+    };
+
+    if (!string.IsNullOrWhiteSpace(options.OutputFile))
+    {
+        await File.WriteAllTextAsync(options.OutputFile, output);
+        if (!options.Quiet)
+            Console.WriteLine($"  Digest saved to {options.OutputFile}");
+    }
+    else
+    {
+        Console.WriteLine(output);
+    }
+
+    // Save this run to history
+    historyService.SaveAuditResult(report);
+
     return 0;
 }

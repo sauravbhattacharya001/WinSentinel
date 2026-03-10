@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics.Eventing.Reader;
 using Microsoft.Extensions.Logging;
+using WinSentinel.Core.Helpers;
 
 namespace WinSentinel.Agent.Modules;
 
@@ -285,8 +286,10 @@ public class EventLogMonitorModule : IAgentModule
                 Description = $"Over {failCount} failed logon attempts from '{source}' within {CorrelationWindow.TotalMinutes} minutes. " +
                               $"Target account: '{targetUser}'. Logon type: {logonType}. " +
                               $"This may indicate a brute force or password spraying attack.",
-                AutoFixable = true,
-                FixCommand = $"netsh advfirewall firewall add rule name=\"Block {source}\" dir=in action=block remoteip={source}"
+                AutoFixable = InputSanitizer.SanitizeIpAddress(source) != null,
+                FixCommand = InputSanitizer.SanitizeIpAddress(source) is { } bruteForceIp
+                    ? $"netsh advfirewall firewall add rule name=\"Block {bruteForceIp}\" dir=in action=block remoteip={bruteForceIp}"
+                    : null
             });
         }
         else
@@ -373,8 +376,10 @@ public class EventLogMonitorModule : IAgentModule
             Title = "User Account Created",
             Description = $"New user account '{newAccountName}' created by '{subjectUser}'. " +
                           $"Unauthorized account creation may indicate compromise.",
-            AutoFixable = true,
-            FixCommand = $"net user \"{newAccountName}\" /delete"
+            AutoFixable = InputSanitizer.SanitizeUsername(newAccountName) != null,
+            FixCommand = InputSanitizer.SanitizeUsername(newAccountName) is { } safeNewUser
+                ? $"net user \"{safeNewUser}\" /delete"
+                : null
         });
     }
 
@@ -417,8 +422,10 @@ public class EventLogMonitorModule : IAgentModule
             Title = "Account Lockout",
             Description = $"Account '{targetUser}' was locked out. Source: '{callerComputer}'. " +
                           $"This may indicate a brute force attack.",
-            AutoFixable = true,
-            FixCommand = $"net user \"{targetUser}\" /active:yes"
+            AutoFixable = InputSanitizer.SanitizeUsername(targetUser) != null,
+            FixCommand = InputSanitizer.SanitizeUsername(targetUser) is { } safeLockedUser
+                ? $"net user \"{safeLockedUser}\" /active:yes"
+                : null
         });
     }
 
@@ -484,8 +491,10 @@ public class EventLogMonitorModule : IAgentModule
                 Description = $"New service '{serviceName}' installed shortly after Windows Defender " +
                               $"real-time protection was disabled. Image: {imagePath}. " +
                               $"This combination strongly suggests an attacker bypassing defenses to install malware.",
-                AutoFixable = true,
-                FixCommand = $"sc delete \"{serviceName}\""
+                AutoFixable = IsServiceNameSafe(serviceName),
+                FixCommand = IsServiceNameSafe(serviceName)
+                    ? $"sc delete \"{serviceName}\""
+                    : null
             }, forceEmit: true);
         }
 
@@ -511,8 +520,10 @@ public class EventLogMonitorModule : IAgentModule
             Description = $"Service '{serviceName}' installed. Image: {imagePath}. " +
                           $"Type: {serviceType}. Start: {startType}. Account: {accountName}. " +
                           $"New services can be used for persistence.",
-            AutoFixable = severity >= ThreatSeverity.High,
-            FixCommand = severity >= ThreatSeverity.High ? $"sc delete \"{serviceName}\"" : null
+            AutoFixable = severity >= ThreatSeverity.High && IsServiceNameSafe(serviceName),
+            FixCommand = severity >= ThreatSeverity.High && IsServiceNameSafe(serviceName)
+                ? $"sc delete \"{serviceName}\""
+                : null
         });
     }
 
@@ -989,8 +1000,10 @@ public class EventLogMonitorModule : IAgentModule
                 Title = "Brute Force Attack Detected",
                 Description = $"Over {failCount} failed logon attempts from '{source}' within " +
                               $"{CorrelationWindow.TotalMinutes} minutes. Target: '{targetUser}'.",
-                AutoFixable = true,
-                FixCommand = $"netsh advfirewall firewall add rule name=\"Block {source}\" dir=in action=block remoteip={source}"
+                AutoFixable = InputSanitizer.SanitizeIpAddress(source) != null,
+                FixCommand = InputSanitizer.SanitizeIpAddress(source) is { } bruteIp2
+                    ? $"netsh advfirewall firewall add rule name=\"Block {bruteIp2}\" dir=in action=block remoteip={bruteIp2}"
+                    : null
             });
         }
         else
@@ -1056,8 +1069,10 @@ public class EventLogMonitorModule : IAgentModule
             Severity = ThreatSeverity.High,
             Title = "User Account Created",
             Description = $"New user account '{newAccount}' created by '{subjectUser}'.",
-            AutoFixable = true,
-            FixCommand = $"net user \"{newAccount}\" /delete"
+            AutoFixable = InputSanitizer.SanitizeUsername(newAccount) != null,
+            FixCommand = InputSanitizer.SanitizeUsername(newAccount) is { } safeNewAcct
+                ? $"net user \"{safeNewAcct}\" /delete"
+                : null
         });
     }
 
@@ -1332,6 +1347,24 @@ public class EventLogMonitorModule : IAgentModule
 
             _logger.LogDebug("EventLogMonitor correlation cleanup complete");
         }
+    }
+
+    /// <summary>
+    /// Checks if a service name is safe for shell command interpolation.
+    /// Rejects names containing shell metacharacters that could enable
+    /// command injection in <c>sc delete "name"</c> commands.
+    /// </summary>
+    private static bool IsServiceNameSafe(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name) || name.Length > 256)
+            return false;
+        // Only allow alphanumeric, spaces, hyphens, underscores, dots
+        foreach (var c in name)
+        {
+            if (!char.IsLetterOrDigit(c) && c != ' ' && c != '-' && c != '_' && c != '.')
+                return false;
+        }
+        return true;
     }
 }
 

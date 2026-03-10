@@ -5,6 +5,7 @@ using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Security.Cryptography.X509Certificates;
 using Microsoft.Extensions.Logging;
+using WinSentinel.Core.Helpers;
 
 namespace WinSentinel.Agent.Modules;
 
@@ -401,8 +402,10 @@ public class NetworkMonitorModule : IAgentModule
                         Description = $"{connCount} active connection(s) to known-malicious IP {remoteIp} " +
                                       $"on port(s) {portList}. " +
                                       $"This IP is in a known C2/malware hosting range.",
-                        AutoFixable = true,
-                        FixCommand = $"netsh advfirewall firewall add rule name=\"Block {remoteIp}\" dir=out action=block remoteip={remoteIp}"
+                        AutoFixable = InputSanitizer.SanitizeIpAddress(remoteIp) != null,
+                        FixCommand = InputSanitizer.SanitizeIpAddress(remoteIp) is { } safeMalIp
+                            ? $"netsh advfirewall firewall add rule name=\"Block {safeMalIp}\" dir=out action=block remoteip={safeMalIp}"
+                            : null
                     });
                     seenBadIps.Add(remoteIp);
                     alertedRemoteIps?.Add(remoteIp);
@@ -477,8 +480,10 @@ public class NetworkMonitorModule : IAgentModule
                         Description = $"{connCount} connection(s) to known Tor exit node IP {remoteIp}:{remotePort}. " +
                                       $"Local endpoint: {conn.LocalEndPoint}. " +
                                       $"This may indicate anonymized C2 communication.",
-                        AutoFixable = true,
-                        FixCommand = $"netsh advfirewall firewall add rule name=\"Block Tor {remoteIp}\" dir=out action=block remoteip={remoteIp}"
+                        AutoFixable = InputSanitizer.SanitizeIpAddress(remoteIp) != null,
+                        FixCommand = InputSanitizer.SanitizeIpAddress(remoteIp) is { } safeTorIp
+                            ? $"netsh advfirewall firewall add rule name=\"Block Tor {safeTorIp}\" dir=out action=block remoteip={safeTorIp}"
+                            : null
                     });
                     seenTorIps.Add(remoteIp);
                     alertedRemoteIps?.Add(remoteIp);

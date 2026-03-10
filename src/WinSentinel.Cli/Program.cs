@@ -41,6 +41,7 @@ return options.Command switch
     CliCommand.Threats => await HandleThreats(options),
     CliCommand.ScheduleOptimize => HandleScheduleOptimize(options),
     CliCommand.Digest => await HandleDigest(options),
+    CliCommand.Chart => HandleChart(options),
     _ => HandleHelp()
 };
 
@@ -2467,5 +2468,53 @@ static async Task<int> HandleDigest(CliOptions options)
     // Save this run to history
     historyService.SaveAuditResult(report);
 
+    return 0;
+}
+
+// ── Score History Chart ───────────────────────────────────────────
+
+static int HandleChart(CliOptions options)
+{
+    using var history = new AuditHistoryService();
+    history.EnsureDatabase();
+
+    var runs = history.GetHistory(options.ChartDays);
+
+    if (runs.Count == 0)
+    {
+        ConsoleFormatter.PrintWarning("No audit history found. Run --audit first to generate data.");
+        return 1;
+    }
+
+    // Take limited runs, ordered oldest → newest for the chart
+    var display = runs.Take(options.ChartLimit).AsEnumerable().Reverse().ToList();
+
+    if (options.Json)
+    {
+        var chartData = display.Select(r => new
+        {
+            timestamp = r.Timestamp,
+            score = r.OverallScore,
+            grade = r.Grade,
+            critical = r.CriticalCount,
+            warnings = r.WarningCount
+        });
+        var jsonOptions = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Converters = { new JsonStringEnumConverter() }
+        };
+        var json = JsonSerializer.Serialize(new
+        {
+            period = $"{options.ChartDays} days",
+            totalRuns = runs.Count,
+            displayed = display.Count,
+            data = chartData
+        }, jsonOptions);
+        WriteOutput(json, options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintScoreChart(display, options.ChartWidth, options.ChartCompact);
     return 0;
 }

@@ -74,6 +74,10 @@ public class CliOptions
     public int ScheduleOptimizeDays { get; set; } = 90;
     public int DigestHistoryDays { get; set; } = 30;
     public string DigestFormat { get; set; } = "text";
+    public int ChartDays { get; set; } = 30;
+    public int ChartWidth { get; set; } = 50;
+    public int ChartLimit { get; set; } = 20;
+    public bool ChartCompact { get; set; }
 }
 
 public enum CliCommand
@@ -100,6 +104,7 @@ public enum CliCommand
     Threats,
     ScheduleOptimize,
     Digest,
+    Chart,
     Help,
     Version
 }
@@ -433,6 +438,44 @@ public static class CliParser
 
                 case "--digest":
                     options.Command = CliCommand.Digest;
+                    break;
+
+                case "--chart":
+                    options.Command = CliCommand.Chart;
+                    break;
+
+                case "--chart-days":
+                    if (i + 1 < args.Length && int.TryParse(args[++i], out var chartDays) && chartDays >= 1 && chartDays <= 365)
+                        options.ChartDays = chartDays;
+                    else
+                    {
+                        options.Error = "Invalid chart-days value. Must be 1-365.";
+                        return options;
+                    }
+                    break;
+
+                case "--chart-width":
+                    if (i + 1 < args.Length && int.TryParse(args[++i], out var chartWidth) && chartWidth >= 10 && chartWidth <= 120)
+                        options.ChartWidth = chartWidth;
+                    else
+                    {
+                        options.Error = "Invalid chart-width value. Must be 10-120.";
+                        return options;
+                    }
+                    break;
+
+                case "--chart-limit":
+                    if (i + 1 < args.Length && int.TryParse(args[++i], out var chartLimit) && chartLimit >= 1 && chartLimit <= 100)
+                        options.ChartLimit = chartLimit;
+                    else
+                    {
+                        options.Error = "Invalid chart-limit value. Must be 1-100.";
+                        return options;
+                    }
+                    break;
+
+                case "--compact":
+                    options.ChartCompact = true;
                     break;
 
                 case "--digest-days":

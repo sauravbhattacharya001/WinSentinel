@@ -1678,4 +1678,107 @@ public static partial class ConsoleFormatter
         Console.WriteLine();
     }
 
+    /// <summary>
+    /// Renders an ASCII bar chart of security score history in the terminal.
+    /// </summary>
+    public static void PrintScoreChart(List<AuditRunRecord> runs, int barWidth = 50, bool compact = false)
+    {
+        Console.WriteLine();
+        WriteLineColored("  ╔══════════════════════════════════════════════╗", ConsoleColor.Cyan);
+        WriteLineColored("  ║       📊  Security Score History Chart      ║", ConsoleColor.Cyan);
+        WriteLineColored("  ╚══════════════════════════════════════════════╝", ConsoleColor.Cyan);
+        Console.WriteLine();
+
+        if (runs.Count == 0)
+        {
+            WriteLineColored("  No data to display.", ConsoleColor.DarkGray);
+            Console.WriteLine();
+            return;
+        }
+
+        // Summary stats
+        var scores = runs.Select(r => r.OverallScore).ToList();
+        var avg = scores.Average();
+        var min = scores.Min();
+        var max = scores.Max();
+        var latest = scores[^1];
+        var first = scores[0];
+        var delta = latest - first;
+
+        Console.Write("  Latest: ");
+        WriteColored($"{latest}/100", ChartScoreColor(latest));
+        Console.Write("  |  Avg: ");
+        WriteColored($"{avg:F0}", ChartScoreColor((int)avg));
+        Console.Write("  |  Range: ");
+        WriteColored($"{min}", ChartScoreColor(min));
+        Console.Write("–");
+        WriteColored($"{max}", ChartScoreColor(max));
+        Console.Write("  |  Trend: ");
+        if (delta > 0)
+            WriteColored($"↑ +{delta}", ConsoleColor.Green);
+        else if (delta < 0)
+            WriteColored($"↓ {delta}", ConsoleColor.Red);
+        else
+            WriteColored("→ 0", ConsoleColor.DarkGray);
+        Console.WriteLine();
+        Console.WriteLine();
+
+        // Scale legend
+        Console.Write($"  {"Date",-12} {"Score",5}  ");
+        WriteColored("0", ConsoleColor.DarkGray);
+        Console.Write(new string(' ', barWidth / 2 - 2));
+        WriteColored("50", ConsoleColor.DarkGray);
+        Console.Write(new string(' ', barWidth / 2 - 3));
+        WriteLineColored("100", ConsoleColor.DarkGray);
+
+        // Separator
+        Console.Write($"  {"────────────",-12} {"─────",5}  ");
+        WriteLineColored(new string('─', barWidth), ConsoleColor.DarkGray);
+
+        // Bars
+        foreach (var run in runs)
+        {
+            var score = run.OverallScore;
+            var filled = (int)Math.Round((double)score / 100 * barWidth);
+            if (filled < 0) filled = 0;
+            if (filled > barWidth) filled = barWidth;
+            var empty = barWidth - filled;
+
+            var dateStr = run.Timestamp.LocalDateTime.ToString(compact ? "MM/dd HH:mm" : "MM/dd HH:mm");
+
+            Console.Write($"  {dateStr,-12} ");
+            WriteColored($"{score,5}", ChartScoreColor(score));
+            Console.Write("  ");
+
+            // Draw bar
+            var barColor = ChartScoreColor(score);
+            Console.ForegroundColor = barColor;
+            Console.Write(new string('█', filled));
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.Write(new string('░', empty));
+            Console.ResetColor();
+
+            // Grade badge
+            var grade = SecurityScorer.GetGrade(score);
+            Console.Write(" ");
+            WriteColored(grade, ChartScoreColor(score));
+            Console.WriteLine();
+        }
+
+        // Bottom separator
+        Console.Write($"  {"",12} {"",5}  ");
+        WriteLineColored(new string('─', barWidth), ConsoleColor.DarkGray);
+
+        Console.WriteLine();
+        WriteLineColored($"  {runs.Count} scans shown  |  Use --chart-days <n> to adjust range  |  --chart-limit <n> for max rows", ConsoleColor.DarkGray);
+        Console.WriteLine();
+    }
+
+    private static ConsoleColor ChartScoreColor(int score) => score switch
+    {
+        >= 80 => ConsoleColor.Green,
+        >= 60 => ConsoleColor.Yellow,
+        _ => ConsoleColor.Red
+    };
+
 }

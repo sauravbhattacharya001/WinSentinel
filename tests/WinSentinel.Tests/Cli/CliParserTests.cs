@@ -1164,4 +1164,97 @@ public class CliParserTests
         Assert.Equal(BadgeBadgeAction.None, options.BadgeAction);
         Assert.Null(options.BadgeStyle);
     }
+
+    // ── Chart command tests ──────────────────────────────────────────
+
+    [Fact]
+    public void Parse_Chart_ReturnsChartCommand()
+    {
+        var result = CliParser.Parse(["--chart"]);
+        Assert.Equal(CliCommand.Chart, result.Command);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_Chart_DefaultOptions()
+    {
+        var result = CliParser.Parse(["--chart"]);
+        Assert.Equal(30, result.ChartDays);
+        Assert.Equal(50, result.ChartWidth);
+        Assert.Equal(20, result.ChartLimit);
+        Assert.False(result.ChartCompact);
+    }
+
+    [Fact]
+    public void Parse_Chart_WithDays()
+    {
+        var result = CliParser.Parse(["--chart", "--chart-days", "7"]);
+        Assert.Equal(CliCommand.Chart, result.Command);
+        Assert.Equal(7, result.ChartDays);
+    }
+
+    [Fact]
+    public void Parse_Chart_WithWidth()
+    {
+        var result = CliParser.Parse(["--chart", "--chart-width", "30"]);
+        Assert.Equal(30, result.ChartWidth);
+    }
+
+    [Fact]
+    public void Parse_Chart_WithLimit()
+    {
+        var result = CliParser.Parse(["--chart", "--chart-limit", "10"]);
+        Assert.Equal(10, result.ChartLimit);
+    }
+
+    [Fact]
+    public void Parse_Chart_Compact()
+    {
+        var result = CliParser.Parse(["--chart", "--compact"]);
+        Assert.True(result.ChartCompact);
+    }
+
+    [Fact]
+    public void Parse_Chart_AllOptions()
+    {
+        var result = CliParser.Parse(["--chart", "--chart-days", "90", "--chart-width", "60", "--chart-limit", "15", "--compact", "--json"]);
+        Assert.Equal(CliCommand.Chart, result.Command);
+        Assert.Equal(90, result.ChartDays);
+        Assert.Equal(60, result.ChartWidth);
+        Assert.Equal(15, result.ChartLimit);
+        Assert.True(result.ChartCompact);
+        Assert.True(result.Json);
+    }
+
+    [Fact]
+    public void Parse_ChartDays_InvalidValue_ReturnsError()
+    {
+        var result = CliParser.Parse(["--chart", "--chart-days", "0"]);
+        Assert.NotNull(result.Error);
+        Assert.Contains("chart-days", result.Error);
+    }
+
+    [Fact]
+    public void Parse_ChartWidth_TooSmall_ReturnsError()
+    {
+        var result = CliParser.Parse(["--chart", "--chart-width", "5"]);
+        Assert.NotNull(result.Error);
+        Assert.Contains("chart-width", result.Error);
+    }
+
+    [Fact]
+    public void Parse_ChartWidth_TooLarge_ReturnsError()
+    {
+        var result = CliParser.Parse(["--chart", "--chart-width", "200"]);
+        Assert.NotNull(result.Error);
+        Assert.Contains("chart-width", result.Error);
+    }
+
+    [Fact]
+    public void Parse_ChartLimit_InvalidValue_ReturnsError()
+    {
+        var result = CliParser.Parse(["--chart", "--chart-limit", "0"]);
+        Assert.NotNull(result.Error);
+        Assert.Contains("chart-limit", result.Error);
+    }
 }

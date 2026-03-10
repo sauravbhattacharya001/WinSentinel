@@ -195,7 +195,7 @@ public class ScheduledTaskAudit : IAuditModule
                     state.TotalTaskCount = psOutput.Split("TaskName").Length - 1;
                 }
             }
-            catch { }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] ScheduledTaskAudit: {ex.GetType().Name} - {ex.Message}"); }
         }
 
         return state;

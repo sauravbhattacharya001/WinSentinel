@@ -94,7 +94,7 @@ public static class RegistryHelper
                 result[name] = key.GetValue(name);
             }
         }
-        catch { }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] RegistryHelper: {ex.GetType().Name} - {ex.Message}"); }
         return result;
     }
 }

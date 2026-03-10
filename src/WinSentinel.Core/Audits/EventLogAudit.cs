@@ -266,7 +266,7 @@ public class EventLogAudit : IAuditModule
                         }
                     }
                 }
-                catch { }
+                catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] EventLogAudit: {ex.GetType().Name} - {ex.Message}"); }
             }
 
             if (count == 0)
@@ -359,7 +359,7 @@ public class EventLogAudit : IAuditModule
                         }
                     }
                 }
-                catch { }
+                catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] EventLogAudit: {ex.GetType().Name} - {ex.Message}"); }
             }
 
             int total = event4672Count + event4673Count;
@@ -667,7 +667,7 @@ public class EventLogAudit : IAuditModule
                             suspiciousCommands.Add($"• [{evt.TimeCreated:MM-dd HH:mm}] {snippet}");
                     }
                 }
-                catch { }
+                catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] EventLogAudit: {ex.GetType().Name} - {ex.Message}"); }
             }
 
             if (suspiciousCount == 0 && events.Count == 0)
@@ -780,7 +780,7 @@ public class EventLogAudit : IAuditModule
                             threatNames.Add(threatName);
                     }
                 }
-                catch { }
+                catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] EventLogAudit: {ex.GetType().Name} - {ex.Message}"); }
             }
 
             if (detections == 0)
@@ -888,7 +888,7 @@ public class EventLogAudit : IAuditModule
                             samples.Add($"• [{evt.TimeCreated:HH:mm}] {source} (ID {evt.Id}): {shortDesc}");
                         }
                     }
-                    catch { }
+                    catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] EventLogAudit: {ex.GetType().Name} - {ex.Message}"); }
                 }
 
                 var topSources = sources.OrderByDescending(kv => kv.Value).Take(5)
@@ -987,7 +987,7 @@ public class EventLogAudit : IAuditModule
                         }
                     }
                 }
-                catch { }
+                catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] EventLogAudit: {ex.GetType().Name} - {ex.Message}"); }
             }
 
             long maxSizeBytes = logSizeBytes > 0 ? logSizeBytes : 20L * 1024 * 1024; // Default is usually 20 MB

@@ -22,7 +22,7 @@ public class BaselineServiceTests : IDisposable
             if (Directory.Exists(_testDir))
                 Directory.Delete(_testDir, true);
         }
-        catch { }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] BaselineServiceTests: {ex.GetType().Name} - {ex.Message}"); }
     }
 
     private static SecurityReport CreateTestReport(int score = 75, int criticals = 1, int warnings = 2)

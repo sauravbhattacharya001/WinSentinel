@@ -52,7 +52,7 @@ public class ChatHandlerTests : IDisposable
 
     public void Dispose()
     {
-        try { Directory.Delete(_tempDir, true); } catch { }
+        try { Directory.Delete(_tempDir, true); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] ChatHandlerTests: {ex.GetType().Name} - {ex.Message}"); }
     }
 
     // ══════════════════════════════════════════

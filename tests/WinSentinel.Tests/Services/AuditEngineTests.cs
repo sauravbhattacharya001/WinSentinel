@@ -311,7 +311,7 @@ public class AuditEngineTests
         }
         finally
         {
-            try { File.Delete(tempPath); } catch { }
+            try { File.Delete(tempPath); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] AuditEngineTests: {ex.GetType().Name} - {ex.Message}"); }
         }
     }
 

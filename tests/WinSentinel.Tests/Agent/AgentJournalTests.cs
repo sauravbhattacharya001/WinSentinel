@@ -16,7 +16,7 @@ public class AgentJournalTests : IDisposable
 
     public void Dispose()
     {
-        try { Directory.Delete(_tempDir, true); } catch { }
+        try { Directory.Delete(_tempDir, true); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] AgentJournalTests: {ex.GetType().Name} - {ex.Message}"); }
     }
 
     private AgentJournal CreateJournal()

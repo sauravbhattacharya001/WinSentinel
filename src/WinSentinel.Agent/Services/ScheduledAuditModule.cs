@@ -54,7 +54,7 @@ public class ScheduledAuditModule : IAgentModule
         if (_runLoop != null)
         {
             try { await _runLoop; }
-            catch (OperationCanceledException) { }
+            catch (OperationCanceledException ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] ScheduledAuditModule: {ex.GetType().Name} - {ex.Message}"); }
         }
     }
 

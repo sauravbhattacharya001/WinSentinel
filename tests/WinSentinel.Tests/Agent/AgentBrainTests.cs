@@ -16,7 +16,7 @@ public class AgentBrainTests : IDisposable
 
     public void Dispose()
     {
-        try { Directory.Delete(_tempDir, true); } catch { }
+        try { Directory.Delete(_tempDir, true); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] AgentBrainTests: {ex.GetType().Name} - {ex.Message}"); }
     }
 
     private (AgentBrain brain, ThreatLog log, ResponsePolicy policy, AgentJournal journal) CreateBrain(

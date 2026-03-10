@@ -552,6 +552,80 @@ public class AuditHistoryService : IDisposable
         return Convert.ToInt32(cmd.ExecuteScalar());
     }
 
+    /// <summary>
+    /// Search findings across audit history by keyword, with optional severity/module/days filters.
+    /// Returns results grouped by audit run.
+    /// </summary>
+    public List<FindingSearchResult> SearchFindings(string query, string? severity, string? module, int days)
+    {
+        EnsureDatabase();
+
+        using var conn = new SqliteConnection(_connectionString);
+        conn.Open();
+
+        var cutoff = DateTimeOffset.UtcNow.AddDays(-days).ToString("o");
+        var sql = @"
+            SELECT f.Id, f.RunId, f.ModuleName, f.Title, f.Severity, f.Description, f.Remediation,
+                   r.Timestamp, r.OverallScore, r.Grade
+            FROM Findings f
+            INNER JOIN AuditRuns r ON f.RunId = r.Id
+            WHERE r.Timestamp >= @cutoff
+              AND (f.Title LIKE @query OR f.Description LIKE @query OR f.Remediation LIKE @query)";
+
+        if (!string.IsNullOrEmpty(severity))
+            sql += " AND LOWER(f.Severity) = @severity";
+
+        if (!string.IsNullOrEmpty(module))
+            sql += " AND LOWER(f.ModuleName) LIKE @module";
+
+        sql += " ORDER BY r.Timestamp DESC, f.Id";
+
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = sql;
+        cmd.Parameters.AddWithValue("@cutoff", cutoff);
+        cmd.Parameters.AddWithValue("@query", $"%{query}%");
+
+        if (!string.IsNullOrEmpty(severity))
+            cmd.Parameters.AddWithValue("@severity", severity.ToLowerInvariant());
+
+        if (!string.IsNullOrEmpty(module))
+            cmd.Parameters.AddWithValue("@module", $"%{module.ToLowerInvariant()}%");
+
+        var runMap = new Dictionary<long, FindingSearchResult>();
+        var results = new List<FindingSearchResult>();
+
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            var runId = reader.GetInt64(1);
+            if (!runMap.TryGetValue(runId, out var group))
+            {
+                group = new FindingSearchResult
+                {
+                    RunId = runId,
+                    RunTimestamp = DateTimeOffset.Parse(reader.GetString(7)),
+                    RunScore = reader.GetInt32(8),
+                    RunGrade = reader.GetString(9)
+                };
+                runMap[runId] = group;
+                results.Add(group);
+            }
+
+            group.Findings.Add(new FindingRecord
+            {
+                Id = reader.GetInt64(0),
+                RunId = runId,
+                ModuleName = reader.GetString(2),
+                Title = reader.GetString(3),
+                Severity = reader.GetString(4),
+                Description = reader.GetString(5),
+                Remediation = reader.IsDBNull(6) ? null : reader.GetString(6)
+            });
+        }
+
+        return results;
+    }
+
     public void Dispose()
     {
         if (_disposed) return;

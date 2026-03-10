@@ -96,3 +96,15 @@ public class ModuleTrendInfo
         : "—";
     public int ScoreChange => PreviousScore.HasValue ? CurrentScore - PreviousScore.Value : 0;
 }
+
+/// <summary>
+/// Search result grouping matching findings by audit run.
+/// </summary>
+public class FindingSearchResult
+{
+    public long RunId { get; set; }
+    public DateTimeOffset RunTimestamp { get; set; }
+    public int RunScore { get; set; }
+    public string RunGrade { get; set; } = "";
+    public List<FindingRecord> Findings { get; set; } = [];
+}

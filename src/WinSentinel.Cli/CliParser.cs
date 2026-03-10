@@ -74,6 +74,10 @@ public class CliOptions
     public int ScheduleOptimizeDays { get; set; } = 90;
     public int DigestHistoryDays { get; set; } = 30;
     public string DigestFormat { get; set; } = "text";
+    public string? SearchQuery { get; set; }
+    public string? SearchSeverityFilter { get; set; }
+    public string? SearchModuleFilter { get; set; }
+    public int SearchDays { get; set; } = 90;
 }
 
 public enum CliCommand
@@ -100,6 +104,7 @@ public enum CliCommand
     Threats,
     ScheduleOptimize,
     Digest,
+    Search,
     Help,
     Version
 }
@@ -443,6 +448,72 @@ public static class CliParser
                 case "--digest-format":
                     if (i + 1 < args.Length)
                         options.DigestFormat = args[++i].ToLowerInvariant();
+                    break;
+
+                case "--search":
+                    options.Command = CliCommand.Search;
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                    {
+                        options.SearchQuery = args[++i];
+                    }
+                    else
+                    {
+                        options.Error = "Missing search query. Usage: --search <query>";
+                        return options;
+                    }
+                    break;
+
+                case "--search-severity":
+                    if (i + 1 < args.Length)
+                    {
+                        var sev = args[++i].ToLowerInvariant();
+                        if (sev is "critical" or "warning" or "info" or "pass")
+                        {
+                            options.SearchSeverityFilter = sev;
+                        }
+                        else
+                        {
+                            options.Error = "Invalid search-severity value. Use critical, warning, info, or pass.";
+                            return options;
+                        }
+                    }
+                    else
+                    {
+                        options.Error = "Missing value for --search-severity.";
+                        return options;
+                    }
+                    break;
+
+                case "--search-module":
+                    if (i + 1 < args.Length)
+                    {
+                        options.SearchModuleFilter = args[++i];
+                    }
+                    else
+                    {
+                        options.Error = "Missing value for --search-module.";
+                        return options;
+                    }
+                    break;
+
+                case "--search-days":
+                    if (i + 1 < args.Length)
+                    {
+                        if (int.TryParse(args[++i], out int searchDays) && searchDays >= 1 && searchDays <= 365)
+                        {
+                            options.SearchDays = searchDays;
+                        }
+                        else
+                        {
+                            options.Error = "Invalid search-days value. Must be 1-365.";
+                            return options;
+                        }
+                    }
+                    else
+                    {
+                        options.Error = "Missing value for --search-days.";
+                        return options;
+                    }
                     break;
 
                 case "export" when options.Command == CliCommand.Policy:

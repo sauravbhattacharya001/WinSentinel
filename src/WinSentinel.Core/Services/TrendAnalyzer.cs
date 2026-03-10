@@ -45,13 +45,19 @@ public class TrendAnalyzer
         report.MaxScore = scores.Max();
         report.ScoreStdDev = Math.Round(CalculateStdDev(scores), 1);
 
-        // Best/worst
-        var best = chronological.OrderByDescending(r => r.OverallScore).First();
+        // Best/worst — single pass O(n) instead of two O(n log n) sorts
+        var best = chronological[0];
+        var worst = chronological[0];
+        for (int i = 1; i < chronological.Count; i++)
+        {
+            if (chronological[i].OverallScore > best.OverallScore)
+                best = chronological[i];
+            if (chronological[i].OverallScore < worst.OverallScore)
+                worst = chronological[i];
+        }
         report.BestScore = best.OverallScore;
         report.BestScoreDate = best.Timestamp;
         report.BestScoreGrade = best.Grade;
-
-        var worst = chronological.OrderBy(r => r.OverallScore).First();
         report.WorstScore = worst.OverallScore;
         report.WorstScoreDate = worst.Timestamp;
         report.WorstScoreGrade = worst.Grade;
@@ -195,7 +201,8 @@ public class TrendAnalyzer
 
     private static double CalculateMedian(List<int> values)
     {
-        var sorted = values.OrderBy(v => v).ToList();
+        var sorted = new List<int>(values);  // Copy without re-enumerating via LINQ
+        sorted.Sort();                       // In-place sort — no extra allocation
         var mid = sorted.Count / 2;
         return sorted.Count % 2 == 0
             ? (sorted[mid - 1] + sorted[mid]) / 2.0
@@ -204,50 +211,51 @@ public class TrendAnalyzer
 
     private static void CalculateStreaks(List<AuditRunRecord> chronological, TrendReport report)
     {
-        // Improvement streak: consecutive scans where score >= previous
-        int currentStreak = 0;
-        int bestStreak = 0;
+        // Single pass: track both improvement and decline streaks simultaneously
+        int improveStreak = 0;
+        int bestImproveStreak = 0;
+        int declineStreak = 0;
+
         for (int i = 1; i < chronological.Count; i++)
         {
             if (chronological[i].OverallScore >= chronological[i - 1].OverallScore)
             {
-                currentStreak++;
-                bestStreak = Math.Max(bestStreak, currentStreak);
+                improveStreak++;
+                bestImproveStreak = Math.Max(bestImproveStreak, improveStreak);
+                declineStreak = 0;
             }
             else
             {
-                currentStreak = 0;
+                declineStreak++;
+                improveStreak = 0;
             }
         }
-        report.CurrentImprovementStreak = currentStreak;
-        report.BestImprovementStreak = bestStreak;
 
-        // Decline streak
-        currentStreak = 0;
-        for (int i = 1; i < chronological.Count; i++)
-        {
-            if (chronological[i].OverallScore < chronological[i - 1].OverallScore)
-            {
-                currentStreak++;
-            }
-            else
-            {
-                currentStreak = 0;
-            }
-        }
-        report.CurrentDeclineStreak = currentStreak;
+        report.CurrentImprovementStreak = improveStreak;
+        report.BestImprovementStreak = bestImproveStreak;
+        report.CurrentDeclineStreak = declineStreak;
     }
 
     private static Dictionary<string, int> CalculateDistribution(List<int> scores)
     {
-        return new Dictionary<string, int>
+        // Single-pass bucket counting instead of 5 separate .Count() scans
+        var dist = new Dictionary<string, int>
         {
-            ["0-19"] = scores.Count(s => s < 20),
-            ["20-39"] = scores.Count(s => s >= 20 && s < 40),
-            ["40-59"] = scores.Count(s => s >= 40 && s < 60),
-            ["60-79"] = scores.Count(s => s >= 60 && s < 80),
-            ["80-100"] = scores.Count(s => s >= 80),
+            ["0-19"] = 0,
+            ["20-39"] = 0,
+            ["40-59"] = 0,
+            ["60-79"] = 0,
+            ["80-100"] = 0,
         };
+        foreach (var s in scores)
+        {
+            if (s < 20) dist["0-19"]++;
+            else if (s < 40) dist["20-39"]++;
+            else if (s < 60) dist["40-59"]++;
+            else if (s < 80) dist["60-79"]++;
+            else dist["80-100"]++;
+        }
+        return dist;
     }
 
     private static List<ModuleTrendInfo> BuildModuleTrends(List<AuditRunRecord> chronological)

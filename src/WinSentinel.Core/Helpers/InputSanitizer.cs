@@ -350,6 +350,73 @@ public static partial class InputSanitizer
         if (command.Contains('|') && (lower.Contains("powershell") || lower.Contains("cmd")))
             return "Contains piped shell execution (potential bypass)";
 
+        // ── Additional bypass vectors ──
+
+        // PowerShell call operator — `& { code }` or `& "path"` executes arbitrary commands
+        // without triggering other blocklists.  Also catches `Invoke-Command` and `.Invoke()`.
+        if (lower.Contains("invoke-command") || lower.Contains("enter-pssession") ||
+            lower.Contains("invoke-item") || lower.Contains("ii "))
+            return "Contains PowerShell remote/invoke execution";
+
+        // Start-Job / background jobs — runs code in a separate process, escaping monitoring
+        if (lower.Contains("start-job") || lower.Contains("start-threadjob"))
+            return "Contains background job execution (evades process-tree monitoring)";
+
+        // COM object instantiation — `New-Object -ComObject WScript.Shell` then `.Run()`
+        // bypasses all command-name blocklists since execution goes through COM
+        if (lower.Contains("-comobject") || lower.Contains("wscript.shell") ||
+            lower.Contains("shell.application") || lower.Contains("mmc20.application"))
+            return "Contains COM object instantiation (potential code execution bypass)";
+
+        // Environment variable expansion — `$env:COMSPEC /c malicious` resolves to
+        // cmd.exe, bypassing command-name checks
+        if (lower.Contains("$env:") && (lower.Contains("comspec") || lower.Contains("systemroot") ||
+            lower.Contains("windir") || lower.Contains("temp") || lower.Contains("appdata")))
+            return "Contains environment variable reference (potential path resolution bypass)";
+
+        // PowerShell -File parameter — executes an arbitrary .ps1 script
+        if (lower.Contains("-file ") && lower.Contains(".ps1"))
+            return "Contains PowerShell script file execution";
+
+        // Null bytes — can truncate strings in native APIs, bypassing validation
+        if (command.Contains('\0'))
+            return "Contains null byte (potential truncation attack)";
+
+        // PowerShell call operator with block — `& { ... }` executes script blocks
+        if (CallOperatorPattern().IsMatch(command))
+            return "Contains PowerShell call operator (arbitrary execution)";
+
+        // Base64 smuggling — manual Base64 decode + execute patterns (our own
+        // -EncodedCommand usage is safe because we control it; blocked here
+        // are user-supplied commands that decode + pipe to IEX/Invoke-Expression)
+        if (lower.Contains("frombase64string") || lower.Contains("[convert]::") ||
+            (lower.Contains("base64") && lower.Contains("invoke")))
+            return "Contains Base64 decode + execute pattern (obfuscation bypass)";
+
+        // WMI/CIM arbitrary method invocation
+        if (lower.Contains("invoke-wmimethod") || lower.Contains("invoke-cimmethod") ||
+            lower.Contains("get-wmiobject") && lower.Contains("call"))
+            return "Contains WMI/CIM method invocation (potential remote execution)";
+
+        // DLL loading — can execute arbitrary native code
+        if (lower.Contains("loadlibrary") || lower.Contains("[dllimport") ||
+            lower.Contains("add-type") && lower.Contains("dllname"))
+            return "Contains DLL loading (arbitrary native code execution)";
+
+        // AMSI bypass — disables Antimalware Scan Interface to evade detection.
+        // Catches both direct field access and string-concat obfuscation patterns.
+        if (lower.Contains("amsiutils") || lower.Contains("amsiinitfailed") ||
+            lower.Contains("amsi" + "utils") ||
+            (lower.Contains("[ref].assembly") && lower.Contains("amsi")))
+            return "Contains AMSI bypass attempt (security evasion)";
+
+        // Registry Run key persistence — adding entries to auto-start locations
+        // allows malware to survive reboots.
+        if ((lower.Contains("currentversion\\run") || lower.Contains("currentversion/run")) &&
+            (lower.Contains("reg add") || lower.Contains("set-itemproperty") ||
+             lower.Contains("new-itemproperty")))
+            return "Contains registry Run key modification (persistence mechanism)";
+
         return null;
     }
 
@@ -376,4 +443,8 @@ public static partial class InputSanitizer
     /// <summary>Matches control characters and newlines for log injection prevention.</summary>
     [GeneratedRegex(@"\r\n|\r|\n|[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]")]
     private static partial Regex LogInjectionPattern();
+
+    /// <summary>Matches PowerShell call operator patterns: &amp; { ... } or &amp; "path".</summary>
+    [GeneratedRegex(@"&\s*(\{|""|'|[a-zA-Z])")]
+    private static partial Regex CallOperatorPattern();
 }

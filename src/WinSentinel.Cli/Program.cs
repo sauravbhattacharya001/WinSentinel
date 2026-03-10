@@ -40,6 +40,7 @@ return options.Command switch
     CliCommand.RootCause => await HandleRootCause(options),
     CliCommand.Threats => await HandleThreats(options),
     CliCommand.ScheduleOptimize => HandleScheduleOptimize(options),
+    CliCommand.Notes => HandleNotes(options),
     _ => HandleHelp()
 };
 
@@ -2412,4 +2413,163 @@ static int HandleScheduleOptimize(CliOptions options)
 
     ConsoleFormatter.PrintScheduleOptimizeResult(result);
     return 0;
+}
+
+// ── Audit Notes ──────────────────────────────────────────────────────
+
+static int HandleNotes(CliOptions options)
+{
+    var service = new AuditNoteService();
+    return options.NoteAction switch
+    {
+        NoteAction.Add => HandleNoteAdd(service, options),
+        NoteAction.List => HandleNoteList(service, options),
+        NoteAction.Search => HandleNoteSearch(service, options),
+        NoteAction.Update => HandleNoteUpdate(service, options),
+        NoteAction.Remove => HandleNoteRemove(service, options),
+        NoteAction.Clear => HandleNoteClear(service, options),
+        NoteAction.Stats => HandleNoteStats(service, options),
+        _ => HandleNoteList(service, options)
+    };
+}
+
+static int HandleNoteAdd(AuditNoteService service, CliOptions options)
+{
+    if (string.IsNullOrWhiteSpace(options.NoteText))
+    { ConsoleFormatter.PrintError("Missing note text. Use --note-text <text>"); return 3; }
+
+    var category = NoteCategory.Comment;
+    if (!string.IsNullOrEmpty(options.NoteCategory) && !Enum.TryParse(options.NoteCategory, true, out category))
+    { ConsoleFormatter.PrintError($"Unknown category: {options.NoteCategory}."); return 3; }
+
+    try
+    {
+        var note = service.Add(options.NoteFindingPattern!, options.NoteText, category, options.NoteModule, pinned: options.NotePinned);
+        if (options.Json)
+        {
+            var jo = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+            WriteOutput(JsonSerializer.Serialize(new { action = "added", id = note.Id, findingPattern = note.FindingPattern, text = note.Text, category = note.Category.ToString(), module = note.Module, author = note.Author, pinned = note.Pinned, createdAt = note.CreatedAt }, jo), options.OutputFile);
+        }
+        else if (!options.Quiet)
+        {
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"\n  \u2713 Note added (ID: {note.Id})");
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine($"    Pattern: \"{note.FindingPattern}\" | Category: {note.Category} | Pinned: {(note.Pinned ? "yes" : "no")}");
+            Console.ResetColor(); Console.WriteLine();
+        }
+        return 0;
+    }
+    catch (ArgumentException ex) { ConsoleFormatter.PrintError(ex.Message); return 3; }
+}
+
+static int HandleNoteList(AuditNoteService service, CliOptions options)
+{
+    var notes = service.GetAll();
+    if (notes.Count == 0)
+    {
+        if (options.Json) WriteOutput("[]", options.OutputFile);
+        else if (!options.Quiet) { Console.ForegroundColor = ConsoleColor.Yellow; Console.WriteLine("  No audit notes found."); Console.ResetColor(); }
+        return 0;
+    }
+    if (options.Json)
+    {
+        var jo = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        WriteOutput(JsonSerializer.Serialize(notes, jo), options.OutputFile);
+    }
+    else PrintNotesList(notes, options.Quiet);
+    return 0;
+}
+
+static int HandleNoteSearch(AuditNoteService service, CliOptions options)
+{
+    var result = service.Search(options.NoteQuery!);
+    if (options.Json)
+    {
+        var jo = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        WriteOutput(JsonSerializer.Serialize(result, jo), options.OutputFile);
+        return 0;
+    }
+    if (result.Notes.Count == 0) { Console.ForegroundColor = ConsoleColor.Yellow; Console.WriteLine($"  No notes matching \"{result.Query}\"."); Console.ResetColor(); return 0; }
+    Console.ForegroundColor = ConsoleColor.Cyan; Console.WriteLine($"\n  Search: \"{result.Query}\" \u2014 {result.Notes.Count} match(es) of {result.TotalNotes} total\n"); Console.ResetColor();
+    PrintNotesList(result.Notes, options.Quiet);
+    return 0;
+}
+
+static int HandleNoteUpdate(AuditNoteService service, CliOptions options)
+{
+    NoteCategory? cat = null;
+    if (!string.IsNullOrEmpty(options.NoteCategory))
+    { if (!Enum.TryParse<NoteCategory>(options.NoteCategory, true, out var p)) { ConsoleFormatter.PrintError($"Unknown category: {options.NoteCategory}."); return 3; } cat = p; }
+    var note = service.Update(options.NoteId!, options.NoteText, cat, options.NotePinned ? true : null);
+    if (note == null) { ConsoleFormatter.PrintError($"Note '{options.NoteId}' not found."); return 3; }
+    if (options.Json) { var jo = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } }; WriteOutput(JsonSerializer.Serialize(note, jo), options.OutputFile); }
+    else if (!options.Quiet) { Console.ForegroundColor = ConsoleColor.Green; Console.WriteLine($"  \u2713 Note '{note.Id}' updated."); Console.ResetColor(); }
+    return 0;
+}
+
+static int HandleNoteRemove(AuditNoteService service, CliOptions options)
+{
+    if (service.Remove(options.NoteId!))
+    {
+        if (options.Json) WriteOutput($"{{\"action\": \"removed\", \"id\": \"{options.NoteId}\"}}", options.OutputFile);
+        else if (!options.Quiet) { Console.ForegroundColor = ConsoleColor.Green; Console.WriteLine($"  \u2713 Note '{options.NoteId}' removed."); Console.ResetColor(); }
+        return 0;
+    }
+    ConsoleFormatter.PrintError($"Note '{options.NoteId}' not found."); return 3;
+}
+
+static int HandleNoteClear(AuditNoteService service, CliOptions options)
+{
+    var count = service.Clear();
+    if (options.Json) WriteOutput($"{{\"action\": \"cleared\", \"removed\": {count}}}", options.OutputFile);
+    else if (!options.Quiet) { Console.ForegroundColor = ConsoleColor.Green; Console.WriteLine($"  \u2713 Cleared {count} note(s)."); Console.ResetColor(); }
+    return 0;
+}
+
+static int HandleNoteStats(AuditNoteService service, CliOptions options)
+{
+    var stats = service.GetStats();
+    if (options.Json) { var jo = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } }; WriteOutput(JsonSerializer.Serialize(stats, jo), options.OutputFile); return 0; }
+    Console.ForegroundColor = ConsoleColor.Cyan;
+    Console.WriteLine("\n  \u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557");
+    Console.WriteLine("  \u2551         Audit Notes Statistics        \u2551");
+    Console.WriteLine("  \u255a\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d");
+    Console.ResetColor();
+    Console.Write("\n  Total: "); Console.ForegroundColor = ConsoleColor.White; Console.WriteLine(stats.TotalNotes); Console.ResetColor();
+    Console.Write("  Pinned: "); Console.ForegroundColor = stats.PinnedNotes > 0 ? ConsoleColor.Yellow : ConsoleColor.DarkGray; Console.WriteLine(stats.PinnedNotes); Console.ResetColor();
+    if (stats.ByCategory.Count > 0)
+    {
+        Console.ForegroundColor = ConsoleColor.White; Console.WriteLine("\n  By Category:"); Console.ResetColor();
+        foreach (var (cat, count) in stats.ByCategory.OrderByDescending(kv => kv.Value))
+        { Console.Write($"    {cat,-16}"); Console.ForegroundColor = ConsoleColor.Cyan; Console.WriteLine(count); Console.ResetColor(); }
+    }
+    Console.WriteLine();
+    return 0;
+}
+
+static void PrintNotesList(List<AuditNote> notes, bool quiet)
+{
+    if (quiet) { foreach (var n in notes) Console.WriteLine($"{n.Id}\t{n.FindingPattern}\t{n.Category}\t{n.Text}"); return; }
+    Console.WriteLine();
+    Console.ForegroundColor = ConsoleColor.White;
+    Console.WriteLine($"  {"ID",-10} {"Pattern",-30} {"Category",-14} {"Pin",3}  Note");
+    Console.ForegroundColor = ConsoleColor.DarkGray;
+    Console.WriteLine($"  {"----------",-10} {"------------------------------",-30} {"--------------",-14} {"---",3}  ----------------------------");
+    Console.ResetColor();
+    foreach (var n in notes)
+    {
+        Console.ForegroundColor = ConsoleColor.DarkCyan; Console.Write($"  {n.Id,-10} ");
+        Console.ForegroundColor = ConsoleColor.White;
+        var p = n.FindingPattern.Length > 28 ? n.FindingPattern[..28] + ".." : n.FindingPattern;
+        Console.Write($"{p,-30} ");
+        Console.ForegroundColor = n.Category switch { NoteCategory.Accepted => ConsoleColor.Green, NoteCategory.Deferred => ConsoleColor.Yellow, NoteCategory.InProgress => ConsoleColor.Cyan, NoteCategory.WontFix => ConsoleColor.DarkGray, NoteCategory.FalsePositive => ConsoleColor.Magenta, _ => ConsoleColor.White };
+        Console.Write($"{n.Category,-14} ");
+        Console.ForegroundColor = n.Pinned ? ConsoleColor.Yellow : ConsoleColor.DarkGray;
+        Console.Write($"{(n.Pinned ? "Y" : " "),3}  ");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine(n.Text.Length > 40 ? n.Text[..40] + "..." : n.Text);
+        Console.ResetColor();
+    }
+    Console.WriteLine();
 }

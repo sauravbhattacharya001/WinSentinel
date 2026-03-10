@@ -137,8 +137,11 @@ public class WindowsToastSender : IToastSender
 
     private static void SendToastViaPowerShell(string title, string body)
     {
-        var escapedTitle = title.Replace("'", "''").Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
-        var escapedBody = body.Replace("'", "''").Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\n", "&#10;");
+        // XML-escape only — single-quote escaping for PowerShell is handled later
+        // by xml.Replace("'", "''") on the full XML string. Escaping here AND there
+        // causes double-escaping: it's → it''s → it''''s in the PS string.
+        var escapedTitle = title.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
+        var escapedBody = body.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\n", "&#10;");
 
         var xml = $@"<toast>
   <visual>

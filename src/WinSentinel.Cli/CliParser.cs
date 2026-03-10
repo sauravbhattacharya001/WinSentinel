@@ -72,6 +72,14 @@ public class CliOptions
     public int RootCauseTop { get; set; } = 10;
     public string? RootCauseSeverityFilter { get; set; }
     public int ScheduleOptimizeDays { get; set; } = 90;
+    public NoteAction NoteAction { get; set; } = NoteAction.None;
+    public string? NoteText { get; set; }
+    public string? NoteFindingPattern { get; set; }
+    public string? NoteId { get; set; }
+    public string? NoteCategory { get; set; }
+    public string? NoteModule { get; set; }
+    public string? NoteQuery { get; set; }
+    public bool NotePinned { get; set; }
 }
 
 public enum CliCommand
@@ -97,6 +105,7 @@ public enum CliCommand
     RootCause,
     Threats,
     ScheduleOptimize,
+    Notes,
     Help,
     Version
 }
@@ -166,6 +175,11 @@ public enum RootCauseAction
     Top,
     Causes,
     Ungrouped
+}
+
+public enum NoteAction
+{
+    None, Add, List, Search, Update, Remove, Clear, Stats
 }
 
 /// <summary>
@@ -426,6 +440,58 @@ public static class CliParser
 
                 case "--schedule-optimize":
                     options.Command = CliCommand.ScheduleOptimize;
+                    break;
+
+                case "--notes":
+                    options.Command = CliCommand.Notes;
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                    {
+                        var noteAction = args[++i].ToLowerInvariant();
+                        options.NoteAction = noteAction switch
+                        {
+                            "add" => NoteAction.Add, "list" => NoteAction.List,
+                            "search" => NoteAction.Search, "update" => NoteAction.Update,
+                            "remove" or "rm" => NoteAction.Remove, "clear" => NoteAction.Clear,
+                            "stats" => NoteAction.Stats, _ => NoteAction.None
+                        };
+                        if (options.NoteAction == NoteAction.None)
+                        { options.Error = $"Unknown notes action: {noteAction}."; return options; }
+                        if (options.NoteAction == NoteAction.Add)
+                        {
+                            if (i + 1 < args.Length && !args[i + 1].StartsWith("-")) options.NoteFindingPattern = args[++i];
+                            else { options.Error = "Missing finding pattern for 'notes add'."; return options; }
+                        }
+                        if (options.NoteAction is NoteAction.Update or NoteAction.Remove)
+                        {
+                            if (i + 1 < args.Length && !args[i + 1].StartsWith("-")) options.NoteId = args[++i];
+                            else { options.Error = $"Missing note ID for 'notes {noteAction}'."; return options; }
+                        }
+                        if (options.NoteAction == NoteAction.Search)
+                        {
+                            if (i + 1 < args.Length && !args[i + 1].StartsWith("-")) options.NoteQuery = args[++i];
+                            else { options.Error = "Missing query for 'notes search'."; return options; }
+                        }
+                    }
+                    else { options.NoteAction = NoteAction.List; }
+                    break;
+
+                case "--note-text":
+                    if (i + 1 < args.Length) options.NoteText = args[++i];
+                    else { options.Error = "Missing value for --note-text."; return options; }
+                    break;
+
+                case "--note-category":
+                    if (i + 1 < args.Length) options.NoteCategory = args[++i];
+                    else { options.Error = "Missing value for --note-category."; return options; }
+                    break;
+
+                case "--note-module":
+                    if (i + 1 < args.Length) options.NoteModule = args[++i];
+                    else { options.Error = "Missing value for --note-module."; return options; }
+                    break;
+
+                case "--note-pin":
+                    options.NotePinned = true;
                     break;
 
                 case "export" when options.Command == CliCommand.Policy:

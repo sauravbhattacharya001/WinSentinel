@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Data.Sqlite;
 using WinSentinel.Core.Models;
 
@@ -125,7 +126,7 @@ public class AuditHistoryService : IDisposable
                 VALUES (@ts, @score, @grade, @total, @critical, @warning, @info, @pass, @scheduled);
                 SELECT last_insert_rowid();
             ";
-            runCmd.Parameters.AddWithValue("@ts", report.GeneratedAt.ToString("o"));
+            runCmd.Parameters.AddWithValue("@ts", report.GeneratedAt.ToUniversalTime().ToString("o"));
             runCmd.Parameters.AddWithValue("@score", report.SecurityScore);
             runCmd.Parameters.AddWithValue("@grade", SecurityScorer.GetGrade(report.SecurityScore));
             runCmd.Parameters.AddWithValue("@total", report.TotalFindings);
@@ -229,7 +230,7 @@ public class AuditHistoryService : IDisposable
             runs.Add(new AuditRunRecord
             {
                 Id = reader.GetInt64(0),
-                Timestamp = DateTimeOffset.Parse(reader.GetString(1)),
+                Timestamp = DateTimeOffset.Parse(reader.GetString(1), CultureInfo.InvariantCulture),
                 OverallScore = reader.GetInt32(2),
                 Grade = reader.GetString(3),
                 TotalFindings = reader.GetInt32(4),
@@ -271,7 +272,7 @@ public class AuditHistoryService : IDisposable
             runs.Add(new AuditRunRecord
             {
                 Id = reader.GetInt64(0),
-                Timestamp = DateTimeOffset.Parse(reader.GetString(1)),
+                Timestamp = DateTimeOffset.Parse(reader.GetString(1), CultureInfo.InvariantCulture),
                 OverallScore = reader.GetInt32(2),
                 Grade = reader.GetString(3),
                 TotalFindings = reader.GetInt32(4),
@@ -312,7 +313,7 @@ public class AuditHistoryService : IDisposable
                 run = new AuditRunRecord
                 {
                     Id = reader.GetInt64(0),
-                    Timestamp = DateTimeOffset.Parse(reader.GetString(1)),
+                    Timestamp = DateTimeOffset.Parse(reader.GetString(1), CultureInfo.InvariantCulture),
                     OverallScore = reader.GetInt32(2),
                     Grade = reader.GetString(3),
                     TotalFindings = reader.GetInt32(4),

@@ -176,6 +176,44 @@ public enum RootCauseAction
 /// </summary>
 public static class CliParser
 {
+    /// <summary>
+    /// Consume the next argument as a string value.
+    /// Returns true and advances <paramref name="i"/> if successful;
+    /// sets <paramref name="error"/> on failure.
+    /// </summary>
+    private static bool TryConsumeArg(string[] args, ref int i, string flag, out string value, out string? error)
+    {
+        error = null;
+        if (i + 1 < args.Length)
+        {
+            value = args[++i];
+            return true;
+        }
+        value = "";
+        error = $"Missing value for {flag}.";
+        return false;
+    }
+
+    /// <summary>
+    /// Consume the next argument as an integer within [<paramref name="min"/>, <paramref name="max"/>].
+    /// Returns true and advances <paramref name="i"/> if successful;
+    /// sets <paramref name="error"/> on failure.
+    /// </summary>
+    private static bool TryConsumeInt(string[] args, ref int i, string flag, int min, int max, out int value, out string? error)
+    {
+        error = null;
+        value = 0;
+        if (i + 1 < args.Length)
+        {
+            if (int.TryParse(args[++i], out value) && value >= min && value <= max)
+                return true;
+            error = $"Invalid {flag.TrimStart('-')} value. Must be {min}-{max}.";
+            return false;
+        }
+        error = $"Missing value for {flag}.";
+        return false;
+    }
+
     public static CliOptions Parse(string[] args)
     {
         var options = new CliOptions();
@@ -275,43 +313,15 @@ public static class CliParser
                     break;
 
                 case "--warning-days":
-                    if (i + 1 < args.Length)
-                    {
-                        if (int.TryParse(args[++i], out int warnDays) && warnDays >= 1 && warnDays <= 365)
-                        {
-                            options.ExemptionWarningDays = warnDays;
-                        }
-                        else
-                        {
-                            options.Error = "Invalid warning-days value. Must be 1-365.";
-                            return options;
-                        }
-                    }
-                    else
-                    {
-                        options.Error = "Missing value for --warning-days.";
-                        return options;
-                    }
+                    if (!TryConsumeInt(args, ref i, "--warning-days", 1, 365, out var warnDays, out var warnErr))
+                    { options.Error = warnErr; return options; }
+                    options.ExemptionWarningDays = warnDays;
                     break;
 
                 case "--stale-days":
-                    if (i + 1 < args.Length)
-                    {
-                        if (int.TryParse(args[++i], out int staleDays) && staleDays >= 1 && staleDays <= 3650)
-                        {
-                            options.ExemptionStaleDays = staleDays;
-                        }
-                        else
-                        {
-                            options.Error = "Invalid stale-days value. Must be 1-3650.";
-                            return options;
-                        }
-                    }
-                    else
-                    {
-                        options.Error = "Missing value for --stale-days.";
-                        return options;
-                    }
+                    if (!TryConsumeInt(args, ref i, "--stale-days", 1, 3650, out var staleDays, out var staleErr))
+                    { options.Error = staleErr; return options; }
+                    options.ExemptionStaleDays = staleDays;
                     break;
 
                 case "--quiz":
@@ -319,47 +329,21 @@ public static class CliParser
                     break;
 
                 case "--quiz-count":
-                    if (i + 1 < args.Length)
-                    {
-                        if (int.TryParse(args[++i], out int qCount) && qCount >= 1 && qCount <= 50)
-                        {
-                            options.QuizQuestionCount = qCount;
-                        }
-                        else
-                        {
-                            options.Error = "Invalid quiz-count value. Must be 1-50.";
-                            return options;
-                        }
-                    }
-                    else
-                    {
-                        options.Error = "Missing value for --quiz-count.";
-                        return options;
-                    }
+                    if (!TryConsumeInt(args, ref i, "--quiz-count", 1, 50, out var qCount, out var qcErr))
+                    { options.Error = qcErr; return options; }
+                    options.QuizQuestionCount = qCount;
                     break;
 
                 case "--quiz-difficulty":
-                    if (i + 1 < args.Length)
-                    {
-                        options.QuizDifficulty = args[++i].ToLowerInvariant();
-                    }
-                    else
-                    {
-                        options.Error = "Missing value for --quiz-difficulty.";
-                        return options;
-                    }
+                    if (!TryConsumeArg(args, ref i, "--quiz-difficulty", out var qDiff, out var qdErr))
+                    { options.Error = qdErr; return options; }
+                    options.QuizDifficulty = qDiff.ToLowerInvariant();
                     break;
 
                 case "--quiz-category":
-                    if (i + 1 < args.Length)
-                    {
-                        options.QuizCategory = args[++i];
-                    }
-                    else
-                    {
-                        options.Error = "Missing value for --quiz-category.";
-                        return options;
-                    }
+                    if (!TryConsumeArg(args, ref i, "--quiz-category", out var qCat, out var qcatErr))
+                    { options.Error = qcatErr; return options; }
+                    options.QuizCategory = qCat;
                     break;
 
                 case "--quiz-export":
@@ -392,35 +376,15 @@ public static class CliParser
                     break;
 
                 case "--rootcause-top":
-                    if (i + 1 < args.Length)
-                    {
-                        if (int.TryParse(args[++i], out int rcTop) && rcTop >= 1 && rcTop <= 50)
-                        {
-                            options.RootCauseTop = rcTop;
-                        }
-                        else
-                        {
-                            options.Error = "Invalid rootcause-top value. Must be 1-50.";
-                            return options;
-                        }
-                    }
-                    else
-                    {
-                        options.Error = "Missing value for --rootcause-top.";
-                        return options;
-                    }
+                    if (!TryConsumeInt(args, ref i, "--rootcause-top", 1, 50, out var rcTop, out var rcTopErr))
+                    { options.Error = rcTopErr; return options; }
+                    options.RootCauseTop = rcTop;
                     break;
 
                 case "--rootcause-severity":
-                    if (i + 1 < args.Length)
-                    {
-                        options.RootCauseSeverityFilter = args[++i];
-                    }
-                    else
-                    {
-                        options.Error = "Missing value for --rootcause-severity.";
-                        return options;
-                    }
+                    if (!TryConsumeArg(args, ref i, "--rootcause-severity", out var rcSev, out var rcSevErr))
+                    { options.Error = rcSevErr; return options; }
+                    options.RootCauseSeverityFilter = rcSev;
                     break;
 
                 case "--threats":
@@ -462,18 +426,15 @@ public static class CliParser
                     break;
 
                 case "--policy-file":
-                    if (i + 1 < args.Length)
-                        options.PolicyFile = args[++i];
+                    if (i + 1 < args.Length) options.PolicyFile = args[++i];
                     break;
 
                 case "--policy-name":
-                    if (i + 1 < args.Length)
-                        options.PolicyName = args[++i];
+                    if (i + 1 < args.Length) options.PolicyName = args[++i];
                     break;
 
                 case "--policy-desc":
-                    if (i + 1 < args.Length)
-                        options.PolicyDescription = args[++i];
+                    if (i + 1 < args.Length) options.PolicyDescription = args[++i];
                     break;
 
                 case "--no-prompt":
@@ -517,91 +478,39 @@ public static class CliParser
                     break;
 
                 case "--age-severity":
-                    if (i + 1 < args.Length)
-                    {
-                        options.AgeSeverityFilter = args[++i];
-                    }
-                    else
-                    {
-                        options.Error = "Missing value for --age-severity.";
-                        return options;
-                    }
+                    if (!TryConsumeArg(args, ref i, "--age-severity", out var ageSev, out var ageSevErr))
+                    { options.Error = ageSevErr; return options; }
+                    options.AgeSeverityFilter = ageSev;
                     break;
 
                 case "--age-module":
-                    if (i + 1 < args.Length)
-                    {
-                        options.AgeModuleFilter = args[++i];
-                    }
-                    else
-                    {
-                        options.Error = "Missing value for --age-module.";
-                        return options;
-                    }
+                    if (!TryConsumeArg(args, ref i, "--age-module", out var ageMod, out var ageModErr))
+                    { options.Error = ageModErr; return options; }
+                    options.AgeModuleFilter = ageMod;
                     break;
 
                 case "--age-class":
-                    if (i + 1 < args.Length)
-                    {
-                        options.AgeClassification = args[++i];
-                    }
-                    else
-                    {
-                        options.Error = "Missing value for --age-class. Use chronic, recurring, new, or intermittent.";
-                        return options;
-                    }
+                    if (!TryConsumeArg(args, ref i, "--age-class", out var ageCls, out var ageClsErr))
+                    { options.Error = ageClsErr ?? "Missing value for --age-class. Use chronic, recurring, new, or intermittent."; return options; }
+                    options.AgeClassification = ageCls;
                     break;
 
                 case "--age-days":
-                    if (i + 1 < args.Length)
-                    {
-                        if (int.TryParse(args[++i], out int ageDays) && ageDays >= 1 && ageDays <= 365)
-                        {
-                            options.AgeDays = ageDays;
-                        }
-                        else
-                        {
-                            options.Error = "Invalid age-days value. Must be 1-365.";
-                            return options;
-                        }
-                    }
-                    else
-                    {
-                        options.Error = "Missing value for --age-days.";
-                        return options;
-                    }
+                    if (!TryConsumeInt(args, ref i, "--age-days", 1, 365, out var ageDays, out var ageDErr))
+                    { options.Error = ageDErr; return options; }
+                    options.AgeDays = ageDays;
                     break;
 
                 case "--age-top":
-                    if (i + 1 < args.Length)
-                    {
-                        if (int.TryParse(args[++i], out int ageTop) && ageTop >= 1 && ageTop <= 100)
-                        {
-                            options.AgeTop = ageTop;
-                        }
-                        else
-                        {
-                            options.Error = "Invalid age-top value. Must be 1-100.";
-                            return options;
-                        }
-                    }
-                    else
-                    {
-                        options.Error = "Missing value for --age-top.";
-                        return options;
-                    }
+                    if (!TryConsumeInt(args, ref i, "--age-top", 1, 100, out var ageTop, out var ageTErr))
+                    { options.Error = ageTErr; return options; }
+                    options.AgeTop = ageTop;
                     break;
 
                 case "--timeline-severity":
-                    if (i + 1 < args.Length)
-                    {
-                        options.TimelineSeverityFilter = args[++i];
-                    }
-                    else
-                    {
-                        options.Error = "Missing value for --timeline-severity. Use info, notice, warning, or critical.";
-                        return options;
-                    }
+                    if (!TryConsumeArg(args, ref i, "--timeline-severity", out var tlSev, out var tlSevErr))
+                    { options.Error = tlSevErr ?? "Missing value for --timeline-severity. Use info, notice, warning, or critical."; return options; }
+                    options.TimelineSeverityFilter = tlSev;
                     break;
 
                 case "--timeline-max":
@@ -625,15 +534,9 @@ public static class CliParser
                     break;
 
                 case "--timeline-module":
-                    if (i + 1 < args.Length)
-                    {
-                        options.TimelineModuleFilter = args[++i];
-                    }
-                    else
-                    {
-                        options.Error = "Missing value for --timeline-module.";
-                        return options;
-                    }
+                    if (!TryConsumeArg(args, ref i, "--timeline-module", out var tlMod, out var tlModErr))
+                    { options.Error = tlModErr; return options; }
+                    options.TimelineModuleFilter = tlMod;
                     break;
 
                 case "--badge":
@@ -673,24 +576,15 @@ public static class CliParser
                     break;
 
                 case "--badge-style":
-                    if (i + 1 < args.Length)
+                    if (!TryConsumeArg(args, ref i, "--badge-style", out var bStyle, out var bsErr))
+                    { options.Error = bsErr ?? "Missing value for --badge-style. Use flat, flat-square, or for-the-badge."; return options; }
+                    var bStyleLower = bStyle.ToLowerInvariant();
+                    if (bStyleLower is not ("flat" or "flat-square" or "for-the-badge"))
                     {
-                        var s = args[++i].ToLowerInvariant();
-                        if (s is "flat" or "flat-square" or "for-the-badge")
-                        {
-                            options.BadgeStyle = s;
-                        }
-                        else
-                        {
-                            options.Error = "Invalid badge style. Use flat, flat-square, or for-the-badge.";
-                            return options;
-                        }
-                    }
-                    else
-                    {
-                        options.Error = "Missing value for --badge-style. Use flat, flat-square, or for-the-badge.";
+                        options.Error = "Invalid badge style. Use flat, flat-square, or for-the-badge.";
                         return options;
                     }
+                    options.BadgeStyle = bStyleLower;
                     break;
 
                 case "--ignore":
@@ -748,71 +642,33 @@ public static class CliParser
                     break;
 
                 case "--ignore-module":
-                    if (i + 1 < args.Length)
-                    {
-                        options.IgnoreModule = args[++i];
-                    }
-                    else
-                    {
-                        options.Error = "Missing value for --ignore-module.";
-                        return options;
-                    }
+                    if (!TryConsumeArg(args, ref i, "--ignore-module", out var igMod, out var igModErr))
+                    { options.Error = igModErr; return options; }
+                    options.IgnoreModule = igMod;
                     break;
 
                 case "--ignore-severity":
-                    if (i + 1 < args.Length)
-                    {
-                        options.IgnoreSeverity = args[++i];
-                    }
-                    else
-                    {
-                        options.Error = "Missing value for --ignore-severity.";
-                        return options;
-                    }
+                    if (!TryConsumeArg(args, ref i, "--ignore-severity", out var igSev, out var igSevErr))
+                    { options.Error = igSevErr; return options; }
+                    options.IgnoreSeverity = igSev;
                     break;
 
                 case "--ignore-reason":
-                    if (i + 1 < args.Length)
-                    {
-                        options.IgnoreReason = args[++i];
-                    }
-                    else
-                    {
-                        options.Error = "Missing value for --ignore-reason.";
-                        return options;
-                    }
+                    if (!TryConsumeArg(args, ref i, "--ignore-reason", out var igRsn, out var igRsnErr))
+                    { options.Error = igRsnErr; return options; }
+                    options.IgnoreReason = igRsn;
                     break;
 
                 case "--match-mode":
-                    if (i + 1 < args.Length)
-                    {
-                        options.IgnoreMatchMode = args[++i];
-                    }
-                    else
-                    {
-                        options.Error = "Missing value for --match-mode. Use exact, contains, or regex.";
-                        return options;
-                    }
+                    if (!TryConsumeArg(args, ref i, "--match-mode", out var mm, out var mmErr))
+                    { options.Error = mmErr ?? "Missing value for --match-mode. Use exact, contains, or regex."; return options; }
+                    options.IgnoreMatchMode = mm;
                     break;
 
                 case "--expire-days":
-                    if (i + 1 < args.Length)
-                    {
-                        if (int.TryParse(args[++i], out int expDays) && expDays >= 1 && expDays <= 3650)
-                        {
-                            options.IgnoreExpireDays = expDays;
-                        }
-                        else
-                        {
-                            options.Error = "Invalid expire-days value. Must be 1-3650.";
-                            return options;
-                        }
-                    }
-                    else
-                    {
-                        options.Error = "Missing value for --expire-days.";
-                        return options;
-                    }
+                    if (!TryConsumeInt(args, ref i, "--expire-days", 1, 3650, out var expDays, out var expErr))
+                    { options.Error = expErr; return options; }
+                    options.IgnoreExpireDays = expDays;
                     break;
 
                 case "--show-ignored":
@@ -820,15 +676,9 @@ public static class CliParser
                     break;
 
                 case "--profile" or "-p":
-                    if (i + 1 < args.Length)
-                    {
-                        options.ProfileName = args[++i];
-                    }
-                    else
-                    {
-                        options.Error = "Missing value for --profile (-p). Available: home, developer, enterprise, server";
-                        return options;
-                    }
+                    if (!TryConsumeArg(args, ref i, "--profile (-p)", out var prof, out var profErr))
+                    { options.Error = profErr ?? "Missing value for --profile (-p). Available: home, developer, enterprise, server"; return options; }
+                    options.ProfileName = prof;
                     break;
 
                 case "--baseline":
@@ -872,15 +722,9 @@ public static class CliParser
                     break;
 
                 case "--desc":
-                    if (i + 1 < args.Length)
-                    {
-                        options.BaselineDescription = args[++i];
-                    }
-                    else
-                    {
-                        options.Error = "Missing value for --desc.";
-                        return options;
-                    }
+                    if (!TryConsumeArg(args, ref i, "--desc", out var descVal, out var descErr))
+                    { options.Error = descErr; return options; }
+                    options.BaselineDescription = descVal;
                     break;
 
                 case "--force":
@@ -896,43 +740,15 @@ public static class CliParser
                     break;
 
                 case "--days":
-                    if (i + 1 < args.Length)
-                    {
-                        if (int.TryParse(args[++i], out int days) && days >= 1 && days <= 365)
-                        {
-                            options.HistoryDays = days;
-                        }
-                        else
-                        {
-                            options.Error = "Invalid days value. Must be 1-365.";
-                            return options;
-                        }
-                    }
-                    else
-                    {
-                        options.Error = "Missing value for --days.";
-                        return options;
-                    }
+                    if (!TryConsumeInt(args, ref i, "--days", 1, 365, out var days, out var daysErr))
+                    { options.Error = daysErr; return options; }
+                    options.HistoryDays = days;
                     break;
 
                 case "--limit" or "-l":
-                    if (i + 1 < args.Length)
-                    {
-                        if (int.TryParse(args[++i], out int limit) && limit >= 1 && limit <= 100)
-                        {
-                            options.HistoryLimit = limit;
-                        }
-                        else
-                        {
-                            options.Error = "Invalid limit value. Must be 1-100.";
-                            return options;
-                        }
-                    }
-                    else
-                    {
-                        options.Error = "Missing value for --limit (-l).";
-                        return options;
-                    }
+                    if (!TryConsumeInt(args, ref i, "--limit (-l)", 1, 100, out var limit, out var limitErr))
+                    { options.Error = limitErr; return options; }
+                    options.HistoryLimit = limit;
                     break;
 
                 case "--json" or "-j":
@@ -952,15 +768,9 @@ public static class CliParser
                     break;
 
                 case "--html-title":
-                    if (i + 1 < args.Length)
-                    {
-                        options.HtmlTitle = args[++i];
-                    }
-                    else
-                    {
-                        options.Error = "Missing value for --html-title.";
-                        return options;
-                    }
+                    if (!TryConsumeArg(args, ref i, "--html-title", out var htmlTitle, out var htErr))
+                    { options.Error = htErr; return options; }
+                    options.HtmlTitle = htmlTitle;
                     break;
 
                 case "--markdown" or "--md":
@@ -984,107 +794,39 @@ public static class CliParser
                     break;
 
                 case "-o" or "--output":
-                    if (i + 1 < args.Length)
-                    {
-                        options.OutputFile = args[++i];
-                    }
-                    else
-                    {
-                        options.Error = "Missing value for --output (-o).";
-                        return options;
-                    }
+                    if (!TryConsumeArg(args, ref i, "--output (-o)", out var outFile, out var outErr))
+                    { options.Error = outErr; return options; }
+                    options.OutputFile = outFile;
                     break;
 
                 case "--modules" or "-m":
-                    if (i + 1 < args.Length)
-                    {
-                        options.ModulesFilter = args[++i];
-                    }
-                    else
-                    {
-                        options.Error = "Missing value for --modules (-m).";
-                        return options;
-                    }
+                    if (!TryConsumeArg(args, ref i, "--modules (-m)", out var modFilter, out var modErr))
+                    { options.Error = modErr; return options; }
+                    options.ModulesFilter = modFilter;
                     break;
 
                 case "--threshold" or "-t":
-                    if (i + 1 < args.Length)
-                    {
-                        if (int.TryParse(args[++i], out int threshold) && threshold >= 0 && threshold <= 100)
-                        {
-                            options.Threshold = threshold;
-                        }
-                        else
-                        {
-                            options.Error = "Invalid threshold value. Must be 0-100.";
-                            return options;
-                        }
-                    }
-                    else
-                    {
-                        options.Error = "Missing value for --threshold (-t).";
-                        return options;
-                    }
+                    if (!TryConsumeInt(args, ref i, "--threshold (-t)", 0, 100, out var threshold, out var thrErr))
+                    { options.Error = thrErr; return options; }
+                    options.Threshold = threshold;
                     break;
 
                 case "--trend-days":
-                    if (i + 1 < args.Length)
-                    {
-                        if (int.TryParse(args[++i], out int trendDays) && trendDays >= 1 && trendDays <= 365)
-                        {
-                            options.TrendDays = trendDays;
-                        }
-                        else
-                        {
-                            options.Error = "Invalid trend-days value. Must be 1-365.";
-                            return options;
-                        }
-                    }
-                    else
-                    {
-                        options.Error = "Missing value for --trend-days.";
-                        return options;
-                    }
+                    if (!TryConsumeInt(args, ref i, "--trend-days", 1, 365, out var trendDays, out var tdErr))
+                    { options.Error = tdErr; return options; }
+                    options.TrendDays = trendDays;
                     break;
 
                 case "--opt-days":
-                    if (i + 1 < args.Length)
-                    {
-                        if (int.TryParse(args[++i], out int optDays) && optDays >= 1 && optDays <= 365)
-                        {
-                            options.ScheduleOptimizeDays = optDays;
-                        }
-                        else
-                        {
-                            options.Error = "Invalid opt-days value. Must be 1-365.";
-                            return options;
-                        }
-                    }
-                    else
-                    {
-                        options.Error = "Missing value for --opt-days.";
-                        return options;
-                    }
+                    if (!TryConsumeInt(args, ref i, "--opt-days", 1, 365, out var optDays, out var odErr))
+                    { options.Error = odErr; return options; }
+                    options.ScheduleOptimizeDays = optDays;
                     break;
 
                 case "--alert-below":
-                    if (i + 1 < args.Length)
-                    {
-                        if (int.TryParse(args[++i], out int alertThreshold) && alertThreshold >= 0 && alertThreshold <= 100)
-                        {
-                            options.TrendAlertThreshold = alertThreshold;
-                        }
-                        else
-                        {
-                            options.Error = "Invalid alert-below value. Must be 0-100.";
-                            return options;
-                        }
-                    }
-                    else
-                    {
-                        options.Error = "Missing value for --alert-below.";
-                        return options;
-                    }
+                    if (!TryConsumeInt(args, ref i, "--alert-below", 0, 100, out var alertThreshold, out var abErr))
+                    { options.Error = abErr; return options; }
+                    options.TrendAlertThreshold = alertThreshold;
                     break;
 
                 case "--trend-modules":

@@ -58,9 +58,23 @@ public class IncidentResponsePlaybook
         IReadOnlyList<ResponseStep> Steps,
         string[] References)
     {
-        /// <summary>Steps for a specific phase.</summary>
-        public IReadOnlyList<ResponseStep> StepsForPhase(ResponsePhase phase) =>
-            Steps.Where(s => s.Phase == phase).OrderBy(s => s.Order).ToList();
+        // Pre-computed steps grouped by phase — avoids O(S) scan + sort + allocation
+        // on every StepsForPhase() call.  Built lazily on first access and cached.
+        private Dictionary<ResponsePhase, IReadOnlyList<ResponseStep>>? _stepsByPhase;
+
+        /// <summary>Pre-lowered trigger keywords for O(1)-cost keyword matching.</summary>
+        internal string[] TriggerKeywordsLower { get; init; } =
+            TriggerKeywords.Select(k => k.ToLowerInvariant()).ToArray();
+
+        /// <summary>Steps for a specific phase (cached after first call).</summary>
+        public IReadOnlyList<ResponseStep> StepsForPhase(ResponsePhase phase)
+        {
+            _stepsByPhase ??= Steps
+                .GroupBy(s => s.Phase)
+                .ToDictionary(g => g.Key, g => (IReadOnlyList<ResponseStep>)g.OrderBy(s => s.Order).ToList());
+
+            return _stepsByPhase.TryGetValue(phase, out var steps) ? steps : Array.Empty<ResponseStep>();
+        }
     }
 
     /// <summary>A matched playbook with priority adjusted for actual findings.</summary>
@@ -163,14 +177,18 @@ public class IncidentResponsePlaybook
                 "No incidents detected. All findings are passing.");
         }
 
-        // Match findings to playbooks, grouping by playbook
+        // Match findings to playbooks, grouping by playbook.
+        // Pre-lower the finding text ONCE per finding to avoid recomputing
+        // ToLowerInvariant() for each of the 12 playbook comparisons.
         var matchesByPlaybook = new Dictionary<string, (Playbook Pb, List<Finding> Findings, double BestScore, string BestReason)>();
 
         foreach (var finding in actionableFindings)
         {
+            var textLower = $"{finding.Title} {finding.Description}".ToLowerInvariant();
+
             foreach (var pb in _playbooks.Values)
             {
-                var (score, reason) = CalculateMatchScore(pb, finding);
+                var (score, reason) = CalculateMatchScore(pb, finding, textLower);
                 if (score <= 0) continue;
 
                 if (matchesByPlaybook.TryGetValue(pb.Id, out var existing))
@@ -341,6 +359,18 @@ public class IncidentResponsePlaybook
 
     private (double Score, string Reason) CalculateMatchScore(Playbook playbook, Finding finding)
     {
+        return CalculateMatchScore(playbook, finding,
+            $"{finding.Title} {finding.Description}".ToLowerInvariant());
+    }
+
+    /// <summary>
+    /// Overload that accepts a pre-lowered finding text to avoid
+    /// recomputing ToLowerInvariant() when the same finding is tested
+    /// against multiple playbooks (O(P) savings per finding).
+    /// </summary>
+    private (double Score, string Reason) CalculateMatchScore(
+        Playbook playbook, Finding finding, string findingTextLower)
+    {
         double score = 0;
         var reasons = new List<string>();
 
@@ -352,16 +382,31 @@ public class IncidentResponsePlaybook
             reasons.Add($"category '{finding.Category}'");
         }
 
-        // Keyword match in title or description
-        var text = $"{finding.Title} {finding.Description}".ToLowerInvariant();
-        var matchedKeywords = playbook.TriggerKeywords
-            .Where(k => text.Contains(k.ToLowerInvariant()))
-            .ToList();
+        // Keyword match — uses pre-lowered keywords from Playbook.TriggerKeywordsLower
+        // instead of calling ToLowerInvariant() on every keyword each time.
+        int keywordHits = 0;
+        string? firstThree = null;
+        var keywordsLower = playbook.TriggerKeywordsLower;
+        var originalKeywords = playbook.TriggerKeywords;
 
-        if (matchedKeywords.Count > 0)
+        for (int i = 0; i < keywordsLower.Length; i++)
         {
-            score += Math.Min(0.5, matchedKeywords.Count * 0.15);
-            reasons.Add($"keywords: {string.Join(", ", matchedKeywords.Take(3))}");
+            if (findingTextLower.Contains(keywordsLower[i]))
+            {
+                keywordHits++;
+                if (keywordHits <= 3)
+                {
+                    firstThree = firstThree == null
+                        ? originalKeywords[i]
+                        : firstThree + ", " + originalKeywords[i];
+                }
+            }
+        }
+
+        if (keywordHits > 0)
+        {
+            score += Math.Min(0.5, keywordHits * 0.15);
+            reasons.Add($"keywords: {firstThree}");
         }
 
         return (score, reasons.Count > 0 ? string.Join("; ", reasons) : "");
@@ -385,28 +430,38 @@ public class IncidentResponsePlaybook
     {
         var actions = new List<string>();
 
-        var p1Matches = matches.Where(m => m.AdjustedPriority == Priority.P1_Critical).ToList();
-        if (p1Matches.Count > 0)
+        // Single pass — classify by priority and collect containment steps
+        // instead of 3 separate .Where() scans over the same list.
+        bool hasP1 = false;
+        bool hasP2 = false;
+        var containmentActions = new List<string>();
+
+        for (int i = 0; i < matches.Count; i++)
+        {
+            var match = matches[i];
+            if (match.AdjustedPriority == Priority.P1_Critical) hasP1 = true;
+            if (match.AdjustedPriority == Priority.P2_High) hasP2 = true;
+
+            if (match.AdjustedPriority <= Priority.P2_High)
+            {
+                var steps = match.Playbook.StepsForPhase(ResponsePhase.Containment);
+                if (steps.Count > 0)
+                    containmentActions.Add($"[{match.Playbook.Name}] {steps[0].Action}");
+            }
+        }
+
+        if (hasP1)
         {
             actions.Add("🔴 CRITICAL: Activate incident response team immediately.");
             actions.Add("Isolate affected systems from the network if active compromise is suspected.");
         }
 
-        var p2Matches = matches.Where(m => m.AdjustedPriority == Priority.P2_High).ToList();
-        if (p2Matches.Count > 0)
+        if (hasP2)
         {
             actions.Add("🟠 HIGH: Begin containment procedures within 1 hour.");
         }
 
-        // Add first containment step from each P1/P2 playbook
-        foreach (var match in matches.Where(m =>
-            m.AdjustedPriority <= Priority.P2_High))
-        {
-            var containStep = match.Playbook.StepsForPhase(ResponsePhase.Containment)
-                .FirstOrDefault();
-            if (containStep != null)
-                actions.Add($"[{match.Playbook.Name}] {containStep.Action}");
-        }
+        actions.AddRange(containmentActions);
 
         if (actions.Count == 0)
             actions.Add("No critical/high-priority incidents. Address warnings during next maintenance window.");

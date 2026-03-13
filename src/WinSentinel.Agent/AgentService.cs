@@ -96,7 +96,7 @@ public class AgentService : BackgroundService
         {
             await Task.Delay(Timeout.Infinite, stoppingToken);
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] AgentService: {ex.GetType().Name} - {ex.Message}"); }
 
         // Shutdown
         _logger.LogInformation("WinSentinel Agent shutting down...");

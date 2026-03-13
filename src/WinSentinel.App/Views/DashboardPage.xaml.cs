@@ -221,7 +221,7 @@ public partial class DashboardPage : Page
                     var color = (Color)ColorConverter.ConvertFromString(SecurityScorer.GetScoreColor(report.SecurityScore));
                     ScoreRing.Stroke = new SolidColorBrush(color);
                 }
-                catch { }
+                catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] DashboardPage.xaml: {ex.GetType().Name} - {ex.Message}"); }
 
                 // Add to timeline
                 _viewModel.TimelineEntries.Add(new TimelineEntry
@@ -280,7 +280,7 @@ public partial class DashboardPage : Page
                     trend = _historyService.GetTrend(30);
                     if (trend.TotalScans == 0) trend = null;
                 }
-                catch { }
+                catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] DashboardPage.xaml: {ex.GetType().Name} - {ex.Message}"); }
 
                 // We need a report to export — run a quick audit if none available
                 var engine = new AuditEngine();
@@ -305,7 +305,7 @@ public partial class DashboardPage : Page
                             UseShellExecute = true
                         });
                     }
-                    catch { }
+                    catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] DashboardPage.xaml: {ex.GetType().Name} - {ex.Message}"); }
                 }
             }
             catch (Exception ex)

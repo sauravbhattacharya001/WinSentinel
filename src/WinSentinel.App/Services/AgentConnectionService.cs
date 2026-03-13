@@ -286,7 +286,7 @@ public class AgentConnectionService : INotifyPropertyChanged, IDisposable
                     await ConnectAsync();
                 }
             }
-            catch (OperationCanceledException) { }
+            catch (OperationCanceledException ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] AgentConnectionService: {ex.GetType().Name} - {ex.Message}"); }
         });
     }
 

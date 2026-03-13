@@ -353,7 +353,7 @@ public sealed class TrayIconService : IDisposable
                 if (exeIcon != null) return exeIcon;
             }
         }
-        catch { }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] TrayIconService: {ex.GetType().Name} - {ex.Message}"); }
 
         // Fallback: create a simple shield icon programmatically
         var bmp = new Bitmap(32, 32);

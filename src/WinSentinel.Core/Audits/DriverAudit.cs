@@ -205,7 +205,7 @@ public class DriverAudit : IAuditModule
                 state.TestSigningEnabled = bcdedit.Contains("testsigning") &&
                                            bcdedit.Contains("Yes", StringComparison.OrdinalIgnoreCase);
             }
-            catch { }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] DriverAudit: {ex.GetType().Name} - {ex.Message}"); }
 
             // Check Secure Boot
             try
@@ -214,7 +214,7 @@ public class DriverAudit : IAuditModule
                     "Confirm-SecureBootUEFI -ErrorAction SilentlyContinue", ct);
                 state.SecureBootEnabled = secBoot.Trim().Equals("True", StringComparison.OrdinalIgnoreCase);
             }
-            catch { }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] DriverAudit: {ex.GetType().Name} - {ex.Message}"); }
 
             // Check HVCI
             try
@@ -223,7 +223,7 @@ public class DriverAudit : IAuditModule
                     @"(Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root\Microsoft\Windows\DeviceGuard -ErrorAction SilentlyContinue).SecurityServicesRunning -contains 2", ct);
                 state.HvciEnabled = hvci.Trim().Equals("True", StringComparison.OrdinalIgnoreCase);
             }
-            catch { }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] DriverAudit: {ex.GetType().Name} - {ex.Message}"); }
 
             // Check driver block list
             try
@@ -232,7 +232,7 @@ public class DriverAudit : IAuditModule
                     @"$p = 'C:\Windows\System32\CodeIntegrity\driversipolicy.p7b'; if (Test-Path $p) { (Get-Item $p).LastWriteTime.ToString('yyyy-MM-dd') } else { 'not found' }", ct);
                 state.DriverBlockListVersion = blockList.Trim();
             }
-            catch { }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] DriverAudit: {ex.GetType().Name} - {ex.Message}"); }
         }
         catch { /* best effort collection */ }
 

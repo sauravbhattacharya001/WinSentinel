@@ -146,7 +146,7 @@ public class BackupAudit : IAuditModule
                 state.VssStartType = parts[1].Trim();
             }
         }
-        catch { }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] BackupAudit: {ex.GetType().Name} - {ex.Message}"); }
 
         // Shadow copies
         try
@@ -169,7 +169,7 @@ public class BackupAudit : IAuditModule
                 }
             }
         }
-        catch { }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] BackupAudit: {ex.GetType().Name} - {ex.Message}"); }
 
         // System Restore
         try
@@ -194,7 +194,7 @@ public class BackupAudit : IAuditModule
                 @"try {
                     Get-ComputerRestorePoint -ErrorAction Stop |
                     ForEach-Object { '{0}|{1}|{2}|{3}' -f $_.SequenceNumber, $_.Description, $_.CreationTime, $_.RestorePointType }
-                } catch { }", ct);
+                } catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] BackupAudit: {ex.GetType().Name} - {ex.Message}"); }", ct);
             foreach (var line in rpOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             {
                 var p = line.Split('|');
@@ -210,7 +210,7 @@ public class BackupAudit : IAuditModule
                 }
             }
         }
-        catch { }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] BackupAudit: {ex.GetType().Name} - {ex.Message}"); }
 
         // File History
         try
@@ -224,7 +224,7 @@ public class BackupAudit : IAuditModule
                 } else { 'DISABLED' }", ct);
             state.FileHistoryEnabled = fh.Trim() == "ENABLED";
         }
-        catch { }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] BackupAudit: {ex.GetType().Name} - {ex.Message}"); }
 
         // Windows Backup
         try
@@ -242,7 +242,7 @@ public class BackupAudit : IAuditModule
             if (wbParts.Length > 1 && DateTimeOffset.TryParse(wbParts[1].Trim(), out var wbDt))
                 state.WindowsBackupLastRun = wbDt;
         }
-        catch { }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] BackupAudit: {ex.GetType().Name} - {ex.Message}"); }
 
         // Recovery partition
         try
@@ -251,7 +251,7 @@ public class BackupAudit : IAuditModule
                 @"Get-Partition | Where-Object { $_.Type -eq 'Recovery' } | Measure-Object | Select-Object -ExpandProperty Count", ct);
             state.RecoveryPartitionExists = int.TryParse(rec.Trim(), out var cnt) && cnt > 0;
         }
-        catch { }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] BackupAudit: {ex.GetType().Name} - {ex.Message}"); }
 
         // BitLocker
         try
@@ -263,7 +263,7 @@ public class BackupAudit : IAuditModule
                 } catch { 'OFF' }", ct);
             state.BitLockerEnabled = bl.Trim() == "ON";
         }
-        catch { }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] BackupAudit: {ex.GetType().Name} - {ex.Message}"); }
 
         // Controlled folder access
         try
@@ -274,7 +274,7 @@ public class BackupAudit : IAuditModule
                 } catch { '0' }", ct);
             state.ControlledFolderAccessEnabled = cfa.Trim() == "1" || cfa.Trim().Equals("Enabled", StringComparison.OrdinalIgnoreCase);
         }
-        catch { }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] BackupAudit: {ex.GetType().Name} - {ex.Message}"); }
 
         return state;
     }

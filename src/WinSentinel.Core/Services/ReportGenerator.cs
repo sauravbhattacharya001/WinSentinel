@@ -657,16 +657,35 @@ public class ReportGenerator
     }
 
     /// <summary>
-    /// Escape a value for CSV output (RFC 4180).
+    /// Characters that spreadsheet applications (Excel, Google Sheets, LibreOffice Calc)
+    /// interpret as formula prefixes.  Values starting with any of these must be
+    /// neutralized to prevent CSV formula injection (CWE-1236).
+    /// </summary>
+    private static readonly char[] FormulaLeadChars = { '=', '+', '-', '@', '\t', '\r' };
+
+    /// <summary>
+    /// Escape a value for CSV output (RFC 4180) with formula injection protection.
+    /// Values whose first character is a formula trigger (<c>= + - @ \t \r</c>)
+    /// are prefixed with a single-quote so spreadsheet applications treat them as
+    /// literal text rather than executable formulas (OWASP recommendation).
     /// </summary>
     private static string CsvEscape(string value)
     {
         if (string.IsNullOrEmpty(value)) return "";
-        if (value.Contains('"') || value.Contains(',') || value.Contains('\n') || value.Contains('\r'))
+
+        // Neutralize formula injection: prefix with single-quote so the value
+        // is treated as a text literal in Excel / Google Sheets / LibreOffice.
+        var escaped = value;
+        if (escaped.Length > 0 && Array.IndexOf(FormulaLeadChars, escaped[0]) >= 0)
         {
-            return $"\"{value.Replace("\"", "\"\"")}\"";
+            escaped = "'" + escaped;
         }
-        return value;
+
+        if (escaped.Contains('"') || escaped.Contains(',') || escaped.Contains('\n') || escaped.Contains('\r'))
+        {
+            return $"\"{escaped.Replace("\"", "\"\"")}\"";
+        }
+        return escaped;
     }
 
     /// <summary>

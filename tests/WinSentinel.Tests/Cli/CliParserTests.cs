@@ -1076,17 +1076,17 @@ public class CliParserTests
     {
         var result = CliParser.Parse(["--badge"]);
         Assert.Equal(CliCommand.Badge, result.Command);
-        Assert.Equal(BadgeBadgeAction.Score, result.BadgeAction);
+        Assert.Equal(BadgeAction.Score, result.BadgeAction);
         Assert.Null(result.Error);
     }
 
     [Theory]
-    [InlineData("score", BadgeBadgeAction.Score)]
-    [InlineData("grade", BadgeBadgeAction.Grade)]
-    [InlineData("findings", BadgeBadgeAction.Findings)]
-    [InlineData("module", BadgeBadgeAction.Module)]
-    [InlineData("all", BadgeBadgeAction.All)]
-    public void Parse_Badge_AllTypes(string type, BadgeBadgeAction expected)
+    [InlineData("score", BadgeAction.Score)]
+    [InlineData("grade", BadgeAction.Grade)]
+    [InlineData("findings", BadgeAction.Findings)]
+    [InlineData("module", BadgeAction.Module)]
+    [InlineData("all", BadgeAction.All)]
+    public void Parse_Badge_AllTypes(string type, BadgeAction expected)
     {
         var result = CliParser.Parse(["--badge", type]);
         Assert.Equal(CliCommand.Badge, result.Command);
@@ -1107,7 +1107,7 @@ public class CliParserTests
     {
         var result = CliParser.Parse(["--badge", "module", "Firewall"]);
         Assert.Equal(CliCommand.Badge, result.Command);
-        Assert.Equal(BadgeBadgeAction.Module, result.BadgeAction);
+        Assert.Equal(BadgeAction.Module, result.BadgeAction);
         Assert.Equal("Firewall", result.ModulesFilter);
     }
 
@@ -1116,7 +1116,7 @@ public class CliParserTests
     {
         var result = CliParser.Parse(["--badge", "score", "-o", "badge.svg"]);
         Assert.Equal(CliCommand.Badge, result.Command);
-        Assert.Equal(BadgeBadgeAction.Score, result.BadgeAction);
+        Assert.Equal(BadgeAction.Score, result.BadgeAction);
         Assert.Equal("badge.svg", result.OutputFile);
     }
 
@@ -1153,7 +1153,7 @@ public class CliParserTests
     {
         var result = CliParser.Parse(["--badge", "all", "--json"]);
         Assert.Equal(CliCommand.Badge, result.Command);
-        Assert.Equal(BadgeBadgeAction.All, result.BadgeAction);
+        Assert.Equal(BadgeAction.All, result.BadgeAction);
         Assert.True(result.Json);
     }
 
@@ -1161,7 +1161,7 @@ public class CliParserTests
     public void CliOptions_BadgeDefaults()
     {
         var options = new CliOptions();
-        Assert.Equal(BadgeBadgeAction.None, options.BadgeAction);
+        Assert.Equal(BadgeAction.None, options.BadgeAction);
         Assert.Null(options.BadgeStyle);
     }
 }

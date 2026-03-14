@@ -222,23 +222,40 @@ The `FixEngine` handles executing fix commands safely:
 4. **Output capture:** Captures stdout/stderr for success/failure reporting
 5. **Dry-run mode:** Returns what would be done without executing
 
-### The 13 Audit Modules
+### The 30 Audit Modules
 
-| Module | Key Windows APIs Used |
+| Module | Key Windows APIs / Techniques |
 |:---|:---|
-| `FirewallAudit` | `netsh advfirewall`, WMI `Win32_Process` |
-| `UpdateAudit` | `Get-WindowsUpdateLog`, COM `IUpdateSearcher` |
-| `DefenderAudit` | `Get-MpPreference`, `Get-MpComputerStatus` |
-| `AccountAudit` | `net user`, `Get-LocalUser`, `net accounts` |
-| `NetworkAudit` | `netstat`, `Get-NetTCPConnection`, ARP table |
-| `ProcessAudit` | `Process.GetProcesses()`, `Authenticode` verification |
-| `StartupAudit` | Registry `Run`/`RunOnce` keys, `Get-ScheduledTask` |
-| `SystemAudit` | `Confirm-SecureBootUEFI`, `manage-bde`, Registry for UAC/RDP/DEP |
-| `PrivacyAudit` | Registry telemetry keys, location/clipboard/advertising settings |
-| `BrowserAudit` | Chrome/Edge JSON preferences files, extension manifests |
+| `AccountAudit` | `net user`, `Get-LocalUser`, `net accounts`, password policies |
 | `AppSecurityAudit` | `Get-Package`, installed software version analysis |
-| `EncryptionAudit` | `manage-bde -status`, TPM via WMI, certificate store |
-| `EventLogAudit` | `Get-WinEvent`, Security log analysis |
+| `BackupAudit` | Shadow copies, System Restore, backup schedules, `vssadmin` |
+| `BluetoothAudit` | Bluetooth adapter state, paired devices, discoverability |
+| `BrowserAudit` | Chrome/Edge JSON preferences, extension manifests, security settings |
+| `CertificateAudit` | Certificate store analysis, expiration, weak algorithms |
+| `CredentialExposureAudit` | Credential caching, WDigest, LSA protection, LSASS hardening |
+| `DefenderAudit` | `Get-MpPreference`, `Get-MpComputerStatus`, real-time protection |
+| `DnsAudit` | DNS client config, DNS-over-HTTPS, DNS cache poisoning vectors |
+| `DriverAudit` | `driverquery`, unsigned drivers, vulnerable driver blocklist |
+| `EncryptionAudit` | `manage-bde -status`, TPM via WMI, TLS/SSL protocol config |
+| `EnvironmentAudit` | PATH hijacking, temp directory permissions, env variable security |
+| `EventLogAudit` | `Get-WinEvent`, security log analysis, audit policy gaps |
+| `FirewallAudit` | `netsh advfirewall`, profile states, inbound rule analysis |
+| `GroupPolicyAudit` | `gpresult`, applied GPOs, security-relevant policy settings |
+| `NetworkAudit` | `netstat`, `Get-NetTCPConnection`, ARP table, LLMNR/mDNS |
+| `PowerShellAudit` | Execution policy, script block logging, constrained language mode |
+| `PrivacyAudit` | Registry telemetry keys, location/clipboard/advertising settings |
+| `ProcessAudit` | `Process.GetProcesses()`, `Authenticode` verification, suspicious paths |
+| `RegistryAudit` | Critical registry key ACLs, autorun entries, security settings |
+| `RemoteAccessAudit` | RDP configuration, remote management, WinRM settings |
+| `ScheduledTaskAudit` | `Get-ScheduledTask`, suspicious task actions, privilege escalation |
+| `ServiceAudit` | Service configurations, unquoted paths, writable service binaries |
+| `SmbShareAudit` | Network share permissions, SMBv1, null sessions |
+| `SoftwareInventoryAudit` | Installed software catalog, EOL detection, vulnerability correlation |
+| `StartupAudit` | Registry `Run`/`RunOnce` keys, startup folder, shell extensions |
+| `SystemAudit` | Secure Boot, BitLocker, UAC, RDP, DEP, ASLR configuration |
+| `UpdateAudit` | `Get-WindowsUpdateLog`, Windows Update status, pending patches |
+| `VirtualizationAudit` | Hyper-V, WSL, sandbox isolation, VM escape mitigations |
+| `WifiAudit` | Saved Wi-Fi profiles, encryption strength, open network detection |
 
 ## IPC Protocol
 

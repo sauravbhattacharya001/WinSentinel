@@ -43,7 +43,7 @@ public class CliOptions
     public int TrendDays { get; set; } = 30;
     public int? TrendAlertThreshold { get; set; }
     public bool TrendModules { get; set; }
-    public BadgeBadgeAction BadgeAction { get; set; } = BadgeBadgeAction.None;
+    public BadgeAction BadgeAction { get; set; } = BadgeAction.None;
     public string? BadgeStyle { get; set; }
     public string? TimelineSeverityFilter { get; set; }
     public int? TimelineMaxEvents { get; set; }
@@ -123,7 +123,7 @@ public enum IgnoreAction
     Purge
 }
 
-public enum BadgeBadgeAction
+public enum BadgeAction
 {
     None,
     Score,
@@ -547,20 +547,20 @@ public static class CliParser
                         var badgeType = args[++i].ToLowerInvariant();
                         options.BadgeAction = badgeType switch
                         {
-                            "score" => BadgeBadgeAction.Score,
-                            "grade" => BadgeBadgeAction.Grade,
-                            "findings" => BadgeBadgeAction.Findings,
-                            "module" => BadgeBadgeAction.Module,
-                            "all" => BadgeBadgeAction.All,
-                            _ => BadgeBadgeAction.None
+                            "score" => BadgeAction.Score,
+                            "grade" => BadgeAction.Grade,
+                            "findings" => BadgeAction.Findings,
+                            "module" => BadgeAction.Module,
+                            "all" => BadgeAction.All,
+                            _ => BadgeAction.None
                         };
-                        if (options.BadgeAction == BadgeBadgeAction.None)
+                        if (options.BadgeAction == BadgeAction.None)
                         {
                             options.Error = $"Unknown badge type: {badgeType}. Use score, grade, findings, module, or all.";
                             return options;
                         }
                         // For module: next arg is the module filter
-                        if (options.BadgeAction == BadgeBadgeAction.Module)
+                        if (options.BadgeAction == BadgeAction.Module)
                         {
                             if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
                             {
@@ -571,7 +571,7 @@ public static class CliParser
                     else
                     {
                         // Default to score badge
-                        options.BadgeAction = BadgeBadgeAction.Score;
+                        options.BadgeAction = BadgeAction.Score;
                     }
                     break;
 

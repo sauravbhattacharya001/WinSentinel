@@ -194,7 +194,7 @@ public class BackupAudit : IAuditModule
                 @"try {
                     Get-ComputerRestorePoint -ErrorAction Stop |
                     ForEach-Object { '{0}|{1}|{2}|{3}' -f $_.SequenceNumber, $_.Description, $_.CreationTime, $_.RestorePointType }
-                } catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] Error: {ex.GetType().Name} - {ex.Message}"); }", ct);
+                } catch { }", ct);
             foreach (var line in rpOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             {
                 var p = line.Split('|');

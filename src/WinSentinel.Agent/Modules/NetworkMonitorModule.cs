@@ -152,7 +152,7 @@ public class NetworkMonitorModule : IAgentModule
         if (_monitorTask != null)
         {
             try { await _monitorTask; }
-            catch (OperationCanceledException) { }
+            catch (OperationCanceledException ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] Error: {ex.GetType().Name} - {ex.Message}"); }
         }
 
         _knownListeningPorts.Clear();
@@ -672,12 +672,12 @@ public class NetworkMonitorModule : IAgentModule
                             using var proc = Process.GetProcessById(pid);
                             return proc.ProcessName;
                         }
-                        catch { }
+                        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] Error: {ex.GetType().Name} - {ex.Message}"); }
                     }
                 }
             }
         }
-        catch { }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] Error: {ex.GetType().Name} - {ex.Message}"); }
 
         return null;
     }
@@ -694,7 +694,7 @@ public class NetworkMonitorModule : IAgentModule
                 return proc.MainModule?.FileName;
             }
         }
-        catch { }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] Error: {ex.GetType().Name} - {ex.Message}"); }
         return null;
     }
 
@@ -753,7 +753,7 @@ public class NetworkMonitorModule : IAgentModule
                 }
             }
         }
-        catch { }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] Error: {ex.GetType().Name} - {ex.Message}"); }
 
         return null;
     }
@@ -780,7 +780,7 @@ public class NetworkMonitorModule : IAgentModule
                 }
             }
         }
-        catch { }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] Error: {ex.GetType().Name} - {ex.Message}"); }
         return null;
     }
 

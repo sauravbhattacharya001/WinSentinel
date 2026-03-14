@@ -636,14 +636,14 @@ public class VirtualizationAudit : IAuditModule
                 Microsoft.Win32.RegistryHive.LocalMachine,
                 @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Virtualization", "Enabled") == 1;
         }
-        catch { }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] Error: {ex.GetType().Name} - {ex.Message}"); }
 
         try
         {
             state.WslInstalled = File.Exists(
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "wsl.exe"));
         }
-        catch { }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] Error: {ex.GetType().Name} - {ex.Message}"); }
 
         try
         {
@@ -652,7 +652,7 @@ public class VirtualizationAudit : IAuditModule
                 @"SYSTEM\CurrentControlSet\Control\DeviceGuard", "EnableVirtualizationBasedSecurity");
             state.VbsRunning = vbsStatus == 1;
         }
-        catch { }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] Error: {ex.GetType().Name} - {ex.Message}"); }
 
         try
         {
@@ -662,7 +662,7 @@ public class VirtualizationAudit : IAuditModule
             state.CredentialGuardEnabled = lsaCfg is 1 or 2;
             state.CredentialGuardUefiLock = lsaCfg == 2;
         }
-        catch { }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] Error: {ex.GetType().Name} - {ex.Message}"); }
 
         try
         {
@@ -673,7 +673,7 @@ public class VirtualizationAudit : IAuditModule
             state.HvciEnabled = hvci == 1;
             state.MemoryIntegrityEnabled = hvci == 1;
         }
-        catch { }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] Error: {ex.GetType().Name} - {ex.Message}"); }
 
         try
         {
@@ -681,14 +681,14 @@ public class VirtualizationAudit : IAuditModule
                 Microsoft.Win32.RegistryHive.LocalMachine,
                 @"SYSTEM\CurrentControlSet\Control\SecureBoot\State", "UEFISecureBootEnabled") == 1;
         }
-        catch { }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] Error: {ex.GetType().Name} - {ex.Message}"); }
 
         try
         {
             state.DockerRunning = System.Diagnostics.Process.GetProcessesByName("dockerd").Length > 0 ||
                                   System.Diagnostics.Process.GetProcessesByName("com.docker.service").Length > 0;
         }
-        catch { }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] Error: {ex.GetType().Name} - {ex.Message}"); }
 
         return state;
     }

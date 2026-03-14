@@ -24,7 +24,7 @@ public class IgnoreRuleServiceTests : IDisposable
             if (Directory.Exists(_testDir))
                 Directory.Delete(_testDir, true);
         }
-        catch { }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] Error: {ex.GetType().Name} - {ex.Message}"); }
     }
 
     private static SecurityReport CreateTestReport()

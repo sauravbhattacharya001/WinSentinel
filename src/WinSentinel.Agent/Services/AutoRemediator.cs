@@ -212,7 +212,7 @@ public class AutoRemediator
         {
             using var proc = Process.GetProcessById(processId);
             var exePath = "";
-            try { exePath = proc.MainModule?.FileName ?? ""; } catch { }
+            try { exePath = proc.MainModule?.FileName ?? ""; } catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] Error: {ex.GetType().Name} - {ex.Message}"); }
 
             proc.Kill(entireProcessTree: true);
             record.Success = true;

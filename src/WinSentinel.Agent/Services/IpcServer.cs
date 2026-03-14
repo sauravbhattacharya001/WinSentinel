@@ -144,7 +144,7 @@ public class IpcServer : BackgroundService
                 }
             }
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] Error: {ex.GetType().Name} - {ex.Message}"); }
         catch (IOException) { /* Client disconnected */ }
         catch (Exception ex)
         {

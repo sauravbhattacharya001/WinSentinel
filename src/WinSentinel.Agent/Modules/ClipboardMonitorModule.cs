@@ -60,8 +60,8 @@ public partial class ClipboardMonitorModule : IAgentModule
         if (_monitorTask != null)
         {
             try { await _monitorTask.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken); }
-            catch (OperationCanceledException) { }
-            catch (TimeoutException) { }
+            catch (OperationCanceledException ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] Error: {ex.GetType().Name} - {ex.Message}"); }
+            catch (TimeoutException ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] Error: {ex.GetType().Name} - {ex.Message}"); }
         }
         _cts?.Dispose();
         _logger.LogInformation("[ClipboardMonitor] Stopped");

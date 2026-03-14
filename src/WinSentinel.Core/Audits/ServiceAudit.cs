@@ -185,7 +185,7 @@ public class ServiceAudit : IAuditModule
                     state.TotalServiceCount = scOutput.Split("SERVICE_NAME").Length - 1;
                 }
             }
-            catch { }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] Error: {ex.GetType().Name} - {ex.Message}"); }
         }
 
         return state;
@@ -218,7 +218,7 @@ public class ServiceAudit : IAuditModule
                     entries.Add(entry);
             }
         }
-        catch { }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] Error: {ex.GetType().Name} - {ex.Message}"); }
 
         return entries;
     }

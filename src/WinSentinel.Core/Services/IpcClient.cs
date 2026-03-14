@@ -239,9 +239,9 @@ public class IpcClient : IDisposable
                 HandleEvent(response);
             }
         }
-        catch (OperationCanceledException) { }
-        catch (IOException) { }
-        catch (Exception) { }
+        catch (OperationCanceledException ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] Error: {ex.GetType().Name} - {ex.Message}"); }
+        catch (IOException ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] Error: {ex.GetType().Name} - {ex.Message}"); }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] Error: {ex.GetType().Name} - {ex.Message}"); }
         finally
         {
             Disconnected?.Invoke();
@@ -295,7 +295,7 @@ public class IpcClient : IDisposable
             _eventLoop?.Wait(TimeSpan.FromSeconds(2));
         }
         catch (AggregateException) { /* Swallow cancellation/IO exceptions */ }
-        catch (ObjectDisposedException) { }
+        catch (ObjectDisposedException ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] Error: {ex.GetType().Name} - {ex.Message}"); }
 
         Cleanup();
         _sendLock.Dispose();

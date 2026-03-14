@@ -15,8 +15,8 @@ public class HtmlDashboardGeneratorTests : IDisposable
     {
         foreach (var f in _tempFiles)
         {
-            try { if (File.Exists(f)) File.Delete(f); } catch { }
-            try { var d = Path.GetDirectoryName(f); if (d != null && Directory.Exists(d) && !Directory.EnumerateFileSystemEntries(d).Any()) Directory.Delete(d); } catch { }
+            try { if (File.Exists(f)) File.Delete(f); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] Error: {ex.GetType().Name} - {ex.Message}"); }
+            try { var d = Path.GetDirectoryName(f); if (d != null && Directory.Exists(d) && !Directory.EnumerateFileSystemEntries(d).Any()) Directory.Delete(d); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] Error: {ex.GetType().Name} - {ex.Message}"); }
         }
     }
 

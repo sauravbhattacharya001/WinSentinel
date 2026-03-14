@@ -1224,7 +1224,7 @@ public class EventLogMonitorModule : IAgentModule
                 return record.Properties[index]?.Value?.ToString();
             }
         }
-        catch { }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] Error: {ex.GetType().Name} - {ex.Message}"); }
         return null;
     }
 

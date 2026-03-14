@@ -19,7 +19,7 @@ public class AuditHistoryServiceTests : IDisposable
         _service.Dispose();
         if (File.Exists(_dbPath))
         {
-            try { File.Delete(_dbPath); } catch { }
+            try { File.Delete(_dbPath); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] Error: {ex.GetType().Name} - {ex.Message}"); }
         }
     }
 

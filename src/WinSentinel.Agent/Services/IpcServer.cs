@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.IO.Pipes;
 using System.Security.AccessControl;
 using System.Security.Principal;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using WinSentinel.Agent.Ipc;
@@ -325,7 +326,7 @@ public class IpcServer : BackgroundService
     {
         _subscribers.TryRemove(clientId, out _);
         _logger.LogInformation("Client {ClientId} unsubscribed from events", clientId);
-        return IpcMessage.Response(IpcMessageType.Subscribed, requestId: message.RequestId);
+        return IpcMessage.Response(IpcMessageType.Unsubscribed, requestId: message.RequestId);
     }
 
     private async Task<IpcMessage> HandleRunFixAsync(IpcMessage message)
@@ -342,7 +343,7 @@ public class IpcServer : BackgroundService
             return IpcMessage.ErrorResponse($"Command blocked by safety check: {dangerReason}", message.RequestId);
         }
 
-        var fixEngine = new FixEngine();
+        var fixEngine = _services.GetRequiredService<FixEngine>();
         var finding = new WinSentinel.Core.Models.Finding
         {
             Title = payload.FindingTitle ?? "IPC Fix",
@@ -367,9 +368,16 @@ public class IpcServer : BackgroundService
         await BroadcastEventAsync(IpcMessage.Event(IpcMessageType.AuditCompleted, new { Score = score }));
     }
 
-    private void OnThreatDetected(ThreatEvent threat)
+    private async void OnThreatDetected(ThreatEvent threat)
     {
-        _ = BroadcastEventAsync(IpcMessage.Event(IpcMessageType.ThreatDetected, threat));
+        try
+        {
+            await BroadcastEventAsync(IpcMessage.Event(IpcMessageType.ThreatDetected, threat));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error broadcasting threat event to subscribers");
+        }
     }
 
     private async Task BroadcastEventAsync(IpcMessage message)

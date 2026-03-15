@@ -1,6 +1,7 @@
 using WinSentinel.Agent;
 using WinSentinel.Agent.Modules;
 using WinSentinel.Agent.Services;
+using WinSentinel.Core.Services;
 
 var builder = Host.CreateDefaultBuilder(args);
 
@@ -19,6 +20,7 @@ builder.ConfigureServices((context, services) =>
 
     // IPC server for UI communication
     services.AddSingleton<IpcServer>();
+    services.AddSingleton<FixEngine>();
     services.AddHostedService(sp => sp.GetRequiredService<IpcServer>());
 
     // Agent Brain components (Step 5)

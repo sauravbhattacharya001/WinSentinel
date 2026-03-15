@@ -31,6 +31,7 @@ public enum IpcMessageType
     ConfigResponse,
     ChatResponse,
     Subscribed,
+    Unsubscribed,
     Error,
     Pong,
     PolicyResponse,

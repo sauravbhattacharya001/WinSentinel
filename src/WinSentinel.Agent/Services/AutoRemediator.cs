@@ -359,13 +359,12 @@ public class AutoRemediator
                     CreateNoWindow = true
                 };
 
-                using var proc = Process.Start(psi);
-                proc?.WaitForExit(10000);
+                var (exitCode, _, stdErr, _) = RunProcess(psi);
 
-                if (proc?.ExitCode != 0)
+                if (exitCode != 0)
                 {
                     allSucceeded = false;
-                    lastError = proc?.StandardError.ReadToEnd() ?? "Unknown error";
+                    lastError = string.IsNullOrEmpty(stdErr) ? "Unknown error" : stdErr;
                 }
             }
 
@@ -432,10 +431,9 @@ public class AutoRemediator
                 CreateNoWindow = true
             };
 
-            using var proc = Process.Start(psi);
-            proc?.WaitForExit(10000);
+            var (exitCode, _, stdErr, _) = RunProcess(psi);
 
-            if (proc?.ExitCode == 0)
+            if (exitCode == 0)
             {
                 record.Success = true;
                 record.Description = $"Disabled user account '{username}'";
@@ -445,10 +443,9 @@ public class AutoRemediator
             }
             else
             {
-                var error = proc?.StandardError.ReadToEnd() ?? "Unknown error";
                 record.Success = false;
-                record.ErrorMessage = error;
-                record.Description = $"Failed to disable account '{username}': {error}";
+                record.ErrorMessage = string.IsNullOrEmpty(stdErr) ? "Unknown error" : stdErr;
+                record.Description = $"Failed to disable account '{username}': {record.ErrorMessage}";
             }
         }
         catch (Exception ex)
@@ -559,10 +556,9 @@ public class AutoRemediator
                 CreateNoWindow = true
             };
 
-            using var proc = Process.Start(psi);
-            proc?.WaitForExit(15000);
+            var (exitCode, _, stdErr, _) = RunProcess(psi, 15000);
 
-            if (proc?.ExitCode == 0)
+            if (exitCode == 0)
             {
                 record.Success = true;
                 record.Description = "Re-enabled Windows Defender real-time protection";
@@ -570,10 +566,9 @@ public class AutoRemediator
             }
             else
             {
-                var error = proc?.StandardError.ReadToEnd() ?? "Unknown error";
                 record.Success = false;
-                record.ErrorMessage = error;
-                record.Description = $"Failed to re-enable Defender: {error}";
+                record.ErrorMessage = string.IsNullOrEmpty(stdErr) ? "Unknown error" : stdErr;
+                record.Description = $"Failed to re-enable Defender: {record.ErrorMessage}";
             }
         }
         catch (Exception ex)
@@ -737,10 +732,9 @@ public class AutoRemediator
                 CreateNoWindow = true
             };
 
-            using var proc = Process.Start(psi);
-            proc?.WaitForExit(10000);
+            var (exitCode, _, stdErr, _) = RunProcess(psi);
 
-            if (proc?.ExitCode != 0)
+            if (exitCode != 0)
             {
                 // Also try the legacy rule name (without suffix) for backward compatibility
                 if (suffix == "_in")
@@ -754,12 +748,11 @@ public class AutoRemediator
                         RedirectStandardError = true,
                         CreateNoWindow = true
                     };
-                    using var legacyProc = Process.Start(legacyPsi);
-                    legacyProc?.WaitForExit(10000);
-                    if (legacyProc?.ExitCode != 0)
+                    var (legacyExitCode, _, _, _) = RunProcess(legacyPsi);
+                    if (legacyExitCode != 0)
                     {
                         allSucceeded = false;
-                        lastError = proc?.StandardError.ReadToEnd();
+                        lastError = string.IsNullOrEmpty(stdErr) ? "Unknown error" : stdErr;
                     }
                 }
                 // _out rule may not exist for legacy blocks, that's ok
@@ -805,13 +798,12 @@ public class AutoRemediator
             CreateNoWindow = true
         };
 
-        using var proc = Process.Start(psi);
-        proc?.WaitForExit(10000);
+        var (exitCode, _, stdErr, _) = RunProcess(psi);
 
-        undoRecord.Success = proc?.ExitCode == 0;
+        undoRecord.Success = exitCode == 0;
         undoRecord.Description = undoRecord.Success
             ? $"Re-enabled user account '{username}'"
-            : $"Failed to re-enable account: {proc?.StandardError.ReadToEnd()}";
+            : $"Failed to re-enable account: {stdErr}";
 
         if (undoRecord.Success)
             _logger.LogInformation("UNDO: Re-enabled user account {User}", username);
@@ -904,12 +896,9 @@ public class AutoRemediator
                 CreateNoWindow = true
             };
 
-            using var proc = Process.Start(psi);
-            proc?.WaitForExit(30000);
+            var (exitCode, output, error, timedOut) = RunProcess(psi, 30000);
 
-            record.Success = proc?.ExitCode == 0;
-            var output = proc?.StandardOutput.ReadToEnd() ?? "";
-            var error = proc?.StandardError.ReadToEnd() ?? "";
+            record.Success = exitCode == 0 && !timedOut;
 
             record.Description = record.Success
                 ? $"Executed fix: {threat.FixCommand}. Output: {Truncate(output, 200)}"
@@ -933,4 +922,40 @@ public class AutoRemediator
     private static string Truncate(string s, int maxLen) =>
         s.Length <= maxLen ? s : s[..maxLen] + "...";
 
+    /// <summary>
+    /// Run a process and capture stdout/stderr without deadlocking.
+    /// Reading redirected streams synchronously after WaitForExit can deadlock
+    /// if the child fills the OS pipe buffer (~4 KB). This helper reads both
+    /// streams asynchronously before waiting for exit.
+    /// </summary>
+    private static (int ExitCode, string StdOut, string StdErr, bool TimedOut) RunProcess(
+        ProcessStartInfo psi, int timeoutMs = 10000)
+    {
+        using var proc = Process.Start(psi);
+        if (proc == null)
+            return (-1, "", "Failed to start process", false);
+
+        // Read streams asynchronously to avoid pipe-buffer deadlock.
+        var stdOutTask = proc.StandardOutput.ReadToEndAsync();
+        var stdErrTask = proc.StandardError.ReadToEndAsync();
+
+        bool exited = proc.WaitForExit(timeoutMs);
+
+        // Even after WaitForExit returns true, async reads may not have
+        // finished; wait for them with a generous timeout.
+        Task.WaitAll(new Task[] { stdOutTask, stdErrTask },
+                     Math.Max(timeoutMs / 2, 5000));
+
+        if (!exited)
+        {
+            try { proc.Kill(entireProcessTree: true); } catch { /* best effort */ }
+            return (-1, stdOutTask.IsCompleted ? stdOutTask.Result : "",
+                    stdErrTask.IsCompleted ? stdErrTask.Result : "", true);
+        }
+
+        return (proc.ExitCode,
+                stdOutTask.IsCompleted ? stdOutTask.Result : "",
+                stdErrTask.IsCompleted ? stdErrTask.Result : "",
+                false);
+    }
 }

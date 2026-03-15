@@ -241,7 +241,7 @@ public class ThreatCorrelator
                 RuleName = "DefenderPlusUnsigned",
                 ChainDescription = $"Windows Defender was just disabled while suspicious processes are running. " +
                                    $"Process: {suspiciousProcessEvent.Title}. Immediate investigation required.",
-                ThreatScore = CalculateChainScore(newEvent, processEvent) + 50
+                ThreatScore = CalculateChainScore(newEvent, suspiciousProcessEvent!) + 50
             });
         }
     }

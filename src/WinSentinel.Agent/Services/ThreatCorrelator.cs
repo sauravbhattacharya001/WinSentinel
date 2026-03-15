@@ -62,12 +62,12 @@ public class ThreatCorrelator
     public List<CorrelatedThreat> ProcessEvent(ThreatEvent newEvent)
     {
         _eventWindow.Enqueue(newEvent);
-        TrimWindow();
 
         var correlations = new List<CorrelatedThreat>();
 
         lock (_correlationLock)
         {
+            TrimWindow();
             var windowEvents = _eventWindow.ToList();
 
             // Run all correlation rules
@@ -96,8 +96,11 @@ public class ThreatCorrelator
     /// </summary>
     public List<ThreatEvent> GetWindowEvents()
     {
-        TrimWindow();
-        return _eventWindow.ToList();
+        lock (_correlationLock)
+        {
+            TrimWindow();
+            return _eventWindow.ToList();
+        }
     }
 
     /// <summary>
@@ -231,17 +234,13 @@ public class ThreatCorrelator
             suspiciousProcess &&
             !IsRecentCorrelation("DefenderPlusUnsigned", "reverse"))
         {
-            var processEvent = window.First(e =>
-                e.Source == "ProcessMonitor" &&
-                e.Severity >= ThreatSeverity.Medium);
-
             results.Add(new CorrelatedThreat
             {
-                ContributingEvents = { newEvent, processEvent },
+                ContributingEvents = { newEvent, suspiciousProcessEvent },
                 CombinedSeverity = ThreatSeverity.Critical,
                 RuleName = "DefenderPlusUnsigned",
                 ChainDescription = $"Windows Defender was just disabled while suspicious processes are running. " +
-                                   $"Process: {processEvent.Title}. Immediate investigation required.",
+                                   $"Process: {suspiciousProcessEvent.Title}. Immediate investigation required.",
                 ThreatScore = CalculateChainScore(newEvent, processEvent) + 50
             });
         }
@@ -346,10 +345,24 @@ public class ThreatCorrelator
     internal void CheckRapidMultiModule(ThreatEvent newEvent, List<ThreatEvent> window, List<CorrelatedThreat> results)
     {
         // Only check for medium+ severity events
+        if (newEvent.Severity < ThreatSeverity.Medium) return;
+
         var significantEvents = window.Where(e => e.Severity >= ThreatSeverity.Medium).ToList();
         var distinctSources = significantEvents.Select(e => e.Source).Distinct().ToList();
 
-        if (distinctSources.Count >= 3 && !IsRecentCorrelation("RapidMultiModule", ""))
+        if (distinctSources.Count < 3) return;
+
+        // Only fire if newEvent is the one that pushed the distinct source count to 3+.
+        // Check: without newEvent's source, would we still have 3+ distinct sources?
+        var sourcesWithoutNew = significantEvents
+            .Where(e => e.Id != newEvent.Id)
+            .Select(e => e.Source)
+            .Distinct()
+            .Count();
+
+        if (sourcesWithoutNew >= 3) return; // Already had 3+, newEvent didn't push us over
+
+        if (!IsRecentCorrelation("RapidMultiModule", ""))
         {
             results.Add(new CorrelatedThreat
             {

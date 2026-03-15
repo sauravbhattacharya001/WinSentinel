@@ -345,6 +345,13 @@ public class ThreatCorrelator
     /// </summary>
     internal void CheckRapidMultiModule(ThreatEvent newEvent, List<ThreatEvent> window, List<CorrelatedThreat> results)
     {
+        // Only trigger when the new event itself is significant — otherwise a
+        // low/info event (e.g. periodic heartbeat) arriving while the window
+        // already has 3+ medium+ sources would incorrectly fire a Critical
+        // "coordinated attack" correlation.
+        if (newEvent.Severity < ThreatSeverity.Medium)
+            return;
+
         // Only check for medium+ severity events
         var significantEvents = window.Where(e => e.Severity >= ThreatSeverity.Medium).ToList();
         var distinctSources = significantEvents.Select(e => e.Source).Distinct().ToList();

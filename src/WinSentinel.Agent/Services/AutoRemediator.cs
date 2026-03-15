@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -349,15 +349,8 @@ public class AutoRemediator
 
             foreach (var (dir, ruleName) in directions)
             {
-                var psi = new ProcessStartInfo
-                {
-                    FileName = "netsh",
-                    Arguments = $"advfirewall firewall add rule name=\"{ruleName}\" dir={dir} action=block remoteip={sanitizedIp}",
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true
-                };
+                var psi = CreateSilentProcessInfo("netsh",
+                    $"advfirewall firewall add rule name=\"{ruleName}\" dir={dir} action=block remoteip={sanitizedIp}");
 
                 var (exitCode, _, stdErr, _) = RunProcess(psi);
 
@@ -421,15 +414,8 @@ public class AutoRemediator
 
         try
         {
-            var psi = new ProcessStartInfo
-            {
-                FileName = "net",
-                Arguments = $"user \"{sanitizedUsername}\" /active:no",
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
-            };
+            var psi = CreateSilentProcessInfo("net",
+                $"user \"{sanitizedUsername}\" /active:no");
 
             var (exitCode, _, stdErr, _) = RunProcess(psi);
 
@@ -546,15 +532,8 @@ public class AutoRemediator
 
         try
         {
-            var psi = new ProcessStartInfo
-            {
-                FileName = "powershell",
-                Arguments = "-NoProfile -Command \"Set-MpPreference -DisableRealtimeMonitoring $false\"",
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
-            };
+            var psi = CreateSilentProcessInfo("powershell",
+                "-NoProfile -Command \"Set-MpPreference -DisableRealtimeMonitoring $false\"");
 
             var (exitCode, _, stdErr, _) = RunProcess(psi, 15000);
 
@@ -722,15 +701,8 @@ public class AutoRemediator
         foreach (var suffix in new[] { "_in", "_out" })
         {
             var fullRuleName = $"{sanitizedRuleName}{suffix}";
-            var psi = new ProcessStartInfo
-            {
-                FileName = "netsh",
-                Arguments = $"advfirewall firewall delete rule name=\"{fullRuleName}\"",
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
-            };
+            var psi = CreateSilentProcessInfo("netsh",
+                $"advfirewall firewall delete rule name=\"{fullRuleName}\"");
 
             var (exitCode, _, stdErr, _) = RunProcess(psi);
 
@@ -739,15 +711,8 @@ public class AutoRemediator
                 // Also try the legacy rule name (without suffix) for backward compatibility
                 if (suffix == "_in")
                 {
-                    var legacyPsi = new ProcessStartInfo
-                    {
-                        FileName = "netsh",
-                        Arguments = $"advfirewall firewall delete rule name=\"{sanitizedRuleName}\"",
-                        UseShellExecute = false,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        CreateNoWindow = true
-                    };
+                    var legacyPsi = CreateSilentProcessInfo("netsh",
+                        $"advfirewall firewall delete rule name=\"{sanitizedRuleName}\"");
                     var (legacyExitCode, _, _, _) = RunProcess(legacyPsi);
                     if (legacyExitCode != 0)
                     {
@@ -788,15 +753,8 @@ public class AutoRemediator
             return;
         }
 
-        var psi = new ProcessStartInfo
-        {
-            FileName = "net",
-            Arguments = $"user \"{sanitizedUsername}\" /active:yes",
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true
-        };
+        var psi = CreateSilentProcessInfo("net",
+            $"user \"{sanitizedUsername}\" /active:yes");
 
         var (exitCode, _, stdErr, _) = RunProcess(psi);
 
@@ -886,15 +844,8 @@ public class AutoRemediator
             var encodedCmd = Convert.ToBase64String(
                 System.Text.Encoding.Unicode.GetBytes(threat.FixCommand));
 
-            var psi = new ProcessStartInfo
-            {
-                FileName = "powershell",
-                Arguments = $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {encodedCmd}",
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
-            };
+            var psi = CreateSilentProcessInfo("powershell",
+                $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {encodedCmd}");
 
             var (exitCode, output, error, timedOut) = RunProcess(psi, 30000);
 
@@ -921,6 +872,23 @@ public class AutoRemediator
 
     private static string Truncate(string s, int maxLen) =>
         s.Length <= maxLen ? s : s[..maxLen] + "...";
+
+    /// <summary>
+    /// Create a ProcessStartInfo configured for silent, redirected execution.
+    /// Consolidates the 4 repeated boilerplate properties.
+    /// </summary>
+    private static ProcessStartInfo CreateSilentProcessInfo(string fileName, string arguments)
+    {
+        return new ProcessStartInfo
+        {
+            FileName = fileName,
+            Arguments = arguments,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+    }
 
     /// <summary>
     /// Run a process and capture stdout/stderr without deadlocking.

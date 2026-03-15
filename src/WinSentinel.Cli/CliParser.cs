@@ -100,6 +100,7 @@ public enum CliCommand
     Threats,
     ScheduleOptimize,
     Digest,
+    AttackPaths,
     Help,
     Version
 }
@@ -397,6 +398,10 @@ public static class CliParser
 
                 case "--digest":
                     options.Command = CliCommand.Digest;
+                    break;
+
+                case "--attack-paths":
+                    options.Command = CliCommand.AttackPaths;
                     break;
 
                 case "--digest-days":

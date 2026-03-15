@@ -280,6 +280,7 @@ public static partial class ConsoleFormatter
         WriteHelpEntry("    --harden             ", "Generate reviewable PowerShell hardening script");
         WriteHelpEntry("    --policy <action>    ", "Security Policy as Code (export/import/validate/diff)");
         WriteHelpEntry("    --threats            ", "STRIDE threat model from audit findings");
+        WriteHelpEntry("    --attack-paths       ", "Kill chain attack path analysis with chokepoints");
         WriteHelpEntry("    --help, -h           ", "Show this help message");
         WriteHelpEntry("    --version, -v        ", "Show version information");
         Console.WriteLine();

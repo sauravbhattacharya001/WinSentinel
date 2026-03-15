@@ -41,6 +41,7 @@ return options.Command switch
     CliCommand.Threats => await HandleThreats(options),
     CliCommand.ScheduleOptimize => HandleScheduleOptimize(options),
     CliCommand.Digest => await HandleDigest(options),
+    CliCommand.AttackPaths => await HandleAttackPaths(options),
     _ => HandleHelp()
 };
 
@@ -2465,6 +2466,74 @@ static async Task<int> HandleDigest(CliOptions options)
     }
 
     // Save this run to history
+    historyService.SaveAuditResult(report);
+
+    return 0;
+}
+
+// ── Attack Path Analyzer ─────────────────────────────────────────
+
+static async Task<int> HandleAttackPaths(CliOptions options)
+{
+    var engine = BuildEngine(options.ModulesFilter);
+    var sw = Stopwatch.StartNew();
+
+    if (!options.Quiet)
+    {
+        ConsoleFormatter.PrintBanner();
+        Console.WriteLine("  Running audit for attack path analysis...");
+        Console.WriteLine();
+    }
+
+    var progress = options.Quiet
+        ? null
+        : new Progress<(string module, int current, int total)>(p =>
+            ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
+
+    var report = await engine.RunFullAuditAsync(progress);
+    sw.Stop();
+
+    if (!options.Quiet)
+    {
+        ConsoleFormatter.PrintProgressDone(engine.Modules.Count, sw.Elapsed);
+    }
+
+    // MITRE mapping first
+    var mitreMapper = new MitreAttackMapper();
+    var attackReport = mitreMapper.Analyze(report);
+
+    // Attack path analysis
+    var pathAnalyzer = new AttackPathAnalyzer();
+    var pathReport = pathAnalyzer.Analyze(report, attackReport);
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Converters = { new JsonStringEnumConverter() },
+            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+        };
+        var json = JsonSerializer.Serialize(pathReport, jsonOptions);
+
+        if (!string.IsNullOrWhiteSpace(options.OutputFile))
+        {
+            await File.WriteAllTextAsync(options.OutputFile, json);
+            if (!options.Quiet)
+                Console.WriteLine($"  Attack path report saved to {options.OutputFile}");
+        }
+        else
+        {
+            Console.WriteLine(json);
+        }
+    }
+    else
+    {
+        ConsoleFormatter.PrintAttackPaths(pathReport);
+    }
+
+    // Save this run to history
+    using var historyService = new AuditHistoryService();
     historyService.SaveAuditResult(report);
 
     return 0;

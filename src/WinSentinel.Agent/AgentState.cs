@@ -10,6 +10,9 @@ public class AgentState
 {
     private readonly object _lock = new();
     private DateTimeOffset _startTime = DateTimeOffset.UtcNow;
+    private DateTimeOffset? _lastScanTime;
+    private int? _lastScanScore;
+    private int _isScanRunning; // 0 = false, 1 = true; int for Interlocked
 
     /// <summary>When the agent was started.</summary>
     public DateTimeOffset StartTime
@@ -25,13 +28,36 @@ public class AgentState
     public int ThreatsDetectedToday => ThreatLog?.GetTodayCount() ?? 0;
 
     /// <summary>Last time a full audit completed.</summary>
-    public DateTimeOffset? LastScanTime { get; set; }
+    public DateTimeOffset? LastScanTime
+    {
+        get { lock (_lock) return _lastScanTime; }
+        set { lock (_lock) _lastScanTime = value; }
+    }
 
     /// <summary>Last audit security score.</summary>
-    public int? LastScanScore { get; set; }
+    public int? LastScanScore
+    {
+        get { lock (_lock) return _lastScanScore; }
+        set { lock (_lock) _lastScanScore = value; }
+    }
 
-    /// <summary>Whether a scan is currently running.</summary>
-    public bool IsScanRunning { get; set; }
+    /// <summary>
+    /// Whether a scan is currently running.
+    /// Uses Interlocked for lock-free thread safety since this is used as
+    /// a concurrency guard in ScheduledAuditModule to prevent overlapping audits.
+    /// </summary>
+    public bool IsScanRunning
+    {
+        get => Interlocked.CompareExchange(ref _isScanRunning, 0, 0) != 0;
+        set => Interlocked.Exchange(ref _isScanRunning, value ? 1 : 0);
+    }
+
+    /// <summary>
+    /// Atomically try to set IsScanRunning from false to true.
+    /// Returns true if this call acquired the scan lock, false if a scan is already running.
+    /// Prevents the TOCTOU race in the read-then-set pattern.
+    /// </summary>
+    public bool TryStartScan() => Interlocked.CompareExchange(ref _isScanRunning, 1, 0) == 0;
 
     /// <summary>Currently active module names.</summary>
     public ConcurrentDictionary<string, bool> ActiveModules { get; } = new();

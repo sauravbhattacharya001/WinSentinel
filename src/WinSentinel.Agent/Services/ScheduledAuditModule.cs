@@ -105,13 +105,11 @@ public class ScheduledAuditModule : IAgentModule
 
     private async Task RunAuditAsync(bool isScheduled, CancellationToken ct)
     {
-        if (_state.IsScanRunning)
+        if (!_state.TryStartScan())
         {
             _logger.LogWarning("Audit already running, skipping");
             return;
         }
-
-        _state.IsScanRunning = true;
         _logger.LogInformation("Starting {Type} security audit...", isScheduled ? "scheduled" : "on-demand");
 
         try

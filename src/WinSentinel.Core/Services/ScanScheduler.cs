@@ -128,7 +128,18 @@ public class ScanScheduler : IDisposable
 
     private async void OnTimerElapsed(object? state)
     {
-        await ExecuteScanAsync(isScheduled: true, CancellationToken.None);
+        try
+        {
+            await ExecuteScanAsync(isScheduled: true, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            // ExecuteScanAsync already catches internally, but guard against
+            // any edge-case throw (e.g. ObjectDisposedException on _scanCts)
+            // so the timer callback never crashes the process.
+            System.Diagnostics.Debug.WriteLine(
+                $"[WinSentinel] Unhandled error in scheduled scan: {ex.Message}");
+        }
     }
 
     private async Task<SecurityReport?> ExecuteScanAsync(bool isScheduled, CancellationToken externalToken)

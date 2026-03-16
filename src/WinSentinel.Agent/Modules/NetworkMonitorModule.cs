@@ -61,7 +61,7 @@ public class NetworkMonitorModule : IAgentModule
     internal static readonly HashSet<int> SuspiciousPorts = new()
     {
         4444, 5555, 1337, 6666, 6667, 6668, 6669, // Common RAT/IRC ports
-        1234, 1337, 31337, 12345, 54321, // Classic backdoor ports
+        1234, 31337, 12345, 54321, // Classic backdoor ports
         3389, // RDP (suspicious if unexpected listener)
         5900, 5901, // VNC
         8080, 8888, 9090, 9999, // Common web-based C2
@@ -267,7 +267,7 @@ public class NetworkMonitorModule : IAgentModule
         CheckTorConnections(connections, alertedRemoteIps, establishedByRemoteIp);
 
         // 5. Check for suspicious port usage (skip IPs already alerted above)
-        CheckSuspiciousPorts(connections, alertedRemoteIps);
+        CheckSuspiciousPorts(connections, alertedRemoteIps, establishedByRemoteIp);
 
         // 6. Check outbound burst (connection count per process)
         CheckOutboundBurst(connections);
@@ -492,7 +492,8 @@ public class NetworkMonitorModule : IAgentModule
     /// <summary>
     /// Rule: Detect connections using suspicious/common RAT ports.
     /// </summary>
-    internal void CheckSuspiciousPorts(TcpConnectionInformation[] connections, HashSet<string>? alertedRemoteIps = null)
+    internal void CheckSuspiciousPorts(TcpConnectionInformation[] connections, HashSet<string>? alertedRemoteIps = null,
+        Dictionary<string, List<TcpConnectionInformation>>? groupedByIp = null)
     {
         // Track remote IP:port pairs already alerted to avoid duplicate alerts
         // when multiple connections exist to the same suspicious endpoint.
@@ -504,7 +505,6 @@ public class NetworkMonitorModule : IAgentModule
                 continue;
 
             var remotePort = conn.RemoteEndPoint.Port;
-            var localPort = conn.LocalEndPoint.Port;
             var remoteIp = conn.RemoteEndPoint.Address.ToString();
 
             // Skip localhost connections
@@ -522,10 +522,13 @@ public class NetworkMonitorModule : IAgentModule
                 if (seenEndpoints.Contains(endpointKey))
                     continue;
 
-                var connCount = connections.Count(c =>
-                    c.State == TcpState.Established &&
-                    c.RemoteEndPoint.Address.ToString() == remoteIp &&
-                    c.RemoteEndPoint.Port == remotePort);
+                // Use pre-computed groups to get connection count in O(1) instead of O(n).
+                var connCount = groupedByIp?.GetValueOrDefault(remoteIp)
+                    ?.Count(c => c.RemoteEndPoint.Port == remotePort)
+                    ?? connections.Count(c =>
+                        c.State == TcpState.Established &&
+                        c.RemoteEndPoint.Address.ToString() == remoteIp &&
+                        c.RemoteEndPoint.Port == remotePort);
 
                 EmitThreat(new ThreatEvent
                 {

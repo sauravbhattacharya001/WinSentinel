@@ -74,6 +74,11 @@ public class CliOptions
     public int ScheduleOptimizeDays { get; set; } = 90;
     public int DigestHistoryDays { get; set; } = 30;
     public string DigestFormat { get; set; } = "text";
+    public WhatIfAction WhatIfAction { get; set; } = WhatIfAction.None;
+    public string? WhatIfSeverity { get; set; }
+    public string? WhatIfModule { get; set; }
+    public string? WhatIfPattern { get; set; }
+    public int WhatIfTopN { get; set; } = 5;
 }
 
 public enum CliCommand
@@ -101,6 +106,7 @@ public enum CliCommand
     ScheduleOptimize,
     Digest,
     AttackPaths,
+    WhatIf,
     Help,
     Version
 }
@@ -170,6 +176,16 @@ public enum RootCauseAction
     Top,
     Causes,
     Ungrouped
+}
+
+public enum WhatIfAction
+{
+    None,
+    All,
+    Severity,
+    Module,
+    Pattern,
+    TopN
 }
 
 /// <summary>
@@ -402,6 +418,72 @@ public static class CliParser
 
                 case "--attack-paths":
                     options.Command = CliCommand.AttackPaths;
+                    break;
+
+                case "--whatif":
+                    options.Command = CliCommand.WhatIf;
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                    {
+                        var wiAction = args[++i].ToLowerInvariant();
+                        options.WhatIfAction = wiAction switch
+                        {
+                            "all" => WhatIfAction.All,
+                            "severity" => WhatIfAction.Severity,
+                            "module" => WhatIfAction.Module,
+                            "pattern" => WhatIfAction.Pattern,
+                            "top" => WhatIfAction.TopN,
+                            _ => WhatIfAction.None
+                        };
+                        if (options.WhatIfAction == WhatIfAction.None)
+                        {
+                            options.Error = $"Unknown whatif action: {wiAction}. Use all, severity, module, pattern, or top.";
+                            return options;
+                        }
+                        // For severity: next arg is the severity level
+                        if (options.WhatIfAction == WhatIfAction.Severity)
+                        {
+                            if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                                options.WhatIfSeverity = args[++i].ToLowerInvariant();
+                            else
+                            {
+                                options.Error = "Missing severity for 'whatif severity'. Usage: --whatif severity critical|warning";
+                                return options;
+                            }
+                        }
+                        // For module: next arg is the module name
+                        if (options.WhatIfAction == WhatIfAction.Module)
+                        {
+                            if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                                options.WhatIfModule = args[++i];
+                            else
+                            {
+                                options.Error = "Missing module name for 'whatif module'. Usage: --whatif module <name>";
+                                return options;
+                            }
+                        }
+                        // For pattern: next arg is the search pattern
+                        if (options.WhatIfAction == WhatIfAction.Pattern)
+                        {
+                            if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                                options.WhatIfPattern = args[++i];
+                            else
+                            {
+                                options.Error = "Missing pattern for 'whatif pattern'. Usage: --whatif pattern <text>";
+                                return options;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // Default to top-N
+                        options.WhatIfAction = WhatIfAction.TopN;
+                    }
+                    break;
+
+                case "--whatif-top":
+                    if (!TryConsumeInt(args, ref i, "--whatif-top", 1, 100, out var wiTop, out var wiTopErr))
+                    { options.Error = wiTopErr; return options; }
+                    options.WhatIfTopN = wiTop;
                     break;
 
                 case "--digest-days":

@@ -42,6 +42,7 @@ return options.Command switch
     CliCommand.ScheduleOptimize => HandleScheduleOptimize(options),
     CliCommand.Digest => await HandleDigest(options),
     CliCommand.AttackPaths => await HandleAttackPaths(options),
+    CliCommand.WhatIf => await HandleWhatIf(options),
     _ => HandleHelp()
 };
 
@@ -2281,6 +2282,137 @@ static async Task<int> HandleAttackPaths(CliOptions options)
     else
     {
         ConsoleFormatter.PrintAttackPaths(pathReport);
+    }
+
+    // Save this run to history
+    using var historyService = new AuditHistoryService();
+    historyService.SaveAuditResult(report);
+
+    return 0;
+}
+
+// ── What-If Simulator ────────────────────────────────────────────────
+
+static async Task<int> HandleWhatIf(CliOptions options)
+{
+    var engine = BuildEngine(options.ModulesFilter);
+    var sw = Stopwatch.StartNew();
+
+    if (!options.Quiet)
+    {
+        ConsoleFormatter.PrintBanner();
+        Console.WriteLine("  Running audit for what-if simulation...");
+        Console.WriteLine();
+    }
+
+    var progress = options.Quiet
+        ? null
+        : new Progress<(string module, int current, int total)>(p =>
+            ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
+
+    var report = await engine.RunFullAuditAsync(progress);
+    sw.Stop();
+
+    if (!options.Quiet)
+    {
+        ConsoleFormatter.PrintProgressDone(engine.Modules.Count, sw.Elapsed);
+    }
+
+    var simulator = new WhatIfSimulator();
+    WhatIfSimulator.SimulationResult result;
+    string scenario;
+
+    switch (options.WhatIfAction)
+    {
+        case WhatIfAction.All:
+            result = simulator.SimulateFixAll(report);
+            scenario = "Fix ALL critical and warning findings (best-case)";
+            break;
+
+        case WhatIfAction.Severity:
+            var severity = options.WhatIfSeverity?.ToLowerInvariant() switch
+            {
+                "critical" or "crt" => Severity.Critical,
+                "warning" or "wrn" => Severity.Warning,
+                _ => Severity.Warning
+            };
+            result = simulator.SimulateBySeverity(report, severity);
+            scenario = $"Fix all {severity} findings";
+            break;
+
+        case WhatIfAction.Module:
+            result = simulator.SimulateByModule(report, options.WhatIfModule ?? "");
+            scenario = $"Fix all findings in module matching '{options.WhatIfModule}'";
+            break;
+
+        case WhatIfAction.Pattern:
+            result = simulator.SimulateByPattern(report, options.WhatIfPattern ?? "");
+            scenario = $"Fix findings matching pattern '{options.WhatIfPattern}'";
+            break;
+
+        case WhatIfAction.TopN:
+        default:
+            result = simulator.SimulateTopN(report, options.WhatIfTopN);
+            scenario = $"Fix top {options.WhatIfTopN} highest-impact findings";
+            break;
+    }
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Converters = { new JsonStringEnumConverter() },
+            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+        };
+        var output = new
+        {
+            Scenario = scenario,
+            result.CurrentScore,
+            result.ProjectedScore,
+            result.ScoreDelta,
+            result.CurrentGrade,
+            result.ProjectedGrade,
+            result.GradeImproved,
+            result.CriticalResolved,
+            result.WarningResolved,
+            result.ResolvedFindings,
+            result.ModuleImpacts
+        };
+        var json = JsonSerializer.Serialize(output, jsonOptions);
+
+        if (!string.IsNullOrWhiteSpace(options.OutputFile))
+        {
+            await File.WriteAllTextAsync(options.OutputFile, json);
+            if (!options.Quiet)
+                Console.WriteLine($"  What-if report saved to {options.OutputFile}");
+        }
+        else
+        {
+            Console.WriteLine(json);
+        }
+    }
+    else if (options.Csv)
+    {
+        var lines = new List<string> { "Module,ScoreBefore,ScoreAfter,Delta,FindingsResolved" };
+        foreach (var impact in result.ModuleImpacts)
+            lines.Add($"{impact.Module},{impact.ScoreBefore},{impact.ScoreAfter},{impact.Delta},{impact.FindingsResolved}");
+
+        var csv = string.Join(Environment.NewLine, lines);
+        if (!string.IsNullOrWhiteSpace(options.OutputFile))
+        {
+            await File.WriteAllTextAsync(options.OutputFile, csv);
+            if (!options.Quiet)
+                Console.WriteLine($"  What-if CSV saved to {options.OutputFile}");
+        }
+        else
+        {
+            Console.WriteLine(csv);
+        }
+    }
+    else
+    {
+        ConsoleFormatter.PrintWhatIfResult(result, scenario);
     }
 
     // Save this run to history

@@ -42,6 +42,7 @@ return options.Command switch
     CliCommand.ScheduleOptimize => HandleScheduleOptimize(options),
     CliCommand.Digest => await HandleDigest(options),
     CliCommand.AttackPaths => await HandleAttackPaths(options),
+    CliCommand.Benchmark => await HandleBenchmark(options),
     _ => HandleHelp()
 };
 
@@ -2286,6 +2287,159 @@ static async Task<int> HandleAttackPaths(CliOptions options)
     // Save this run to history
     using var historyService = new AuditHistoryService();
     historyService.SaveAuditResult(report);
+
+    return 0;
+}
+
+// ── Peer Benchmark ───────────────────────────────────────────────
+
+static async Task<int> HandleBenchmark(CliOptions options)
+{
+    var engine = BuildEngine(options.ModulesFilter);
+    var sw = Stopwatch.StartNew();
+
+    if (!options.Quiet && !options.Json)
+    {
+        ConsoleFormatter.PrintBanner();
+        Console.WriteLine("  Running audit for peer benchmark comparison...");
+        Console.WriteLine();
+    }
+
+    var progress = options.Quiet || options.Json
+        ? null
+        : new Progress<(string module, int current, int total)>(p =>
+            ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
+
+    var report = await engine.RunFullAuditAsync(progress);
+    sw.Stop();
+
+    if (!options.Quiet && !options.Json)
+    {
+        ConsoleFormatter.PrintProgressDone(engine.Modules.Count, sw.Elapsed);
+    }
+
+    var benchmarkService = new PeerBenchmarkService();
+
+    if (options.BenchmarkAll)
+    {
+        var allResults = benchmarkService.CompareAll(report);
+
+        if (options.Json)
+        {
+            var jsonOptions = new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                Converters = { new JsonStringEnumConverter() }
+            };
+            var jsonData = allResults.ToDictionary(
+                kv => kv.Key.ToString(),
+                kv => new
+                {
+                    group = kv.Value.Group.ToString(),
+                    systemScore = kv.Value.SystemOverallScore,
+                    peerMedian = kv.Value.PeerOverallMedian,
+                    percentile = Math.Round(kv.Value.OverallPercentile, 1),
+                    rating = kv.Value.OverallRating,
+                    categoriesAbove = kv.Value.CategoriesAbovePeer,
+                    categoriesAt = kv.Value.CategoriesAtPeer,
+                    categoriesBelow = kv.Value.CategoriesBelowPeer,
+                    suggestedGroup = benchmarkService.SuggestPeerGroup(report).ToString()
+                });
+            var json = JsonSerializer.Serialize(jsonData, jsonOptions);
+            WriteOutput(json, options.OutputFile);
+        }
+        else
+        {
+            ConsoleFormatter.PrintBenchmarkAllSummary(allResults);
+
+            var suggested = benchmarkService.SuggestPeerGroup(report);
+            var orig = Console.ForegroundColor;
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.Write("  Suggested peer group: ");
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.WriteLine(suggested);
+            Console.ForegroundColor = orig;
+            Console.WriteLine();
+        }
+
+        return 0;
+    }
+
+    // Single group comparison
+    PeerBenchmarkService.PeerGroup group;
+    if (!string.IsNullOrEmpty(options.BenchmarkGroup))
+    {
+        if (!Enum.TryParse<PeerBenchmarkService.PeerGroup>(options.BenchmarkGroup, true, out group))
+        {
+            ConsoleFormatter.PrintError(
+                $"Unknown peer group: '{options.BenchmarkGroup}'. Available: home, developer, enterprise, server, all");
+            return 3;
+        }
+    }
+    else
+    {
+        // Auto-detect best peer group
+        group = benchmarkService.SuggestPeerGroup(report);
+        if (!options.Quiet && !options.Json)
+        {
+            var orig = Console.ForegroundColor;
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine($"  Auto-detected peer group: {group} (use --benchmark <group> to override)");
+            Console.ForegroundColor = orig;
+            Console.WriteLine();
+        }
+    }
+
+    var result = benchmarkService.Compare(report, group);
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Converters = { new JsonStringEnumConverter() }
+        };
+        var jsonResult = new
+        {
+            group = result.Group.ToString(),
+            systemScore = result.SystemOverallScore,
+            peerMedian = result.PeerOverallMedian,
+            percentile = Math.Round(result.OverallPercentile, 1),
+            rating = result.OverallRating,
+            categoriesAbove = result.CategoriesAbovePeer,
+            categoriesAt = result.CategoriesAtPeer,
+            categoriesBelow = result.CategoriesBelowPeer,
+            categories = result.Categories.Select(c => new
+            {
+                category = c.Category,
+                score = c.SystemScore,
+                peerMedian = c.PeerMedian,
+                peerP25 = c.PeerP25,
+                peerP75 = c.PeerP75,
+                delta = c.Delta,
+                percentile = Math.Round(c.Percentile, 1),
+                rating = c.Rating.ToString()
+            }),
+            strengths = result.TopStrengths.Select(s => new { s.Category, s.SystemScore, s.PeerMedian, s.Delta }),
+            weaknesses = result.TopWeaknesses.Select(w => new { w.Category, w.SystemScore, w.PeerMedian, w.Delta }),
+            suggestions = result.Suggestions.Select(s => new
+            {
+                category = s.Category,
+                currentScore = s.CurrentScore,
+                peerMedian = s.PeerMedian,
+                gap = s.Gap,
+                recommendation = s.Recommendation,
+                priority = s.Priority.ToString()
+            }),
+            timestamp = DateTimeOffset.UtcNow
+        };
+        var json = JsonSerializer.Serialize(jsonResult, jsonOptions);
+        WriteOutput(json, options.OutputFile);
+    }
+    else
+    {
+        ConsoleFormatter.PrintBenchmarkResult(result);
+    }
 
     return 0;
 }

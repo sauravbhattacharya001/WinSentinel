@@ -1164,4 +1164,73 @@ public class CliParserTests
         Assert.Equal(BadgeAction.None, options.BadgeAction);
         Assert.Null(options.BadgeStyle);
     }
+
+    // ── Benchmark Command Tests ──────────────────────────────────
+
+    [Fact]
+    public void Parse_Benchmark_ReturnsBenchmark()
+    {
+        var result = CliParser.Parse(["--benchmark"]);
+        Assert.Equal(CliCommand.Benchmark, result.Command);
+        Assert.Null(result.BenchmarkGroup);
+        Assert.False(result.BenchmarkAll);
+    }
+
+    [Theory]
+    [InlineData("home")]
+    [InlineData("developer")]
+    [InlineData("enterprise")]
+    [InlineData("server")]
+    public void Parse_Benchmark_WithGroup_SetsGroup(string group)
+    {
+        var result = CliParser.Parse(["--benchmark", group]);
+        Assert.Equal(CliCommand.Benchmark, result.Command);
+        Assert.Equal(group, result.BenchmarkGroup);
+        Assert.False(result.BenchmarkAll);
+    }
+
+    [Fact]
+    public void Parse_Benchmark_All_SetsBenchmarkAll()
+    {
+        var result = CliParser.Parse(["--benchmark", "all"]);
+        Assert.Equal(CliCommand.Benchmark, result.Command);
+        Assert.True(result.BenchmarkAll);
+        Assert.Null(result.BenchmarkGroup);
+    }
+
+    [Fact]
+    public void Parse_Benchmark_WithJson_SetsJsonFlag()
+    {
+        var result = CliParser.Parse(["--benchmark", "home", "--json"]);
+        Assert.Equal(CliCommand.Benchmark, result.Command);
+        Assert.Equal("home", result.BenchmarkGroup);
+        Assert.True(result.Json);
+    }
+
+    [Fact]
+    public void Parse_Benchmark_WithOutput_SetsOutputFile()
+    {
+        var result = CliParser.Parse(["--benchmark", "developer", "--json", "-o", "bench.json"]);
+        Assert.Equal(CliCommand.Benchmark, result.Command);
+        Assert.Equal("developer", result.BenchmarkGroup);
+        Assert.Equal("bench.json", result.OutputFile);
+    }
+
+    [Fact]
+    public void Parse_Benchmark_GroupNotConsumedAsNextFlag()
+    {
+        // If next arg starts with -, it should NOT be consumed as group
+        var result = CliParser.Parse(["--benchmark", "--json"]);
+        Assert.Equal(CliCommand.Benchmark, result.Command);
+        Assert.Null(result.BenchmarkGroup);
+        Assert.True(result.Json);
+    }
+
+    [Fact]
+    public void Parse_Benchmark_DefaultOptions()
+    {
+        var options = new CliOptions();
+        Assert.Null(options.BenchmarkGroup);
+        Assert.False(options.BenchmarkAll);
+    }
 }

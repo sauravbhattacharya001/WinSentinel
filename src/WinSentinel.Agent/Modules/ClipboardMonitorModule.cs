@@ -21,7 +21,9 @@ public partial class ClipboardMonitorModule : IAgentModule
     private CancellationTokenSource? _cts;
     private Task? _monitorTask;
 
-    /// <summary>Last clipboard content hash to avoid duplicate alerts.</summary>
+    /// <summary>Last clipboard content hash to avoid duplicate alerts.
+    /// Accessed from both the monitor loop thread and delayed auto-clear tasks,
+    /// so all reads/writes use Interlocked for thread safety.</summary>
     private int _lastContentHash;
 
     /// <summary>How often to check the clipboard (ms).</summary>
@@ -104,8 +106,9 @@ public partial class ClipboardMonitorModule : IAgentModule
         if (string.IsNullOrWhiteSpace(text)) return;
 
         var hash = text.GetHashCode();
-        if (hash == _lastContentHash) return;
-        _lastContentHash = hash;
+        // Atomic read: only proceed if the content actually changed
+        if (hash == Interlocked.CompareExchange(ref _lastContentHash, 0, 0)) return;
+        Interlocked.Exchange(ref _lastContentHash, hash);
 
         var detections = AnalyzeText(text);
         if (detections.Count == 0) return;
@@ -142,8 +145,8 @@ public partial class ClipboardMonitorModule : IAgentModule
                         _logger.LogDebug("[ClipboardMonitor] Delayed auto-clear cancelled (module stopped)");
                         return;
                     }
-                    // Re-check: only clear if clipboard still has the same content
-                    if (_lastContentHash != expectedHash)
+                    // Re-check: only clear if clipboard still has the same content (atomic read)
+                    if (Interlocked.CompareExchange(ref _lastContentHash, 0, 0) != expectedHash)
                     {
                         _logger.LogDebug("[ClipboardMonitor] Skipped auto-clear — clipboard content changed");
                         return;

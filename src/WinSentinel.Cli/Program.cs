@@ -42,6 +42,7 @@ return options.Command switch
     CliCommand.ScheduleOptimize => HandleScheduleOptimize(options),
     CliCommand.Digest => await HandleDigest(options),
     CliCommand.AttackPaths => await HandleAttackPaths(options),
+    CliCommand.Summary => await HandleSummary(options),
     _ => HandleHelp()
 };
 
@@ -2537,4 +2538,84 @@ static async Task<int> HandleAttackPaths(CliOptions options)
     historyService.SaveAuditResult(report);
 
     return 0;
+}
+
+// ── Executive Summary ────────────────────────────────────────────
+
+static async Task<int> HandleSummary(CliOptions options)
+{
+    var engine = BuildEngine(options.ModulesFilter);
+    var sw = Stopwatch.StartNew();
+
+    if (!options.Quiet)
+    {
+        ConsoleFormatter.PrintBanner();
+        Console.WriteLine("  Running audit for executive summary...");
+        Console.WriteLine();
+    }
+
+    var progress = options.Quiet
+        ? null
+        : new Progress<(string module, int current, int total)>(p =>
+            ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
+
+    var report = await engine.RunFullAuditAsync(progress);
+    sw.Stop();
+
+    if (!options.Quiet)
+    {
+        ConsoleFormatter.PrintProgressDone(engine.Modules.Count, sw.Elapsed);
+    }
+
+    // Try to get trend data from history
+    ScoreTrendSummary? trend = null;
+    try
+    {
+        using var historyService = new AuditHistoryService();
+        historyService.EnsureDatabase();
+        trend = historyService.GetTrend(30);
+
+        // Save this run to history
+        historyService.SaveAuditResult(report);
+    }
+    catch
+    {
+        // History unavailable, proceed without trend
+    }
+
+    var summaryService = new ExecutiveSummaryService();
+    var summary = summaryService.Generate(report, trend);
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Converters = { new JsonStringEnumConverter() },
+            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+        };
+        var json = JsonSerializer.Serialize(summary, jsonOptions);
+        WriteOutput(json, options.OutputFile);
+    }
+    else if (options.SummaryFormat == "html" || options.Html)
+    {
+        var html = ExecutiveSummaryService.RenderHtml(summary);
+        if (!string.IsNullOrWhiteSpace(options.OutputFile))
+        {
+            await File.WriteAllTextAsync(options.OutputFile, html);
+            if (!options.Quiet)
+                Console.WriteLine($"  Executive summary saved to {options.OutputFile}");
+        }
+        else
+        {
+            Console.WriteLine(html);
+        }
+    }
+    else
+    {
+        // Console-formatted output with colors
+        ConsoleFormatter.PrintExecutiveSummary(summary);
+    }
+
+    return DetermineExitCode(report, options.Threshold);
 }

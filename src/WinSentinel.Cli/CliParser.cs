@@ -74,6 +74,7 @@ public class CliOptions
     public int ScheduleOptimizeDays { get; set; } = 90;
     public int DigestHistoryDays { get; set; } = 30;
     public string DigestFormat { get; set; } = "text";
+    public string SummaryFormat { get; set; } = "text";
 }
 
 public enum CliCommand
@@ -101,6 +102,7 @@ public enum CliCommand
     ScheduleOptimize,
     Digest,
     AttackPaths,
+    Summary,
     Help,
     Version
 }
@@ -402,6 +404,15 @@ public static class CliParser
 
                 case "--attack-paths":
                     options.Command = CliCommand.AttackPaths;
+                    break;
+
+                case "--summary":
+                    options.Command = CliCommand.Summary;
+                    break;
+
+                case "--summary-format":
+                    if (i + 1 < args.Length)
+                        options.SummaryFormat = args[++i].ToLowerInvariant();
                     break;
 
                 case "--digest-days":

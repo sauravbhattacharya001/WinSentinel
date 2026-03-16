@@ -54,13 +54,26 @@ public sealed class ThreatRateLimiter
     /// </summary>
     public bool ShouldRateLimitByKey(string key)
     {
-        if (_recentAlerts.TryGetValue(key, out var lastAlert))
-        {
-            if ((DateTimeOffset.UtcNow - lastAlert).TotalSeconds < _rateLimitSeconds)
-                return true;
-        }
-        _recentAlerts[key] = DateTimeOffset.UtcNow;
-        return false;
+        var now = DateTimeOffset.UtcNow;
+        var rateLimitSeconds = _rateLimitSeconds;
+        var wasRateLimited = false;
+
+        _recentAlerts.AddOrUpdate(
+            key,
+            // Key doesn't exist — add it, not rate-limited
+            _ => now,
+            // Key exists — update only if the window has expired
+            (_, lastAlert) =>
+            {
+                if ((now - lastAlert).TotalSeconds < rateLimitSeconds)
+                {
+                    wasRateLimited = true;
+                    return lastAlert; // Keep the original timestamp
+                }
+                return now; // Window expired — reset
+            });
+
+        return wasRateLimited;
     }
 
     /// <summary>

@@ -142,7 +142,7 @@ public static partial class InputSanitizer
         if (trimmed.Length > 2 && trimmed.IndexOf(':', 2) >= 0)
             return null;
 
-        // Reject UNC paths (\\server\share) - quarantine should be local only
+        // Reject UNC paths (\\server\share) and NT path prefix (\\?\) - quarantine should be local only
         if (trimmed.StartsWith(@"\\") || trimmed.StartsWith("//"))
             return null;
 
@@ -259,7 +259,8 @@ public static partial class InputSanitizer
 
         // Network exfiltration
         if (lower.Contains("invoke-webrequest") || lower.Contains("curl ") ||
-            lower.Contains("wget ") || lower.Contains("iwr "))
+            lower.Contains("wget ") || lower.Contains("iwr ") ||
+            lower.Contains("invoke-restmethod") || lower.Contains("irm "))
             return "Contains network request command";
 
         // .NET download methods (bypass Invoke-WebRequest blocks)
@@ -288,7 +289,9 @@ public static partial class InputSanitizer
             return "Contains potential reverse shell command";
 
         // Encoded commands (bypass detection)
+        // PowerShell accepts abbreviated parameter names: -EncodedCommand, -Enc, -EC, -En, etc.
         if (lower.Contains("-encodedcommand") || lower.Contains("-enc ") ||
+            lower.Contains("-ec ") || lower.Contains("-en ") ||
             lower.Contains("-e ") && lower.Contains("powershell"))
             return "Contains encoded command (potential bypass)";
 
@@ -340,6 +343,8 @@ public static partial class InputSanitizer
         // Scheduled task creation (persistence)
         if (lower.Contains("schtasks") && lower.Contains("/create"))
             return "Contains scheduled task creation (persistence mechanism)";
+        if (lower.Contains("register-scheduledtask") || lower.Contains("new-scheduledtaskaction"))
+            return "Contains PowerShell scheduled task creation (persistence mechanism)";
 
         // Service creation (persistence / privilege escalation)
         if (lower.Contains("sc.exe") && lower.Contains("create") ||
@@ -398,6 +403,24 @@ public static partial class InputSanitizer
             lower.Contains("get-wmiobject") && lower.Contains("call"))
             return "Contains WMI/CIM method invocation (potential remote execution)";
 
+        // String concatenation bypass — attackers use 'I'+'EX' or "Inv"+"oke-Expression"
+        // to evade keyword detection. Check for string concat patterns near known keywords.
+        if (StringConcatBypassPattern().IsMatch(command))
+            return "Contains string concatenation obfuscation (potential keyword bypass)";
+
+        // Semicolon command chaining — `safe-cmd; malicious-cmd` can smuggle dangerous
+        // commands past checks that only examine the overall string once
+        if (command.Contains(';') && !command.TrimEnd().EndsWith(";"))
+            return "Contains semicolon command chaining (potential bypass)";
+
+        // PowerShell format operator — `"{0}{1}" -f 'Inv','oke-Expression'` reconstructs
+        // blocked keywords at runtime
+        if (lower.Contains("-f ") && lower.Contains("'") && lower.Contains(","))
+        {
+            if (FormatOperatorPattern().IsMatch(command))
+                return "Contains PowerShell format operator (potential keyword reconstruction)";
+        }
+
         // DLL loading — can execute arbitrary native code
         if (lower.Contains("loadlibrary") || lower.Contains("[dllimport") ||
             lower.Contains("add-type") && lower.Contains("dllname"))
@@ -447,4 +470,12 @@ public static partial class InputSanitizer
     /// <summary>Matches PowerShell call operator patterns: &amp; { ... } or &amp; "path".</summary>
     [GeneratedRegex(@"&\s*(\{|""|'|[a-zA-Z])")]
     private static partial Regex CallOperatorPattern();
+
+    /// <summary>Matches string concatenation patterns used to bypass keyword detection (e.g. 'I'+'EX').</summary>
+    [GeneratedRegex(@"['""][a-zA-Z]{1,10}['""]\s*\+\s*['""][a-zA-Z]{1,20}['""]", RegexOptions.IgnoreCase)]
+    private static partial Regex StringConcatBypassPattern();
+
+    /// <summary>Matches PowerShell format operator patterns used to reconstruct keywords.</summary>
+    [GeneratedRegex(@"""\{[0-9]+\}.*""\s*-f\s*'[a-zA-Z]", RegexOptions.IgnoreCase)]
+    private static partial Regex FormatOperatorPattern();
 }

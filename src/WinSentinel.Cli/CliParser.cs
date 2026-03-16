@@ -74,6 +74,9 @@ public class CliOptions
     public int ScheduleOptimizeDays { get; set; } = 90;
     public int DigestHistoryDays { get; set; } = 30;
     public string DigestFormat { get; set; } = "text";
+    public int PrioritizeTop { get; set; } = 20;
+    public string? PrioritizeWeights { get; set; }
+    public string? PrioritizeSeverity { get; set; }
 }
 
 public enum CliCommand
@@ -101,6 +104,7 @@ public enum CliCommand
     ScheduleOptimize,
     Digest,
     AttackPaths,
+    Prioritize,
     Help,
     Version
 }
@@ -402,6 +406,28 @@ public static class CliParser
 
                 case "--attack-paths":
                     options.Command = CliCommand.AttackPaths;
+                    break;
+
+                case "--prioritize":
+                    options.Command = CliCommand.Prioritize;
+                    break;
+
+                case "--prioritize-top":
+                    if (!TryConsumeInt(args, ref i, "--prioritize-top", 1, 200, out var prioTop, out var ptErr))
+                    { options.Error = ptErr; return options; }
+                    options.PrioritizeTop = prioTop;
+                    break;
+
+                case "--prioritize-weights":
+                    if (!TryConsumeArg(args, ref i, "--prioritize-weights", out var prioW, out var pwErr))
+                    { options.Error = pwErr; return options; }
+                    options.PrioritizeWeights = prioW.ToLowerInvariant();
+                    break;
+
+                case "--prioritize-severity":
+                    if (!TryConsumeArg(args, ref i, "--prioritize-severity", out var prioSev, out var psErr))
+                    { options.Error = psErr; return options; }
+                    options.PrioritizeSeverity = prioSev.ToLowerInvariant();
                     break;
 
                 case "--digest-days":

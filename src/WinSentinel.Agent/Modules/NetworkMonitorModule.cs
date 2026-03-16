@@ -248,11 +248,23 @@ public class NetworkMonitorModule : IAgentModule
         // known-bad IP + Tor exit node + suspicious port).
         var alertedRemoteIps = new HashSet<string>();
 
+        // Pre-compute established connections grouped by remote IP to avoid
+        // redundant O(n) scans in each detection method. Each method previously
+        // iterated all connections and then did nested Count/Where lookups,
+        // resulting in O(n²) per method. Now the grouping is O(n) and each
+        // method iterates only the groups.
+        var establishedByRemoteIp = connections
+            .Where(c => c.State == TcpState.Established)
+            .GroupBy(c => c.RemoteEndPoint.Address.ToString())
+            .ToDictionary(
+                g => g.Key,
+                g => g.ToList());
+
         // 3. Check for known-bad IPs (highest priority — checked first)
-        CheckKnownBadIps(connections, alertedRemoteIps);
+        CheckKnownBadIps(connections, alertedRemoteIps, establishedByRemoteIp);
 
         // 4. Check for Tor connections (skip IPs already alerted above)
-        CheckTorConnections(connections, alertedRemoteIps);
+        CheckTorConnections(connections, alertedRemoteIps, establishedByRemoteIp);
 
         // 5. Check for suspicious port usage (skip IPs already alerted above)
         CheckSuspiciousPorts(connections, alertedRemoteIps);
@@ -354,39 +366,22 @@ public class NetworkMonitorModule : IAgentModule
     /// <summary>
     /// Rule: Detect connections to known-malicious IP ranges.
     /// </summary>
-    internal void CheckKnownBadIps(TcpConnectionInformation[] connections, HashSet<string>? alertedRemoteIps = null)
+    internal void CheckKnownBadIps(TcpConnectionInformation[] connections, HashSet<string>? alertedRemoteIps = null,
+        Dictionary<string, List<TcpConnectionInformation>>? groupedByIp = null)
     {
-        // Group connections by remote IP to avoid flooding the threat log with
-        // duplicate Critical alerts when multiple connections exist to the same
-        // malicious IP (e.g. parallel C2 channels or retries).
-        var seenBadIps = new HashSet<string>();
+        // Use pre-computed groups when available (O(1) per IP instead of O(n) scans).
+        var ipGroups = groupedByIp ?? connections
+            .Where(c => c.State == TcpState.Established)
+            .GroupBy(c => c.RemoteEndPoint.Address.ToString())
+            .ToDictionary(g => g.Key, g => g.ToList());
 
-        foreach (var conn in connections)
+        foreach (var (remoteIp, conns) in ipGroups)
         {
-            if (conn.State != TcpState.Established)
-                continue;
-
-            var remoteIp = conn.RemoteEndPoint.Address.ToString();
-
-            // Skip if we already emitted an alert for this IP in this poll cycle
-            if (seenBadIps.Contains(remoteIp))
-            {
-                alertedRemoteIps?.Add(remoteIp);
-                continue;
-            }
-
             foreach (var prefix in KnownBadIpPrefixes)
             {
                 if (remoteIp.StartsWith(prefix))
                 {
-                    // Count how many connections exist to this IP for richer context
-                    var connCount = connections.Count(c =>
-                        c.State == TcpState.Established &&
-                        c.RemoteEndPoint.Address.ToString() == remoteIp);
-
-                    var ports = connections
-                        .Where(c => c.State == TcpState.Established &&
-                                    c.RemoteEndPoint.Address.ToString() == remoteIp)
+                    var ports = conns
                         .Select(c => c.RemoteEndPoint.Port)
                         .Distinct()
                         .OrderBy(p => p)
@@ -399,7 +394,7 @@ public class NetworkMonitorModule : IAgentModule
                         Source = "NetworkMonitor",
                         Severity = ThreatSeverity.Critical,
                         Title = "Connection to Known-Malicious IP",
-                        Description = $"{connCount} active connection(s) to known-malicious IP {remoteIp} " +
+                        Description = $"{conns.Count} active connection(s) to known-malicious IP {remoteIp} " +
                                       $"on port(s) {portList}. " +
                                       $"This IP is in a known C2/malware hosting range.",
                         AutoFixable = InputSanitizer.SanitizeIpAddress(remoteIp) != null,
@@ -407,7 +402,6 @@ public class NetworkMonitorModule : IAgentModule
                             ? $"netsh advfirewall firewall add rule name=\"Block {safeMalIp}\" dir=out action=block remoteip={safeMalIp}"
                             : null
                     });
-                    seenBadIps.Add(remoteIp);
                     alertedRemoteIps?.Add(remoteIp);
                     break;
                 }
@@ -418,7 +412,8 @@ public class NetworkMonitorModule : IAgentModule
     /// <summary>
     /// Rule: Detect connections to Tor exit nodes.
     /// </summary>
-    internal void CheckTorConnections(TcpConnectionInformation[] connections, HashSet<string>? alertedRemoteIps = null)
+    internal void CheckTorConnections(TcpConnectionInformation[] connections, HashSet<string>? alertedRemoteIps = null,
+        Dictionary<string, List<TcpConnectionInformation>>? groupedByIp = null)
     {
         // Track IPs already alerted within this poll cycle to avoid duplicate
         // alerts when multiple connections exist to the same Tor exit node.
@@ -468,9 +463,10 @@ public class NetworkMonitorModule : IAgentModule
             {
                 if (remoteIp.StartsWith(prefix))
                 {
-                    var connCount = connections.Count(c =>
-                        c.State == TcpState.Established &&
-                        c.RemoteEndPoint.Address.ToString() == remoteIp);
+                    var connCount = groupedByIp?.GetValueOrDefault(remoteIp)?.Count
+                        ?? connections.Count(c =>
+                            c.State == TcpState.Established &&
+                            c.RemoteEndPoint.Address.ToString() == remoteIp);
 
                     EmitThreat(new ThreatEvent
                     {
@@ -685,16 +681,25 @@ public class NetworkMonitorModule : IAgentModule
     /// <summary>Get the executable path for a process by name.</summary>
     private static string? GetProcessPath(string processName)
     {
+        Process[]? processes = null;
         try
         {
-            var processes = Process.GetProcessesByName(processName);
+            processes = Process.GetProcessesByName(processName);
             if (processes.Length > 0)
             {
-                using var proc = processes[0];
-                return proc.MainModule?.FileName;
+                return processes[0].MainModule?.FileName;
             }
         }
         catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] Error: {ex.GetType().Name} - {ex.Message}"); }
+        finally
+        {
+            // Dispose ALL returned Process objects to avoid native handle leaks.
+            // Previously only processes[0] was disposed via 'using', leaking the rest.
+            if (processes != null)
+            {
+                foreach (var p in processes) p.Dispose();
+            }
+        }
         return null;
     }
 

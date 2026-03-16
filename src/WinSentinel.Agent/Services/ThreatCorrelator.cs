@@ -204,15 +204,18 @@ public class ThreatCorrelator
 
         bool suspiciousProcess = suspiciousProcessEvent != null;
 
-        if (newEvent.Source == "ProcessMonitor" && suspiciousProcess &&
+        // Only correlate if newEvent IS the suspicious process — otherwise every
+        // benign process event floods Critical correlations while the window
+        // contains any earlier suspicious process + Defender-disabled pair.
+        if (newEvent.Source == "ProcessMonitor" &&
+            newEvent.Severity >= ThreatSeverity.Medium &&
             !IsRecentCorrelation("DefenderPlusUnsigned", newEvent.Id))
         {
             var defenderEvent = window.First(e =>
                 e.Title.Contains("Defender", StringComparison.OrdinalIgnoreCase) &&
                 e.Title.Contains("Disabled", StringComparison.OrdinalIgnoreCase));
 
-            // Use the actual suspicious process event, not newEvent which may be benign
-            var processEvent = (newEvent.Id == suspiciousProcessEvent!.Id) ? newEvent : suspiciousProcessEvent;
+            var processEvent = newEvent;
 
             results.Add(new CorrelatedThreat
             {

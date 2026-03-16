@@ -6,6 +6,10 @@ using WinSentinel.Core.Services;
 
 namespace WinSentinel.App.ViewModels;
 
+/// <summary>
+/// ViewModel for the audit detail page. Runs individual or full audit scans,
+/// displays per-module results with findings, and supports result export.
+/// </summary>
 public partial class AuditDetailViewModel : ObservableObject
 {
     private readonly AuditEngine _engine = new();

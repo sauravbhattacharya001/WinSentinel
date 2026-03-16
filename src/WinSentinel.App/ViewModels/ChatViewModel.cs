@@ -5,6 +5,10 @@ using WinSentinel.App.Services;
 
 namespace WinSentinel.App.ViewModels;
 
+/// <summary>
+/// ViewModel for the chat control plane page. Manages user input, message history,
+/// and communication with the agent via <see cref="ChatAiService"/>.
+/// </summary>
 public partial class ChatViewModel : ObservableObject
 {
     private readonly ChatAiService _aiService = new();

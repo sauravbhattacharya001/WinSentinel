@@ -42,6 +42,7 @@ return options.Command switch
     CliCommand.ScheduleOptimize => HandleScheduleOptimize(options),
     CliCommand.Digest => await HandleDigest(options),
     CliCommand.AttackPaths => await HandleAttackPaths(options),
+    CliCommand.Search => await HandleSearch(options),
     _ => HandleHelp()
 };
 
@@ -2537,4 +2538,81 @@ static async Task<int> HandleAttackPaths(CliOptions options)
     historyService.SaveAuditResult(report);
 
     return 0;
+}
+
+// ── Finding Search ───────────────────────────────────────────────
+
+static async Task<int> HandleSearch(CliOptions options)
+{
+    var engine = BuildEngine(options.ModulesFilter);
+    var sw = Stopwatch.StartNew();
+
+    if (!options.Quiet && !options.Json)
+    {
+        ConsoleFormatter.PrintBanner();
+        Console.WriteLine($"  Searching findings for \"{options.SearchQuery}\"...");
+        Console.WriteLine();
+    }
+
+    var progress = options.Quiet || options.Json
+        ? null
+        : new Progress<(string module, int current, int total)>(p =>
+            ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
+
+    var report = await engine.RunFullAuditAsync(progress);
+    sw.Stop();
+
+    if (!options.Quiet && !options.Json)
+    {
+        ConsoleFormatter.PrintProgressDone(engine.Modules.Count, sw.Elapsed);
+    }
+
+    var searchService = new FindingSearchService();
+    var searchOptions = new SearchOptions
+    {
+        Query = options.SearchQuery!,
+        SeverityFilter = options.SearchSeverityFilter,
+        ModuleFilter = options.SearchModuleFilter,
+        Limit = options.SearchLimit
+    };
+
+    var result = searchService.Search(report, searchOptions);
+
+    if (options.Json)
+    {
+        var jsonResult = new
+        {
+            query = result.Query,
+            totalFindings = result.TotalFindings,
+            matchCount = result.Matches.Count,
+            severityFilter = result.SeverityFilter,
+            moduleFilter = result.ModuleFilter,
+            severityBreakdown = result.SeverityBreakdown,
+            moduleBreakdown = result.ModuleBreakdown,
+            matches = result.Matches.Select(m => new
+            {
+                title = m.Finding.Title,
+                severity = m.Finding.Severity.ToString(),
+                module = m.ModuleCategory,
+                description = m.Finding.Description,
+                remediation = m.Finding.Remediation,
+                fixCommand = m.Finding.FixCommand,
+                relevanceScore = m.RelevanceScore,
+                matchedFields = m.MatchedFields
+            })
+        };
+        var jsonOptions = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Converters = { new JsonStringEnumConverter() }
+        };
+        var json = JsonSerializer.Serialize(jsonResult, jsonOptions);
+        WriteOutput(json, options.OutputFile);
+    }
+    else
+    {
+        ConsoleFormatter.PrintSearchResults(result, options.SearchHighlight, options.SearchIncludeRemediation);
+    }
+
+    return result.Matches.Count > 0 ? 0 : 1;
 }

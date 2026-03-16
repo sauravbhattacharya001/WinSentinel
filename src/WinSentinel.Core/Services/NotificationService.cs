@@ -140,8 +140,8 @@ public class WindowsToastSender : IToastSender
         // XML-escape only — single-quote escaping for PowerShell is handled later
         // by xml.Replace("'", "''") on the full XML string. Escaping here AND there
         // causes double-escaping: it's → it''s → it''''s in the PS string.
-        var escapedTitle = title.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
-        var escapedBody = body.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\n", "&#10;");
+        var escapedTitle = title.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\"", "&quot;");
+        var escapedBody = body.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\"", "&quot;").Replace("\n", "&#10;");
 
         var xml = $@"<toast>
   <visual>

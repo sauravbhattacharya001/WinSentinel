@@ -93,13 +93,22 @@ public class ScanScheduler : IDisposable
         _timer?.Dispose();
         _timer = null;
 
-        // Safely cancel any in-progress scan under the lock
-        CancellationTokenSource? cts;
+        // Cancel any in-progress scan. Must read _and_ cancel under the lock
+        // to avoid a race where ExecuteScanAsync's finally block disposes the
+        // CTS between our read and our Cancel() call, which would throw
+        // ObjectDisposedException.
         lock (_lock)
         {
-            cts = _scanCts;
+            try
+            {
+                _scanCts?.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // CTS was disposed between our null-check and Cancel() call
+                // by the ExecuteScanAsync finally block — safe to ignore.
+            }
         }
-        cts?.Cancel();
 
         SchedulerStateChanged?.Invoke(this, false);
     }

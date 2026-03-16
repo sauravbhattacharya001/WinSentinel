@@ -54,6 +54,10 @@ public class EncryptionAudit : IAuditModule
 
     #region BitLocker
 
+    /// <summary>
+    /// Checks BitLocker encryption status for all fixed drives on the system.
+    /// Reports each drive's encryption state, method, and key protector configuration.
+    /// </summary>
     private async Task CheckBitLockerStatus(AuditResult result, CancellationToken ct)
     {
         try
@@ -87,6 +91,10 @@ public class EncryptionAudit : IAuditModule
         }
     }
 
+    /// <summary>
+    /// Checks BitLocker status for a single drive using manage-bde and PowerShell fallback.
+    /// Parses protection status, encryption percentage, encryption method, and key protectors.
+    /// </summary>
     private async Task CheckDriveBitLocker(AuditResult result, string driveLetter, CancellationToken ct)
     {
         try
@@ -212,6 +220,10 @@ public class EncryptionAudit : IAuditModule
 
     #region TPM
 
+    /// <summary>
+    /// Checks TPM (Trusted Platform Module) status using PowerShell Get-Tpm, WMI, and registry fallbacks.
+    /// Reports TPM presence, readiness, activation state, and version.
+    /// </summary>
     private async Task CheckTpmStatus(AuditResult result, CancellationToken ct)
     {
         try
@@ -278,6 +290,10 @@ public class EncryptionAudit : IAuditModule
         }
     }
 
+    /// <summary>
+    /// Parses TPM status from PowerShell Get-Tpm output.
+    /// Extracts TpmPresent, TpmReady, TpmEnabled, and ManufacturerVersionFull20 fields.
+    /// </summary>
     private void ParseTpmPowerShell(AuditResult result, string output)
     {
         bool isPresent = output.Contains("TpmPresent", StringComparison.OrdinalIgnoreCase) &&
@@ -298,18 +314,27 @@ public class EncryptionAudit : IAuditModule
             }
         }
 
-        if (isPresent && isReady)
+        if (isPresent && isReady && isEnabled)
         {
             result.Findings.Add(Finding.Pass(
                 "TPM Present & Ready",
                 $"TPM is present, enabled, and ready. Version: {version}. Hardware security features are available.",
                 Category));
         }
+        else if (isPresent && !isEnabled)
+        {
+            result.Findings.Add(Finding.Warning(
+                "TPM Present but Disabled",
+                $"TPM is present but not enabled. Version: {version}. Hardware security features are unavailable until TPM is enabled.",
+                Category,
+                "Enable TPM in BIOS/UEFI settings or via tpm.msc.",
+                "powershell -Command \"Start-Process 'tpm.msc'\""));
+        }
         else if (isPresent && !isReady)
         {
             result.Findings.Add(Finding.Warning(
                 "TPM Present but Not Ready",
-                $"TPM is present but not fully ready. Version: {version}. Some security features may not work.",
+                $"TPM is present and enabled but not fully ready. Version: {version}. Some security features may not work.",
                 Category,
                 "Open TPM management (tpm.msc) to initialize the TPM.",
                 "powershell -Command \"Initialize-Tpm\""));
@@ -325,6 +350,11 @@ public class EncryptionAudit : IAuditModule
         }
     }
 
+    /// <summary>
+    /// Parses TPM status from WMI Win32_Tpm query results.
+    /// Checks IsEnabled_InitialValue, IsActivated_InitialValue, and SpecVersion.
+    /// Flags TPM 1.2 as outdated.
+    /// </summary>
     private void ParseTpmWmi(AuditResult result, Dictionary<string, object?> tpm)
     {
         bool isEnabled = tpm.TryGetValue("IsEnabled_InitialValue", out var enabled) && enabled is true;
@@ -362,6 +392,10 @@ public class EncryptionAudit : IAuditModule
 
     #region EFS
 
+    /// <summary>
+    /// Checks EFS (Encrypting File System) availability, certificates, and policy state.
+    /// Reports whether EFS is disabled by policy, has certificates, or is available for on-demand use.
+    /// </summary>
     private void CheckEfsAvailability(AuditResult result)
     {
         try
@@ -454,6 +488,11 @@ public class EncryptionAudit : IAuditModule
 
     #region Certificate Store
 
+    /// <summary>
+    /// Audits the personal and trusted root certificate stores for expired certs,
+    /// expiring-soon certs, weak RSA key sizes (&lt;2048 bits), and weak signature
+    /// algorithms (SHA1, MD5, MD2).
+    /// </summary>
     private void CheckCertificateStore(AuditResult result)
     {
         try
@@ -573,6 +612,10 @@ public class EncryptionAudit : IAuditModule
         }
     }
 
+    /// <summary>
+    /// Checks the CurrentUser trusted root certificate store for suspicious self-signed
+    /// certificates that may indicate MITM proxies, adware, or debugging tools.
+    /// </summary>
     private void CheckTrustedRootStore(AuditResult result)
     {
         try
@@ -639,6 +682,10 @@ public class EncryptionAudit : IAuditModule
         }
     }
 
+    /// <summary>
+    /// Returns a human-readable display name for a certificate, preferring FriendlyName,
+    /// then CN= from Subject, falling back to a truncated Subject string.
+    /// </summary>
     private static string GetCertDisplayName(X509Certificate2 cert)
     {
         if (!string.IsNullOrEmpty(cert.FriendlyName))
@@ -661,6 +708,11 @@ public class EncryptionAudit : IAuditModule
 
     #region TLS/SSL Configuration
 
+    /// <summary>
+    /// Checks TLS/SSL protocol configuration in the SChannel registry.
+    /// Verifies legacy protocols (SSL 2.0/3.0, TLS 1.0/1.1) are disabled and
+    /// modern protocols (TLS 1.2/1.3) are enabled. Also audits cipher suites.
+    /// </summary>
     private void CheckTlsSslConfiguration(AuditResult result)
     {
         try
@@ -689,6 +741,10 @@ public class EncryptionAudit : IAuditModule
         }
     }
 
+    /// <summary>
+    /// Checks whether a legacy TLS/SSL protocol is still enabled in the SChannel registry.
+    /// SSL protocols are flagged as critical; TLS 1.0/1.1 as warnings.
+    /// </summary>
     private void CheckLegacyProtocol(AuditResult result, string protocol)
     {
         var clientPath = $@"{SchannelProtocolsPath}\{protocol}\Client";
@@ -722,6 +778,10 @@ public class EncryptionAudit : IAuditModule
         }
     }
 
+    /// <summary>
+    /// Checks whether a modern TLS protocol has been explicitly disabled in the SChannel registry.
+    /// Disabling TLS 1.2 or 1.3 is flagged as critical.
+    /// </summary>
     private void CheckModernProtocol(AuditResult result, string protocol)
     {
         var clientPath = $@"{SchannelProtocolsPath}\{protocol}\Client";
@@ -752,6 +812,11 @@ public class EncryptionAudit : IAuditModule
         }
     }
 
+    /// <summary>
+    /// Determines whether a protocol is enabled by checking the SChannel registry.
+    /// Returns <c>false</c> if explicitly disabled or if the registry key is not configured
+    /// (system defaults are treated as acceptable).
+    /// </summary>
     private bool IsProtocolEnabled(string registryPath)
     {
         // If Enabled explicitly set to 0, it's disabled
@@ -771,9 +836,12 @@ public class EncryptionAudit : IAuditModule
         // For legacy protocols, if no explicit setting, check if the protocol
         // is disabled by default on modern Windows (TLS 1.0/1.1 are disabled by default on Win11+)
         // Return false for "not configured" — we treat system defaults as acceptable
-        return enabled == -1 ? false : true;
+        return false;
     }
 
+    /// <summary>
+    /// Checks whether a protocol has been explicitly disabled (Enabled=0) in the SChannel registry.
+    /// </summary>
     private bool IsProtocolExplicitlyDisabled(string registryPath)
     {
         var enabled = RegistryHelper.GetValue<int>(
@@ -782,6 +850,9 @@ public class EncryptionAudit : IAuditModule
         return enabled == 0;
     }
 
+    /// <summary>
+    /// Audits the configured cipher suite order for weak algorithms (RC4, DES, NULL, EXPORT, MD5).
+    /// </summary>
     private void CheckCipherSuites(AuditResult result)
     {
         try
@@ -839,6 +910,10 @@ public class EncryptionAudit : IAuditModule
 
     #region Credential Guard
 
+    /// <summary>
+    /// Checks Windows Credential Guard status via registry and WMI.
+    /// Reports whether virtualization-based security is running and protecting credentials.
+    /// </summary>
     private async Task CheckCredentialGuard(AuditResult result, CancellationToken ct)
     {
         try
@@ -954,6 +1029,10 @@ public class EncryptionAudit : IAuditModule
 
     #region DPAPI Protection
 
+    /// <summary>
+    /// Checks DPAPI (Data Protection API) master key status and protection level.
+    /// Reports whether keys are protected by Credential Guard, domain backup, or user password alone.
+    /// </summary>
     private async Task CheckDpapiProtection(AuditResult result, CancellationToken ct)
     {
         try

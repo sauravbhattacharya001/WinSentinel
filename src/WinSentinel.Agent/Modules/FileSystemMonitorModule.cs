@@ -109,10 +109,10 @@ public class FileSystemMonitorModule : IAgentModule
         @"\Microsoft.NET\",
     };
 
-    /// <summary>Known-safe process-created temp file patterns.</summary>
+    /// <summary>Known-safe process-created temp file extensions (with leading dot).</summary>
     private static readonly string[] SafeTempPatterns = new[]
     {
-        "tmp", "~", ".tmp", ".log", ".etl", ".diagsession", ".lock"
+        ".tmp", ".log", ".etl", ".diagsession", ".lock"
     };
 
     // ── Watched directory categories ──

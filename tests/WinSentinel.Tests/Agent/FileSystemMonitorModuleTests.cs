@@ -378,9 +378,20 @@ public class FileSystemMonitorModuleTests
     [InlineData(@"C:\Users\Test\AppData\Local\Temp\data.tmp")]
     [InlineData(@"C:\Users\Test\AppData\Local\Temp\session.log")]
     [InlineData(@"C:\Users\Test\AppData\Local\Temp\trace.etl")]
+    [InlineData(@"C:\Users\Test\AppData\Local\Temp\process.lock")]
+    [InlineData(@"C:\Users\Test\AppData\Local\Temp\session.diagsession")]
     public void IsKnownSafe_ReturnsTrueForSafeTempExtensions(string path)
     {
         Assert.True(FileSystemMonitorModule.IsKnownSafe(path));
+    }
+
+    [Theory]
+    [InlineData(@"C:\Users\Test\AppData\Local\Temp\payload.exe")]
+    [InlineData(@"C:\Users\Test\AppData\Local\Temp\script.ps1")]
+    [InlineData(@"C:\Users\Test\AppData\Local\Temp\backup~")]
+    public void IsKnownSafe_ReturnsFalseForDangerousTempFiles(string path)
+    {
+        Assert.False(FileSystemMonitorModule.IsKnownSafe(path));
     }
 
     // ── System32 Drop Detection (static method) ──

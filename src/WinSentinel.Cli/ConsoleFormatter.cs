@@ -281,6 +281,7 @@ public static partial class ConsoleFormatter
         WriteHelpEntry("    --policy <action>    ", "Security Policy as Code (export/import/validate/diff)");
         WriteHelpEntry("    --threats            ", "STRIDE threat model from audit findings");
         WriteHelpEntry("    --attack-paths       ", "Kill chain attack path analysis with chokepoints");
+        WriteHelpEntry("    --compliance         ", "Compliance framework evaluation (CIS, NIST, PCI-DSS, HIPAA)");
         WriteHelpEntry("    --help, -h           ", "Show this help message");
         WriteHelpEntry("    --version, -v        ", "Show version information");
         Console.WriteLine();
@@ -314,6 +315,10 @@ public static partial class ConsoleFormatter
         WriteHelpEntry("    --age-module <m>     ", "Filter age report by module name");
         WriteHelpEntry("    --age-class <c>      ", "Filter by classification (chronic/recurring/new/intermittent)");
         WriteHelpEntry("    --age-top <n>        ", "Number of findings to show (default: 10)");
+        Console.WriteLine();
+        Console.WriteLine("  COMPLIANCE OPTIONS:");
+        WriteHelpEntry("    --framework <id>     ", "Framework to evaluate: cis, nist, pci-dss, hipaa (default: cis)");
+        WriteHelpEntry("    --cross-framework    ", "Compare across all frameworks simultaneously");
         Console.WriteLine();
         Console.WriteLine("  EXAMPLES:");
         WriteLineColored("    winsentinel --audit                              # Full audit with colored output", ConsoleColor.DarkGray);
@@ -368,6 +373,11 @@ public static partial class ConsoleFormatter
         WriteLineColored("    winsentinel --age --age-severity critical            # Critical findings only", ConsoleColor.DarkGray);
         WriteLineColored("    winsentinel --age --age-module firewall              # Filter by module", ConsoleColor.DarkGray);
         WriteLineColored("    winsentinel --age --age-days 7 --json               # Last 7 days as JSON", ConsoleColor.DarkGray);
+        WriteLineColored("    winsentinel --compliance                            # CIS compliance check", ConsoleColor.DarkGray);
+        WriteLineColored("    winsentinel --compliance --framework nist           # NIST 800-53 evaluation", ConsoleColor.DarkGray);
+        WriteLineColored("    winsentinel --compliance --framework pci-dss --json # PCI-DSS as JSON", ConsoleColor.DarkGray);
+        WriteLineColored("    winsentinel --compliance --cross-framework          # All frameworks compared", ConsoleColor.DarkGray);
+        WriteLineColored("    winsentinel --compliance --framework hipaa --csv    # HIPAA controls as CSV", ConsoleColor.DarkGray);
         Console.WriteLine();
         Console.WriteLine("  EXIT CODES:");
         Console.WriteLine("    0  All checks pass (or score >= threshold)");

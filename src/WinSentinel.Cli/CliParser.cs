@@ -74,6 +74,8 @@ public class CliOptions
     public int ScheduleOptimizeDays { get; set; } = 90;
     public int DigestHistoryDays { get; set; } = 30;
     public string DigestFormat { get; set; } = "text";
+    public string? ComplianceFramework { get; set; }
+    public bool ComplianceCrossFramework { get; set; }
 }
 
 public enum CliCommand
@@ -101,6 +103,7 @@ public enum CliCommand
     ScheduleOptimize,
     Digest,
     AttackPaths,
+    Compliance,
     Help,
     Version
 }
@@ -402,6 +405,20 @@ public static class CliParser
 
                 case "--attack-paths":
                     options.Command = CliCommand.AttackPaths;
+                    break;
+
+                case "--compliance":
+                    options.Command = CliCommand.Compliance;
+                    break;
+
+                case "--framework":
+                    if (!TryConsumeArg(args, ref i, "--framework", out var fwId, out var fwErr))
+                    { options.Error = fwErr; return options; }
+                    options.ComplianceFramework = fwId.ToLowerInvariant();
+                    break;
+
+                case "--cross-framework":
+                    options.ComplianceCrossFramework = true;
                     break;
 
                 case "--digest-days":

@@ -42,6 +42,7 @@ return options.Command switch
     CliCommand.ScheduleOptimize => HandleScheduleOptimize(options),
     CliCommand.Digest => await HandleDigest(options),
     CliCommand.AttackPaths => await HandleAttackPaths(options),
+    CliCommand.Compliance => await HandleCompliance(options),
     _ => HandleHelp()
 };
 
@@ -2533,6 +2534,140 @@ static async Task<int> HandleAttackPaths(CliOptions options)
     }
 
     // Save this run to history
+    using var historyService = new AuditHistoryService();
+    historyService.SaveAuditResult(report);
+
+    return 0;
+}
+
+// ── Compliance Framework Evaluation ──────────────────────────────
+
+static async Task<int> HandleCompliance(CliOptions options)
+{
+    var engine = BuildEngine(options.ModulesFilter);
+    var sw = Stopwatch.StartNew();
+
+    if (!options.Quiet)
+    {
+        ConsoleFormatter.PrintBanner();
+        Console.WriteLine("  Running audit for compliance evaluation...");
+        Console.WriteLine();
+    }
+
+    var progress = options.Quiet
+        ? null
+        : new Progress<(string module, int current, int total)>(p =>
+            ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
+
+    var report = await engine.RunFullAuditAsync(progress);
+    sw.Stop();
+
+    if (!options.Quiet)
+    {
+        ConsoleFormatter.PrintProgressDone(engine.Modules.Count, sw.Elapsed);
+    }
+
+    var mapper = new ComplianceMapper();
+
+    if (options.ComplianceCrossFramework || options.ComplianceFramework == "all")
+    {
+        var crossSummary = mapper.CrossFrameworkAnalysis(report);
+
+        if (options.Json)
+        {
+            var jsonOptions = new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                Converters = { new JsonStringEnumConverter() },
+                DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+            };
+            var json = JsonSerializer.Serialize(crossSummary, jsonOptions);
+
+            if (!string.IsNullOrWhiteSpace(options.OutputFile))
+            {
+                await File.WriteAllTextAsync(options.OutputFile, json);
+                if (!options.Quiet)
+                    Console.WriteLine($"  Cross-framework report saved to {options.OutputFile}");
+            }
+            else
+            {
+                Console.WriteLine(json);
+            }
+        }
+        else if (options.Csv)
+        {
+            var csv = ConsoleFormatter.RenderComplianceCrossFrameworkCsv(crossSummary);
+            if (!string.IsNullOrWhiteSpace(options.OutputFile))
+            {
+                await File.WriteAllTextAsync(options.OutputFile, csv);
+                if (!options.Quiet)
+                    Console.WriteLine($"  Cross-framework CSV saved to {options.OutputFile}");
+            }
+            else
+            {
+                Console.WriteLine(csv);
+            }
+        }
+        else
+        {
+            ConsoleFormatter.PrintCrossFrameworkCompliance(crossSummary);
+        }
+    }
+    else
+    {
+        var frameworkId = options.ComplianceFramework ?? "cis";
+        var framework = mapper.GetFramework(frameworkId);
+
+        if (framework == null)
+        {
+            ConsoleFormatter.PrintError(
+                $"Unknown framework: '{frameworkId}'. Available: {string.Join(", ", mapper.FrameworkIds)}");
+            return 3;
+        }
+
+        var complianceReport = mapper.Evaluate(report, frameworkId);
+
+        if (options.Json)
+        {
+            var jsonOptions = new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                Converters = { new JsonStringEnumConverter() },
+                DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+            };
+            var json = JsonSerializer.Serialize(complianceReport, jsonOptions);
+
+            if (!string.IsNullOrWhiteSpace(options.OutputFile))
+            {
+                await File.WriteAllTextAsync(options.OutputFile, json);
+                if (!options.Quiet)
+                    Console.WriteLine($"  Compliance report saved to {options.OutputFile}");
+            }
+            else
+            {
+                Console.WriteLine(json);
+            }
+        }
+        else if (options.Csv)
+        {
+            var csv = ConsoleFormatter.RenderComplianceCsv(complianceReport);
+            if (!string.IsNullOrWhiteSpace(options.OutputFile))
+            {
+                await File.WriteAllTextAsync(options.OutputFile, csv);
+                if (!options.Quiet)
+                    Console.WriteLine($"  Compliance CSV saved to {options.OutputFile}");
+            }
+            else
+            {
+                Console.WriteLine(csv);
+            }
+        }
+        else
+        {
+            ConsoleFormatter.PrintComplianceReport(complianceReport);
+        }
+    }
+
     using var historyService = new AuditHistoryService();
     historyService.SaveAuditResult(report);
 

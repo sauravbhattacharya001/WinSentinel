@@ -557,6 +557,23 @@ public class InputSanitizerTests
         Assert.NotNull(result);
     }
 
+    [Fact]
+    public void ValidateFilePath_NtObjectManagerPaths_ReturnsNull()
+    {
+        // NT kernel object paths that bypass normal path resolution
+        Assert.Null(InputSanitizer.ValidateFilePath(@"\??\C:\Windows\System32\cmd.exe"));
+        Assert.Null(InputSanitizer.ValidateFilePath(@"\Device\HarddiskVolume1\file.exe"));
+        Assert.Null(InputSanitizer.ValidateFilePath(@"\DosDevices\C:\temp\file.exe"));
+    }
+
+    [Fact]
+    public void ValidateFilePath_ForwardSlashUncVariants_ReturnsNull()
+    {
+        // Forward-slash UNC variants that could bypass the backslash check
+        Assert.Null(InputSanitizer.ValidateFilePath("//?/C:/Windows/System32/cmd.exe"));
+        Assert.Null(InputSanitizer.ValidateFilePath("//./device/file.exe"));
+    }
+
     // ── SanitizeProcessInput ──────────────────────────────────────────
 
     [Theory]

@@ -333,10 +333,28 @@ public class AgentBrain
     //  Extraction Helpers
     // ══════════════════════════════════════════
 
+    // ══════════════════════════════════════════
+    //  Compiled Regex Patterns
+    // ══════════════════════════════════════════
+    // These patterns are used on every threat event. Pre-compiling them
+    // avoids the overhead of parsing and compiling the regex on each call.
+
+    private static readonly Regex PidPattern =
+        new(@"PID\s+(\d+)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static readonly Regex ProcessNamePattern =
+        new(@"['""]([^'""]+\.exe)['""]", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static readonly Regex FilePathPattern =
+        new(@"Path:\s*([A-Za-z]:\\[^\s,\n]+\.\w+)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static readonly Regex IpAddressPattern =
+        new(@"\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b", RegexOptions.Compiled);
+
     /// <summary>Extract a PID from a threat description like "PID 1234".</summary>
     internal static int? ExtractPid(string description)
     {
-        var match = Regex.Match(description, @"PID\s+(\d+)", RegexOptions.IgnoreCase);
+        var match = PidPattern.Match(description);
         return match.Success && int.TryParse(match.Groups[1].Value, out var pid) ? pid : null;
     }
 
@@ -344,7 +362,7 @@ public class AgentBrain
     internal static string? ExtractProcessName(string description)
     {
         // Pattern: 'processname.exe' or "processname.exe"
-        var match = Regex.Match(description, @"['""]([^'""]+\.exe)['""]", RegexOptions.IgnoreCase);
+        var match = ProcessNamePattern.Match(description);
         return match.Success ? match.Groups[1].Value : null;
     }
 
@@ -356,14 +374,14 @@ public class AgentBrain
         // which broke paths containing dots in directory names (e.g.
         // "C:\Users\onlin\some.folder\file.exe"). The fix allows dots
         // within path segments while still requiring a file extension.
-        var match = Regex.Match(description, @"Path:\s*([A-Za-z]:\\[^\s,\n]+\.\w+)", RegexOptions.IgnoreCase);
+        var match = FilePathPattern.Match(description);
         return match.Success ? match.Groups[1].Value : null;
     }
 
     /// <summary>Extract an IP address from a threat description.</summary>
     internal static string? ExtractIpAddress(string description)
     {
-        var match = Regex.Match(description, @"\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b");
+        var match = IpAddressPattern.Match(description);
         return match.Success ? match.Groups[1].Value : null;
     }
 }

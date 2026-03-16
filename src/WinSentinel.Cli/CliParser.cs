@@ -74,6 +74,12 @@ public class CliOptions
     public int ScheduleOptimizeDays { get; set; } = 90;
     public int DigestHistoryDays { get; set; } = 30;
     public string DigestFormat { get; set; } = "text";
+    public string? SearchQuery { get; set; }
+    public string? SearchSeverityFilter { get; set; }
+    public string? SearchModuleFilter { get; set; }
+    public int SearchLimit { get; set; } = 50;
+    public bool SearchHighlight { get; set; } = true;
+    public bool SearchIncludeRemediation { get; set; }
 }
 
 public enum CliCommand
@@ -101,6 +107,7 @@ public enum CliCommand
     ScheduleOptimize,
     Digest,
     AttackPaths,
+    Search,
     Help,
     Version
 }
@@ -402,6 +409,45 @@ public static class CliParser
 
                 case "--attack-paths":
                     options.Command = CliCommand.AttackPaths;
+                    break;
+
+                case "--search":
+                    options.Command = CliCommand.Search;
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                    {
+                        options.SearchQuery = args[++i];
+                    }
+                    else
+                    {
+                        options.Error = "Missing search query. Usage: --search <query>";
+                        return options;
+                    }
+                    break;
+
+                case "--search-severity":
+                    if (!TryConsumeArg(args, ref i, "--search-severity", out var sSev, out var sSevErr))
+                    { options.Error = sSevErr; return options; }
+                    options.SearchSeverityFilter = sSev;
+                    break;
+
+                case "--search-module":
+                    if (!TryConsumeArg(args, ref i, "--search-module", out var sMod, out var sModErr))
+                    { options.Error = sModErr; return options; }
+                    options.SearchModuleFilter = sMod;
+                    break;
+
+                case "--search-limit":
+                    if (!TryConsumeInt(args, ref i, "--search-limit", 1, 500, out var sLimit, out var sLimErr))
+                    { options.Error = sLimErr; return options; }
+                    options.SearchLimit = sLimit;
+                    break;
+
+                case "--no-highlight":
+                    options.SearchHighlight = false;
+                    break;
+
+                case "--show-remediation":
+                    options.SearchIncludeRemediation = true;
                     break;
 
                 case "--digest-days":

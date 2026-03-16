@@ -281,6 +281,7 @@ public static partial class ConsoleFormatter
         WriteHelpEntry("    --policy <action>    ", "Security Policy as Code (export/import/validate/diff)");
         WriteHelpEntry("    --threats            ", "STRIDE threat model from audit findings");
         WriteHelpEntry("    --attack-paths       ", "Kill chain attack path analysis with chokepoints");
+        WriteHelpEntry("    --benchmark [group]  ", "Compare your score against peer groups (home/developer/enterprise/server/all)");
         WriteHelpEntry("    --help, -h           ", "Show this help message");
         WriteHelpEntry("    --version, -v        ", "Show version information");
         Console.WriteLine();

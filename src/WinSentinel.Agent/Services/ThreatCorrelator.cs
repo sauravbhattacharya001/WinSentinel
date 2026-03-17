@@ -108,7 +108,10 @@ public class ThreatCorrelator
     /// </summary>
     public void Reset()
     {
-        while (_eventWindow.TryDequeue(out _)) { }
+        lock (_correlationLock)
+        {
+            while (_eventWindow.TryDequeue(out _)) { }
+        }
         _recentCorrelations.Clear();
     }
 

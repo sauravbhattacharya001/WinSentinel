@@ -34,6 +34,12 @@ public class ProcessMonitorModule : IAgentModule
     /// <summary>Debounce: track rapid process creation counts per image name.</summary>
     private readonly ConcurrentDictionary<string, (int Count, DateTimeOffset WindowStart)> _processBurst = new();
 
+    /// <summary>Cache of process owner lookups (pid → owner). Short-lived since PIDs recycle.</summary>
+    private readonly ConcurrentDictionary<int, string?> _ownerCache = new();
+
+    /// <summary>Timestamp of last owner cache purge.</summary>
+    private DateTimeOffset _lastOwnerCachePurge = DateTimeOffset.UtcNow;
+
     /// <summary>Known-safe system processes that we skip entirely.</summary>
     private static readonly HashSet<string> SafeProcesses = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -210,6 +216,7 @@ public class ProcessMonitorModule : IAgentModule
         _signatureCache.Clear();
         _rateLimiter.Clear();
         _processBurst.Clear();
+        _ownerCache.Clear();
 
         return Task.CompletedTask;
     }
@@ -270,11 +277,14 @@ public class ProcessMonitorModule : IAgentModule
             }
             catch { /* process may have already exited */ }
 
-            // Query WMI for additional details
+            // Query WMI only if we still need the path or always for CommandLine
+            // (CommandLine is not available from Process API)
             try
             {
                 using var searcher = new ManagementObjectSearcher(
-                    $"SELECT ExecutablePath, CommandLine FROM Win32_Process WHERE ProcessId = {processId}");
+                    executablePath != null
+                        ? $"SELECT CommandLine FROM Win32_Process WHERE ProcessId = {processId}"
+                        : $"SELECT ExecutablePath, CommandLine FROM Win32_Process WHERE ProcessId = {processId}");
                 foreach (ManagementObject obj in searcher.Get())
                 {
                     executablePath ??= obj["ExecutablePath"]?.ToString();
@@ -287,7 +297,7 @@ public class ProcessMonitorModule : IAgentModule
             parentName = GetProcessName(parentId);
 
             // Get process owner
-            owner = GetProcessOwner(processId);
+            owner = GetProcessOwnerCached(processId);
 
             AnalyzeProcess(new ProcessInfo
             {
@@ -324,7 +334,7 @@ public class ProcessMonitorModule : IAgentModule
                 return;
 
             var parentName = GetProcessName(parentId);
-            var owner = GetProcessOwner(processId);
+            var owner = GetProcessOwnerCached(processId);
 
             AnalyzeProcess(new ProcessInfo
             {
@@ -695,6 +705,19 @@ public class ProcessMonitorModule : IAgentModule
         }
         catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] Error: {ex.GetType().Name} - {ex.Message}"); }
         return null;
+    }
+
+    /// <summary>Cached process owner lookup — avoids repeated WMI calls for the same PID.</summary>
+    private string? GetProcessOwnerCached(int pid)
+    {
+        // Periodically purge cache (PIDs recycle, don't let it grow unbounded)
+        if (_ownerCache.Count > 2000 || (DateTimeOffset.UtcNow - _lastOwnerCachePurge).TotalMinutes > CachePurgeIntervalMinutes)
+        {
+            _ownerCache.Clear();
+            _lastOwnerCachePurge = DateTimeOffset.UtcNow;
+        }
+
+        return _ownerCache.GetOrAdd(pid, static id => GetProcessOwner(id));
     }
 
     private static bool VerifyAuthenticodeSignature(string filePath)

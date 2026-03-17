@@ -43,6 +43,7 @@ return options.Command switch
     CliCommand.Digest => await HandleDigest(options),
     CliCommand.AttackPaths => await HandleAttackPaths(options),
     CliCommand.WhatIf => await HandleWhatIf(options),
+    CliCommand.Matrix => HandleMatrix(options),
     _ => HandleHelp()
 };
 
@@ -2419,5 +2420,84 @@ static async Task<int> HandleWhatIf(CliOptions options)
     using var historyService = new AuditHistoryService();
     historyService.SaveAuditResult(report);
 
+    return 0;
+}
+// -- Scan Comparison Matrix ---------------------------------------------------
+
+static int HandleMatrix(CliOptions options)
+{
+    using var history = new AuditHistoryService();
+    history.EnsureDatabase();
+
+    var runs = history.GetRecentRuns(options.MatrixScans);
+
+    if (runs.Count < 2)
+    {
+        if (options.Json)
+        {
+            WriteOutput("{\"error\": \"Need at least 2 audit runs for a matrix. Run more audits first.\"}", options.OutputFile);
+        }
+        else
+        {
+            ConsoleFormatter.PrintWarning("Need at least 2 audit runs to build a comparison matrix. Run more audits first.");
+        }
+        return 1;
+    }
+
+    // Load module scores for each run
+    for (int i = 0; i < runs.Count; i++)
+    {
+        var fullRun = history.GetRunDetails(runs[i].Id);
+        if (fullRun != null)
+        {
+            runs[i].ModuleScores = fullRun.ModuleScores;
+        }
+    }
+
+    var matrixService = new ScanMatrixService();
+    var matrixOptions = new ScanMatrixService.MatrixOptions
+    {
+        MaxScans = options.MatrixScans,
+        ModuleFilter = options.MatrixModuleFilter,
+        SortByName = options.MatrixSortByName,
+    };
+
+    var report = matrixService.Build(runs, matrixOptions);
+
+    if (report.Columns.Count == 0)
+    {
+        ConsoleFormatter.PrintWarning("No module score data found. Run a full audit (--audit) first.");
+        return 1;
+    }
+
+    if (options.Json)
+    {
+        var json = JsonSerializer.Serialize(report, new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            Converters = { new JsonStringEnumConverter() }
+        });
+        WriteOutput(json, options.OutputFile);
+        return 0;
+    }
+
+    if (options.Csv)
+    {
+        var lines = new List<string>();
+        var header = "Module,Category," + string.Join(",",
+            report.Columns.Select(c => c.Timestamp.LocalDateTime.ToString("MM/dd HH:mm"))) + ",NetChange,Trend";
+        lines.Add(header);
+        foreach (var row in report.Rows)
+        {
+            var cells = string.Join(",", row.Cells.Select(c => c?.Score.ToString() ?? ""));
+            lines.Add($"{row.ModuleName},{row.Category},{cells},{row.NetChange},{row.Trend}");
+        }
+        var csv = string.Join(Environment.NewLine, lines);
+        WriteOutput(csv, options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintScanMatrix(report);
     return 0;
 }

@@ -79,6 +79,9 @@ public class CliOptions
     public string? WhatIfModule { get; set; }
     public string? WhatIfPattern { get; set; }
     public int WhatIfTopN { get; set; } = 5;
+    public int MatrixScans { get; set; } = 5;
+    public string? MatrixModuleFilter { get; set; }
+    public bool MatrixSortByName { get; set; }
 }
 
 public enum CliCommand
@@ -107,6 +110,7 @@ public enum CliCommand
     Digest,
     AttackPaths,
     WhatIf,
+    Matrix,
     Help,
     Version
 }
@@ -484,6 +488,26 @@ public static class CliParser
                     if (!TryConsumeInt(args, ref i, "--whatif-top", 1, 100, out var wiTop, out var wiTopErr))
                     { options.Error = wiTopErr; return options; }
                     options.WhatIfTopN = wiTop;
+                    break;
+
+                case "--matrix":
+                    options.Command = CliCommand.Matrix;
+                    break;
+
+                case "--matrix-scans":
+                    if (!TryConsumeInt(args, ref i, "--matrix-scans", 2, 20, out var mxScans, out var mxScErr))
+                    { options.Error = mxScErr; return options; }
+                    options.MatrixScans = mxScans;
+                    break;
+
+                case "--matrix-module":
+                    if (!TryConsumeArg(args, ref i, "--matrix-module", out var mxMod, out var mxModErr))
+                    { options.Error = mxModErr; return options; }
+                    options.MatrixModuleFilter = mxMod;
+                    break;
+
+                case "--matrix-sort-name":
+                    options.MatrixSortByName = true;
                     break;
 
                 case "--digest-days":

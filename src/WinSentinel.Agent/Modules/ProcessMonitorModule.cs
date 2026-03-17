@@ -18,7 +18,6 @@ public class ProcessMonitorModule : IAgentModule
 
     private readonly ILogger<ProcessMonitorModule> _logger;
     private readonly ThreatLog _threatLog;
-    private readonly AgentConfig _config;
     private ManagementEventWatcher? _startWatcher;
     private ManagementEventWatcher? _stopWatcher;
     private CancellationTokenSource? _cts;
@@ -128,7 +127,8 @@ public class ProcessMonitorModule : IAgentModule
     {
         _logger = logger;
         _threatLog = threatLog;
-        _config = config;
+        // config accepted for DI compatibility but not used;
+        // response decisions are centralized in AgentBrain.
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -382,7 +382,7 @@ public class ProcessMonitorModule : IAgentModule
         // Rule 6: Unsigned executable
         CheckUnsignedExecutable(proc, threats);
 
-        // Emit threats
+        // Emit threats — detection only; response is handled centrally by AgentBrain
         foreach (var threat in threats)
         {
             if (!ShouldRateLimit(threat))
@@ -391,8 +391,6 @@ public class ProcessMonitorModule : IAgentModule
                 _logger.LogWarning(
                     "[{Severity}] {Title}: {Desc} (PID {Pid})",
                     threat.Severity, threat.Title, threat.Description, proc.ProcessId);
-
-                HandleResponse(threat, proc);
             }
         }
     }
@@ -616,50 +614,6 @@ public class ProcessMonitorModule : IAgentModule
                               $"Path: {proc.ExecutablePath}",
                 AutoFixable = false
             });
-        }
-    }
-
-    // ── Response Actions ──
-
-    private void HandleResponse(ThreatEvent threat, ProcessInfo proc)
-    {
-        switch (_config.RiskTolerance)
-        {
-            case RiskTolerance.Low:
-                // Aggressive: auto-kill critical threats
-                if (threat.Severity >= ThreatSeverity.Critical && threat.AutoFixable)
-                {
-                    try
-                    {
-                        using var process = Process.GetProcessById(proc.ProcessId);
-                        process.Kill(entireProcessTree: true);
-                        threat.ResponseTaken = $"Auto-killed process PID {proc.ProcessId}";
-                        _logger.LogWarning("Auto-killed suspicious process: {Name} (PID {Pid})",
-                            proc.ProcessName, proc.ProcessId);
-                    }
-                    catch (Exception ex)
-                    {
-                        threat.ResponseTaken = $"Kill failed: {ex.Message}";
-                        _logger.LogWarning(ex, "Failed to kill suspicious process PID {Pid}", proc.ProcessId);
-                    }
-                }
-                else
-                {
-                    threat.ResponseTaken = "Alert sent to UI";
-                }
-                break;
-
-            case RiskTolerance.Medium:
-                // Balanced: alert on everything, suggest fixes
-                threat.ResponseTaken = threat.AutoFixable
-                    ? "Alert sent — fix available"
-                    : "Alert sent — manual review recommended";
-                break;
-
-            case RiskTolerance.High:
-                // Relaxed: log only, no action
-                threat.ResponseTaken = "Logged only (high risk tolerance)";
-                break;
         }
     }
 

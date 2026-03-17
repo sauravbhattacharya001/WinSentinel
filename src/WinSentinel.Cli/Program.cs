@@ -43,6 +43,7 @@ return options.Command switch
     CliCommand.Digest => await HandleDigest(options),
     CliCommand.AttackPaths => await HandleAttackPaths(options),
     CliCommand.WhatIf => await HandleWhatIf(options),
+    CliCommand.Search => await HandleSearch(options),
     _ => HandleHelp()
 };
 
@@ -2416,8 +2417,264 @@ static async Task<int> HandleWhatIf(CliOptions options)
     }
 
     // Save this run to history
-    using var historyService = new AuditHistoryService();
-    historyService.SaveAuditResult(report);
+    using var historyService2 = new AuditHistoryService();
+    historyService2.SaveAuditResult(report);
 
     return 0;
+}
+
+// ── Finding Search ───────────────────────────────────────────────────
+
+static async Task<int> HandleSearch(CliOptions options)
+{
+    var query = options.SearchQuery!;
+    var limit = options.SearchLimit;
+
+    if (options.SearchHistory)
+    {
+        return HandleSearchHistory(query, limit, options);
+    }
+
+    var engine = BuildEngine(options.ModulesFilter);
+    var sw = Stopwatch.StartNew();
+
+    if (!options.Quiet && !options.Json)
+    {
+        ConsoleFormatter.PrintBanner();
+        Console.WriteLine($"  Searching findings for: \"{query}\"");
+        Console.WriteLine();
+    }
+
+    var progress = options.Quiet || options.Json
+        ? null
+        : new Progress<(string module, int current, int total)>(p =>
+            ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
+
+    var report = await engine.RunFullAuditAsync(progress);
+    sw.Stop();
+
+    if (!options.Quiet && !options.Json)
+    {
+        ConsoleFormatter.PrintProgressDone(engine.Modules.Count, sw.Elapsed);
+    }
+
+    var allFindings = report.Results
+        .SelectMany(r => r.Findings.Select(f => new { Finding = f, Module = r.Category }))
+        .ToList();
+
+    var matches = allFindings
+        .Where(f =>
+            f.Finding.Title.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+            f.Finding.Description.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+            f.Finding.Category.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+            (f.Finding.Remediation?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false))
+        .Take(limit)
+        .ToList();
+
+    if (options.Json)
+    {
+        var jsonResult = new
+        {
+            query,
+            totalFindings = allFindings.Count,
+            matchCount = matches.Count,
+            matches = matches.Select(m => new
+            {
+                title = m.Finding.Title,
+                description = m.Finding.Description,
+                severity = m.Finding.Severity.ToString(),
+                category = m.Finding.Category,
+                module = m.Module,
+                remediation = m.Finding.Remediation,
+                hasAutoFix = !string.IsNullOrWhiteSpace(m.Finding.FixCommand)
+            })
+        };
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        var json = JsonSerializer.Serialize(jsonResult, jsonOptions);
+        WriteOutput(json, options.OutputFile);
+        return 0;
+    }
+
+    if (matches.Count == 0)
+    {
+        var orig = Console.ForegroundColor;
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.WriteLine($"  No findings matched \"{query}\".");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine($"  Searched {allFindings.Count} findings across all modules.");
+        Console.ForegroundColor = orig;
+        Console.WriteLine();
+        return 0;
+    }
+
+    var original = Console.ForegroundColor;
+    Console.WriteLine();
+    Console.ForegroundColor = ConsoleColor.Cyan;
+    Console.WriteLine($"  \U0001f50d Search Results: \"{query}\"");
+    Console.ForegroundColor = ConsoleColor.DarkGray;
+    Console.WriteLine($"  ──────────────────────────────────────────");
+    Console.WriteLine($"  {matches.Count} match(es) out of {allFindings.Count} total findings");
+    Console.ForegroundColor = original;
+    Console.WriteLine();
+
+    for (int i = 0; i < matches.Count; i++)
+    {
+        var m = matches[i];
+        var severityColor = m.Finding.Severity switch
+        {
+            Severity.Critical => ConsoleColor.Red,
+            Severity.Warning => ConsoleColor.Yellow,
+            Severity.Info => ConsoleColor.Cyan,
+            Severity.Pass => ConsoleColor.Green,
+            _ => ConsoleColor.Gray
+        };
+
+        Console.Write($"  {i + 1,3}. ");
+        Console.ForegroundColor = severityColor;
+        Console.Write($"[{m.Finding.Severity}]");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine($" {m.Finding.Title}");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine($"       Module: {m.Module} | Category: {m.Finding.Category}");
+
+        var descSnippet = GetMatchSnippet(m.Finding.Description, query, 120);
+        if (!string.IsNullOrEmpty(descSnippet))
+        {
+            Console.Write("       ");
+            Console.ForegroundColor = ConsoleColor.Gray;
+            Console.WriteLine(descSnippet);
+        }
+
+        if (!string.IsNullOrWhiteSpace(m.Finding.Remediation))
+        {
+            Console.ForegroundColor = ConsoleColor.DarkGreen;
+            var remSnippet = m.Finding.Remediation.Length > 100
+                ? m.Finding.Remediation[..100] + "..."
+                : m.Finding.Remediation;
+            Console.WriteLine($"       Fix: {remSnippet}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(m.Finding.FixCommand))
+        {
+            Console.ForegroundColor = ConsoleColor.DarkCyan;
+            Console.WriteLine($"       Auto-fix available");
+        }
+
+        Console.ForegroundColor = original;
+        Console.WriteLine();
+    }
+
+    return 0;
+}
+
+static int HandleSearchHistory(string query, int limit, CliOptions options)
+{
+    using var historyService = new AuditHistoryService();
+    historyService.EnsureDatabase();
+
+    var runs = historyService.GetRecentRuns(5);
+    if (runs.Count == 0)
+    {
+        ConsoleFormatter.PrintWarning("No audit history found. Run --audit first.");
+        return 1;
+    }
+
+    var latestRun = historyService.GetRunDetails(runs[0].Id);
+    if (latestRun == null || latestRun.Findings.Count == 0)
+    {
+        ConsoleFormatter.PrintWarning("Latest audit run has no finding details stored.");
+        return 1;
+    }
+
+    var matches = latestRun.Findings
+        .Where(f =>
+            f.Title.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+            (f.Description?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false) ||
+            (f.ModuleName?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false) ||
+            (f.Remediation?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false))
+        .Take(limit)
+        .ToList();
+
+    if (options.Json)
+    {
+        var jsonResult = new
+        {
+            query,
+            source = "history",
+            runId = latestRun.Id,
+            runTimestamp = latestRun.Timestamp,
+            totalFindings = latestRun.Findings.Count,
+            matchCount = matches.Count,
+            matches = matches.Select(m => new
+            {
+                title = m.Title,
+                description = m.Description,
+                severity = m.Severity,
+                module = m.ModuleName,
+                remediation = m.Remediation
+            })
+        };
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        var json = JsonSerializer.Serialize(jsonResult, jsonOptions);
+        WriteOutput(json, options.OutputFile);
+        return 0;
+    }
+
+    var original = Console.ForegroundColor;
+    Console.WriteLine();
+    Console.ForegroundColor = ConsoleColor.Cyan;
+    Console.WriteLine($"  Search Results (from history): \"{query}\"");
+    Console.ForegroundColor = ConsoleColor.DarkGray;
+    Console.WriteLine($"  ──────────────────────────────────────────");
+    Console.WriteLine($"  Run: {latestRun.Timestamp.LocalDateTime:g} | {matches.Count} match(es) of {latestRun.Findings.Count} findings");
+    Console.ForegroundColor = original;
+    Console.WriteLine();
+
+    if (matches.Count == 0)
+    {
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.WriteLine($"  No findings matched \"{query}\" in the latest scan.");
+        Console.ForegroundColor = original;
+        Console.WriteLine();
+        return 0;
+    }
+
+    for (int i = 0; i < matches.Count; i++)
+    {
+        var f = matches[i];
+        var severityColor = f.Severity?.ToUpperInvariant() switch
+        {
+            "CRITICAL" => ConsoleColor.Red,
+            "WARNING" => ConsoleColor.Yellow,
+            "INFO" => ConsoleColor.Cyan,
+            "PASS" => ConsoleColor.Green,
+            _ => ConsoleColor.Gray
+        };
+
+        Console.Write($"  {i + 1,3}. ");
+        Console.ForegroundColor = severityColor;
+        Console.Write($"[{f.Severity}]");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine($" {f.Title}");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine($"       Module: {f.ModuleName}");
+        Console.ForegroundColor = original;
+    }
+
+    Console.WriteLine();
+    return 0;
+}
+
+static string GetMatchSnippet(string text, string query, int maxLength)
+{
+    if (string.IsNullOrEmpty(text)) return string.Empty;
+    var idx = text.IndexOf(query, StringComparison.OrdinalIgnoreCase);
+    if (idx < 0)
+        return text.Length > maxLength ? text[..maxLength] + "..." : text;
+    var start = Math.Max(0, idx - 40);
+    var end = Math.Min(text.Length, idx + query.Length + 80);
+    var snippet = text[start..end].Replace('\n', ' ').Replace('\r', ' ');
+    if (start > 0) snippet = "..." + snippet;
+    if (end < text.Length) snippet += "...";
+    return snippet;
 }

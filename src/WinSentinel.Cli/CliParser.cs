@@ -79,6 +79,9 @@ public class CliOptions
     public string? WhatIfModule { get; set; }
     public string? WhatIfPattern { get; set; }
     public int WhatIfTopN { get; set; } = 5;
+    public string? SearchQuery { get; set; }
+    public bool SearchHistory { get; set; }
+    public int SearchLimit { get; set; } = 50;
 }
 
 public enum CliCommand
@@ -107,6 +110,7 @@ public enum CliCommand
     Digest,
     AttackPaths,
     WhatIf,
+    Search,
     Help,
     Version
 }
@@ -484,6 +488,29 @@ public static class CliParser
                     if (!TryConsumeInt(args, ref i, "--whatif-top", 1, 100, out var wiTop, out var wiTopErr))
                     { options.Error = wiTopErr; return options; }
                     options.WhatIfTopN = wiTop;
+                    break;
+
+                case "--search":
+                    options.Command = CliCommand.Search;
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                    {
+                        options.SearchQuery = args[++i];
+                    }
+                    else
+                    {
+                        options.Error = "Missing search query. Usage: --search <query>";
+                        return options;
+                    }
+                    break;
+
+                case "--search-history":
+                    options.SearchHistory = true;
+                    break;
+
+                case "--search-limit":
+                    if (!TryConsumeInt(args, ref i, "--search-limit", 1, 500, out var sLimit, out var slErr))
+                    { options.Error = slErr; return options; }
+                    options.SearchLimit = sLimit;
                     break;
 
                 case "--digest-days":

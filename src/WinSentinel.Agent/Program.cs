@@ -1,15 +1,53 @@
+using Serilog;
+using Serilog.Events;
 using WinSentinel.Agent;
 using WinSentinel.Agent.Modules;
 using WinSentinel.Agent.Services;
 using WinSentinel.Core.Services;
 
-var builder = Host.CreateDefaultBuilder(args);
+var logPath = Path.Combine(
+    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+    "WinSentinel", "logs", "agent-.log");
 
-// Enable Windows Service support (no-op when running as console)
-builder.UseWindowsService(options =>
+// Bootstrap logger for startup errors (before DI is available)
+Log.Logger = new LoggerConfiguration()
+    .MinimumLevel.Information()
+    .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
+    .WriteTo.Console(outputTemplate:
+        "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj} {Properties:j}{NewLine}{Exception}")
+    .WriteTo.File(logPath,
+        rollingInterval: RollingInterval.Day,
+        retainedFileCountLimit: 14,
+        outputTemplate:
+            "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj} {Properties:j}{NewLine}{Exception}")
+    .CreateBootstrapLogger();
+
+try
 {
-    options.ServiceName = "WinSentinel Agent";
-});
+    var builder = Host.CreateDefaultBuilder(args);
+
+    builder.UseSerilog((context, services, loggerConfig) =>
+    {
+        var config = services.GetRequiredService<AgentConfig>();
+        loggerConfig
+            .MinimumLevel.Information()
+            .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
+            .Enrich.FromLogContext()
+            .Enrich.With(new AgentEnricher(config))
+            .WriteTo.Console(outputTemplate:
+                "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj} {Properties:j}{NewLine}{Exception}")
+            .WriteTo.File(logPath,
+                rollingInterval: RollingInterval.Day,
+                retainedFileCountLimit: 14,
+                outputTemplate:
+                    "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj} {Properties:j}{NewLine}{Exception}");
+    });
+
+    // Enable Windows Service support (no-op when running as console)
+    builder.UseWindowsService(options =>
+    {
+        options.ServiceName = "WinSentinel Agent";
+    });
 
 builder.ConfigureServices((context, services) =>
 {
@@ -49,10 +87,20 @@ builder.ConfigureServices((context, services) =>
     services.AddHostedService<AgentService>();
 });
 
-var host = builder.Build();
+    var host = builder.Build();
 
-// Initialize config
-var config = host.Services.GetRequiredService<AgentConfig>();
-config.Load();
+    // Initialize config
+    var config = host.Services.GetRequiredService<AgentConfig>();
+    config.Load();
 
-await host.RunAsync();
+    Log.Information("WinSentinel Agent starting (RiskTolerance={RiskTolerance})", config.RiskTolerance);
+    await host.RunAsync();
+}
+catch (Exception ex)
+{
+    Log.Fatal(ex, "WinSentinel Agent terminated unexpectedly");
+}
+finally
+{
+    await Log.CloseAndFlushAsync();
+}

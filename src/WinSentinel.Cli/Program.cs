@@ -43,6 +43,7 @@ return options.Command switch
     CliCommand.Digest => await HandleDigest(options),
     CliCommand.AttackPaths => await HandleAttackPaths(options),
     CliCommand.WhatIf => await HandleWhatIf(options),
+    CliCommand.ReportCard => await HandleReportCard(options),
     _ => HandleHelp()
 };
 
@@ -2418,6 +2419,110 @@ static async Task<int> HandleWhatIf(CliOptions options)
     // Save this run to history
     using var historyService = new AuditHistoryService();
     historyService.SaveAuditResult(report);
+
+    return 0;
+}
+
+// ── Report Card ──────────────────────────────────────────────────────
+
+static async Task<int> HandleReportCard(CliOptions options)
+{
+    var engine = BuildEngine(options.ModulesFilter);
+    var sw = Stopwatch.StartNew();
+
+    if (!options.Quiet && !options.Json && !options.Html)
+    {
+        ConsoleFormatter.PrintBanner();
+        Console.WriteLine("  Running audit for report card...");
+        Console.WriteLine();
+    }
+
+    var progress = options.Quiet || options.Json || options.Html
+        ? null
+        : new Progress<(string module, int current, int total)>(p =>
+            ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
+
+    var report = await engine.RunFullAuditAsync(progress);
+    sw.Stop();
+
+    if (!options.Quiet && !options.Json && !options.Html)
+    {
+        ConsoleFormatter.PrintProgressDone(engine.Modules.Count, sw.Elapsed);
+    }
+
+    // Get previous run for trend comparison
+    using var rcHistoryService = new AuditHistoryService();
+    rcHistoryService.EnsureDatabase();
+
+    List<ModuleScoreRecord>? prevModuleScores = null;
+    int? prevOverallScore = null;
+
+    var rcRecentRuns = rcHistoryService.GetRecentRuns(1);
+    if (rcRecentRuns.Count > 0)
+    {
+        var prevRun = rcHistoryService.GetRunDetails(rcRecentRuns[0].Id);
+        if (prevRun != null)
+        {
+            prevModuleScores = prevRun.ModuleScores;
+            prevOverallScore = prevRun.OverallScore;
+        }
+    }
+
+    var rcService = new ReportCardService();
+    var card = rcService.Generate(report, prevModuleScores, prevOverallScore);
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Converters = { new JsonStringEnumConverter() }
+        };
+        var json = JsonSerializer.Serialize(card, jsonOptions);
+
+        if (!string.IsNullOrWhiteSpace(options.OutputFile))
+        {
+            await File.WriteAllTextAsync(options.OutputFile, json);
+            if (!options.Quiet)
+                Console.WriteLine($"  Report card saved to {options.OutputFile}");
+        }
+        else
+        {
+            Console.WriteLine(json);
+        }
+    }
+    else if (options.Html)
+    {
+        var html = ReportCardService.FormatHtml(card);
+
+        if (!string.IsNullOrWhiteSpace(options.OutputFile))
+        {
+            await File.WriteAllTextAsync(options.OutputFile, html);
+            if (!options.Quiet)
+                Console.WriteLine($"  HTML report card saved to {options.OutputFile}");
+        }
+        else
+        {
+            Console.WriteLine(html);
+        }
+    }
+    else
+    {
+        var text = ReportCardService.FormatText(card);
+        if (!string.IsNullOrWhiteSpace(options.OutputFile))
+        {
+            await File.WriteAllTextAsync(options.OutputFile, text);
+            if (!options.Quiet)
+                Console.WriteLine($"  Report card saved to {options.OutputFile}");
+        }
+        else
+        {
+            Console.Write(text);
+        }
+    }
+
+    // Save this run to history
+    rcHistoryService.SaveAuditResult(report);
 
     return 0;
 }

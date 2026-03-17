@@ -1,9 +1,34 @@
+using Serilog;
+using Serilog.Events;
 using WinSentinel.Agent;
 using WinSentinel.Agent.Modules;
 using WinSentinel.Agent.Services;
 using WinSentinel.Core.Services;
 
+// Configure Serilog with structured logging
+var logPath = Path.Combine(
+    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+    "WinSentinel", "logs", "winsentinel-.log");
+
+Log.Logger = new LoggerConfiguration()
+    .MinimumLevel.Information()
+    .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
+    .Enrich.FromLogContext()
+    .Enrich.WithMachineName()
+    .Enrich.With<AgentEnricher>()
+    .WriteTo.Console(outputTemplate:
+        "[{Timestamp:HH:mm:ss} {Level:u3}] [{Module}] {Message:lj}{NewLine}{Exception}")
+    .WriteTo.File(logPath,
+        rollingInterval: RollingInterval.Day,
+        retainedFileCountLimit: 30,
+        outputTemplate:
+        "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] [{Module}] {Message:lj}{NewLine}{Exception}")
+    .CreateLogger();
+
 var builder = Host.CreateDefaultBuilder(args);
+
+// Replace default logging with Serilog
+builder.UseSerilog();
 
 // Enable Windows Service support (no-op when running as console)
 builder.UseWindowsService(options =>
@@ -56,3 +81,6 @@ var config = host.Services.GetRequiredService<AgentConfig>();
 config.Load();
 
 await host.RunAsync();
+
+// Ensure all buffered log events are flushed on shutdown
+Log.CloseAndFlush();

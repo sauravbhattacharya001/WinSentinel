@@ -4,7 +4,13 @@
   href: architecture.md
 - name: CLI Reference
   href: cli-reference.md
-- name: Extending WinSentinel
-  href: extending.md
 - name: Audit Modules
   href: audit-modules.md
+- name: IPC Protocol
+  href: ipc-protocol.md
+- name: Input Validation
+  href: input-validation.md
+- name: Extending WinSentinel
+  href: extending.md
+- name: Troubleshooting
+  href: troubleshooting.md

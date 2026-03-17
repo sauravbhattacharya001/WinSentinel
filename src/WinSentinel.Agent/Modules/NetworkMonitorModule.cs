@@ -318,7 +318,8 @@ public class NetworkMonitorModule : IAgentModule
 
             if (!_knownListeningPorts.ContainsKey(listener.Port) && _baselineEstablished)
             {
-                portProcessMap?.TryGetValue(listener.Port, out var processName);
+                string? processName = null;
+                portProcessMap?.TryGetValue(listener.Port, out processName);
 
                 // Skip safe processes
                 if (processName != null && SafeListeningProcesses.Contains(processName))

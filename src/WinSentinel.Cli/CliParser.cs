@@ -107,6 +107,7 @@ public enum CliCommand
     Digest,
     AttackPaths,
     WhatIf,
+    Breakdown,
     Help,
     Version
 }
@@ -418,6 +419,10 @@ public static class CliParser
 
                 case "--attack-paths":
                     options.Command = CliCommand.AttackPaths;
+                    break;
+
+                case "--breakdown":
+                    options.Command = CliCommand.Breakdown;
                     break;
 
                 case "--whatif":

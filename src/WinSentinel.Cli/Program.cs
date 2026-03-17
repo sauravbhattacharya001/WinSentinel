@@ -43,6 +43,7 @@ return options.Command switch
     CliCommand.Digest => await HandleDigest(options),
     CliCommand.AttackPaths => await HandleAttackPaths(options),
     CliCommand.WhatIf => await HandleWhatIf(options),
+    CliCommand.Breakdown => await HandleBreakdown(options),
     _ => HandleHelp()
 };
 
@@ -2289,6 +2290,70 @@ static async Task<int> HandleAttackPaths(CliOptions options)
     historyService.SaveAuditResult(report);
 
     return 0;
+}
+
+// ── Score Breakdown ──────────────────────────────────────────────────
+
+static async Task<int> HandleBreakdown(CliOptions options)
+{
+    var engine = BuildEngine(options.ModulesFilter);
+    var sw = Stopwatch.StartNew();
+
+    if (!options.Quiet && !options.Json)
+    {
+        ConsoleFormatter.PrintBanner();
+    }
+
+    var progress = options.Quiet || options.Json
+        ? null
+        : new Progress<(string module, int current, int total)>(p =>
+            ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
+
+    var report = await engine.RunFullAuditAsync(progress);
+    sw.Stop();
+
+    if (!options.Quiet && !options.Json)
+    {
+        ConsoleFormatter.PrintProgressDone(engine.Modules.Count, sw.Elapsed);
+        ConsoleFormatter.PrintScore(report.SecurityScore);
+    }
+
+    if (options.Json)
+    {
+        var breakdown = report.Results
+            .OrderBy(r => r.Score)
+            .Select(r => new
+            {
+                module = r.ModuleName,
+                category = r.Category,
+                score = r.Score,
+                grade = SecurityScorer.GetGrade(r.Score),
+                critical = r.CriticalCount,
+                warnings = r.WarningCount,
+                info = r.InfoCount,
+                pass = r.PassCount,
+                totalFindings = r.Findings.Count,
+                duration = r.Duration.TotalSeconds
+            });
+
+        var jsonResult = new
+        {
+            overallScore = report.SecurityScore,
+            overallGrade = SecurityScorer.GetGrade(report.SecurityScore),
+            modules = breakdown,
+            timestamp = DateTimeOffset.UtcNow
+        };
+
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        var json = JsonSerializer.Serialize(jsonResult, jsonOptions);
+        WriteOutput(json, options.OutputFile);
+    }
+    else
+    {
+        ConsoleFormatter.PrintBreakdown(report, options.Quiet);
+    }
+
+    return DetermineExitCode(report, options.Threshold);
 }
 
 // ── What-If Simulator ────────────────────────────────────────────────

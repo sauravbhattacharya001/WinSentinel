@@ -167,10 +167,11 @@ public class NetworkMonitorModule : IAgentModule
     {
         var properties = IPGlobalProperties.GetIPGlobalProperties();
 
-        // Record current listening ports
+        // Record current listening ports — single netstat call for all ports
+        var portMap = BuildListeningPortProcessMap();
         foreach (var listener in properties.GetActiveTcpListeners())
         {
-            var processName = GetProcessForPort(listener.Port) ?? "unknown";
+            var processName = portMap.GetValueOrDefault(listener.Port) ?? "unknown";
             _knownListeningPorts[listener.Port] = processName;
         }
 
@@ -299,13 +300,25 @@ public class NetworkMonitorModule : IAgentModule
 
         var currentPorts = new HashSet<int>();
 
+        // Build a port→process map once for all new ports (instead of
+        // spawning a separate netstat process per port — see issue #114).
+        Dictionary<int, string>? portProcessMap = null;
+        if (_baselineEstablished)
+        {
+            var newPorts = listeners.Where(l => !_knownListeningPorts.ContainsKey(l.Port)).ToList();
+            if (newPorts.Count > 0)
+            {
+                portProcessMap = BuildListeningPortProcessMap();
+            }
+        }
+
         foreach (var listener in listeners)
         {
             currentPorts.Add(listener.Port);
 
             if (!_knownListeningPorts.ContainsKey(listener.Port) && _baselineEstablished)
             {
-                var processName = GetProcessForPort(listener.Port);
+                portProcessMap?.TryGetValue(listener.Port, out var processName);
 
                 // Skip safe processes
                 if (processName != null && SafeListeningProcesses.Contains(processName))
@@ -630,55 +643,59 @@ public class NetworkMonitorModule : IAgentModule
     // ── Helpers ──
 
     /// <summary>
-    /// Get the process name that owns a specific listening port.
-    /// Uses netstat-equivalent via Process queries.
+    /// Build a map of listening port → process name from a single netstat call.
+    /// Replaces per-port GetProcessForPort calls to avoid spawning N processes
+    /// when N new ports appear in one poll cycle (issue #114).
     /// </summary>
-    private static string? GetProcessForPort(int port)
+    private static Dictionary<int, string> BuildListeningPortProcessMap()
     {
+        var map = new Dictionary<int, string>();
         try
         {
-            // Use netstat to find the PID for the port
             var psi = new ProcessStartInfo
             {
                 FileName = "netstat",
-                Arguments = $"-ano -p TCP",
+                Arguments = "-ano -p TCP",
                 RedirectStandardOutput = true,
                 UseShellExecute = false,
                 CreateNoWindow = true
             };
 
             using var process = Process.Start(psi);
-            if (process == null) return null;
+            if (process == null) return map;
 
             var output = process.StandardOutput.ReadToEnd();
-            process.WaitForExit(3000);
+            process.WaitForExit(5000);
 
             foreach (var line in output.Split('\n'))
             {
                 var trimmed = line.Trim();
-                if (trimmed.Contains($":{port} ") || trimmed.Contains($":{port}\t"))
-                {
-                    // Find the LISTENING line
-                    if (!trimmed.Contains("LISTENING", StringComparison.OrdinalIgnoreCase))
-                        continue;
+                if (!trimmed.Contains("LISTENING", StringComparison.OrdinalIgnoreCase))
+                    continue;
 
-                    // Last column is PID
-                    var parts = trimmed.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                    if (parts.Length > 0 && int.TryParse(parts[^1], out var pid))
+                var parts = trimmed.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length < 2) continue;
+
+                // Parse local address port (format: 0.0.0.0:PORT or [::]:PORT)
+                var addrPart = parts[1];
+                var colonIdx = addrPart.LastIndexOf(':');
+                if (colonIdx >= 0 &&
+                    int.TryParse(addrPart[(colonIdx + 1)..], out var port) &&
+                    int.TryParse(parts[^1], out var pid))
+                {
+                    if (map.ContainsKey(port)) continue;
+                    try
                     {
-                        try
-                        {
-                            using var proc = Process.GetProcessById(pid);
-                            return proc.ProcessName;
-                        }
-                        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] Error: {ex.GetType().Name} - {ex.Message}"); }
+                        using var proc = Process.GetProcessById(pid);
+                        map[port] = proc.ProcessName;
                     }
+                    catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] Error: {ex.GetType().Name} - {ex.Message}"); }
                 }
             }
         }
         catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] Error: {ex.GetType().Name} - {ex.Message}"); }
 
-        return null;
+        return map;
     }
 
     /// <summary>Get the executable path for a process by name.</summary>

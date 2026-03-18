@@ -409,8 +409,10 @@ public static partial class InputSanitizer
             return "Contains string concatenation obfuscation (potential keyword bypass)";
 
         // Semicolon command chaining — `safe-cmd; malicious-cmd` can smuggle dangerous
-        // commands past checks that only examine the overall string once
-        if (command.Contains(';') && !command.TrimEnd().EndsWith(";"))
+        // commands past checks that only examine the overall string once.
+        // A single trailing semicolon is normal PowerShell (statement terminator),
+        // but multiple statements separated by semicolons are suspicious in fix commands.
+        if (command.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Length > 1)
             return "Contains semicolon command chaining (potential bypass)";
 
         // PowerShell format operator — `"{0}{1}" -f 'Inv','oke-Expression'` reconstructs
@@ -426,19 +428,7 @@ public static partial class InputSanitizer
             lower.Contains("add-type") && lower.Contains("dllname"))
             return "Contains DLL loading (arbitrary native code execution)";
 
-        // AMSI bypass — disables Antimalware Scan Interface to evade detection.
-        // Catches both direct field access and string-concat obfuscation patterns.
-        if (lower.Contains("amsiutils") || lower.Contains("amsiinitfailed") ||
-            lower.Contains("amsi" + "utils") ||
-            (lower.Contains("[ref].assembly") && lower.Contains("amsi")))
-            return "Contains AMSI bypass attempt (security evasion)";
-
-        // Registry Run key persistence — adding entries to auto-start locations
-        // allows malware to survive reboots.
-        if ((lower.Contains("currentversion\\run") || lower.Contains("currentversion/run")) &&
-            (lower.Contains("reg add") || lower.Contains("set-itemproperty") ||
-             lower.Contains("new-itemproperty")))
-            return "Contains registry Run key modification (persistence mechanism)";
+        // Note: AMSI bypass and Registry Run key checks are handled earlier in this method.
 
         return null;
     }

@@ -46,22 +46,60 @@ public class ThreatLog
     public List<ThreatEvent> GetAll() =>
         _events.Reverse().ToList();
 
-    /// <summary>Get the most recent N events.</summary>
-    public List<ThreatEvent> GetRecent(int count = 50) =>
-        _events.Reverse().Take(count).ToList();
+    /// <summary>
+    /// Get the most recent N events (newest first).
+    /// Snapshots the queue to an array and iterates from the end,
+    /// avoiding the O(n) full-reverse that the previous implementation performed.
+    /// </summary>
+    public List<ThreatEvent> GetRecent(int count = 50)
+    {
+        var snapshot = _events.ToArray();
+        var result = new List<ThreatEvent>(Math.Min(count, snapshot.Length));
+        for (int i = snapshot.Length - 1; i >= 0 && result.Count < count; i--)
+        {
+            result.Add(snapshot[i]);
+        }
+        return result;
+    }
 
-    /// <summary>Get events from today only.</summary>
+    /// <summary>
+    /// Get events from today only (newest first).
+    /// Since events are enqueued chronologically, iterates from the end and
+    /// stops as soon as it hits a non-today event — O(k) where k is today's
+    /// event count rather than O(n) over the entire log.
+    /// </summary>
     public List<ThreatEvent> GetToday()
     {
         var today = DateTimeOffset.UtcNow.Date;
-        return _events.Where(e => e.Timestamp.UtcDateTime.Date == today).Reverse().ToList();
+        var snapshot = _events.ToArray();
+        var result = new List<ThreatEvent>();
+        for (int i = snapshot.Length - 1; i >= 0; i--)
+        {
+            if (snapshot[i].Timestamp.UtcDateTime.Date == today)
+                result.Add(snapshot[i]);
+            else
+                break; // Events are chronological; no more today events exist
+        }
+        return result;
     }
 
-    /// <summary>Count of events from today.</summary>
+    /// <summary>
+    /// Count of events from today.
+    /// Short-circuits from the end of the chronologically-ordered queue.
+    /// </summary>
     public int GetTodayCount()
     {
         var today = DateTimeOffset.UtcNow.Date;
-        return _events.Count(e => e.Timestamp.UtcDateTime.Date == today);
+        var snapshot = _events.ToArray();
+        int count = 0;
+        for (int i = snapshot.Length - 1; i >= 0; i--)
+        {
+            if (snapshot[i].Timestamp.UtcDateTime.Date == today)
+                count++;
+            else
+                break;
+        }
+        return count;
     }
 
     /// <summary>Total events in log.</summary>

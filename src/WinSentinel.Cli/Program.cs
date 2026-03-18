@@ -43,6 +43,7 @@ return options.Command switch
     CliCommand.Digest => await HandleDigest(options),
     CliCommand.AttackPaths => await HandleAttackPaths(options),
     CliCommand.WhatIf => await HandleWhatIf(options),
+    CliCommand.Summary => await HandleSummary(options),
     _ => HandleHelp()
 };
 
@@ -2417,6 +2418,60 @@ static async Task<int> HandleWhatIf(CliOptions options)
 
     // Save this run to history
     using var historyService = new AuditHistoryService();
+    historyService.SaveAuditResult(report);
+
+    return 0;
+}
+// ── Executive Summary ────────────────────────────────────────────
+
+static async Task<int> HandleSummary(CliOptions options)
+{
+    var engine = BuildEngine(options.ModulesFilter);
+    var sw = Stopwatch.StartNew();
+
+    if (!options.Quiet)
+    {
+        ConsoleFormatter.PrintBanner();
+        Console.WriteLine("  Running audit for executive summary...");
+        Console.WriteLine();
+    }
+
+    var progress = options.Quiet
+        ? null
+        : new Progress<(string module, int current, int total)>(p =>
+            ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
+
+    var report = await engine.RunFullAuditAsync(progress);
+    sw.Stop();
+
+    if (!options.Quiet)
+    {
+        ConsoleFormatter.PrintProgressDone(engine.Modules.Count, sw.Elapsed);
+    }
+
+    using var historyService = new AuditHistoryService();
+    var generator = new ExecutiveSummaryGenerator(historyService);
+    var summary = generator.Generate(report, options.SummaryTrendDays);
+
+    var output = options.SummaryFormat switch
+    {
+        "json" => ExecutiveSummaryGenerator.RenderJson(summary),
+        "md" or "markdown" => ExecutiveSummaryGenerator.RenderMarkdown(summary),
+        _ => ExecutiveSummaryGenerator.RenderText(summary)
+    };
+
+    if (!string.IsNullOrWhiteSpace(options.OutputFile))
+    {
+        await File.WriteAllTextAsync(options.OutputFile, output);
+        if (!options.Quiet)
+            Console.WriteLine($"  Summary saved to {options.OutputFile}");
+    }
+    else
+    {
+        Console.WriteLine(output);
+    }
+
+    // Save this run to history
     historyService.SaveAuditResult(report);
 
     return 0;

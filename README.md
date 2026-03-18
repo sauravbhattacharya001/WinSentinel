@@ -323,6 +323,7 @@ winsentinel --history --diff
 | `--modules <list>` | Comma-separated module list |
 | `--threshold <n>` | Fail if score below n |
 | `--compare` / `--diff` | Compare runs or show deltas |
+| `--summary` | Executive security summary (plain-English brief) |
 | `--quiet` | Score + exit code only |
 
 **Exit codes:** `0` = pass, `1` = warnings, `2` = critical, `3` = error

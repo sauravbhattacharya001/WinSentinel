@@ -79,6 +79,8 @@ public class CliOptions
     public string? WhatIfModule { get; set; }
     public string? WhatIfPattern { get; set; }
     public int WhatIfTopN { get; set; } = 5;
+    public string SummaryFormat { get; set; } = "text";
+    public int SummaryTrendDays { get; set; } = 30;
 }
 
 public enum CliCommand
@@ -107,6 +109,7 @@ public enum CliCommand
     Digest,
     AttackPaths,
     WhatIf,
+    Summary,
     Help,
     Version
 }
@@ -418,6 +421,22 @@ public static class CliParser
 
                 case "--attack-paths":
                     options.Command = CliCommand.AttackPaths;
+                    break;
+
+                case "--summary":
+                    options.Command = CliCommand.Summary;
+                    break;
+
+                case "--summary-format":
+                    if (!TryConsumeArg(args, ref i, "--summary-format", out var sumFmt, out var sumFmtErr))
+                    { options.Error = sumFmtErr; return options; }
+                    options.SummaryFormat = sumFmt.ToLowerInvariant();
+                    break;
+
+                case "--summary-trend-days":
+                    if (!TryConsumeInt(args, ref i, "--summary-trend-days", 1, 365, out var sumTrDays, out var sumTrErr))
+                    { options.Error = sumTrErr; return options; }
+                    options.SummaryTrendDays = sumTrDays;
                     break;
 
                 case "--whatif":

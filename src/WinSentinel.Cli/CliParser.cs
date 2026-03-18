@@ -81,6 +81,10 @@ public class CliOptions
     public int WhatIfTopN { get; set; } = 5;
     public string SummaryFormat { get; set; } = "text";
     public int SummaryTrendDays { get; set; } = 30;
+    public int FlappingDays { get; set; } = 90;
+    public int FlappingTop { get; set; } = 25;
+    public string? FlappingModuleFilter { get; set; }
+    public string? FlappingSeverityFilter { get; set; }
 }
 
 public enum CliCommand
@@ -110,6 +114,7 @@ public enum CliCommand
     AttackPaths,
     WhatIf,
     Summary,
+    Flapping,
     Help,
     Version
 }
@@ -437,6 +442,34 @@ public static class CliParser
                     if (!TryConsumeInt(args, ref i, "--summary-trend-days", 1, 365, out var sumTrDays, out var sumTrErr))
                     { options.Error = sumTrErr; return options; }
                     options.SummaryTrendDays = sumTrDays;
+                    break;
+
+                case "--flapping":
+                    options.Command = CliCommand.Flapping;
+                    break;
+
+                case "--flapping-days":
+                    if (!TryConsumeInt(args, ref i, "--flapping-days", 1, 365, out var flapDays, out var flapDaysErr))
+                    { options.Error = flapDaysErr; return options; }
+                    options.FlappingDays = flapDays;
+                    break;
+
+                case "--flapping-top":
+                    if (!TryConsumeInt(args, ref i, "--flapping-top", 1, 100, out var flapTop, out var flapTopErr))
+                    { options.Error = flapTopErr; return options; }
+                    options.FlappingTop = flapTop;
+                    break;
+
+                case "--flapping-module":
+                    if (!TryConsumeArg(args, ref i, "--flapping-module", out var flapMod, out var flapModErr))
+                    { options.Error = flapModErr; return options; }
+                    options.FlappingModuleFilter = flapMod;
+                    break;
+
+                case "--flapping-severity":
+                    if (!TryConsumeArg(args, ref i, "--flapping-severity", out var flapSev, out var flapSevErr))
+                    { options.Error = flapSevErr; return options; }
+                    options.FlappingSeverityFilter = flapSev;
                     break;
 
                 case "--whatif":

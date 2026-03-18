@@ -81,6 +81,10 @@ public class CliOptions
     public int WhatIfTopN { get; set; } = 5;
     public string SummaryFormat { get; set; } = "text";
     public int SummaryTrendDays { get; set; } = 30;
+    public int ForecastDays { get; set; } = 90;
+    public int? ForecastTarget { get; set; }
+    public bool ForecastModules { get; set; } = true;
+    public bool ForecastRisks { get; set; } = true;
 }
 
 public enum CliCommand
@@ -110,6 +114,7 @@ public enum CliCommand
     AttackPaths,
     WhatIf,
     Summary,
+    Forecast,
     Help,
     Version
 }
@@ -437,6 +442,30 @@ public static class CliParser
                     if (!TryConsumeInt(args, ref i, "--summary-trend-days", 1, 365, out var sumTrDays, out var sumTrErr))
                     { options.Error = sumTrErr; return options; }
                     options.SummaryTrendDays = sumTrDays;
+                    break;
+
+                case "--forecast":
+                    options.Command = CliCommand.Forecast;
+                    break;
+
+                case "--forecast-days":
+                    if (!TryConsumeInt(args, ref i, "--forecast-days", 1, 365, out var fcDays, out var fcDaysErr))
+                    { options.Error = fcDaysErr; return options; }
+                    options.ForecastDays = fcDays;
+                    break;
+
+                case "--forecast-target":
+                    if (!TryConsumeInt(args, ref i, "--forecast-target", 0, 100, out var fcTarget, out var fcTargetErr))
+                    { options.Error = fcTargetErr; return options; }
+                    options.ForecastTarget = fcTarget;
+                    break;
+
+                case "--no-modules":
+                    options.ForecastModules = false;
+                    break;
+
+                case "--no-risks":
+                    options.ForecastRisks = false;
                     break;
 
                 case "--whatif":

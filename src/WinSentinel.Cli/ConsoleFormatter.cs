@@ -282,6 +282,7 @@ public static partial class ConsoleFormatter
         WriteHelpEntry("    --threats            ", "STRIDE threat model from audit findings");
         WriteHelpEntry("    --attack-paths       ", "Kill chain attack path analysis with chokepoints");
         WriteHelpEntry("    --summary            ", "Executive security summary (plain-English brief)");
+        WriteHelpEntry("    --forecast           ", "Forecast future security scores using historical data");
         WriteHelpEntry("    --help, -h           ", "Show this help message");
         WriteHelpEntry("    --version, -v        ", "Show version information");
         Console.WriteLine();
@@ -317,6 +318,10 @@ public static partial class ConsoleFormatter
         WriteHelpEntry("    --age-top <n>        ", "Number of findings to show (default: 10)");
         WriteHelpEntry("    --summary-format <f> ", "Summary format: text (default), json, md");
         WriteHelpEntry("    --summary-trend-days ", "Trend lookback for summary (default: 30)");
+        WriteHelpEntry("    --forecast-days <n>  ", "Max forecast horizon in days (default: 90)");
+        WriteHelpEntry("    --forecast-target <n>", "Target score to estimate time-to-reach (0-100)");
+        WriteHelpEntry("    --no-modules         ", "Omit per-module projections from forecast");
+        WriteHelpEntry("    --no-risks           ", "Omit risk factor analysis from forecast");
         Console.WriteLine();
         Console.WriteLine("  EXAMPLES:");
         WriteLineColored("    winsentinel --audit                              # Full audit with colored output", ConsoleColor.DarkGray);
@@ -1548,6 +1553,151 @@ public static partial class ConsoleFormatter
         Console.ForegroundColor = original;
         Console.WriteLine(message);
         Console.WriteLine();
+    }
+
+    public static void PrintForecast(ScoreForecaster.ForecastResult result)
+    {
+        var orig = Console.ForegroundColor;
+
+        Console.WriteLine();
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.WriteLine("  ╔══════════════════════════════════════════════╗");
+        Console.WriteLine("  ║       🔮 Security Score Forecast             ║");
+        Console.WriteLine("  ╚══════════════════════════════════════════════╝");
+        Console.ForegroundColor = orig;
+        Console.WriteLine();
+
+        // Current state
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine("  CURRENT STATE");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine("  ──────────────────────────────────────────");
+        Console.ForegroundColor = orig;
+
+        Console.Write("  Score:        ");
+        Console.ForegroundColor = result.CurrentScore >= 80 ? ConsoleColor.Green
+            : result.CurrentScore >= 60 ? ConsoleColor.Yellow : ConsoleColor.Red;
+        Console.WriteLine($"{result.CurrentScore}/100 ({result.CurrentGrade})");
+        Console.ForegroundColor = orig;
+
+        Console.Write("  Data points:  ");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine($"{result.DataPointCount} scans over {result.HistoricalSpan.Days} days");
+        Console.ForegroundColor = orig;
+
+        Console.Write("  Trend:        ");
+        Console.ForegroundColor = result.TrendDirection == "Improving" ? ConsoleColor.Green
+            : result.TrendDirection == "Declining" ? ConsoleColor.Red : ConsoleColor.Yellow;
+        Console.Write(result.TrendDirection);
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine($" ({result.WeeklyChange:+0.00;-0.00}/week, {result.MonthlyChange:+0.00;-0.00}/month)");
+        Console.ForegroundColor = orig;
+
+        Console.Write("  Confidence:   ");
+        Console.ForegroundColor = result.ConfidenceLevel == "High" ? ConsoleColor.Green
+            : result.ConfidenceLevel == "Moderate" ? ConsoleColor.Yellow : ConsoleColor.Red;
+        Console.Write(result.ConfidenceLevel);
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine($" (R² = {result.RSquared:F3})");
+        Console.ForegroundColor = orig;
+
+        Console.Write("  Volatility:   ");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine($"±{result.Volatility:F1} points");
+        Console.ForegroundColor = orig;
+        Console.WriteLine();
+
+        // Forecast points
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine("  PROJECTED SCORES");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine("  ──────────────────────────────────────────");
+        Console.ForegroundColor = orig;
+
+        foreach (var fp in result.Forecasts)
+        {
+            var daysOut = (fp.Date - DateTimeOffset.Now).Days;
+            Console.Write($"  {daysOut,3}d out:     ");
+            Console.ForegroundColor = fp.PredictedScore >= 80 ? ConsoleColor.Green
+                : fp.PredictedScore >= 60 ? ConsoleColor.Yellow : ConsoleColor.Red;
+            Console.Write($"{fp.PredictedScore:F1}/100 ({fp.Grade})");
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine($"  [{fp.LowerBound:F0}–{fp.UpperBound:F0}]");
+            Console.ForegroundColor = orig;
+        }
+
+        // Days to target
+        if (result.TargetScore.HasValue)
+        {
+            Console.WriteLine();
+            Console.Write($"  Target {result.TargetScore}: ");
+            if (result.DaysToTarget.HasValue)
+            {
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"~{result.DaysToTarget} days");
+            }
+            else
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine("unreachable at current rate");
+            }
+            Console.ForegroundColor = orig;
+        }
+
+        Console.WriteLine();
+
+        // Module forecasts
+        if (result.ModuleForecasts.Count > 0)
+        {
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.WriteLine("  MODULE PROJECTIONS (30 days)");
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine("  ──────────────────────────────────────────");
+            Console.ForegroundColor = orig;
+
+            foreach (var mf in result.ModuleForecasts)
+            {
+                var arrow = mf.Trend == "Improving" ? "↑" : mf.Trend == "Declining" ? "↓" : "→";
+                var trendColor = mf.Trend == "Improving" ? ConsoleColor.Green
+                    : mf.Trend == "Declining" ? ConsoleColor.Red : ConsoleColor.DarkGray;
+
+                Console.Write($"  {mf.ModuleName,-22} ");
+                Console.ForegroundColor = ConsoleColor.White;
+                Console.Write($"{mf.CurrentScore,3}");
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.Write(" → ");
+                Console.ForegroundColor = trendColor;
+                Console.Write($"{mf.PredictedScore:F0} {arrow}");
+                Console.ForegroundColor = orig;
+                Console.WriteLine();
+            }
+            Console.WriteLine();
+        }
+
+        // Risk factors
+        if (result.RiskFactors.Count > 0)
+        {
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.WriteLine("  RISK FACTORS");
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine("  ──────────────────────────────────────────");
+            Console.ForegroundColor = orig;
+
+            foreach (var rf in result.RiskFactors)
+            {
+                var sevColor = rf.Severity == "High" ? ConsoleColor.Red
+                    : rf.Severity == "Medium" ? ConsoleColor.Yellow : ConsoleColor.DarkGray;
+
+                Console.Write("  ");
+                Console.ForegroundColor = sevColor;
+                Console.Write($"[{rf.Severity}]");
+                Console.ForegroundColor = ConsoleColor.White;
+                Console.Write($" {rf.Category}: ");
+                Console.ForegroundColor = orig;
+                Console.WriteLine(rf.Description);
+            }
+            Console.WriteLine();
+        }
     }
 
 }

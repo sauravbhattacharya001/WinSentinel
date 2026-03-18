@@ -44,6 +44,7 @@ return options.Command switch
     CliCommand.AttackPaths => await HandleAttackPaths(options),
     CliCommand.WhatIf => await HandleWhatIf(options),
     CliCommand.Summary => await HandleSummary(options),
+    CliCommand.Forecast => HandleForecast(options),
     _ => HandleHelp()
 };
 
@@ -2474,5 +2475,66 @@ static async Task<int> HandleSummary(CliOptions options)
     // Save this run to history
     historyService.SaveAuditResult(report);
 
+    return 0;
+}
+
+// -- Score Forecast -------------------------------------------------------
+
+static int HandleForecast(CliOptions options)
+{
+    using var history = new AuditHistoryService();
+    history.EnsureDatabase();
+
+    var runs = history.GetHistory(365);
+
+    if (runs.Count == 0)
+    {
+        ConsoleFormatter.PrintWarning("No audit history found. Run --audit first to generate data.");
+        return 1;
+    }
+
+    // Load module scores for each run
+    for (int i = 0; i < runs.Count; i++)
+    {
+        var fullRun = history.GetRunDetails(runs[i].Id);
+        if (fullRun != null)
+        {
+            runs[i].ModuleScores = fullRun.ModuleScores;
+        }
+    }
+
+    var forecaster = new ScoreForecaster();
+    var forecastOptions = new ScoreForecaster.ForecastOptions
+    {
+        ForecastDays = [7, 30, options.ForecastDays],
+        TargetScore = options.ForecastTarget,
+        IncludeModuleForecasts = options.ForecastModules,
+        IncludeRiskFactors = options.ForecastRisks,
+    };
+
+    // Deduplicate if ForecastDays matches 7 or 30
+    forecastOptions.ForecastDays = forecastOptions.ForecastDays.Distinct().OrderBy(d => d).ToList();
+
+    var result = forecaster.Forecast(runs, forecastOptions);
+
+    if (!result.Success)
+    {
+        ConsoleFormatter.PrintWarning(result.FailureReason ?? "Forecast failed.");
+        return 1;
+    }
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Converters = { new JsonStringEnumConverter() }
+        };
+        var json = JsonSerializer.Serialize(result, jsonOptions);
+        WriteOutput(json, options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintForecast(result);
     return 0;
 }

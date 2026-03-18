@@ -44,6 +44,7 @@ return options.Command switch
     CliCommand.AttackPaths => await HandleAttackPaths(options),
     CliCommand.WhatIf => await HandleWhatIf(options),
     CliCommand.Summary => await HandleSummary(options),
+    CliCommand.Flapping => HandleFlapping(options),
     _ => HandleHelp()
 };
 
@@ -2474,5 +2475,69 @@ static async Task<int> HandleSummary(CliOptions options)
     // Save this run to history
     historyService.SaveAuditResult(report);
 
+    return 0;
+}
+
+// ── Flapping Detection ───────────────────────────────────────────────
+
+static int HandleFlapping(CliOptions options)
+{
+    using var history = new AuditHistoryService();
+    history.EnsureDatabase();
+
+    var runs = history.GetHistory(options.FlappingDays);
+
+    if (runs.Count < 3)
+    {
+        ConsoleFormatter.PrintWarning("Need at least 3 audit runs for flapping detection. Run more audits first.");
+        return 1;
+    }
+
+    // Load full details (findings) for each run
+    for (int i = 0; i < runs.Count; i++)
+    {
+        var fullRun = history.GetRunDetails(runs[i].Id);
+        if (fullRun != null)
+        {
+            runs[i].Findings = fullRun.Findings;
+            runs[i].ModuleScores = fullRun.ModuleScores;
+        }
+    }
+
+    var detector = new FlappingDetector();
+    var report = detector.Analyze(runs);
+
+    // Apply filters
+    if (!string.IsNullOrEmpty(options.FlappingModuleFilter))
+    {
+        report.Findings = report.Findings
+            .Where(f => f.ModuleName.Contains(options.FlappingModuleFilter, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+    }
+
+    if (!string.IsNullOrEmpty(options.FlappingSeverityFilter))
+    {
+        report.Findings = report.Findings
+            .Where(f => f.Severity.Equals(options.FlappingSeverityFilter, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+    }
+
+    // Limit output
+    report.Findings = report.Findings.Take(options.FlappingTop).ToList();
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Converters = { new JsonStringEnumConverter() }
+        };
+        var json = JsonSerializer.Serialize(report, jsonOptions);
+        WriteOutput(json, options.OutputFile);
+        return 0;
+    }
+
+    var text = FlappingDetector.FormatReport(report);
+    WriteOutput(text, options.OutputFile);
     return 0;
 }

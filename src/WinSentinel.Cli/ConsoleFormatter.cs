@@ -282,6 +282,7 @@ public static partial class ConsoleFormatter
         WriteHelpEntry("    --threats            ", "STRIDE threat model from audit findings");
         WriteHelpEntry("    --attack-paths       ", "Kill chain attack path analysis with chokepoints");
         WriteHelpEntry("    --summary            ", "Executive security summary (plain-English brief)");
+        WriteHelpEntry("    --changelog          ", "Security changelog across audit history");
         WriteHelpEntry("    --help, -h           ", "Show this help message");
         WriteHelpEntry("    --version, -v        ", "Show version information");
         Console.WriteLine();
@@ -317,6 +318,9 @@ public static partial class ConsoleFormatter
         WriteHelpEntry("    --age-top <n>        ", "Number of findings to show (default: 10)");
         WriteHelpEntry("    --summary-format <f> ", "Summary format: text (default), json, md");
         WriteHelpEntry("    --summary-trend-days ", "Trend lookback for summary (default: 30)");
+        WriteHelpEntry("    --changelog-days <n> ", "Changelog lookback in days (default: 30)");
+        WriteHelpEntry("    --changelog-format <f>", "Changelog format: text (default), json, md");
+        WriteHelpEntry("    --changelog-impact <i>", "Filter: positive, negative, or neutral");
         Console.WriteLine();
         Console.WriteLine("  EXAMPLES:");
         WriteLineColored("    winsentinel --audit                              # Full audit with colored output", ConsoleColor.DarkGray);

@@ -81,6 +81,9 @@ public class CliOptions
     public int WhatIfTopN { get; set; } = 5;
     public string SummaryFormat { get; set; } = "text";
     public int SummaryTrendDays { get; set; } = 30;
+    public int ChangelogDays { get; set; } = 30;
+    public string ChangelogFormat { get; set; } = "text";
+    public string? ChangelogImpactFilter { get; set; }
 }
 
 public enum CliCommand
@@ -110,6 +113,7 @@ public enum CliCommand
     AttackPaths,
     WhatIf,
     Summary,
+    Changelog,
     Help,
     Version
 }
@@ -425,6 +429,28 @@ public static class CliParser
 
                 case "--summary":
                     options.Command = CliCommand.Summary;
+                    break;
+
+                case "--changelog":
+                    options.Command = CliCommand.Changelog;
+                    break;
+
+                case "--changelog-days":
+                    if (!TryConsumeInt(args, ref i, "--changelog-days", 1, 365, out var clDays, out var clDaysErr))
+                    { options.Error = clDaysErr; return options; }
+                    options.ChangelogDays = clDays;
+                    break;
+
+                case "--changelog-format":
+                    if (!TryConsumeArg(args, ref i, "--changelog-format", out var clFmt, out var clFmtErr))
+                    { options.Error = clFmtErr; return options; }
+                    options.ChangelogFormat = clFmt.ToLowerInvariant();
+                    break;
+
+                case "--changelog-impact":
+                    if (!TryConsumeArg(args, ref i, "--changelog-impact", out var clImpact, out var clImpactErr))
+                    { options.Error = clImpactErr; return options; }
+                    options.ChangelogImpactFilter = clImpact.ToLowerInvariant();
                     break;
 
                 case "--summary-format":

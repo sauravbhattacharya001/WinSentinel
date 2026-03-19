@@ -45,6 +45,7 @@ return options.Command switch
     CliCommand.WhatIf => await HandleWhatIf(options),
     CliCommand.Summary => await HandleSummary(options),
     CliCommand.Cost => await HandleCost(options),
+    CliCommand.Burndown => HandleBurndown(options),
     _ => HandleHelp()
 };
 
@@ -2535,6 +2536,58 @@ static async Task<int> HandleCost(CliOptions options)
     // Save this run to history
     using var historyService = new AuditHistoryService();
     historyService.SaveAuditResult(report);
+
+    return 0;
+}
+
+// ── Finding Burndown ─────────────────────────────────────────────────
+
+static int HandleBurndown(CliOptions options)
+{
+    using var history = new AuditHistoryService();
+    history.EnsureDatabase();
+
+    var runs = history.GetHistory(options.BurndownDays);
+
+    if (runs.Count == 0)
+    {
+        ConsoleFormatter.PrintWarning("No audit history found. Run --score or --audit first to generate data.");
+        return 1;
+    }
+
+    for (int i = 0; i < runs.Count; i++)
+    {
+        var fullRun = history.GetRunDetails(runs[i].Id);
+        if (fullRun != null)
+        {
+            runs[i].Findings = fullRun.Findings;
+            runs[i].ModuleScores = fullRun.ModuleScores;
+        }
+    }
+
+    var service = new FindingBurndownService();
+    var burndownOptions = new BurndownOptions { Days = options.BurndownDays };
+    var report = service.Analyze(runs, burndownOptions);
+
+    var output = options.BurndownFormat switch
+    {
+        "json" => FindingBurndownService.RenderJson(report),
+        "csv" => FindingBurndownService.RenderCsv(report),
+        _ => FindingBurndownService.RenderText(report)
+    };
+
+    if (!string.IsNullOrWhiteSpace(options.OutputFile))
+    {
+        var dir = Path.GetDirectoryName(Path.GetFullPath(options.OutputFile));
+        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+        File.WriteAllText(options.OutputFile, output);
+        if (!options.Quiet)
+            Console.WriteLine($"  Burndown report saved to {options.OutputFile}");
+    }
+    else
+    {
+        Console.Write(output);
+    }
 
     return 0;
 }

@@ -85,6 +85,8 @@ public class CliOptions
     public double CostSprintHours { get; set; } = 4.0;
     public string CostFormat { get; set; } = "text";
     public int CostTop { get; set; } = 10;
+    public int BurndownDays { get; set; } = 90;
+    public string BurndownFormat { get; set; } = "text";
 }
 
 public enum CliCommand
@@ -115,6 +117,7 @@ public enum CliCommand
     WhatIf,
     Summary,
     Cost,
+    Burndown,
     Help,
     Version
 }
@@ -434,6 +437,22 @@ public static class CliParser
 
                 case "--cost":
                     options.Command = CliCommand.Cost;
+                    break;
+
+                case "--burndown":
+                    options.Command = CliCommand.Burndown;
+                    break;
+
+                case "--burndown-days":
+                    if (!TryConsumeInt(args, ref i, "--burndown-days", 1, 365, out var bdDays, out var bdErr))
+                    { options.Error = bdErr; return options; }
+                    options.BurndownDays = bdDays;
+                    break;
+
+                case "--burndown-format":
+                    if (!TryConsumeArg(args, ref i, "--burndown-format", out var bdFmt, out var bdFmtErr))
+                    { options.Error = bdFmtErr; return options; }
+                    options.BurndownFormat = bdFmt.ToLowerInvariant();
                     break;
 
                 case "--cost-rate":

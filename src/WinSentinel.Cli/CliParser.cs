@@ -81,6 +81,10 @@ public class CliOptions
     public int WhatIfTopN { get; set; } = 5;
     public string SummaryFormat { get; set; } = "text";
     public int SummaryTrendDays { get; set; } = 30;
+    public int CostHourlyRate { get; set; } = 85;
+    public double CostSprintHours { get; set; } = 4.0;
+    public string CostFormat { get; set; } = "text";
+    public int CostTop { get; set; } = 10;
 }
 
 public enum CliCommand
@@ -110,6 +114,7 @@ public enum CliCommand
     AttackPaths,
     WhatIf,
     Summary,
+    Cost,
     Help,
     Version
 }
@@ -425,6 +430,35 @@ public static class CliParser
 
                 case "--summary":
                     options.Command = CliCommand.Summary;
+                    break;
+
+                case "--cost":
+                    options.Command = CliCommand.Cost;
+                    break;
+
+                case "--cost-rate":
+                    if (!TryConsumeInt(args, ref i, "--cost-rate", 1, 1000, out var cRate, out var cRateErr))
+                    { options.Error = cRateErr; return options; }
+                    options.CostHourlyRate = cRate;
+                    break;
+
+                case "--cost-sprint-hours":
+                    if (i + 1 < args.Length && double.TryParse(args[++i], out var cSprint) && cSprint >= 0.5 && cSprint <= 40)
+                        options.CostSprintHours = cSprint;
+                    else
+                    { options.Error = "Invalid --cost-sprint-hours value. Must be 0.5-40."; return options; }
+                    break;
+
+                case "--cost-format":
+                    if (!TryConsumeArg(args, ref i, "--cost-format", out var cFmt, out var cFmtErr))
+                    { options.Error = cFmtErr; return options; }
+                    options.CostFormat = cFmt.ToLowerInvariant();
+                    break;
+
+                case "--cost-top":
+                    if (!TryConsumeInt(args, ref i, "--cost-top", 1, 100, out var cTop, out var cTopErr))
+                    { options.Error = cTopErr; return options; }
+                    options.CostTop = cTop;
                     break;
 
                 case "--summary-format":

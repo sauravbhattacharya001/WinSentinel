@@ -44,6 +44,7 @@ return options.Command switch
     CliCommand.AttackPaths => await HandleAttackPaths(options),
     CliCommand.WhatIf => await HandleWhatIf(options),
     CliCommand.Summary => await HandleSummary(options),
+    CliCommand.Cost => await HandleCost(options),
     _ => HandleHelp()
 };
 
@@ -2472,6 +2473,67 @@ static async Task<int> HandleSummary(CliOptions options)
     }
 
     // Save this run to history
+    historyService.SaveAuditResult(report);
+
+    return 0;
+}
+
+// ── Remediation Cost Estimator ───────────────────────────────────────
+
+static async Task<int> HandleCost(CliOptions options)
+{
+    var engine = BuildEngine(options.ModulesFilter);
+    var sw = Stopwatch.StartNew();
+
+    if (!options.Quiet)
+    {
+        ConsoleFormatter.PrintBanner();
+        Console.WriteLine("  Running audit for remediation cost estimation...");
+        Console.WriteLine();
+    }
+
+    var progress = options.Quiet
+        ? null
+        : new Progress<(string module, int current, int total)>(p =>
+            ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
+
+    var report = await engine.RunFullAuditAsync(progress);
+    sw.Stop();
+
+    if (!options.Quiet)
+    {
+        ConsoleFormatter.PrintProgressDone(engine.Modules.Count, sw.Elapsed);
+    }
+
+    var estimator = new RemediationCostEstimator();
+    var costOptions = new CostOptions
+    {
+        HourlyRate = options.CostHourlyRate,
+        SprintHours = options.CostSprintHours,
+    };
+
+    var costReport = estimator.Estimate(report, costOptions);
+
+    var output = options.CostFormat switch
+    {
+        "json" => RemediationCostEstimator.RenderJson(costReport),
+        "csv" => RemediationCostEstimator.RenderCsv(costReport),
+        _ => RemediationCostEstimator.RenderText(costReport)
+    };
+
+    if (!string.IsNullOrWhiteSpace(options.OutputFile))
+    {
+        await File.WriteAllTextAsync(options.OutputFile, output);
+        if (!options.Quiet)
+            Console.WriteLine($"  Cost report saved to {options.OutputFile}");
+    }
+    else
+    {
+        Console.WriteLine(output);
+    }
+
+    // Save this run to history
+    using var historyService = new AuditHistoryService();
     historyService.SaveAuditResult(report);
 
     return 0;

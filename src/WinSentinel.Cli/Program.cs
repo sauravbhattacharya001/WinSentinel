@@ -44,6 +44,7 @@ return options.Command switch
     CliCommand.AttackPaths => await HandleAttackPaths(options),
     CliCommand.WhatIf => await HandleWhatIf(options),
     CliCommand.Summary => await HandleSummary(options),
+    CliCommand.Changelog => await HandleChangelog(options),
     _ => HandleHelp()
 };
 
@@ -2475,4 +2476,134 @@ static async Task<int> HandleSummary(CliOptions options)
     historyService.SaveAuditResult(report);
 
     return 0;
+}
+
+// ── Security Changelog ───────────────────────────────────────────
+
+static Task<int> HandleChangelog(CliOptions options)
+{
+    using var historyService = new AuditHistoryService();
+    historyService.EnsureDatabase();
+
+    var runs = historyService.GetHistory(options.ChangelogDays);
+
+    if (runs.Count < 2)
+    {
+        if (options.Json)
+        {
+            WriteOutput("{\"error\": \"Need at least 2 audit runs to generate a changelog. Run more audits first.\"}", options.OutputFile);
+        }
+        else
+        {
+            ConsoleFormatter.PrintWarning("Need at least 2 audit runs to generate a changelog. Run more audits first.");
+        }
+        return Task.FromResult(1);
+    }
+
+    // Load full details for each run
+    for (int i = 0; i < runs.Count; i++)
+    {
+        var fullRun = historyService.GetRunDetails(runs[i].Id);
+        if (fullRun != null)
+        {
+            runs[i].Findings = fullRun.Findings;
+            runs[i].ModuleScores = fullRun.ModuleScores;
+        }
+    }
+
+    // Reconstruct SecurityReport objects from AuditRunRecords (oldest first)
+    var reports = runs
+        .OrderBy(r => r.Timestamp)
+        .Select(ReconstructReport)
+        .ToList();
+
+    var changelogService = new SecurityChangelogService();
+    var changelog = changelogService.Generate(reports, "WinSentinel Security Changelog");
+
+    // Apply impact filter if specified
+    if (!string.IsNullOrEmpty(options.ChangelogImpactFilter))
+    {
+        if (Enum.TryParse<SecurityChangelogService.Impact>(options.ChangelogImpactFilter, true, out var impact))
+        {
+            changelog = changelogService.FilterByImpact(changelog, impact);
+        }
+    }
+
+    // Remove empty versions for cleaner output
+    changelog = changelogService.FilterEmpty(changelog);
+
+    var output = options.ChangelogFormat switch
+    {
+        "json" => changelogService.ToJson(changelog),
+        "md" or "markdown" => changelogService.ToMarkdown(changelog),
+        _ => changelogService.ToText(changelog)
+    };
+
+    if (!string.IsNullOrWhiteSpace(options.OutputFile))
+    {
+        File.WriteAllText(options.OutputFile, output);
+        if (!options.Quiet)
+            Console.WriteLine($"  Changelog saved to {options.OutputFile}");
+    }
+    else
+    {
+        Console.WriteLine(output);
+    }
+
+    return Task.FromResult(0);
+}
+
+// Reconstruct a SecurityReport from an AuditRunRecord for changelog generation.
+static SecurityReport ReconstructReport(AuditRunRecord run)
+{
+    var moduleGroups = run.Findings
+        .GroupBy(f => f.ModuleName)
+        .ToDictionary(g => g.Key, g => g.ToList());
+
+    var results = new List<AuditResult>();
+
+    foreach (var ms in run.ModuleScores)
+    {
+        var findings = moduleGroups.GetValueOrDefault(ms.ModuleName, []);
+        results.Add(new AuditResult
+        {
+            ModuleName = ms.ModuleName,
+            Category = ms.Category,
+            Findings = findings.Select(f => new Finding
+            {
+                Title = f.Title,
+                Description = f.Description,
+                Severity = Enum.TryParse<Severity>(f.Severity, true, out var sev) ? sev : Severity.Info,
+                Remediation = f.Remediation ?? ""
+            }).ToList(),
+            Success = true
+        });
+    }
+
+    foreach (var (moduleName, findings) in moduleGroups)
+    {
+        if (run.ModuleScores.Any(ms => ms.ModuleName == moduleName))
+            continue;
+
+        results.Add(new AuditResult
+        {
+            ModuleName = moduleName,
+            Category = moduleName,
+            Findings = findings.Select(f => new Finding
+            {
+                Title = f.Title,
+                Description = f.Description,
+                Severity = Enum.TryParse<Severity>(f.Severity, true, out var sev) ? sev : Severity.Info,
+                Remediation = f.Remediation ?? ""
+            }).ToList(),
+            Success = true
+        });
+    }
+
+    return new SecurityReport
+    {
+        Results = results,
+        GeneratedAt = run.Timestamp,
+        SecurityScore = run.OverallScore
+    };
 }

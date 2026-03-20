@@ -897,6 +897,8 @@ public class IpcDtoTests
 
     [Theory]
     [InlineData("Set-MpPreference -DisableRealtimeMonitoring $true; Invoke-Expression $payload")]
+    [InlineData("Get-Process; Get-Service;")]  // Trailing semicolon was previously a bypass
+    [InlineData("safe-command; malicious-command;")]
     public void CheckDangerousCommand_SemicolonChaining_Blocks(string input)
     {
         Assert.NotNull(InputSanitizer.CheckDangerousCommand(input));

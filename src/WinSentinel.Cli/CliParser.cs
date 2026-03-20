@@ -92,6 +92,13 @@ public class CliOptions
     public string ComplianceFormat { get; set; } = "text";
     public bool ComplianceGapsOnly { get; set; }
     public bool ComplianceAll { get; set; }
+    public string? WebhookUrl { get; set; }
+    public string WebhookPlatform { get; set; } = "auto";
+    public string WebhookMinSeverity { get; set; } = "warning";
+    public bool WebhookIncludeFindings { get; set; } = true;
+    public int WebhookMaxFindings { get; set; } = 25;
+    public string? WebhookTitle { get; set; }
+    public bool WebhookDryRun { get; set; }
 }
 
 public enum CliCommand
@@ -124,6 +131,7 @@ public enum CliCommand
     Cost,
     Benchmark,
     Compliance,
+    Webhook,
     Help,
     Version
 }
@@ -1024,6 +1032,46 @@ public static class CliParser
 
                 case "--compliance-all":
                     options.ComplianceAll = true;
+                    break;
+
+                case "--webhook":
+                    options.Command = CliCommand.Webhook;
+                    if (!TryConsumeArg(args, ref i, "--webhook", out var whUrl, out var whErr))
+                    { options.Error = whErr; return options; }
+                    options.WebhookUrl = whUrl;
+                    break;
+
+                case "--webhook-platform":
+                    if (!TryConsumeArg(args, ref i, "--webhook-platform", out var whpVal, out var whpErr))
+                    { options.Error = whpErr; return options; }
+                    options.WebhookPlatform = whpVal.ToLowerInvariant();
+                    break;
+
+                case "--webhook-min-severity":
+                    if (!TryConsumeArg(args, ref i, "--webhook-min-severity", out var whsVal, out var whsErr))
+                    { options.Error = whsErr; return options; }
+                    options.WebhookMinSeverity = whsVal.ToLowerInvariant();
+                    break;
+
+                case "--webhook-no-findings":
+                    options.WebhookIncludeFindings = false;
+                    break;
+
+                case "--webhook-max-findings":
+                    if (!TryConsumeArg(args, ref i, "--webhook-max-findings", out var whmVal, out var whmErr))
+                    { options.Error = whmErr; return options; }
+                    if (int.TryParse(whmVal, out var whmInt) && whmInt > 0)
+                        options.WebhookMaxFindings = whmInt;
+                    break;
+
+                case "--webhook-title":
+                    if (!TryConsumeArg(args, ref i, "--webhook-title", out var whtVal, out var whtErr))
+                    { options.Error = whtErr; return options; }
+                    options.WebhookTitle = whtVal;
+                    break;
+
+                case "--webhook-dry-run":
+                    options.WebhookDryRun = true;
                     break;
 
                 default:

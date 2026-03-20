@@ -47,6 +47,7 @@ return options.Command switch
     CliCommand.Cost => await HandleCost(options),
     CliCommand.Benchmark => await HandleBenchmark(options),
     CliCommand.Compliance => await HandleCompliance(options),
+    CliCommand.Webhook => await HandleWebhook(options),
     _ => HandleHelp()
 };
 
@@ -2825,4 +2826,115 @@ static string GenerateSingleFrameworkMarkdown(ComplianceReport compReport, bool 
     sb.AppendLine($"- **Not Assessed:** {compReport.Summary.NotAssessedCount}");
 
     return sb.ToString();
+}
+
+// ── Webhook ─────────────────────────────────────────────────────
+
+static async Task<int> HandleWebhook(CliOptions options)
+{
+    if (string.IsNullOrWhiteSpace(options.WebhookUrl))
+    {
+        ConsoleFormatter.PrintError("Webhook URL is required. Usage: --webhook <URL>");
+        return 3;
+    }
+
+    var engine = BuildEngine(options.ModulesFilter);
+    var sw = Stopwatch.StartNew();
+
+    if (!options.Quiet)
+    {
+        ConsoleFormatter.PrintBanner();
+        Console.WriteLine("  Running audit for webhook delivery...");
+        Console.WriteLine();
+    }
+
+    var progress = options.Quiet
+        ? null
+        : new Progress<(string module, int current, int total)>(p =>
+            ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
+
+    var report = await engine.RunFullAuditAsync(progress);
+    sw.Stop();
+
+    if (!options.Quiet)
+        ConsoleFormatter.PrintProgressDone(engine.Modules.Count, sw.Elapsed);
+
+    var minSeverity = options.WebhookMinSeverity switch
+    {
+        "critical" => Severity.Critical,
+        "warning" => Severity.Warning,
+        "info" => Severity.Info,
+        "pass" => Severity.Pass,
+        _ => Severity.Warning
+    };
+
+    var platform = options.WebhookPlatform switch
+    {
+        "slack" => WebhookPlatform.Slack,
+        "discord" => WebhookPlatform.Discord,
+        "teams" => WebhookPlatform.Teams,
+        "generic" => WebhookPlatform.Generic,
+        _ => WebhookPlatform.Auto
+    };
+
+    var config = new WebhookConfig
+    {
+        Url = options.WebhookUrl,
+        Platform = platform,
+        MinSeverity = minSeverity,
+        IncludeFindings = options.WebhookIncludeFindings,
+        MaxFindings = options.WebhookMaxFindings,
+        CustomTitle = options.WebhookTitle
+    };
+
+    var notifier = new WebhookNotifier();
+
+    if (options.WebhookDryRun)
+    {
+        var preview = notifier.Preview(report, config);
+        Console.WriteLine();
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.WriteLine("  ═══ Webhook Dry Run (payload preview) ═══");
+        Console.ResetColor();
+        Console.WriteLine();
+        Console.WriteLine(preview);
+        Console.WriteLine();
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.WriteLine($"  Platform: {WebhookNotifier.DetectPlatform(config.Url)}");
+        Console.WriteLine($"  URL: {config.Url}");
+        Console.ResetColor();
+        return 0;
+    }
+
+    if (!options.Quiet)
+    {
+        Console.WriteLine();
+        Console.Write("  Sending to webhook... ");
+    }
+
+    var result = await notifier.SendAsync(report, config);
+
+    if (result.Success)
+    {
+        if (!options.Quiet)
+        {
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine("✓ Delivered!");
+            Console.ResetColor();
+            Console.WriteLine($"  Platform: {result.Platform}");
+            Console.WriteLine($"  HTTP {result.StatusCode}");
+        }
+        return 0;
+    }
+    else
+    {
+        if (!options.Quiet)
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine("✗ Failed");
+            Console.ResetColor();
+            Console.WriteLine($"  Error: {result.Error}");
+        }
+        return 2;
+    }
 }

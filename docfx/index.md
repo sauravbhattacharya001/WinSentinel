@@ -17,10 +17,12 @@ WinSentinel is a Windows-native security agent that monitors, audits, and remedi
 ## Quick Links
 
 - [Getting Started](articles/getting-started.md) — Install and run your first audit
+- [Configuration](articles/configuration.md) — All settings, environment variables, and service setup
 - [Architecture](articles/architecture.md) — How WinSentinel is built
+- [CLI Reference](articles/cli-reference.md) — Command-line usage
+- [Compliance Profiles](articles/compliance-profiles.md) — Home, Developer, Enterprise, and Server profiles
 - [Extending](articles/extending.md) — Add custom audit modules
 - [API Reference](api/index.md) — Full .NET API documentation
-- [CLI Reference](articles/cli-reference.md) — Command-line usage
 - [GitHub Repository](https://github.com/sauravbhattacharya001/WinSentinel)
 
 ## Project Structure

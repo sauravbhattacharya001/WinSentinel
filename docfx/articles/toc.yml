@@ -2,10 +2,14 @@
   href: getting-started.md
 - name: Architecture
   href: architecture.md
+- name: Configuration
+  href: configuration.md
 - name: CLI Reference
   href: cli-reference.md
 - name: Audit Modules
   href: audit-modules.md
+- name: Compliance Profiles
+  href: compliance-profiles.md
 - name: IPC Protocol
   href: ipc-protocol.md
 - name: Input Validation

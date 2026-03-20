@@ -269,8 +269,12 @@ public static partial class InputSanitizer
             lower.Contains("downloaddata") || lower.Contains("system.net.http.httpclient"))
             return "Contains .NET network download method";
 
-        // Arbitrary code execution
-        if (lower.Contains("invoke-expression") || lower.Contains("iex ") || lower.Contains("iex("))
+        // Arbitrary code execution — catch all IEX variants including pipe-to-iex
+        // ("malicious" | iex) which bypasses the pipe+shell check below since
+        // iex is a PowerShell alias, not powershell.exe/cmd.exe.
+        if (lower.Contains("invoke-expression") || lower.Contains("iex ") ||
+            lower.Contains("iex(") || lower.Contains("| iex") ||
+            lower.Contains("|iex") || PipeToIexPattern().IsMatch(lower))
             return "Contains Invoke-Expression (arbitrary code execution)";
         if (lower.Contains("add-type") && (lower.Contains("-typedefinition") || lower.Contains("-memberdef")))
             return "Contains Add-Type with inline code (arbitrary C# execution)";
@@ -416,9 +420,17 @@ public static partial class InputSanitizer
             return "Contains string concatenation obfuscation (potential keyword bypass)";
 
         // Semicolon command chaining — `safe-cmd; malicious-cmd` can smuggle dangerous
-        // commands past checks that only examine the overall string once
-        if (command.Contains(';') && !command.TrimEnd().EndsWith(";"))
-            return "Contains semicolon command chaining (potential bypass)";
+        // commands past checks that only examine the overall string once.
+        // Count semicolons: if >0, split and validate each segment individually
+        // is too expensive here, but any semicolon with content after it is chaining.
+        if (command.Contains(';'))
+        {
+            // Allow trailing semicolon only (single command terminated with ;)
+            var trimmed2 = command.TrimEnd();
+            var semiCount = trimmed2.Count(c => c == ';');
+            if (semiCount > 1 || (semiCount == 1 && !trimmed2.EndsWith(";")))
+                return "Contains semicolon command chaining (potential bypass)";
+        }
 
         // PowerShell format operator — `"{0}{1}" -f 'Inv','oke-Expression'` reconstructs
         // blocked keywords at runtime
@@ -489,4 +501,8 @@ public static partial class InputSanitizer
     /// <summary>Matches cmd.exe /c or /k invocation patterns (e.g., "cmd /c", "cmd.exe /c").</summary>
     [GeneratedRegex(@"\bcmd(?:\.exe)?\s+/[ck]\b", RegexOptions.IgnoreCase)]
     private static partial Regex CmdExePattern();
+
+    /// <summary>Matches pipe-to-iex patterns including whitespace variants (e.g., "| iex", "|iex", "| iex\n").</summary>
+    [GeneratedRegex(@"\|\s*iex\b", RegexOptions.IgnoreCase)]
+    private static partial Regex PipeToIexPattern();
 }

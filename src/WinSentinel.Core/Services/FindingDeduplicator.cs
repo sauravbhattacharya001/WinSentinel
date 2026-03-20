@@ -98,12 +98,24 @@ public class FindingDeduplicator
         }
         void Union(int a, int b) { parent[Find(a)] = Find(b); }
 
-        // Pairwise comparison
+        // Pre-compute normalised strings and n-gram sets once per finding
+        // so the O(n²) pairwise loop doesn't redundantly recompute them.
+        var precomputed = findings.Select(f => new PrecomputedFinding(
+            NormTitle: Normalize(f.Title),
+            NormDesc: Normalize(f.Description),
+            NormFix: Normalize(f.FixCommand),
+            TitleNgrams: ExtractNgrams(Normalize(f.Title)),
+            DescNgrams: ExtractNgrams(Normalize(f.Description)),
+            FixNgrams: ExtractNgrams(Normalize(f.FixCommand))
+        )).ToArray();
+
+        // Pairwise comparison using precomputed data
         for (int i = 0; i < findings.Count; i++)
         {
             for (int j = i + 1; j < findings.Count; j++)
             {
-                var (sim, reason) = ComputeSimilarity(findings[i], findings[j]);
+                var (sim, reason) = ComputeSimilarityPrecomputed(
+                    findings[i], findings[j], precomputed[i], precomputed[j]);
                 if (sim >= _threshold)
                 {
                     Union(i, j);
@@ -297,9 +309,106 @@ public class FindingDeduplicator
         return ngrams;
     }
 
-    private static string Normalize(string text)
+    private static string Normalize(string? text)
     {
         if (string.IsNullOrEmpty(text)) return string.Empty;
         return text.Trim().ToLowerInvariant();
+    }
+
+    /// <summary>
+    /// Pre-computed normalised strings and n-gram sets for a single finding.
+    /// Avoids redundant allocations during the O(n²) pairwise comparison loop.
+    /// </summary>
+    private record PrecomputedFinding(
+        string NormTitle,
+        string NormDesc,
+        string NormFix,
+        HashSet<string> TitleNgrams,
+        HashSet<string> DescNgrams,
+        HashSet<string> FixNgrams);
+
+    /// <summary>
+    /// Similarity computation using pre-built normalised strings and n-gram sets.
+    /// Eliminates per-pair Normalize() calls and n-gram extraction — the main
+    /// hotspot when deduplicating hundreds of findings.
+    /// </summary>
+    private (double Score, string Reason) ComputeSimilarityPrecomputed(
+        Finding a, Finding b, PrecomputedFinding pa, PrecomputedFinding pb)
+    {
+        double score = 0.0;
+        var reasons = new List<string>(4);
+
+        // 1. Title (weight: 0.50)
+        if (pa.NormTitle == pb.NormTitle)
+        {
+            score += 0.50;
+            reasons.Add("exact title");
+        }
+        else
+        {
+            double titleSim = NgramSimilarityFromSets(pa.TitleNgrams, pb.TitleNgrams);
+            score += 0.50 * titleSim;
+            if (titleSim > 0.5) reasons.Add($"title ~{titleSim * 100:F0}%");
+        }
+
+        // 2. Description (weight: 0.15)
+        if (pa.NormDesc.Length > 0 && pb.NormDesc.Length > 0)
+        {
+            double descSim = NgramSimilarityFromSets(pa.DescNgrams, pb.DescNgrams);
+            score += 0.15 * descSim;
+            if (descSim > 0.5) reasons.Add($"desc ~{descSim * 100:F0}%");
+        }
+
+        // 3. Same category (weight: 0.15)
+        if (!string.IsNullOrEmpty(a.Category) && !string.IsNullOrEmpty(b.Category)
+            && string.Equals(a.Category, b.Category, StringComparison.OrdinalIgnoreCase))
+        {
+            score += 0.15;
+            reasons.Add("same category");
+        }
+
+        // 4. Same severity (weight: 0.05)
+        if (a.Severity == b.Severity)
+        {
+            score += 0.05;
+        }
+
+        // 5. Fix command (weight: 0.15)
+        if (pa.NormFix.Length > 0 && pb.NormFix.Length > 0)
+        {
+            if (pa.NormFix == pb.NormFix)
+            {
+                score += 0.15;
+                reasons.Add("same fix");
+            }
+            else
+            {
+                double fixSim = NgramSimilarityFromSets(pa.FixNgrams, pb.FixNgrams);
+                score += 0.15 * fixSim;
+                if (fixSim > 0.5) reasons.Add($"fix ~{fixSim * 100:F0}%");
+            }
+        }
+
+        string reason = reasons.Count > 0 ? string.Join(", ", reasons) : "low similarity";
+        return (Math.Min(score, 1.0), reason);
+    }
+
+    /// <summary>
+    /// Jaccard similarity from pre-built n-gram sets — avoids re-extracting n-grams.
+    /// </summary>
+    private static double NgramSimilarityFromSets(HashSet<string> a, HashSet<string> b)
+    {
+        if (a.Count == 0 || b.Count == 0) return 0.0;
+
+        int intersection = 0;
+        // Iterate over the smaller set for performance
+        var (smaller, larger) = a.Count <= b.Count ? (a, b) : (b, a);
+        foreach (var ng in smaller)
+        {
+            if (larger.Contains(ng)) intersection++;
+        }
+
+        int union = a.Count + b.Count - intersection;
+        return union > 0 ? (double)intersection / union : 0.0;
     }
 }

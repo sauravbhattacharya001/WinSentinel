@@ -340,6 +340,14 @@ public static partial class ConsoleFormatter
         WriteHelpEntry("    --no-startup             ", "Skip startup programs");
         WriteHelpEntry("    --no-tasks               ", "Skip scheduled tasks");
         Console.WriteLine();
+        Console.WriteLine("  CONFIG BACKUP:");
+        WriteHelpEntry("    --config export          ", "Export all config (ignore rules, baselines, policy) to a portable JSON bundle");
+        WriteHelpEntry("    --config import          ", "Import config from a bundle file (merge with existing)");
+        WriteHelpEntry("    --config inspect          ", "Inspect a bundle file without importing");
+        WriteHelpEntry("    --config-file <path>     ", "Path for the bundle file (export: output, import/inspect: input)");
+        WriteHelpEntry("    --config-desc <text>     ", "Description for the exported bundle");
+        WriteHelpEntry("    --overwrite              ", "Overwrite existing items during import");
+        Console.WriteLine();
         Console.WriteLine("  EXAMPLES:");
         WriteLineColored("    winsentinel --audit                              # Full audit with colored output", ConsoleColor.DarkGray);
         WriteLineColored("    winsentinel --audit --json                       # JSON output for scripting", ConsoleColor.DarkGray);

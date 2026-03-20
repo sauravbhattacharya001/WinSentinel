@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Security.AccessControl;
 using System.Security.Principal;
 using WinSentinel.Core.Models;
 
@@ -186,7 +187,11 @@ public class FixEngine
             // directly in a try/catch string. This prevents PowerShell injection via
             // curly braces or quotes in the command breaking out of the wrapper.
             // The script file is executed by the wrapper, isolating untrusted content.
+            //
+            // Security: restrict the temp script to the current user only, mitigating
+            // TOCTOU races where another local process replaces the file before execution.
             await File.WriteAllTextAsync(tempScriptFile, command, ct);
+            RestrictFileToCurrentUser(tempScriptFile);
 
             var wrappedCommand = $"try {{ . '{tempScriptFile}' | Out-File -FilePath '{tempOutputFile}' -Encoding UTF8 }} catch {{ $_.Exception.Message | Out-File -FilePath '{tempErrorFile}' -Encoding UTF8; exit 1 }}";
 
@@ -290,6 +295,40 @@ public class FixEngine
     {
         var bytes = System.Text.Encoding.Unicode.GetBytes(command);
         return Convert.ToBase64String(bytes);
+    }
+
+    /// <summary>
+    /// Restrict a file's ACL to the current user only (FullControl), removing inherited
+    /// and existing permissions. This mitigates TOCTOU attacks where another local user
+    /// or process replaces the temp script between creation and execution.
+    /// </summary>
+    private static void RestrictFileToCurrentUser(string path)
+    {
+        var fileInfo = new FileInfo(path);
+        var security = fileInfo.GetAccessControl();
+
+        // Remove inheritance so we start with a clean slate
+        security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+
+        // Remove all existing rules
+        var rules = security.GetAccessRules(includeExplicit: true, includeInherited: true, targetType: typeof(SecurityIdentifier));
+        foreach (FileSystemAccessRule rule in rules)
+        {
+            security.RemoveAccessRule(rule);
+        }
+
+        // Grant only the current user full control
+        using var identity = WindowsIdentity.GetCurrent();
+        var currentUser = identity.User;
+        if (currentUser != null)
+        {
+            security.AddAccessRule(new FileSystemAccessRule(
+                currentUser,
+                FileSystemRights.FullControl,
+                AccessControlType.Allow));
+        }
+
+        fileInfo.SetAccessControl(security);
     }
 
     private static void KillProcess(Process process)

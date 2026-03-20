@@ -48,6 +48,7 @@ return options.Command switch
     CliCommand.Benchmark => await HandleBenchmark(options),
     CliCommand.Compliance => await HandleCompliance(options),
     CliCommand.Inventory => HandleInventory(options),
+    CliCommand.ConfigBackup => HandleConfigBackup(options),
     _ => HandleHelp()
 };
 
@@ -3117,4 +3118,181 @@ static List<string> ParseCsvLine(string line)
     }
     fields.Add(current.ToString());
     return fields;
+}
+
+// ── Config Backup & Restore ──────────────────────────────────────────
+
+static int HandleConfigBackup(CliOptions options)
+{
+    var service = new ConfigBackupService();
+
+    switch (options.ConfigBackupAction)
+    {
+        case ConfigBackupAction.Export:
+        {
+            var bundle = service.Export(options.ConfigBackupDescription);
+            var json = ConfigBackupService.ToJson(bundle);
+
+            var outputPath = options.ConfigBackupFile
+                ?? options.OutputFile
+                ?? $"winsentinel-config-{DateTime.Now:yyyyMMdd-HHmmss}.json";
+
+            File.WriteAllText(outputPath, json);
+
+            Console.WriteLine();
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.Write("  ✓ ");
+            Console.ResetColor();
+            Console.WriteLine($"Configuration exported to {outputPath}");
+            Console.WriteLine();
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine($"  Machine:       {bundle.MachineName}");
+            Console.WriteLine($"  Exported by:   {bundle.ExportedBy}");
+            Console.WriteLine($"  Ignore rules:  {bundle.Summary.IgnoreRuleCount}");
+            Console.WriteLine($"  Baselines:     {bundle.Summary.BaselineCount}");
+            Console.WriteLine($"  Policy:        {(bundle.Summary.HasPolicy ? bundle.Policy!.Name : "(none)")}");
+            Console.WriteLine($"  Total items:   {bundle.Summary.TotalItems}");
+            Console.ResetColor();
+            Console.WriteLine();
+
+            return 0;
+        }
+
+        case ConfigBackupAction.Import:
+        {
+            var inputPath = options.ConfigBackupFile ?? options.OutputFile;
+            if (string.IsNullOrEmpty(inputPath))
+            {
+                ConsoleFormatter.PrintError("Missing config file. Usage: --config import --config-file <path>");
+                return 3;
+            }
+
+            if (!File.Exists(inputPath))
+            {
+                ConsoleFormatter.PrintError($"File not found: {inputPath}");
+                return 3;
+            }
+
+            var json = File.ReadAllText(inputPath);
+            var bundle = ConfigBackupService.FromJson(json);
+            if (bundle == null)
+            {
+                ConsoleFormatter.PrintError("Invalid or corrupt config bundle file.");
+                return 3;
+            }
+
+            var result = service.Import(bundle, options.ConfigBackupOverwrite);
+
+            Console.WriteLine();
+            if (result.Success)
+            {
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.Write("  ✓ ");
+                Console.ResetColor();
+                Console.WriteLine("Configuration imported successfully");
+            }
+            else
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.Write("  ✗ ");
+                Console.ResetColor();
+                Console.WriteLine(result.Error ?? "Import failed");
+            }
+
+            Console.WriteLine();
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine($"  Source:            {result.SourceMachine} ({result.BundleCreatedAt:g})");
+            Console.WriteLine($"  Rules imported:    {result.IgnoreRulesImported} (skipped: {result.IgnoreRulesSkipped})");
+            Console.WriteLine($"  Baselines imported:{result.BaselinesImported} (skipped: {result.BaselinesSkipped})");
+            Console.WriteLine($"  Policy imported:   {(result.PolicyImported ? "yes" : "no")}");
+            Console.WriteLine($"  Total imported:    {result.TotalImported}");
+            Console.ResetColor();
+
+            if (result.Warnings.Count > 0)
+            {
+                Console.WriteLine();
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine("  Warnings:");
+                foreach (var w in result.Warnings)
+                    Console.WriteLine($"    • {w}");
+                Console.ResetColor();
+            }
+
+            Console.WriteLine();
+            return result.Success ? 0 : 1;
+        }
+
+        case ConfigBackupAction.Inspect:
+        {
+            var inputPath = options.ConfigBackupFile ?? options.OutputFile;
+            if (string.IsNullOrEmpty(inputPath))
+            {
+                ConsoleFormatter.PrintError("Missing config file. Usage: --config inspect --config-file <path>");
+                return 3;
+            }
+
+            var bundle = ConfigBackupService.Inspect(inputPath);
+            if (bundle == null)
+            {
+                ConsoleFormatter.PrintError($"Cannot read config bundle: {inputPath}");
+                return 3;
+            }
+
+            Console.WriteLine();
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine("  ╔══════════════════════════════════════╗");
+            Console.WriteLine("  ║      CONFIG BUNDLE INSPECTION       ║");
+            Console.WriteLine("  ╚══════════════════════════════════════╝");
+            Console.ResetColor();
+            Console.WriteLine();
+            Console.WriteLine($"  File:          {inputPath}");
+            Console.WriteLine($"  Version:       {bundle.Version}");
+            Console.WriteLine($"  Created:       {bundle.CreatedAt:f}");
+            Console.WriteLine($"  Machine:       {bundle.MachineName}");
+            Console.WriteLine($"  OS:            {bundle.OsVersion}");
+            Console.WriteLine($"  Exported by:   {bundle.ExportedBy}");
+            if (!string.IsNullOrEmpty(bundle.Description))
+                Console.WriteLine($"  Description:   {bundle.Description}");
+            Console.WriteLine();
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.WriteLine("  Contents:");
+            Console.ResetColor();
+            Console.WriteLine($"    Ignore rules:  {bundle.Summary.IgnoreRuleCount}");
+            Console.WriteLine($"    Baselines:     {bundle.Summary.BaselineCount}");
+            Console.WriteLine($"    Policy:        {(bundle.Summary.HasPolicy ? bundle.Policy!.Name : "(none)")}");
+            Console.WriteLine($"    Total items:   {bundle.Summary.TotalItems}");
+
+            if (bundle.Baselines.Count > 0)
+            {
+                Console.WriteLine();
+                Console.ForegroundColor = ConsoleColor.White;
+                Console.WriteLine("  Baselines:");
+                Console.ResetColor();
+                foreach (var b in bundle.Baselines)
+                    Console.WriteLine($"    • {b.Name} — score {b.OverallScore} ({b.Grade}), {b.TotalFindings} findings, {b.CreatedAt:d}");
+            }
+
+            if (bundle.IgnoreRules.Count > 0)
+            {
+                Console.WriteLine();
+                Console.ForegroundColor = ConsoleColor.White;
+                Console.WriteLine($"  Ignore rules ({bundle.IgnoreRules.Count}):");
+                Console.ResetColor();
+                foreach (var r in bundle.IgnoreRules.Take(10))
+                {
+                    var expiry = r.ExpiresAt.HasValue ? $" (expires {r.ExpiresAt.Value:d})" : "";
+                    Console.WriteLine($"    • [{r.MatchMode}] {r.Pattern}{expiry}");
+                }
+                if (bundle.IgnoreRules.Count > 10)
+                    Console.WriteLine($"    ... and {bundle.IgnoreRules.Count - 10} more");
+            }
+
+            Console.WriteLine();
+            return 0;
+        }
+
+        default:
+            ConsoleFormatter.PrintError("Unknown config action. Use: --config export|import|inspect");
+            return 3;
+    }
 }

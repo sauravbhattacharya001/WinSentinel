@@ -1164,4 +1164,69 @@ public class CliParserTests
         Assert.Equal(BadgeAction.None, options.BadgeAction);
         Assert.Null(options.BadgeStyle);
     }
+
+    // ── Config Backup Tests ──
+
+    [Fact]
+    public void ConfigExport_ParsesCorrectly()
+    {
+        var result = CliParser.Parse(["--config", "export"]);
+        Assert.Null(result.Error);
+        Assert.Equal(CliCommand.ConfigBackup, result.Command);
+        Assert.Equal(ConfigBackupAction.Export, result.ConfigBackupAction);
+    }
+
+    [Fact]
+    public void ConfigImport_ParsesCorrectly()
+    {
+        var result = CliParser.Parse(["--config", "import", "--config-file", "backup.json"]);
+        Assert.Null(result.Error);
+        Assert.Equal(CliCommand.ConfigBackup, result.Command);
+        Assert.Equal(ConfigBackupAction.Import, result.ConfigBackupAction);
+        Assert.Equal("backup.json", result.ConfigBackupFile);
+    }
+
+    [Fact]
+    public void ConfigInspect_ParsesCorrectly()
+    {
+        var result = CliParser.Parse(["--config", "inspect", "--config-file", "backup.json"]);
+        Assert.Null(result.Error);
+        Assert.Equal(CliCommand.ConfigBackup, result.Command);
+        Assert.Equal(ConfigBackupAction.Inspect, result.ConfigBackupAction);
+    }
+
+    [Fact]
+    public void ConfigExport_WithDescriptionAndFile()
+    {
+        var result = CliParser.Parse(["--config", "export", "--config-desc", "Weekly backup", "--config-file", "out.json"]);
+        Assert.Null(result.Error);
+        Assert.Equal(ConfigBackupAction.Export, result.ConfigBackupAction);
+        Assert.Equal("Weekly backup", result.ConfigBackupDescription);
+        Assert.Equal("out.json", result.ConfigBackupFile);
+    }
+
+    [Fact]
+    public void ConfigImport_WithOverwrite()
+    {
+        var result = CliParser.Parse(["--config", "import", "--config-file", "in.json", "--overwrite"]);
+        Assert.Null(result.Error);
+        Assert.Equal(ConfigBackupAction.Import, result.ConfigBackupAction);
+        Assert.True(result.ConfigBackupOverwrite);
+    }
+
+    [Fact]
+    public void Config_UnknownAction_ReturnsError()
+    {
+        var result = CliParser.Parse(["--config", "delete"]);
+        Assert.NotNull(result.Error);
+        Assert.Contains("Unknown config action", result.Error);
+    }
+
+    [Fact]
+    public void Config_MissingAction_ReturnsError()
+    {
+        var result = CliParser.Parse(["--config"]);
+        Assert.NotNull(result.Error);
+        Assert.Contains("Missing config action", result.Error);
+    }
 }

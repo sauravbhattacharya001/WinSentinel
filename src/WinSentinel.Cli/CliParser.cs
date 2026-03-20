@@ -98,6 +98,10 @@ public class CliOptions
     public bool InventoryNoPorts { get; set; }
     public bool InventoryNoStartup { get; set; }
     public bool InventoryNoTasks { get; set; }
+    public ConfigBackupAction ConfigBackupAction { get; set; } = ConfigBackupAction.None;
+    public string? ConfigBackupFile { get; set; }
+    public string? ConfigBackupDescription { get; set; }
+    public bool ConfigBackupOverwrite { get; set; }
 }
 
 public enum CliCommand
@@ -131,8 +135,17 @@ public enum CliCommand
     Benchmark,
     Compliance,
     Inventory,
+    ConfigBackup,
     Help,
     Version
+}
+
+public enum ConfigBackupAction
+{
+    None,
+    Export,
+    Import,
+    Inspect
 }
 
 public enum BaselineAction
@@ -1061,6 +1074,47 @@ public static class CliParser
 
                 case "--no-tasks":
                     options.InventoryNoTasks = true;
+                    break;
+
+                case "--config":
+                    options.Command = CliCommand.ConfigBackup;
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                    {
+                        var cfgAction = args[++i].ToLowerInvariant();
+                        options.ConfigBackupAction = cfgAction switch
+                        {
+                            "export" => ConfigBackupAction.Export,
+                            "import" => ConfigBackupAction.Import,
+                            "inspect" => ConfigBackupAction.Inspect,
+                            _ => ConfigBackupAction.None
+                        };
+                        if (options.ConfigBackupAction == ConfigBackupAction.None)
+                        {
+                            options.Error = $"Unknown config action: {cfgAction}. Use export, import, or inspect.";
+                            return options;
+                        }
+                    }
+                    else
+                    {
+                        options.Error = "Missing config action. Usage: --config export|import|inspect [file]";
+                        return options;
+                    }
+                    break;
+
+                case "--config-file":
+                    if (!TryConsumeArg(args, ref i, "--config-file", out var cfgFile, out var cfgFileErr))
+                    { options.Error = cfgFileErr; return options; }
+                    options.ConfigBackupFile = cfgFile;
+                    break;
+
+                case "--config-desc":
+                    if (!TryConsumeArg(args, ref i, "--config-desc", out var cfgDesc, out var cfgDescErr))
+                    { options.Error = cfgDescErr; return options; }
+                    options.ConfigBackupDescription = cfgDesc;
+                    break;
+
+                case "--overwrite":
+                    options.ConfigBackupOverwrite = true;
                     break;
 
                 default:

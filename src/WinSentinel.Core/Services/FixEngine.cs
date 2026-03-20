@@ -178,11 +178,17 @@ public class FixEngine
     {
         var tempOutputFile = Path.GetTempFileName();
         var tempErrorFile = Path.GetTempFileName();
+        var tempScriptFile = Path.Combine(Path.GetTempPath(), $"ws_fix_{Guid.NewGuid():N}.ps1");
 
         try
         {
-            // Wrap command to write output to temp files
-            var wrappedCommand = $"try {{ {command} | Out-File -FilePath '{tempOutputFile}' -Encoding UTF8 }} catch {{ $_.Exception.Message | Out-File -FilePath '{tempErrorFile}' -Encoding UTF8; exit 1 }}";
+            // Write the fix command to a temp script file instead of embedding it
+            // directly in a try/catch string. This prevents PowerShell injection via
+            // curly braces or quotes in the command breaking out of the wrapper.
+            // The script file is executed by the wrapper, isolating untrusted content.
+            await File.WriteAllTextAsync(tempScriptFile, command, ct);
+
+            var wrappedCommand = $"try {{ . '{tempScriptFile}' | Out-File -FilePath '{tempOutputFile}' -Encoding UTF8 }} catch {{ $_.Exception.Message | Out-File -FilePath '{tempErrorFile}' -Encoding UTF8; exit 1 }}";
 
             var psi = new ProcessStartInfo
             {
@@ -243,6 +249,7 @@ public class FixEngine
             // Clean up temp files
             TryDeleteFile(tempOutputFile);
             TryDeleteFile(tempErrorFile);
+            TryDeleteFile(tempScriptFile);
         }
     }
 

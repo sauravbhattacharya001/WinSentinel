@@ -45,6 +45,7 @@ return options.Command switch
     CliCommand.WhatIf => await HandleWhatIf(options),
     CliCommand.Summary => await HandleSummary(options),
     CliCommand.Cost => await HandleCost(options),
+    CliCommand.Benchmark => await HandleBenchmark(options),
     _ => HandleHelp()
 };
 
@@ -2535,6 +2536,105 @@ static async Task<int> HandleCost(CliOptions options)
     // Save this run to history
     using var historyService = new AuditHistoryService();
     historyService.SaveAuditResult(report);
+
+    return 0;
+}
+
+// ── Peer Benchmark ───────────────────────────────────────────────────
+
+static async Task<int> HandleBenchmark(CliOptions options)
+{
+    var engine = BuildEngine(options.ModulesFilter);
+    var sw = Stopwatch.StartNew();
+
+    if (!options.Quiet)
+    {
+        ConsoleFormatter.PrintBanner();
+        Console.WriteLine("  Running audit for peer benchmark comparison...");
+        Console.WriteLine();
+    }
+
+    var progress = options.Quiet
+        ? null
+        : new Progress<(string module, int current, int total)>(p =>
+            ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
+
+    var report = await engine.RunFullAuditAsync(progress);
+    sw.Stop();
+
+    if (!options.Quiet)
+    {
+        ConsoleFormatter.PrintProgressDone(engine.Modules.Count, sw.Elapsed);
+        ConsoleFormatter.PrintScore(report.SecurityScore);
+        Console.WriteLine();
+    }
+
+    var benchService = new PeerBenchmarkService();
+
+    if (options.BenchmarkAll)
+    {
+        var allResults = benchService.CompareAll(report);
+        if (options.BenchmarkFormat == "json")
+        {
+            var jsonOpts = new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                Converters = { new JsonStringEnumConverter() }
+            };
+            var jsonOutput = JsonSerializer.Serialize(allResults, jsonOpts);
+            if (!string.IsNullOrWhiteSpace(options.OutputFile))
+                await File.WriteAllTextAsync(options.OutputFile, jsonOutput);
+            else
+                Console.WriteLine(jsonOutput);
+        }
+        else
+        {
+            foreach (var (_, benchResult) in allResults)
+            {
+                ConsoleFormatter.PrintBenchmarkResult(benchResult);
+                Console.WriteLine();
+            }
+        }
+    }
+    else
+    {
+        PeerBenchmarkService.PeerGroup peerGroup;
+        if (options.BenchmarkGroup == "auto")
+            peerGroup = benchService.SuggestPeerGroup(report);
+        else if (!Enum.TryParse<PeerBenchmarkService.PeerGroup>(options.BenchmarkGroup, true, out peerGroup))
+        {
+            ConsoleFormatter.PrintError(
+                $"Unknown benchmark group '{options.BenchmarkGroup}'. Valid: home, developer, enterprise, server, auto");
+            return 3;
+        }
+
+        var benchResult = benchService.Compare(report, peerGroup);
+
+        if (options.BenchmarkFormat == "json")
+        {
+            var jsonOpts = new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                Converters = { new JsonStringEnumConverter() }
+            };
+            var jsonOutput = JsonSerializer.Serialize(benchResult, jsonOpts);
+            if (!string.IsNullOrWhiteSpace(options.OutputFile))
+                await File.WriteAllTextAsync(options.OutputFile, jsonOutput);
+            else
+                Console.WriteLine(jsonOutput);
+        }
+        else
+        {
+            ConsoleFormatter.PrintBenchmarkResult(benchResult);
+        }
+    }
+
+    if (!string.IsNullOrWhiteSpace(options.OutputFile) && !options.Quiet)
+        Console.WriteLine($"  Benchmark saved to {options.OutputFile}");
+
+    // Save audit to history
+    using var benchHistoryService = new AuditHistoryService();
+    benchHistoryService.SaveAuditResult(report);
 
     return 0;
 }

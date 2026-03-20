@@ -85,6 +85,9 @@ public class CliOptions
     public double CostSprintHours { get; set; } = 4.0;
     public string CostFormat { get; set; } = "text";
     public int CostTop { get; set; } = 10;
+    public string BenchmarkGroup { get; set; } = "auto";
+    public string BenchmarkFormat { get; set; } = "text";
+    public bool BenchmarkAll { get; set; }
 }
 
 public enum CliCommand
@@ -115,6 +118,7 @@ public enum CliCommand
     WhatIf,
     Summary,
     Cost,
+    Benchmark,
     Help,
     Version
 }
@@ -971,6 +975,26 @@ public static class CliParser
 
                 case "--trend-modules":
                     options.TrendModules = true;
+                    break;
+
+                case "--benchmark":
+                    options.Command = CliCommand.Benchmark;
+                    break;
+
+                case "--benchmark-group":
+                    if (!TryConsumeArg(args, ref i, "--benchmark-group", out var bgVal, out var bgErr))
+                    { options.Error = bgErr; return options; }
+                    options.BenchmarkGroup = bgVal.ToLowerInvariant();
+                    break;
+
+                case "--benchmark-format":
+                    if (!TryConsumeArg(args, ref i, "--benchmark-format", out var bfVal, out var bfErr))
+                    { options.Error = bfErr; return options; }
+                    options.BenchmarkFormat = bfVal.ToLowerInvariant();
+                    break;
+
+                case "--benchmark-all":
+                    options.BenchmarkAll = true;
                     break;
 
                 default:

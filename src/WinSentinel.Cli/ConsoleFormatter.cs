@@ -318,6 +318,12 @@ public static partial class ConsoleFormatter
         WriteHelpEntry("    --summary-format <f> ", "Summary format: text (default), json, md");
         WriteHelpEntry("    --summary-trend-days ", "Trend lookback for summary (default: 30)");
         Console.WriteLine();
+        WriteLineColored("  PEER BENCHMARK:", ConsoleColor.Yellow);
+        WriteHelpEntry("    --benchmark              ", "Compare scores against peer group benchmarks");
+        WriteHelpEntry("    --benchmark-group <g>    ", "Peer group: home, developer, enterprise, server, auto (default)");
+        WriteHelpEntry("    --benchmark-format <f>   ", "Output format: text (default), json");
+        WriteHelpEntry("    --benchmark-all          ", "Compare against all peer groups at once");
+        Console.WriteLine();
         Console.WriteLine("  EXAMPLES:");
         WriteLineColored("    winsentinel --audit                              # Full audit with colored output", ConsoleColor.DarkGray);
         WriteLineColored("    winsentinel --audit --json                       # JSON output for scripting", ConsoleColor.DarkGray);

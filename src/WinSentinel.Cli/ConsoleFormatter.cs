@@ -324,6 +324,13 @@ public static partial class ConsoleFormatter
         WriteHelpEntry("    --benchmark-format <f>   ", "Output format: text (default), json");
         WriteHelpEntry("    --benchmark-all          ", "Compare against all peer groups at once");
         Console.WriteLine();
+        WriteLineColored("  COMPLIANCE MAPPING:", ConsoleColor.Yellow);
+        WriteHelpEntry("    --compliance             ", "Map findings to compliance frameworks (CIS, NIST, PCI-DSS, HIPAA)");
+        WriteHelpEntry("    --compliance-framework <f>", "Single framework: cis, nist, pci-dss, hipaa");
+        WriteHelpEntry("    --compliance-format <f>  ", "Output format: text (default), json, markdown");
+        WriteHelpEntry("    --compliance-gaps        ", "Show only failing/partial controls (gap analysis)");
+        WriteHelpEntry("    --compliance-all         ", "Show all frameworks in detail");
+        Console.WriteLine();
         Console.WriteLine("  EXAMPLES:");
         WriteLineColored("    winsentinel --audit                              # Full audit with colored output", ConsoleColor.DarkGray);
         WriteLineColored("    winsentinel --audit --json                       # JSON output for scripting", ConsoleColor.DarkGray);

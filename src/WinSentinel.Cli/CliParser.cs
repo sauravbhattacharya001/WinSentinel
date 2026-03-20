@@ -88,6 +88,10 @@ public class CliOptions
     public string BenchmarkGroup { get; set; } = "auto";
     public string BenchmarkFormat { get; set; } = "text";
     public bool BenchmarkAll { get; set; }
+    public string? ComplianceFramework { get; set; }
+    public string ComplianceFormat { get; set; } = "text";
+    public bool ComplianceGapsOnly { get; set; }
+    public bool ComplianceAll { get; set; }
 }
 
 public enum CliCommand
@@ -119,6 +123,7 @@ public enum CliCommand
     Summary,
     Cost,
     Benchmark,
+    Compliance,
     Help,
     Version
 }
@@ -995,6 +1000,30 @@ public static class CliParser
 
                 case "--benchmark-all":
                     options.BenchmarkAll = true;
+                    break;
+
+                case "--compliance":
+                    options.Command = CliCommand.Compliance;
+                    break;
+
+                case "--compliance-framework":
+                    if (!TryConsumeArg(args, ref i, "--compliance-framework", out var cfVal, out var cfErr))
+                    { options.Error = cfErr; return options; }
+                    options.ComplianceFramework = cfVal.ToLowerInvariant();
+                    break;
+
+                case "--compliance-format":
+                    if (!TryConsumeArg(args, ref i, "--compliance-format", out var cffVal, out var cffErr))
+                    { options.Error = cffErr; return options; }
+                    options.ComplianceFormat = cffVal.ToLowerInvariant();
+                    break;
+
+                case "--compliance-gaps":
+                    options.ComplianceGapsOnly = true;
+                    break;
+
+                case "--compliance-all":
+                    options.ComplianceAll = true;
                     break;
 
                 default:

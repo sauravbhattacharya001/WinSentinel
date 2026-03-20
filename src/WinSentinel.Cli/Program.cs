@@ -46,6 +46,7 @@ return options.Command switch
     CliCommand.Summary => await HandleSummary(options),
     CliCommand.Cost => await HandleCost(options),
     CliCommand.Benchmark => await HandleBenchmark(options),
+    CliCommand.Compliance => await HandleCompliance(options),
     _ => HandleHelp()
 };
 
@@ -2637,4 +2638,191 @@ static async Task<int> HandleBenchmark(CliOptions options)
     benchHistoryService.SaveAuditResult(report);
 
     return 0;
+}
+
+// ── Compliance Mapper ────────────────────────────────────────────────
+
+static async Task<int> HandleCompliance(CliOptions options)
+{
+    var engine = BuildEngine(options.ModulesFilter);
+    var sw = Stopwatch.StartNew();
+
+    if (!options.Quiet)
+    {
+        ConsoleFormatter.PrintBanner();
+        Console.WriteLine("  Running audit for compliance mapping...");
+        Console.WriteLine();
+    }
+
+    var progress = options.Quiet
+        ? null
+        : new Progress<(string module, int current, int total)>(p =>
+            ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
+
+    var report = await engine.RunFullAuditAsync(progress);
+    sw.Stop();
+
+    if (!options.Quiet)
+    {
+        ConsoleFormatter.PrintProgressDone(engine.Modules.Count, sw.Elapsed);
+        ConsoleFormatter.PrintScore(report.SecurityScore);
+        Console.WriteLine();
+    }
+
+    var mapper = new ComplianceMapper();
+
+    if (options.ComplianceAll || options.ComplianceFramework == null)
+    {
+        // Cross-framework analysis
+        var crossSummary = mapper.CrossFrameworkAnalysis(report);
+
+        if (options.ComplianceFormat == "json")
+        {
+            var jsonOpts = new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                Converters = { new JsonStringEnumConverter() }
+            };
+            var jsonOutput = JsonSerializer.Serialize(crossSummary, jsonOpts);
+            WriteOutput(jsonOutput, options.OutputFile);
+        }
+        else if (options.ComplianceFormat == "markdown")
+        {
+            var md = GenerateComplianceMarkdown(crossSummary, mapper, report, options.ComplianceGapsOnly);
+            WriteOutput(md, options.OutputFile);
+        }
+        else
+        {
+            ConsoleFormatter.PrintCrossFrameworkSummary(crossSummary);
+            Console.WriteLine();
+
+            // Show detailed reports for each framework
+            foreach (var fr in crossSummary.FrameworkResults)
+            {
+                var detailedReport = mapper.Evaluate(report, fr.FrameworkId);
+                ConsoleFormatter.PrintComplianceReport(detailedReport, options.ComplianceGapsOnly);
+                Console.WriteLine();
+            }
+        }
+    }
+    else
+    {
+        // Single framework
+        var framework = mapper.GetFramework(options.ComplianceFramework);
+        if (framework == null)
+        {
+            ConsoleFormatter.PrintError(
+                $"Unknown framework: '{options.ComplianceFramework}'. Available: {string.Join(", ", mapper.FrameworkIds)}");
+            return 3;
+        }
+
+        var compReport = mapper.Evaluate(report, options.ComplianceFramework);
+
+        if (options.ComplianceFormat == "json")
+        {
+            var jsonOpts = new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                Converters = { new JsonStringEnumConverter() }
+            };
+            var jsonOutput = JsonSerializer.Serialize(compReport, jsonOpts);
+            WriteOutput(jsonOutput, options.OutputFile);
+        }
+        else if (options.ComplianceFormat == "markdown")
+        {
+            var md = GenerateSingleFrameworkMarkdown(compReport, options.ComplianceGapsOnly);
+            WriteOutput(md, options.OutputFile);
+        }
+        else
+        {
+            ConsoleFormatter.PrintComplianceReport(compReport, options.ComplianceGapsOnly);
+        }
+    }
+
+    if (!string.IsNullOrWhiteSpace(options.OutputFile) && !options.Quiet)
+        Console.WriteLine($"\n  Compliance report saved to {options.OutputFile}");
+
+    // Save audit to history
+    using var compHistoryService = new AuditHistoryService();
+    compHistoryService.SaveAuditResult(report);
+
+    return 0;
+}
+
+static string GenerateComplianceMarkdown(CrossFrameworkSummary summary, ComplianceMapper mapper, SecurityReport report, bool gapsOnly)
+{
+    var sb = new System.Text.StringBuilder();
+    sb.AppendLine("# WinSentinel Compliance Report");
+    sb.AppendLine();
+    sb.AppendLine($"**Security Score:** {summary.SecurityScore}/100");
+    sb.AppendLine($"**Generated:** {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss}");
+    sb.AppendLine();
+    sb.AppendLine("## Cross-Framework Summary");
+    sb.AppendLine();
+    sb.AppendLine("| Framework | Compliance | Verdict | Pass | Fail | Partial | N/A |");
+    sb.AppendLine("|-----------|-----------|---------|------|------|---------|-----|");
+
+    foreach (var fr in summary.FrameworkResults)
+    {
+        sb.AppendLine($"| {fr.FrameworkName} | {fr.CompliancePercentage}% | {fr.Verdict} | {fr.PassCount} | {fr.FailCount} | {fr.PartialCount} | {fr.NotAssessedCount} |");
+    }
+
+    sb.AppendLine();
+
+    foreach (var fr in summary.FrameworkResults)
+    {
+        var detailedReport = mapper.Evaluate(report, fr.FrameworkId);
+        sb.AppendLine($"## {detailedReport.FrameworkName} (v{detailedReport.FrameworkVersion})");
+        sb.AppendLine();
+        sb.AppendLine($"Compliance: **{detailedReport.Summary.CompliancePercentage}%** — {detailedReport.Summary.OverallVerdict}");
+        sb.AppendLine();
+        sb.AppendLine("| Control | Title | Status | Remediation |");
+        sb.AppendLine("|---------|-------|--------|-------------|");
+
+        foreach (var ctrl in detailedReport.Controls)
+        {
+            if (gapsOnly && ctrl.Status == ControlStatus.Pass) continue;
+            var remediation = ctrl.Remediation.Count > 0
+                ? string.Join("; ", ctrl.Remediation.Take(2))
+                : "—";
+            sb.AppendLine($"| {ctrl.ControlId} | {ctrl.ControlTitle} | {ctrl.Status} | {remediation} |");
+        }
+        sb.AppendLine();
+    }
+
+    return sb.ToString();
+}
+
+static string GenerateSingleFrameworkMarkdown(ComplianceReport compReport, bool gapsOnly)
+{
+    var sb = new System.Text.StringBuilder();
+    sb.AppendLine($"# {compReport.FrameworkName} Compliance Report");
+    sb.AppendLine();
+    sb.AppendLine($"**Version:** {compReport.FrameworkVersion}");
+    sb.AppendLine($"**Generated:** {compReport.GeneratedAt:yyyy-MM-dd HH:mm:ss}");
+    sb.AppendLine($"**Compliance:** {compReport.Summary.CompliancePercentage}% — {compReport.Summary.OverallVerdict}");
+    sb.AppendLine();
+    sb.AppendLine("## Control Results");
+    sb.AppendLine();
+    sb.AppendLine("| Control | Title | Status | Remediation |");
+    sb.AppendLine("|---------|-------|--------|-------------|");
+
+    foreach (var ctrl in compReport.Controls)
+    {
+        if (gapsOnly && ctrl.Status == ControlStatus.Pass) continue;
+        var remediation = ctrl.Remediation.Count > 0
+            ? string.Join("; ", ctrl.Remediation.Take(2))
+            : "—";
+        sb.AppendLine($"| {ctrl.ControlId} | {ctrl.ControlTitle} | {ctrl.Status} | {remediation} |");
+    }
+    sb.AppendLine();
+
+    sb.AppendLine("## Summary");
+    sb.AppendLine();
+    sb.AppendLine($"- **Pass:** {compReport.Summary.PassCount}");
+    sb.AppendLine($"- **Fail:** {compReport.Summary.FailCount}");
+    sb.AppendLine($"- **Partial:** {compReport.Summary.PartialCount}");
+    sb.AppendLine($"- **Not Assessed:** {compReport.Summary.NotAssessedCount}");
+
+    return sb.ToString();
 }

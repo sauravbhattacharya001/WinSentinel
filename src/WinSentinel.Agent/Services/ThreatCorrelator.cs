@@ -188,67 +188,54 @@ public class ThreatCorrelator
     }
 
     /// <summary>
-    /// Rule 2: Defender disabled + new unsigned process from temp = critical chain.
+    /// Rule 2: Defender disabled + suspicious/unsigned process = critical chain.
+    /// Uses bidirectional matching: fires whether the new event is the process or the Defender-disable.
     /// </summary>
     internal void CheckDefenderPlusUnsigned(ThreatEvent newEvent, List<ThreatEvent> window, List<CorrelatedThreat> results)
     {
-        bool defenderDisabled = window.Any(e =>
+        static bool IsDefenderDisable(ThreatEvent e) =>
             e.Title.Contains("Defender", StringComparison.OrdinalIgnoreCase) &&
-            e.Title.Contains("Disabled", StringComparison.OrdinalIgnoreCase));
+            e.Title.Contains("Disabled", StringComparison.OrdinalIgnoreCase);
 
-        if (!defenderDisabled) return;
+        static bool IsSuspiciousProcess(ThreatEvent e) =>
+            e.Source == "ProcessMonitor" && e.Severity >= ThreatSeverity.Medium;
 
-        var suspiciousProcessEvent = window.FirstOrDefault(e =>
-            e.Source == "ProcessMonitor" &&
-            e.Severity >= ThreatSeverity.Medium &&
-            (e.Title.Contains("Unsigned", StringComparison.OrdinalIgnoreCase) ||
-             e.Title.Contains("Suspicious", StringComparison.OrdinalIgnoreCase) ||
-             e.Description.Contains("Temp", StringComparison.OrdinalIgnoreCase)));
-
-        bool suspiciousProcess = suspiciousProcessEvent != null;
-
-        // Only correlate if newEvent IS the suspicious process — otherwise every
-        // benign process event floods Critical correlations while the window
-        // contains any earlier suspicious process + Defender-disabled pair.
-        if (newEvent.Source == "ProcessMonitor" &&
-            newEvent.Severity >= ThreatSeverity.Medium &&
-            !IsRecentCorrelation("DefenderPlusUnsigned", newEvent.Id))
+        // Branch A: newEvent is a suspicious process → look for Defender-disable in window
+        if (IsSuspiciousProcess(newEvent))
         {
-            var defenderEvent = window.First(e =>
-                e.Title.Contains("Defender", StringComparison.OrdinalIgnoreCase) &&
-                e.Title.Contains("Disabled", StringComparison.OrdinalIgnoreCase));
-
-            var processEvent = newEvent;
-
-            results.Add(new CorrelatedThreat
+            var defenderEvent = window.FirstOrDefault(e => IsDefenderDisable(e) && e.Id != newEvent.Id);
+            if (defenderEvent != null && !IsRecentCorrelation("DefenderPlusUnsigned", newEvent.Id))
             {
-                ContributingEvents = { defenderEvent, processEvent },
-                CombinedSeverity = ThreatSeverity.Critical,
-                RuleName = "DefenderPlusUnsigned",
-                ChainDescription = $"Windows Defender was disabled, and a suspicious/unsigned process was detected. " +
-                                   $"Process: {processEvent.Title}. " +
-                                   $"This is a classic attack pattern: disable defenses, then deploy payload.",
-                ThreatScore = CalculateChainScore(defenderEvent, processEvent) + 50
-            });
+                results.Add(new CorrelatedThreat
+                {
+                    ContributingEvents = { defenderEvent, newEvent },
+                    CombinedSeverity = ThreatSeverity.Critical,
+                    RuleName = "DefenderPlusUnsigned",
+                    ChainDescription = $"Windows Defender was disabled, and a suspicious/unsigned process was detected. " +
+                                       $"Process: {newEvent.Title}. " +
+                                       $"This is a classic attack pattern: disable defenses, then deploy payload.",
+                    ThreatScore = CalculateChainScore(defenderEvent, newEvent) + 50
+                });
+                return; // One correlation per event is sufficient
+            }
         }
 
-        // Also trigger if the new event IS the Defender disable and there are already suspicious processes
-        // Skip if we already emitted a correlation from the first branch above
-        if (results.All(r => r.RuleName != "DefenderPlusUnsigned") &&
-            newEvent.Title.Contains("Defender", StringComparison.OrdinalIgnoreCase) &&
-            newEvent.Title.Contains("Disabled", StringComparison.OrdinalIgnoreCase) &&
-            suspiciousProcess &&
-            !IsRecentCorrelation("DefenderPlusUnsigned", "reverse"))
+        // Branch B: newEvent is a Defender-disable → look for suspicious process in window
+        if (IsDefenderDisable(newEvent))
         {
-            results.Add(new CorrelatedThreat
+            var processEvent = window.FirstOrDefault(e => IsSuspiciousProcess(e) && e.Id != newEvent.Id);
+            if (processEvent != null && !IsRecentCorrelation("DefenderPlusUnsigned", "reverse"))
             {
-                ContributingEvents = { newEvent, suspiciousProcessEvent },
-                CombinedSeverity = ThreatSeverity.Critical,
-                RuleName = "DefenderPlusUnsigned",
-                ChainDescription = $"Windows Defender was just disabled while suspicious processes are running. " +
-                                   $"Process: {suspiciousProcessEvent.Title}. Immediate investigation required.",
-                ThreatScore = CalculateChainScore(newEvent, suspiciousProcessEvent!) + 50
-            });
+                results.Add(new CorrelatedThreat
+                {
+                    ContributingEvents = { newEvent, processEvent },
+                    CombinedSeverity = ThreatSeverity.Critical,
+                    RuleName = "DefenderPlusUnsigned",
+                    ChainDescription = $"Windows Defender was just disabled while suspicious processes are running. " +
+                                       $"Process: {processEvent.Title}. Immediate investigation required.",
+                    ThreatScore = CalculateChainScore(newEvent, processEvent) + 50
+                });
+            }
         }
     }
 
@@ -312,27 +299,33 @@ public class ThreatCorrelator
 
     /// <summary>
     /// Rule 4: Hosts file modification + suspicious process = DNS hijacking with malware.
+    /// Uses bidirectional matching like the other rules.
     /// </summary>
     internal void CheckHostsFileAndProcess(ThreatEvent newEvent, List<ThreatEvent> window, List<CorrelatedThreat> results)
     {
-        bool hostsModified = window.Any(e =>
-            e.Title.Contains("Hosts File", StringComparison.OrdinalIgnoreCase));
+        static bool IsHostsEvent(ThreatEvent e) =>
+            e.Title.Contains("Hosts File", StringComparison.OrdinalIgnoreCase);
 
-        bool suspiciousProcess = window.Any(e =>
-            e.Source == "ProcessMonitor" &&
-            e.Severity >= ThreatSeverity.Medium);
+        static bool IsSuspiciousProcess(ThreatEvent e) =>
+            e.Source == "ProcessMonitor" && e.Severity >= ThreatSeverity.Medium;
 
-        if (!hostsModified || !suspiciousProcess) return;
+        ThreatEvent? hostsEvent = null;
+        ThreatEvent? processEvent = null;
 
-        if ((newEvent.Title.Contains("Hosts File", StringComparison.OrdinalIgnoreCase) ||
-             (newEvent.Source == "ProcessMonitor" && newEvent.Severity >= ThreatSeverity.Medium)) &&
+        if (IsHostsEvent(newEvent))
+        {
+            processEvent = window.FirstOrDefault(e => IsSuspiciousProcess(e) && e.Id != newEvent.Id);
+            hostsEvent = newEvent;
+        }
+        else if (IsSuspiciousProcess(newEvent))
+        {
+            hostsEvent = window.FirstOrDefault(e => IsHostsEvent(e) && e.Id != newEvent.Id);
+            processEvent = newEvent;
+        }
+
+        if (hostsEvent != null && processEvent != null &&
             !IsRecentCorrelation("HostsFilePlusProcess", ""))
         {
-            var hostsEvent = window.First(e =>
-                e.Title.Contains("Hosts File", StringComparison.OrdinalIgnoreCase));
-            var processEvent = window.First(e =>
-                e.Source == "ProcessMonitor" && e.Severity >= ThreatSeverity.Medium);
-
             results.Add(new CorrelatedThreat
             {
                 ContributingEvents = { hostsEvent, processEvent },

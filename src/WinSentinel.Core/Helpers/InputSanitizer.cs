@@ -274,7 +274,7 @@ public static partial class InputSanitizer
             return "Contains Invoke-Expression (arbitrary code execution)";
         if (lower.Contains("add-type") && (lower.Contains("-typedefinition") || lower.Contains("-memberdef")))
             return "Contains Add-Type with inline code (arbitrary C# execution)";
-        if (lower.Contains("start-process") && (lower.Contains("-verb runas") || lower.Contains("powershell") || lower.Contains("cmd")))
+        if (lower.Contains("start-process") && (lower.Contains("-verb runas") || lower.Contains("powershell") || lower.Contains("pwsh") || lower.Contains("cmd")))
             return "Contains Start-Process launching shell (potential escalation)";
 
         // Credential access
@@ -290,9 +290,10 @@ public static partial class InputSanitizer
 
         // Encoded commands (bypass detection)
         // PowerShell accepts abbreviated parameter names: -EncodedCommand, -Enc, -EC, -En, etc.
+        // Check both "powershell" and "pwsh" (PowerShell 7's executable name).
         if (lower.Contains("-encodedcommand") || lower.Contains("-enc ") ||
             lower.Contains("-ec ") || lower.Contains("-en ") ||
-            lower.Contains("-e ") && lower.Contains("powershell"))
+            (lower.Contains("-e ") && (lower.Contains("powershell") || lower.Contains("pwsh"))))
             return "Contains encoded command (potential bypass)";
 
         // Subexpression injection (PowerShell $(...) executes inside double-quoted strings)
@@ -352,8 +353,14 @@ public static partial class InputSanitizer
             return "Contains service creation (persistence/escalation)";
 
         // Pipe-based command chaining (can bypass individual command checks)
-        if (command.Contains('|') && (lower.Contains("powershell") || lower.Contains("cmd")))
+        if (command.Contains('|') && (lower.Contains("powershell") || lower.Contains("pwsh") || lower.Contains("cmd")))
             return "Contains piped shell execution (potential bypass)";
+
+        // cmd.exe /c chaining — allows arbitrary command execution through the
+        // Windows command interpreter, bypassing PowerShell-specific blocklists.
+        // Also catches cmd /k (keep window open after execution).
+        if (CmdExePattern().IsMatch(lower))
+            return "Contains cmd.exe command execution (potential bypass)";
 
         // ── Additional bypass vectors ──
 
@@ -380,7 +387,7 @@ public static partial class InputSanitizer
             return "Contains environment variable reference (potential path resolution bypass)";
 
         // PowerShell -File parameter — executes an arbitrary .ps1 script
-        if (lower.Contains("-file ") && lower.Contains(".ps1"))
+        if (lower.Contains("-file ") && (lower.Contains(".ps1") || lower.Contains("powershell") || lower.Contains("pwsh")))
             return "Contains PowerShell script file execution";
 
         // Null bytes — can truncate strings in native APIs, bypassing validation
@@ -478,4 +485,8 @@ public static partial class InputSanitizer
     /// <summary>Matches PowerShell format operator patterns used to reconstruct keywords.</summary>
     [GeneratedRegex(@"""\{[0-9]+\}.*""\s*-f\s*'[a-zA-Z]", RegexOptions.IgnoreCase)]
     private static partial Regex FormatOperatorPattern();
+
+    /// <summary>Matches cmd.exe /c or /k invocation patterns (e.g., "cmd /c", "cmd.exe /c").</summary>
+    [GeneratedRegex(@"\bcmd(?:\.exe)?\s+/[ck]\b", RegexOptions.IgnoreCase)]
+    private static partial Regex CmdExePattern();
 }

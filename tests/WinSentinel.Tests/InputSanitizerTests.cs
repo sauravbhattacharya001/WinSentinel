@@ -914,4 +914,26 @@ public class IpcDtoTests
     {
         Assert.Null(InputSanitizer.ValidateFilePath(@"\\?\C:\Windows\System32\cmd.exe"));
     }
+
+    // ── pwsh (PowerShell 7) bypass vectors ──────────────────────────
+
+    [Theory]
+    [InlineData("pwsh -e ZQBjAGgAbwAgACIAaABlAGwAbABvACIA")]
+    [InlineData("pwsh.exe -EncodedCommand ZQBjAGgAbwAgACIAaABlAGwAbABvACIA")]
+    [InlineData("Start-Process pwsh -ArgumentList '-NoProfile'")]
+    public void CheckDangerousCommand_PwshBypass_Blocks(string input)
+    {
+        Assert.NotNull(InputSanitizer.CheckDangerousCommand(input));
+    }
+
+    // ── cmd.exe /c bypass vectors ───────────────────────────────────
+
+    [Theory]
+    [InlineData("cmd /c del /s /q C:\\Users")]
+    [InlineData("cmd.exe /c whoami")]
+    [InlineData("cmd /k net user hacker P@ss /add")]
+    public void CheckDangerousCommand_CmdExeBypass_Blocks(string input)
+    {
+        Assert.NotNull(InputSanitizer.CheckDangerousCommand(input));
+    }
 }

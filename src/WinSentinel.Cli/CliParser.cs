@@ -92,6 +92,12 @@ public class CliOptions
     public string ComplianceFormat { get; set; } = "text";
     public bool ComplianceGapsOnly { get; set; }
     public bool ComplianceAll { get; set; }
+    public string InventoryFormat { get; set; } = "text";
+    public bool InventoryNoApps { get; set; }
+    public bool InventoryNoServices { get; set; }
+    public bool InventoryNoPorts { get; set; }
+    public bool InventoryNoStartup { get; set; }
+    public bool InventoryNoTasks { get; set; }
 }
 
 public enum CliCommand
@@ -124,6 +130,7 @@ public enum CliCommand
     Cost,
     Benchmark,
     Compliance,
+    Inventory,
     Help,
     Version
 }
@@ -1024,6 +1031,36 @@ public static class CliParser
 
                 case "--compliance-all":
                     options.ComplianceAll = true;
+                    break;
+
+                case "--inventory":
+                    options.Command = CliCommand.Inventory;
+                    break;
+
+                case "--inventory-format":
+                    if (!TryConsumeArg(args, ref i, "--inventory-format", out var invFmt, out var invFmtErr))
+                    { options.Error = invFmtErr; return options; }
+                    options.InventoryFormat = invFmt.ToLowerInvariant();
+                    break;
+
+                case "--no-apps":
+                    options.InventoryNoApps = true;
+                    break;
+
+                case "--no-services":
+                    options.InventoryNoServices = true;
+                    break;
+
+                case "--no-ports":
+                    options.InventoryNoPorts = true;
+                    break;
+
+                case "--no-startup":
+                    options.InventoryNoStartup = true;
+                    break;
+
+                case "--no-tasks":
+                    options.InventoryNoTasks = true;
                     break;
 
                 default:

@@ -331,6 +331,15 @@ public static partial class ConsoleFormatter
         WriteHelpEntry("    --compliance-gaps        ", "Show only failing/partial controls (gap analysis)");
         WriteHelpEntry("    --compliance-all         ", "Show all frameworks in detail");
         Console.WriteLine();
+        WriteLineColored("  SYSTEM INVENTORY:", ConsoleColor.Yellow);
+        WriteHelpEntry("    --inventory              ", "Snapshot installed apps, services, ports, startup, tasks");
+        WriteHelpEntry("    --inventory-format <f>   ", "Output format: text (default), json, markdown");
+        WriteHelpEntry("    --no-apps                ", "Skip installed applications");
+        WriteHelpEntry("    --no-services            ", "Skip Windows services");
+        WriteHelpEntry("    --no-ports               ", "Skip listening ports");
+        WriteHelpEntry("    --no-startup             ", "Skip startup programs");
+        WriteHelpEntry("    --no-tasks               ", "Skip scheduled tasks");
+        Console.WriteLine();
         Console.WriteLine("  EXAMPLES:");
         WriteLineColored("    winsentinel --audit                              # Full audit with colored output", ConsoleColor.DarkGray);
         WriteLineColored("    winsentinel --audit --json                       # JSON output for scripting", ConsoleColor.DarkGray);

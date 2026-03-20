@@ -47,6 +47,7 @@ return options.Command switch
     CliCommand.Cost => await HandleCost(options),
     CliCommand.Benchmark => await HandleBenchmark(options),
     CliCommand.Compliance => await HandleCompliance(options),
+    CliCommand.Inventory => HandleInventory(options),
     _ => HandleHelp()
 };
 
@@ -2825,4 +2826,295 @@ static string GenerateSingleFrameworkMarkdown(ComplianceReport compReport, bool 
     sb.AppendLine($"- **Not Assessed:** {compReport.Summary.NotAssessedCount}");
 
     return sb.ToString();
+}
+
+// ── System Inventory ─────────────────────────────────────────────────
+
+static int HandleInventory(CliOptions options)
+{
+    if (!options.Quiet)
+    {
+        ConsoleFormatter.PrintBanner();
+        Console.WriteLine("  Collecting system inventory...");
+        Console.WriteLine();
+    }
+
+    var inventory = CollectInventory(options);
+
+    if (options.Json || options.InventoryFormat == "json")
+    {
+        WriteOutput(ConsoleFormatter.FormatInventoryJson(inventory), options.OutputFile);
+        return 0;
+    }
+
+    if (options.Markdown || options.InventoryFormat is "markdown" or "md")
+    {
+        WriteOutput(ConsoleFormatter.FormatInventoryMarkdown(inventory), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintInventory(inventory);
+    return 0;
+}
+
+static ConsoleFormatter.SystemInventory CollectInventory(CliOptions options)
+{
+    var apps = new List<ConsoleFormatter.InstalledApp>();
+    var services = new List<ConsoleFormatter.ServiceEntry>();
+    var startupPrograms = new List<ConsoleFormatter.StartupEntry>();
+    var listeningPorts = new List<ConsoleFormatter.ListeningPort>();
+    var scheduledTasks = new List<ConsoleFormatter.ScheduledTaskEntry>();
+    var envVars = new Dictionary<string, string>();
+
+    if (!options.InventoryNoApps)
+    {
+        apps = CollectInstalledApps();
+        if (!options.Quiet) Console.WriteLine($"  ✓ Found {apps.Count} installed applications");
+    }
+
+    if (!options.InventoryNoServices)
+    {
+        services = CollectServices();
+        if (!options.Quiet) Console.WriteLine($"  ✓ Found {services.Count} services");
+    }
+
+    if (!options.InventoryNoPorts)
+    {
+        listeningPorts = CollectListeningPorts();
+        if (!options.Quiet) Console.WriteLine($"  ✓ Found {listeningPorts.Count} listening ports");
+    }
+
+    if (!options.InventoryNoStartup)
+    {
+        startupPrograms = CollectStartupPrograms();
+        if (!options.Quiet) Console.WriteLine($"  ✓ Found {startupPrograms.Count} startup programs");
+    }
+
+    if (!options.InventoryNoTasks)
+    {
+        scheduledTasks = CollectScheduledTasks();
+        if (!options.Quiet) Console.WriteLine($"  ✓ Found {scheduledTasks.Count} scheduled tasks");
+    }
+
+    foreach (System.Collections.DictionaryEntry entry in Environment.GetEnvironmentVariables())
+    {
+        if (entry.Key is string key && entry.Value is string val)
+            envVars[key] = val;
+    }
+
+    if (!options.Quiet) Console.WriteLine();
+
+    long totalMemoryMB = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / (1024 * 1024);
+    var uptime = TimeSpan.FromMilliseconds(Environment.TickCount64);
+
+    return new ConsoleFormatter.SystemInventory(
+        Environment.MachineName,
+        Environment.OSVersion.ToString(),
+        Environment.UserName,
+        Environment.ProcessorCount,
+        totalMemoryMB,
+        $"{uptime.Days}d {uptime.Hours}h {uptime.Minutes}m",
+        DateTimeOffset.Now,
+        apps, services, startupPrograms, listeningPorts, scheduledTasks, envVars
+    );
+}
+
+static List<ConsoleFormatter.InstalledApp> CollectInstalledApps()
+{
+    var apps = new List<ConsoleFormatter.InstalledApp>();
+    var regPaths = new[]
+    {
+        @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
+        @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+    };
+
+    foreach (var regPath in regPaths)
+    {
+        try
+        {
+            using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(regPath);
+            if (key == null) continue;
+
+            foreach (var subKeyName in key.GetSubKeyNames())
+            {
+                try
+                {
+                    using var subKey = key.OpenSubKey(subKeyName);
+                    if (subKey == null) continue;
+
+                    var name = subKey.GetValue("DisplayName")?.ToString();
+                    if (string.IsNullOrWhiteSpace(name)) continue;
+                    if (apps.Any(a => a.Name == name)) continue;
+
+                    var version = subKey.GetValue("DisplayVersion")?.ToString() ?? "";
+                    var publisher = subKey.GetValue("Publisher")?.ToString() ?? "";
+                    var installDate = subKey.GetValue("InstallDate")?.ToString() ?? "";
+
+                    if (installDate.Length == 8 && int.TryParse(installDate, out _))
+                        installDate = $"{installDate[..4]}-{installDate[4..6]}-{installDate[6..]}";
+
+                    apps.Add(new ConsoleFormatter.InstalledApp(name, version, publisher, installDate));
+                }
+                catch { }
+            }
+        }
+        catch { }
+    }
+
+    return apps;
+}
+
+static List<ConsoleFormatter.ServiceEntry> CollectServices()
+{
+    var services = new List<ConsoleFormatter.ServiceEntry>();
+    try
+    {
+        foreach (var svc in System.ServiceProcess.ServiceController.GetServices())
+        {
+            try
+            {
+                services.Add(new ConsoleFormatter.ServiceEntry(
+                    svc.ServiceName, svc.DisplayName, svc.Status.ToString(), svc.StartType.ToString()
+                ));
+            }
+            catch { }
+            finally { svc.Dispose(); }
+        }
+    }
+    catch { }
+    return services;
+}
+
+static List<ConsoleFormatter.ListeningPort> CollectListeningPorts()
+{
+    var ports = new List<ConsoleFormatter.ListeningPort>();
+    try
+    {
+        var ipProps = System.Net.NetworkInformation.IPGlobalProperties.GetIPGlobalProperties();
+        foreach (var ep in ipProps.GetActiveTcpListeners())
+            ports.Add(new ConsoleFormatter.ListeningPort(ep.Port, "TCP", "—", 0));
+        foreach (var ep in ipProps.GetActiveUdpListeners())
+            ports.Add(new ConsoleFormatter.ListeningPort(ep.Port, "UDP", "—", 0));
+
+        ports = ports.GroupBy(p => new { p.Port, p.Protocol }).Select(g => g.First()).ToList();
+    }
+    catch { }
+
+    // Enrich with process names via netstat
+    try
+    {
+        var psi = new System.Diagnostics.ProcessStartInfo("netstat", "-bno")
+        {
+            RedirectStandardOutput = true, UseShellExecute = false, CreateNoWindow = true
+        };
+        using var proc = System.Diagnostics.Process.Start(psi);
+        if (proc != null)
+        {
+            var output = proc.StandardOutput.ReadToEnd();
+            proc.WaitForExit(5000);
+            var lines = output.Split('\n');
+            for (int li = 0; li < lines.Length; li++)
+            {
+                var line = lines[li].Trim();
+                if (!line.Contains("LISTENING")) continue;
+                var parts = line.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length < 5) continue;
+                var proto = parts[0];
+                var localAddr = parts[1];
+                var colonIdx = localAddr.LastIndexOf(':');
+                if (colonIdx < 0) continue;
+                if (!int.TryParse(localAddr[(colonIdx + 1)..], out var port)) continue;
+                if (!int.TryParse(parts[^1], out var pid)) continue;
+                var processName = "—";
+                if (li + 1 < lines.Length)
+                {
+                    var nextLine = lines[li + 1].Trim();
+                    if (nextLine.StartsWith("[") && nextLine.EndsWith("]"))
+                        processName = nextLine[1..^1];
+                }
+                var existing = ports.FirstOrDefault(p => p.Port == port && p.Protocol == proto);
+                if (existing != null) ports.Remove(existing);
+                ports.Add(new ConsoleFormatter.ListeningPort(port, proto, processName, pid));
+            }
+        }
+    }
+    catch { }
+
+    return ports;
+}
+
+static List<ConsoleFormatter.StartupEntry> CollectStartupPrograms()
+{
+    var entries = new List<ConsoleFormatter.StartupEntry>();
+    var regPaths = new (Microsoft.Win32.RegistryKey root, string path, string location)[]
+    {
+        (Microsoft.Win32.Registry.LocalMachine, @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", "HKLM\\Run"),
+        (Microsoft.Win32.Registry.CurrentUser, @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", "HKCU\\Run"),
+        (Microsoft.Win32.Registry.LocalMachine, @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Run", "HKLM\\Run (x86)"),
+    };
+
+    foreach (var (root, path, location) in regPaths)
+    {
+        try
+        {
+            using var key = root.OpenSubKey(path);
+            if (key == null) continue;
+            foreach (var valueName in key.GetValueNames())
+            {
+                var cmd = key.GetValue(valueName)?.ToString() ?? "";
+                if (!string.IsNullOrWhiteSpace(valueName) && !string.IsNullOrWhiteSpace(cmd))
+                    entries.Add(new ConsoleFormatter.StartupEntry(valueName, cmd, location));
+            }
+        }
+        catch { }
+    }
+    return entries;
+}
+
+static List<ConsoleFormatter.ScheduledTaskEntry> CollectScheduledTasks()
+{
+    var tasks = new List<ConsoleFormatter.ScheduledTaskEntry>();
+    try
+    {
+        var psi = new System.Diagnostics.ProcessStartInfo("schtasks", "/query /fo CSV /nh")
+        {
+            RedirectStandardOutput = true, UseShellExecute = false, CreateNoWindow = true
+        };
+        using var proc = System.Diagnostics.Process.Start(psi);
+        if (proc != null)
+        {
+            var output = proc.StandardOutput.ReadToEnd();
+            proc.WaitForExit(10000);
+            foreach (var line in output.Split('\n'))
+            {
+                var trimmed = line.Trim();
+                if (string.IsNullOrEmpty(trimmed)) continue;
+                var fields = ParseCsvLine(trimmed);
+                if (fields.Count < 3) continue;
+                var name = fields[0].Trim('"');
+                var nextRun = fields[1].Trim('"');
+                var state = fields[2].Trim('"');
+                if (name.StartsWith(@"\Microsoft\Windows\")) continue;
+                if (name == "TaskName") continue;
+                tasks.Add(new ConsoleFormatter.ScheduledTaskEntry(name, state, nextRun, "—"));
+            }
+        }
+    }
+    catch { }
+    return tasks;
+}
+
+static List<string> ParseCsvLine(string line)
+{
+    var fields = new List<string>();
+    var current = new System.Text.StringBuilder();
+    bool inQuotes = false;
+    foreach (var ch in line)
+    {
+        if (ch == '"') { inQuotes = !inQuotes; current.Append(ch); }
+        else if (ch == ',' && !inQuotes) { fields.Add(current.ToString()); current.Clear(); }
+        else { current.Append(ch); }
+    }
+    fields.Add(current.ToString());
+    return fields;
 }

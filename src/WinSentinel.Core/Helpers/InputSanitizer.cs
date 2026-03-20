@@ -146,6 +146,11 @@ public static partial class InputSanitizer
         if (trimmed.StartsWith(@"\\") || trimmed.StartsWith("//"))
             return null;
 
+        // Reject environment variable expansion (%VAR% or $env:VAR) which could
+        // resolve to protected paths at runtime, bypassing the static directory check
+        if (trimmed.Contains('%') || trimmed.Contains("$env:", StringComparison.OrdinalIgnoreCase))
+            return null;
+
         // Reject path traversal sequences before canonicalization
         if (trimmed.Contains(".."))
             return null;
@@ -290,9 +295,10 @@ public static partial class InputSanitizer
 
         // Encoded commands (bypass detection)
         // PowerShell accepts abbreviated parameter names: -EncodedCommand, -Enc, -EC, -En, etc.
-        if (lower.Contains("-encodedcommand") || lower.Contains("-enc ") ||
-            lower.Contains("-ec ") || lower.Contains("-en ") ||
-            lower.Contains("-e ") && lower.Contains("powershell"))
+        // Use regex to catch all abbreviations reliably, including edge cases like
+        // `-eNc` (mixed case) and `-e <base64>` without requiring `powershell` in the string
+        // (the command itself may already BE the PowerShell arguments).
+        if (EncodedCommandPattern().IsMatch(command))
             return "Contains encoded command (potential bypass)";
 
         // Subexpression injection (PowerShell $(...) executes inside double-quoted strings)
@@ -357,6 +363,13 @@ public static partial class InputSanitizer
 
         // ── Additional bypass vectors ──
 
+        // Variable-based command construction — `$x = 'IEX'; & $x $payload`
+        // bypasses all keyword detection since the dangerous command name only
+        // appears at runtime. Reject commands that assign to variables and then
+        // invoke them via the call operator.
+        if (VariableInvocationPattern().IsMatch(command))
+            return "Contains variable-based command invocation (potential keyword bypass)";
+
         // PowerShell call operator — `& { code }` or `& "path"` executes arbitrary commands
         // without triggering other blocklists.  Also catches `Invoke-Command` and `.Invoke()`.
         if (lower.Contains("invoke-command") || lower.Contains("enter-pssession") ||
@@ -409,8 +422,12 @@ public static partial class InputSanitizer
             return "Contains string concatenation obfuscation (potential keyword bypass)";
 
         // Semicolon command chaining — `safe-cmd; malicious-cmd` can smuggle dangerous
-        // commands past checks that only examine the overall string once
-        if (command.Contains(';') && !command.TrimEnd().EndsWith(";"))
+        // commands past checks that only examine the overall string once.
+        // The previous check (`!command.TrimEnd().EndsWith(";")`) was trivially
+        // bypassed by appending a trailing semicolon: `evil-cmd; payload;`.
+        // Now we reject any command containing a semicolon that has non-whitespace
+        // content on both sides (i.e., actual chaining, not a trailing semicolon).
+        if (SemicolonChainingPattern().IsMatch(command))
             return "Contains semicolon command chaining (potential bypass)";
 
         // PowerShell format operator — `"{0}{1}" -f 'Inv','oke-Expression'` reconstructs
@@ -478,4 +495,26 @@ public static partial class InputSanitizer
     /// <summary>Matches PowerShell format operator patterns used to reconstruct keywords.</summary>
     [GeneratedRegex(@"""\{[0-9]+\}.*""\s*-f\s*'[a-zA-Z]", RegexOptions.IgnoreCase)]
     private static partial Regex FormatOperatorPattern();
+
+    /// <summary>
+    /// Matches PowerShell -EncodedCommand and all valid abbreviations (-enc, -ec, -en, -e).
+    /// Case-insensitive. Requires the flag to be preceded by whitespace or start-of-string
+    /// and followed by whitespace + base64-like content.
+    /// </summary>
+    [GeneratedRegex(@"(?:^|\s)-e(?:n(?:c(?:o(?:d(?:e(?:d(?:c(?:o(?:m(?:m(?:a(?:nd?)?)?)?)?)?)?)?)?)?)?)?)?(?:\s|$)", RegexOptions.IgnoreCase)]
+    private static partial Regex EncodedCommandPattern();
+
+    /// <summary>
+    /// Matches semicolon command chaining where non-whitespace content exists on both sides.
+    /// Catches `cmd1; cmd2` and `cmd1; cmd2;` but not standalone `;` or trailing `;`.
+    /// </summary>
+    [GeneratedRegex(@"\S.*;.*\S")]
+    private static partial Regex SemicolonChainingPattern();
+
+    /// <summary>
+    /// Matches variable assignment + call operator invocation patterns like:
+    /// `$x = 'IEX'; & $x` or `$cmd = "Invoke-Expression"; & $cmd`.
+    /// </summary>
+    [GeneratedRegex(@"\$\w+\s*=\s*['""].*['""]\s*;.*&\s*\$", RegexOptions.IgnoreCase)]
+    private static partial Regex VariableInvocationPattern();
 }

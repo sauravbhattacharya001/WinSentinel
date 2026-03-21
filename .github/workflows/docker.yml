@@ -11,10 +11,16 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
   packages: write
   security-events: write
+  id-token: write
+  attestations: write
 
 jobs:
   docker:
@@ -158,4 +164,22 @@ jobs:
       with:
         sarif_file: 'trivy-results-${{ matrix.target }}.sarif'
         category: 'trivy-${{ matrix.target }}'
+      continue-on-error: true
+
+    - name: Generate SBOM
+      if: github.event_name != 'pull_request'
+      uses: anchore/sbom-action@v0
+      with:
+        image: ${{ steps.meta.outputs.primary }}
+        artifact-name: sbom-${{ matrix.target }}.spdx.json
+        output-file: sbom-${{ matrix.target }}.spdx.json
+      continue-on-error: true
+
+    - name: Attest build provenance
+      if: github.event_name != 'pull_request'
+      uses: actions/attest-build-provenance@v2
+      with:
+        subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        subject-digest: ${{ steps.meta.outputs.primary }}
+        push-to-registry: true
       continue-on-error: true

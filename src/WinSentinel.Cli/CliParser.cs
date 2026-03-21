@@ -109,6 +109,10 @@ public class CliOptions
     public string? TagAuthor { get; set; }
     public string? TagImportFile { get; set; }
     public bool TagMerge { get; set; } = true;
+    public int HotspotDays { get; set; } = 90;
+    public int HotspotMaxRuns { get; set; } = 0;
+    public int HotspotTop { get; set; } = 10;
+    public string HotspotFormat { get; set; } = "text";
 }
 
 public enum CliCommand
@@ -143,6 +147,7 @@ public enum CliCommand
     Compliance,
     Inventory,
     Tag,
+    Hotspots,
     Help,
     Version
 }
@@ -1177,6 +1182,34 @@ public static class CliParser
 
                 case "--tag-no-merge":
                     options.TagMerge = false;
+                    break;
+
+                case "--hotspots":
+                    options.Command = CliCommand.Hotspots;
+                    break;
+
+                case "--hotspots-days":
+                    if (!TryConsumeInt(args, ref i, "--hotspots-days", 1, 365, out var hsDays, out var hsDaysErr))
+                    { options.Error = hsDaysErr; return options; }
+                    options.HotspotDays = hsDays;
+                    break;
+
+                case "--hotspots-runs":
+                    if (!TryConsumeInt(args, ref i, "--hotspots-runs", 1, 500, out var hsRuns, out var hsRunsErr))
+                    { options.Error = hsRunsErr; return options; }
+                    options.HotspotMaxRuns = hsRuns;
+                    break;
+
+                case "--hotspots-top":
+                    if (!TryConsumeInt(args, ref i, "--hotspots-top", 1, 50, out var hsTop, out var hsTopErr))
+                    { options.Error = hsTopErr; return options; }
+                    options.HotspotTop = hsTop;
+                    break;
+
+                case "--hotspots-format":
+                    if (!TryConsumeArg(args, ref i, "--hotspots-format", out var hsFmt, out var hsFmtErr))
+                    { options.Error = hsFmtErr; return options; }
+                    options.HotspotFormat = hsFmt.ToLowerInvariant();
                     break;
 
                 default:

@@ -49,6 +49,7 @@ return options.Command switch
     CliCommand.Compliance => await HandleCompliance(options),
     CliCommand.Inventory => HandleInventory(options),
     CliCommand.Tag => HandleTag(options),
+    CliCommand.Hotspots => HandleHotspots(options),
     _ => HandleHelp()
 };
 
@@ -3533,5 +3534,95 @@ static int HandleTagImport(FindingTagManager manager, CliOptions options)
         Console.WriteLine();
     }
 
+    return 0;
+}
+
+// ── Hotspot Analysis ────────────────────────────────────────────────
+
+static int HandleHotspots(CliOptions options)
+{
+    var historyService = new AuditHistoryService();
+    historyService.EnsureDatabase();
+
+    var runs = historyService.GetHistory(options.HotspotDays);
+
+    if (runs.Count == 0)
+    {
+        if (options.Json)
+        {
+            WriteOutput("{\"error\": \"No audit history found. Run some audits first.\"}", options.OutputFile);
+        }
+        else if (!options.Quiet)
+        {
+            Console.WriteLine();
+            ConsoleFormatter.PrintError("No audit history found. Run some audits first.");
+        }
+        return 1;
+    }
+
+    // Load full details for each run
+    var detailedRuns = new List<AuditRunRecord>();
+    foreach (var run in runs)
+    {
+        var detailed = historyService.GetRunDetails(run.Id);
+        if (detailed != null)
+            detailedRuns.Add(detailed);
+    }
+
+    var analyzer = new HotspotAnalyzer();
+    var result = analyzer.Analyze(detailedRuns, options.HotspotMaxRuns);
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        WriteOutput(JsonSerializer.Serialize(result, jsonOptions), options.OutputFile);
+        return 0;
+    }
+
+    if (options.Markdown)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("# 🔥 Security Hotspot Analysis");
+        sb.AppendLine();
+        sb.AppendLine($"**Runs analyzed:** {result.RunsAnalyzed} (over {result.DaysSpan} days)");
+        sb.AppendLine($"**Overall heat:** {result.OverallHeatLevel} ({result.OverallHeat:F1})");
+        sb.AppendLine($"**Hottest category:** {result.HottestCategory}");
+        sb.AppendLine($"**Hottest module:** {result.HottestModule}");
+        sb.AppendLine();
+
+        if (result.CategoryHotspots.Count > 0)
+        {
+            sb.AppendLine("## Category Hotspots");
+            sb.AppendLine();
+            sb.AppendLine("| # | Category | Heat | Level | Rate | C | W | I | Avg | Trend |");
+            sb.AppendLine("|---|----------|------|-------|------|---|---|---|-----|-------|");
+            var idx = 0;
+            foreach (var h in result.CategoryHotspots.Take(options.HotspotTop))
+            {
+                idx++;
+                sb.AppendLine($"| {idx} | {h.Name} | {h.HeatScore:F1} | {h.HeatLevel} | {h.AppearanceRate:F0}% | {h.CriticalFindings} | {h.WarningFindings} | {h.InfoFindings} | {h.AvgFindingsPerRun:F1} | {h.Trend} |");
+            }
+            sb.AppendLine();
+        }
+
+        if (result.ModuleHotspots.Count > 0)
+        {
+            sb.AppendLine("## Module Hotspots");
+            sb.AppendLine();
+            sb.AppendLine("| # | Module | Heat | Level | Rate | C | W | I | Avg | Trend |");
+            sb.AppendLine("|---|--------|------|-------|------|---|---|---|-----|-------|");
+            var idx = 0;
+            foreach (var h in result.ModuleHotspots.Take(options.HotspotTop))
+            {
+                idx++;
+                sb.AppendLine($"| {idx} | {h.Name} | {h.HeatScore:F1} | {h.HeatLevel} | {h.AppearanceRate:F0}% | {h.CriticalFindings} | {h.WarningFindings} | {h.InfoFindings} | {h.AvgFindingsPerRun:F1} | {h.Trend} |");
+            }
+        }
+
+        WriteOutput(sb.ToString(), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintHotspotResult(result, options.Quiet, options.HotspotTop);
     return 0;
 }

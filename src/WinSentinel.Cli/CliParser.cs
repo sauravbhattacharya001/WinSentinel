@@ -113,6 +113,8 @@ public class CliOptions
     public int HotspotMaxRuns { get; set; } = 0;
     public int HotspotTop { get; set; } = 10;
     public string HotspotFormat { get; set; } = "text";
+    public int KpiDays { get; set; } = 90;
+    public string KpiFormat { get; set; } = "text";
 }
 
 public enum CliCommand
@@ -148,6 +150,7 @@ public enum CliCommand
     Inventory,
     Tag,
     Hotspots,
+    Kpi,
     Help,
     Version
 }
@@ -1210,6 +1213,22 @@ public static class CliParser
                     if (!TryConsumeArg(args, ref i, "--hotspots-format", out var hsFmt, out var hsFmtErr))
                     { options.Error = hsFmtErr; return options; }
                     options.HotspotFormat = hsFmt.ToLowerInvariant();
+                    break;
+
+                case "--kpi":
+                    options.Command = CliCommand.Kpi;
+                    break;
+
+                case "--kpi-days":
+                    if (!TryConsumeInt(args, ref i, "--kpi-days", 1, 365, out var kpiDays, out var kpiDaysErr))
+                    { options.Error = kpiDaysErr; return options; }
+                    options.KpiDays = kpiDays;
+                    break;
+
+                case "--kpi-format":
+                    if (!TryConsumeArg(args, ref i, "--kpi-format", out var kpiFmt, out var kpiFmtErr))
+                    { options.Error = kpiFmtErr; return options; }
+                    options.KpiFormat = kpiFmt.ToLowerInvariant();
                     break;
 
                 default:

@@ -1585,4 +1585,225 @@ public static partial class ConsoleFormatter
         Console.WriteLine();
     }
 
+    /// <summary>
+    /// Print the Security KPI dashboard to the console.
+    /// </summary>
+    public static void PrintKpiReport(SecurityKpiReport report, bool quiet)
+    {
+        if (!quiet)
+        {
+            PrintBanner();
+        }
+
+        var healthColor = report.HealthScore >= 90 ? ConsoleColor.Green
+            : report.HealthScore >= 75 ? ConsoleColor.DarkGreen
+            : report.HealthScore >= 60 ? ConsoleColor.Yellow
+            : report.HealthScore >= 40 ? ConsoleColor.DarkYellow
+            : ConsoleColor.Red;
+
+        Console.WriteLine();
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.Write("  📊 SECURITY KPI DASHBOARD");
+        Console.ResetColor();
+        Console.ForegroundColor = healthColor;
+        Console.Write($"   [{report.HealthRating} {report.HealthScore}/100]");
+        Console.ResetColor();
+        Console.WriteLine();
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine($"  ─── {report.PeriodStart:yyyy-MM-dd} → {report.PeriodEnd:yyyy-MM-dd}  ({report.DaysSpan} days, {report.RunsAnalyzed} scans) ───");
+        Console.ResetColor();
+        Console.WriteLine();
+
+        // Score KPIs
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine("  ╔══════════════════════════════════════════════════╗");
+        Console.Write("  ║ ");
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.Write("SCORE");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine("                                            ║");
+
+        var trendArrow = report.ScoreChange > 0 ? "↑" : report.ScoreChange < 0 ? "↓" : "→";
+        var trendColor = report.ScoreChange > 0 ? ConsoleColor.Green : report.ScoreChange < 0 ? ConsoleColor.Red : ConsoleColor.DarkGray;
+
+        Console.Write("  ║   Current: ");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.Write($"{report.CurrentScore,3}");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write("   Avg: ");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.Write($"{report.AverageScore,5:F1}");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write("   Trend: ");
+        Console.ForegroundColor = trendColor;
+        Console.Write($"{trendArrow}{Math.Abs(report.ScoreChange),3}");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write($"   σ={report.ScoreVolatility,4:F1}");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine("  ║");
+
+        Console.WriteLine("  ╠══════════════════════════════════════════════════╣");
+        Console.Write("  ║ ");
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.Write("FINDINGS");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine("                                         ║");
+
+        var netColor = report.FindingNetChange < 0 ? ConsoleColor.Green : report.FindingNetChange > 0 ? ConsoleColor.Red : ConsoleColor.DarkGray;
+        Console.Write("  ║   Current: ");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.Write($"{report.CurrentFindings,3}");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write("   New: ");
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.Write($"{report.NewFindings,3}");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write("   Resolved: ");
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.Write($"{report.ResolvedFindings,3}");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write("   Net: ");
+        Console.ForegroundColor = netColor;
+        Console.Write($"{report.FindingNetChange:+#;-#;0}");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine("  ║");
+
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write("  ║   Recurring: ");
+        Console.ForegroundColor = report.RecurrenceRate > 20 ? ConsoleColor.Red : report.RecurrenceRate > 10 ? ConsoleColor.Yellow : ConsoleColor.Green;
+        Console.Write($"{report.RecurringFindings} ({report.RecurrenceRate}%)");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine(new string(' ', Math.Max(1, 36 - $"{report.RecurringFindings} ({report.RecurrenceRate}%)".Length)) + "║");
+
+        Console.WriteLine("  ╠══════════════════════════════════════════════════╣");
+        Console.Write("  ║ ");
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.Write("SEVERITY & MTTR");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine("                                  ║");
+
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write("  ║   Critical: ");
+        Console.ForegroundColor = report.CurrentCritical > 0 ? ConsoleColor.Red : ConsoleColor.Green;
+        Console.Write($"{report.CurrentCritical}");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write($"  Warnings: ");
+        Console.ForegroundColor = report.CurrentWarnings > 0 ? ConsoleColor.Yellow : ConsoleColor.Green;
+        Console.Write($"{report.CurrentWarnings}");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write($"  Peak Crit: {report.PeakCritical}");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine(new string(' ', Math.Max(1, 20 - $"  Peak Crit: {report.PeakCritical}".Length)) + "║");
+
+        var mttrCrit = report.MeanTimeToRemediateCritical.HasValue ? $"{report.MeanTimeToRemediateCritical:F1}d" : "N/A";
+        var mttrWarn = report.MeanTimeToRemediateWarning.HasValue ? $"{report.MeanTimeToRemediateWarning:F1}d" : "N/A";
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write($"  ║   MTTR Critical: ");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.Write(mttrCrit);
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write($"   MTTR Warning: ");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.Write(mttrWarn);
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine(new string(' ', Math.Max(1, 33 - mttrCrit.Length - mttrWarn.Length)) + "║");
+
+        Console.WriteLine("  ╠══════════════════════════════════════════════════╣");
+        Console.Write("  ║ ");
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.Write("SECURITY DEBT");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine("                                    ║");
+
+        var debtColor = report.DebtTrend == "Decreasing" ? ConsoleColor.Green : report.DebtTrend == "Increasing" ? ConsoleColor.Red : ConsoleColor.DarkGray;
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write("  ║   Debt: ");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.Write($"{report.SecurityDebt:F1}");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write("   Trend: ");
+        Console.ForegroundColor = debtColor;
+        Console.Write($"{report.DebtTrend} ({report.DebtChange:+#.#;-#.#;0})");
+        Console.ForegroundColor = ConsoleColor.White;
+        var debtInfo = $"{report.SecurityDebt:F1}   Trend: {report.DebtTrend} ({report.DebtChange:+#.#;-#.#;0})";
+        Console.WriteLine(new string(' ', Math.Max(1, 41 - debtInfo.Length)) + "║");
+
+        Console.WriteLine("  ╠══════════════════════════════════════════════════╣");
+        Console.Write("  ║ ");
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.Write("SCAN CADENCE");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine("                                     ║");
+
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write("  ║   Scans/Week: ");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.Write($"{report.ScansPerWeek}");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write($"   Avg Gap: {report.AvgDaysBetweenScans}d");
+        Console.Write($"   Max Gap: {report.MaxScanGap}d");
+        Console.ForegroundColor = ConsoleColor.White;
+        var cadenceInfo = $"{report.ScansPerWeek}   Avg Gap: {report.AvgDaysBetweenScans}d   Max Gap: {report.MaxScanGap}d";
+        Console.WriteLine(new string(' ', Math.Max(1, 35 - cadenceInfo.Length)) + "║");
+
+        Console.WriteLine("  ╠══════════════════════════════════════════════════╣");
+        Console.Write("  ║ ");
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.Write("MODULES");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine("                                          ║");
+
+        if (report.WeakestModule != null)
+        {
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.Write("  ║   Weakest: ");
+            Console.ForegroundColor = ConsoleColor.Red;
+            var weakStr = $"{report.WeakestModule} ({report.WeakestModuleScore}/100)";
+            Console.Write(weakStr);
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.WriteLine(new string(' ', Math.Max(1, 38 - weakStr.Length)) + "║");
+        }
+        if (report.MostImprovedModule != null)
+        {
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.Write("  ║   Most Improved: ");
+            Console.ForegroundColor = ConsoleColor.Green;
+            var impStr = $"{report.MostImprovedModule} (+{report.MostImprovedChange})";
+            Console.Write(impStr);
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.WriteLine(new string(' ', Math.Max(1, 32 - impStr.Length)) + "║");
+        }
+        if (report.MostRegressedModule != null)
+        {
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.Write("  ║   Most Regressed: ");
+            Console.ForegroundColor = ConsoleColor.Red;
+            var regStr = $"{report.MostRegressedModule} ({report.MostRegressedChange})";
+            Console.Write(regStr);
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.WriteLine(new string(' ', Math.Max(1, 31 - regStr.Length)) + "║");
+        }
+
+        Console.WriteLine("  ╚══════════════════════════════════════════════════╝");
+        Console.ResetColor();
+
+        // Recommendations
+        if (report.Recommendations.Count > 0)
+        {
+            Console.WriteLine();
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine("  💡 Recommendations:");
+            Console.ResetColor();
+            foreach (var rec in report.Recommendations)
+            {
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.Write("     • ");
+                Console.ResetColor();
+                Console.WriteLine(rec);
+            }
+        }
+
+        Console.WriteLine();
+    }
+
 }

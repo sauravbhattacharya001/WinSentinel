@@ -50,6 +50,7 @@ return options.Command switch
     CliCommand.Inventory => HandleInventory(options),
     CliCommand.Tag => HandleTag(options),
     CliCommand.Hotspots => HandleHotspots(options),
+    CliCommand.Kpi => HandleKpi(options),
     _ => HandleHelp()
 };
 
@@ -3624,5 +3625,122 @@ static int HandleHotspots(CliOptions options)
     }
 
     ConsoleFormatter.PrintHotspotResult(result, options.Quiet, options.HotspotTop);
+    return 0;
+}
+
+// ── KPI Dashboard ────────────────────────────────────────────────────
+
+static int HandleKpi(CliOptions options)
+{
+    var historyService = new AuditHistoryService();
+    historyService.EnsureDatabase();
+
+    var runs = historyService.GetHistory(options.KpiDays);
+
+    if (runs.Count == 0)
+    {
+        if (options.Json)
+        {
+            WriteOutput("{\"error\": \"No audit history found. Run some audits first.\"}", options.OutputFile);
+        }
+        else if (!options.Quiet)
+        {
+            Console.WriteLine();
+            ConsoleFormatter.PrintError("No audit history found. Run some audits first.");
+        }
+        return 1;
+    }
+
+    // Load full details for each run
+    var detailedRuns = new List<AuditRunRecord>();
+    foreach (var run in runs)
+    {
+        var detailed = historyService.GetRunDetails(run.Id);
+        if (detailed != null)
+            detailedRuns.Add(detailed);
+    }
+
+    var kpiService = new SecurityKpiService();
+    var result = kpiService.Compute(detailedRuns, options.KpiDays);
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        WriteOutput(JsonSerializer.Serialize(result, jsonOptions), options.OutputFile);
+        return 0;
+    }
+
+    if (options.Markdown)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("# 📊 Security KPI Dashboard");
+        sb.AppendLine();
+        sb.AppendLine($"**Period:** {result.PeriodStart:yyyy-MM-dd} → {result.PeriodEnd:yyyy-MM-dd} ({result.DaysSpan} days, {result.RunsAnalyzed} scans)");
+        sb.AppendLine($"**Health:** {result.HealthRating} ({result.HealthScore}/100)");
+        sb.AppendLine();
+
+        sb.AppendLine("## Score KPIs");
+        sb.AppendLine();
+        sb.AppendLine($"| Metric | Value |");
+        sb.AppendLine($"|--------|-------|");
+        sb.AppendLine($"| Current Score | {result.CurrentScore} |");
+        sb.AppendLine($"| Average Score | {result.AverageScore:F1} |");
+        sb.AppendLine($"| Score Trend | {result.ScoreTrend} ({result.ScoreChange:+#;-#;0}) |");
+        sb.AppendLine($"| Score Volatility | {result.ScoreVolatility} |");
+        sb.AppendLine();
+
+        sb.AppendLine("## Finding KPIs");
+        sb.AppendLine();
+        sb.AppendLine($"| Metric | Value |");
+        sb.AppendLine($"|--------|-------|");
+        sb.AppendLine($"| Current Findings | {result.CurrentFindings} |");
+        sb.AppendLine($"| New Findings | {result.NewFindings} |");
+        sb.AppendLine($"| Resolved Findings | {result.ResolvedFindings} |");
+        sb.AppendLine($"| Net Change | {result.FindingNetChange:+#;-#;0} |");
+        sb.AppendLine($"| Recurring Findings | {result.RecurringFindings} ({result.RecurrenceRate}%) |");
+        sb.AppendLine();
+
+        sb.AppendLine("## Severity & MTTR");
+        sb.AppendLine();
+        sb.AppendLine($"| Metric | Value |");
+        sb.AppendLine($"|--------|-------|");
+        sb.AppendLine($"| Current Critical | {result.CurrentCritical} |");
+        sb.AppendLine($"| Current Warnings | {result.CurrentWarnings} |");
+        sb.AppendLine($"| Peak Critical | {result.PeakCritical} |");
+        sb.AppendLine($"| Avg Critical/Scan | {result.AvgCriticalPerScan} |");
+        sb.AppendLine($"| MTTR Critical | {(result.MeanTimeToRemediateCritical.HasValue ? $"{result.MeanTimeToRemediateCritical:F1} days" : "N/A")} |");
+        sb.AppendLine($"| MTTR Warning | {(result.MeanTimeToRemediateWarning.HasValue ? $"{result.MeanTimeToRemediateWarning:F1} days" : "N/A")} |");
+        sb.AppendLine();
+
+        sb.AppendLine("## Security Debt");
+        sb.AppendLine();
+        sb.AppendLine($"| Metric | Value |");
+        sb.AppendLine($"|--------|-------|");
+        sb.AppendLine($"| Current Debt | {result.SecurityDebt} |");
+        sb.AppendLine($"| Debt Trend | {result.DebtTrend} ({result.DebtChange:+#.#;-#.#;0}) |");
+        sb.AppendLine();
+
+        sb.AppendLine("## Scan Cadence");
+        sb.AppendLine();
+        sb.AppendLine($"| Metric | Value |");
+        sb.AppendLine($"|--------|-------|");
+        sb.AppendLine($"| Scans/Week | {result.ScansPerWeek} |");
+        sb.AppendLine($"| Avg Gap | {result.AvgDaysBetweenScans} days |");
+        sb.AppendLine($"| Max Gap | {result.MaxScanGap} days |");
+        sb.AppendLine();
+
+        if (result.Recommendations.Count > 0)
+        {
+            sb.AppendLine("## Recommendations");
+            sb.AppendLine();
+            foreach (var rec in result.Recommendations)
+                sb.AppendLine($"- {rec}");
+        }
+
+        WriteOutput(sb.ToString(), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintKpiReport(result, options.Quiet);
     return 0;
 }

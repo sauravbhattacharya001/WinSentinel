@@ -101,11 +101,19 @@ jobs:
           --source "https://nuget.pkg.github.com/sauravbhattacharya001/index.json" `
           --api-key ${{ secrets.GITHUB_TOKEN }} `
           --skip-duplicate
+        dotnet nuget push ./nupkg/*.snupkg `
+          --source "https://nuget.pkg.github.com/sauravbhattacharya001/index.json" `
+          --api-key ${{ secrets.GITHUB_TOKEN }} `
+          --skip-duplicate
 
     - name: Push to NuGet.org
       if: ${{ (github.event_name == 'release' || inputs.push_to_nuget == true) && secrets.NUGET_API_KEY != '' }}
       run: |
         dotnet nuget push ./nupkg/*.nupkg `
+          --source "https://api.nuget.org/v3/index.json" `
+          --api-key ${{ secrets.NUGET_API_KEY }} `
+          --skip-duplicate
+        dotnet nuget push ./nupkg/*.snupkg `
           --source "https://api.nuget.org/v3/index.json" `
           --api-key ${{ secrets.NUGET_API_KEY }} `
           --skip-duplicate

@@ -98,6 +98,17 @@ public class CliOptions
     public bool InventoryNoPorts { get; set; }
     public bool InventoryNoStartup { get; set; }
     public bool InventoryNoTasks { get; set; }
+    public TagAction TagAction { get; set; } = TagAction.None;
+    public string? TagFindingTitle { get; set; }
+    public string? TagFindingCategory { get; set; }
+    public List<string> TagValues { get; set; } = [];
+    public string? TagSearchQuery { get; set; }
+    public string? TagRenameFrom { get; set; }
+    public string? TagRenameTo { get; set; }
+    public string? TagAnnotation { get; set; }
+    public string? TagAuthor { get; set; }
+    public string? TagImportFile { get; set; }
+    public bool TagMerge { get; set; } = true;
 }
 
 public enum CliCommand
@@ -131,6 +142,7 @@ public enum CliCommand
     Benchmark,
     Compliance,
     Inventory,
+    Tag,
     Help,
     Version
 }
@@ -210,6 +222,21 @@ public enum WhatIfAction
     Module,
     Pattern,
     TopN
+}
+
+public enum TagAction
+{
+    None,
+    Add,
+    Remove,
+    List,
+    Search,
+    Report,
+    AutoTag,
+    Rename,
+    Delete,
+    Export,
+    Import
 }
 
 /// <summary>
@@ -1061,6 +1088,95 @@ public static class CliParser
 
                 case "--no-tasks":
                     options.InventoryNoTasks = true;
+                    break;
+
+                case "--tag":
+                    options.Command = CliCommand.Tag;
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                    {
+                        var tagAction = args[++i].ToLowerInvariant();
+                        options.TagAction = tagAction switch
+                        {
+                            "add" => TagAction.Add,
+                            "remove" => TagAction.Remove,
+                            "list" => TagAction.List,
+                            "search" => TagAction.Search,
+                            "report" => TagAction.Report,
+                            "autotag" => TagAction.AutoTag,
+                            "rename" => TagAction.Rename,
+                            "delete" => TagAction.Delete,
+                            "export" => TagAction.Export,
+                            "import" => TagAction.Import,
+                            _ => TagAction.None
+                        };
+                        if (options.TagAction == TagAction.None)
+                        {
+                            options.Error = $"Unknown tag action: {tagAction}. Use add, remove, list, search, report, autotag, rename, delete, export, or import.";
+                            return options;
+                        }
+                    }
+                    else
+                    {
+                        options.TagAction = TagAction.Report;
+                    }
+                    break;
+
+                case "--tag-finding":
+                    if (!TryConsumeArg(args, ref i, "--tag-finding", out var tagFinding, out var tagFindErr))
+                    { options.Error = tagFindErr; return options; }
+                    options.TagFindingTitle = tagFinding;
+                    break;
+
+                case "--tag-category":
+                    if (!TryConsumeArg(args, ref i, "--tag-category", out var tagCat, out var tagCatErr))
+                    { options.Error = tagCatErr; return options; }
+                    options.TagFindingCategory = tagCat;
+                    break;
+
+                case "--tag-value":
+                    if (!TryConsumeArg(args, ref i, "--tag-value", out var tagVal, out var tagValErr))
+                    { options.Error = tagValErr; return options; }
+                    options.TagValues.Add(tagVal);
+                    break;
+
+                case "--tag-search":
+                    if (!TryConsumeArg(args, ref i, "--tag-search", out var tagSearch, out var tagSearchErr))
+                    { options.Error = tagSearchErr; return options; }
+                    options.TagSearchQuery = tagSearch;
+                    break;
+
+                case "--tag-rename-from":
+                    if (!TryConsumeArg(args, ref i, "--tag-rename-from", out var tagRFrom, out var tagRFromErr))
+                    { options.Error = tagRFromErr; return options; }
+                    options.TagRenameFrom = tagRFrom;
+                    break;
+
+                case "--tag-rename-to":
+                    if (!TryConsumeArg(args, ref i, "--tag-rename-to", out var tagRTo, out var tagRToErr))
+                    { options.Error = tagRToErr; return options; }
+                    options.TagRenameTo = tagRTo;
+                    break;
+
+                case "--tag-note":
+                    if (!TryConsumeArg(args, ref i, "--tag-note", out var tagNote, out var tagNoteErr))
+                    { options.Error = tagNoteErr; return options; }
+                    options.TagAnnotation = tagNote;
+                    break;
+
+                case "--tag-author":
+                    if (!TryConsumeArg(args, ref i, "--tag-author", out var tagAuthor, out var tagAuthorErr))
+                    { options.Error = tagAuthorErr; return options; }
+                    options.TagAuthor = tagAuthor;
+                    break;
+
+                case "--tag-file":
+                    if (!TryConsumeArg(args, ref i, "--tag-file", out var tagFile, out var tagFileErr))
+                    { options.Error = tagFileErr; return options; }
+                    options.TagImportFile = tagFile;
+                    break;
+
+                case "--tag-no-merge":
+                    options.TagMerge = false;
                     break;
 
                 default:

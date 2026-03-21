@@ -48,6 +48,7 @@ return options.Command switch
     CliCommand.Benchmark => await HandleBenchmark(options),
     CliCommand.Compliance => await HandleCompliance(options),
     CliCommand.Inventory => HandleInventory(options),
+    CliCommand.Tag => HandleTag(options),
     _ => HandleHelp()
 };
 
@@ -3117,4 +3118,420 @@ static List<string> ParseCsvLine(string line)
     }
     fields.Add(current.ToString());
     return fields;
+}
+
+// ── Tag Management ───────────────────────────────────────────────
+
+static string GetTagStorePath() =>
+    Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "WinSentinel", "tags.json");
+
+static FindingTagManager LoadTagManager()
+{
+    var manager = new FindingTagManager();
+    var path = GetTagStorePath();
+    if (File.Exists(path))
+    {
+        var json = File.ReadAllText(path);
+        manager.ImportJson(json, merge: false);
+    }
+    return manager;
+}
+
+static void SaveTagManager(FindingTagManager manager)
+{
+    var path = GetTagStorePath();
+    var dir = Path.GetDirectoryName(path)!;
+    if (!Directory.Exists(dir))
+        Directory.CreateDirectory(dir);
+    File.WriteAllText(path, manager.ExportJson());
+}
+
+static int HandleTag(CliOptions options)
+{
+    var manager = LoadTagManager();
+
+    return options.TagAction switch
+    {
+        TagAction.Add => HandleTagAdd(manager, options),
+        TagAction.Remove => HandleTagRemove(manager, options),
+        TagAction.List => HandleTagList(manager, options),
+        TagAction.Search => HandleTagSearch(manager, options),
+        TagAction.Report => HandleTagReport(manager, options),
+        TagAction.AutoTag => HandleTagAutoTag(manager, options),
+        TagAction.Rename => HandleTagRename(manager, options),
+        TagAction.Delete => HandleTagDelete(manager, options),
+        TagAction.Export => HandleTagExport(manager, options),
+        TagAction.Import => HandleTagImport(manager, options),
+        _ => HandleTagReport(manager, options)
+    };
+}
+
+static int HandleTagAdd(FindingTagManager manager, CliOptions options)
+{
+    if (string.IsNullOrWhiteSpace(options.TagFindingTitle))
+    {
+        ConsoleFormatter.PrintError("--tag-finding is required for 'add'. Specify the finding title.");
+        return 3;
+    }
+    if (options.TagValues.Count == 0)
+    {
+        ConsoleFormatter.PrintError("At least one --tag-value is required for 'add'.");
+        return 3;
+    }
+
+    var category = options.TagFindingCategory ?? "Unknown";
+    var tagged = manager.Tag(options.TagFindingTitle, category, options.TagValues.ToArray());
+
+    // Also add annotation if provided
+    if (!string.IsNullOrWhiteSpace(options.TagAnnotation))
+    {
+        manager.Annotate(options.TagFindingTitle, category, options.TagAnnotation, options.TagAuthor);
+    }
+
+    SaveTagManager(manager);
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        WriteOutput(JsonSerializer.Serialize(new
+        {
+            action = "tagged",
+            finding = options.TagFindingTitle,
+            category,
+            tags = tagged.Tags.ToList(),
+            totalTags = tagged.Tags.Count
+        }, jsonOptions), options.OutputFile);
+    }
+    else
+    {
+        ConsoleFormatter.PrintTagAdded(options.TagFindingTitle, category, options.TagValues);
+    }
+
+    return 0;
+}
+
+static int HandleTagRemove(FindingTagManager manager, CliOptions options)
+{
+    if (string.IsNullOrWhiteSpace(options.TagFindingTitle))
+    {
+        ConsoleFormatter.PrintError("--tag-finding is required for 'remove'.");
+        return 3;
+    }
+    if (options.TagValues.Count == 0)
+    {
+        ConsoleFormatter.PrintError("At least one --tag-value is required for 'remove'.");
+        return 3;
+    }
+
+    var category = options.TagFindingCategory ?? "Unknown";
+    var removed = manager.Untag(options.TagFindingTitle, category, options.TagValues.ToArray());
+
+    SaveTagManager(manager);
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        WriteOutput(JsonSerializer.Serialize(new
+        {
+            action = "untagged",
+            finding = options.TagFindingTitle,
+            category,
+            removedTags = options.TagValues,
+            success = removed
+        }, jsonOptions), options.OutputFile);
+    }
+    else
+    {
+        ConsoleFormatter.PrintTagRemoved(options.TagFindingTitle, category, options.TagValues, removed);
+    }
+
+    return 0;
+}
+
+static int HandleTagList(FindingTagManager manager, CliOptions options)
+{
+    IReadOnlyList<FindingTagManager.TaggedFinding> findings;
+
+    if (options.TagValues.Count > 0)
+    {
+        // Filter by specific tag(s)
+        findings = manager.GetByAnyTag(options.TagValues.ToArray());
+    }
+    else
+    {
+        findings = manager.Findings.Values
+            .OrderByDescending(f => f.LastModifiedAt)
+            .ToList();
+    }
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        WriteOutput(JsonSerializer.Serialize(new
+        {
+            count = findings.Count,
+            filter = options.TagValues.Count > 0 ? options.TagValues : null,
+            findings = findings.Select(f => new
+            {
+                title = f.Title,
+                category = f.Category,
+                tags = f.Tags.ToList(),
+                annotations = f.Annotations.Count,
+                lastModified = f.LastModifiedAt
+            })
+        }, jsonOptions), options.OutputFile);
+    }
+    else
+    {
+        ConsoleFormatter.PrintTagList(findings, options.TagValues);
+    }
+
+    return 0;
+}
+
+static int HandleTagSearch(FindingTagManager manager, CliOptions options)
+{
+    var query = options.TagSearchQuery ?? options.TagFindingTitle ?? "";
+    if (string.IsNullOrWhiteSpace(query))
+    {
+        ConsoleFormatter.PrintError("Provide a search query with --tag-search.");
+        return 3;
+    }
+
+    var results = manager.Search(query);
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        WriteOutput(JsonSerializer.Serialize(new
+        {
+            query,
+            count = results.Count,
+            results = results.Select(f => new
+            {
+                title = f.Title,
+                category = f.Category,
+                tags = f.Tags.ToList(),
+                annotations = f.Annotations.Count
+            })
+        }, jsonOptions), options.OutputFile);
+    }
+    else
+    {
+        ConsoleFormatter.PrintTagSearch(results, query);
+    }
+
+    return 0;
+}
+
+static int HandleTagReport(FindingTagManager manager, CliOptions options)
+{
+    var report = manager.GenerateReport();
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        WriteOutput(JsonSerializer.Serialize(new
+        {
+            generatedAt = report.GeneratedAt,
+            totalFindings = report.TotalFindings,
+            totalTags = report.TotalTags,
+            totalAnnotations = report.TotalAnnotations,
+            untaggedCount = report.UntaggedCount,
+            tagCounts = report.TagCounts,
+            recentlyModified = report.RecentlyModified.Select(f => new
+            {
+                title = f.Title,
+                category = f.Category,
+                tags = f.Tags.ToList(),
+                lastModified = f.LastModifiedAt
+            })
+        }, jsonOptions), options.OutputFile);
+    }
+    else
+    {
+        ConsoleFormatter.PrintTagReport(report);
+    }
+
+    return 0;
+}
+
+static int HandleTagAutoTag(FindingTagManager manager, CliOptions options)
+{
+    // Run an audit and auto-tag all findings by severity
+    var engine = BuildEngine(options.ModulesFilter);
+
+    if (!options.Quiet && !options.Json)
+    {
+        ConsoleFormatter.PrintBanner();
+        Console.WriteLine("  Running audit for auto-tagging...");
+        Console.WriteLine();
+    }
+
+    var progress = options.Quiet || options.Json
+        ? null
+        : new Progress<(string module, int current, int total)>(p =>
+            ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
+
+    var report = engine.RunFullAuditAsync(progress).GetAwaiter().GetResult();
+
+    if (!options.Quiet && !options.Json)
+    {
+        ConsoleFormatter.PrintProgressDone(engine.Modules.Count, TimeSpan.Zero);
+    }
+
+    var count = manager.AutoTagBySeverity(report);
+
+    // Also apply any custom tags from --tag-value
+    if (options.TagValues.Count > 0)
+    {
+        count += manager.TagFromReport(report, options.TagValues.ToArray());
+    }
+
+    SaveTagManager(manager);
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        WriteOutput(JsonSerializer.Serialize(new
+        {
+            action = "auto-tagged",
+            findingsTagged = count,
+            totalTracked = manager.Count
+        }, jsonOptions), options.OutputFile);
+    }
+    else
+    {
+        ConsoleFormatter.PrintTagAutoTagged(count, manager.Count);
+    }
+
+    return 0;
+}
+
+static int HandleTagRename(FindingTagManager manager, CliOptions options)
+{
+    if (string.IsNullOrWhiteSpace(options.TagRenameFrom) || string.IsNullOrWhiteSpace(options.TagRenameTo))
+    {
+        ConsoleFormatter.PrintError("Both --tag-rename-from and --tag-rename-to are required.");
+        return 3;
+    }
+
+    var affected = manager.RenameTag(options.TagRenameFrom, options.TagRenameTo);
+    SaveTagManager(manager);
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        WriteOutput(JsonSerializer.Serialize(new
+        {
+            action = "renamed",
+            from = options.TagRenameFrom,
+            to = options.TagRenameTo,
+            findingsAffected = affected
+        }, jsonOptions), options.OutputFile);
+    }
+    else
+    {
+        ConsoleFormatter.PrintTagRenamed(options.TagRenameFrom, options.TagRenameTo, affected);
+    }
+
+    return 0;
+}
+
+static int HandleTagDelete(FindingTagManager manager, CliOptions options)
+{
+    if (options.TagValues.Count == 0)
+    {
+        ConsoleFormatter.PrintError("At least one --tag-value is required for 'delete'.");
+        return 3;
+    }
+
+    int total = 0;
+    foreach (var tag in options.TagValues)
+    {
+        total += manager.DeleteTag(tag);
+    }
+
+    SaveTagManager(manager);
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        WriteOutput(JsonSerializer.Serialize(new
+        {
+            action = "deleted",
+            deletedTags = options.TagValues,
+            findingsAffected = total
+        }, jsonOptions), options.OutputFile);
+    }
+    else
+    {
+        ConsoleFormatter.PrintTagDeleted(options.TagValues, total);
+    }
+
+    return 0;
+}
+
+static int HandleTagExport(FindingTagManager manager, CliOptions options)
+{
+    var json = manager.ExportJson();
+    var outputPath = options.OutputFile ?? options.TagImportFile;
+
+    if (outputPath != null)
+    {
+        File.WriteAllText(outputPath, json);
+        if (!options.Quiet)
+        {
+            var orig = Console.ForegroundColor;
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"  ✓ Tags exported to {outputPath} ({manager.Count} findings)");
+            Console.ForegroundColor = orig;
+        }
+    }
+    else
+    {
+        WriteOutput(json, null);
+    }
+
+    return 0;
+}
+
+static int HandleTagImport(FindingTagManager manager, CliOptions options)
+{
+    var importPath = options.TagImportFile ?? options.OutputFile;
+    if (string.IsNullOrWhiteSpace(importPath) || !File.Exists(importPath))
+    {
+        ConsoleFormatter.PrintError("Provide a valid file path with --tag-file for import.");
+        return 3;
+    }
+
+    var json = File.ReadAllText(importPath);
+    var count = manager.ImportJson(json, options.TagMerge);
+    SaveTagManager(manager);
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        WriteOutput(JsonSerializer.Serialize(new
+        {
+            action = "imported",
+            file = importPath,
+            findingsImported = count,
+            merge = options.TagMerge,
+            totalTracked = manager.Count
+        }, jsonOptions), options.OutputFile);
+    }
+    else
+    {
+        var orig = Console.ForegroundColor;
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.WriteLine($"  ✓ Imported {count} findings from {importPath} (merge: {options.TagMerge})");
+        Console.ForegroundColor = orig;
+        Console.WriteLine($"  Total tracked findings: {manager.Count}");
+        Console.WriteLine();
+    }
+
+    return 0;
 }

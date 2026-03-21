@@ -50,6 +50,7 @@ return options.Command switch
     CliCommand.Inventory => HandleInventory(options),
     CliCommand.Tag => HandleTag(options),
     CliCommand.Hotspots => HandleHotspots(options),
+    CliCommand.Deps => await HandleDeps(options),
     _ => HandleHelp()
 };
 
@@ -3624,5 +3625,53 @@ static int HandleHotspots(CliOptions options)
     }
 
     ConsoleFormatter.PrintHotspotResult(result, options.Quiet, options.HotspotTop);
+    return 0;
+}
+
+// ── Finding Dependency Graph ─────────────────────────────────────────
+
+static async Task<int> HandleDeps(CliOptions options)
+{
+    var engine = BuildEngine(options.ModulesFilter);
+    var sw = Stopwatch.StartNew();
+
+    if (!options.Quiet)
+    {
+        ConsoleFormatter.PrintBanner();
+        Console.WriteLine("  Running audit to analyze finding dependencies...");
+        Console.WriteLine();
+    }
+
+    var report = await engine.RunFullAuditAsync();
+    sw.Stop();
+
+    var allFindings = report.Results.SelectMany(r => r.Findings).ToList();
+
+    // Apply severity filter if specified
+    if (!string.IsNullOrEmpty(options.DepsSeverityFilter))
+    {
+        if (Enum.TryParse<WinSentinel.Core.Models.Severity>(options.DepsSeverityFilter, true, out var sevFilter))
+            allFindings = allFindings.Where(f => f.Severity >= sevFilter).ToList();
+    }
+
+    var graph = new WinSentinel.Core.Services.FindingDependencyGraph();
+    var analysis = graph.Analyze(allFindings);
+
+    if (options.Json)
+    {
+        var json = WinSentinel.Core.Services.FindingDependencyGraph.FormatJson(analysis);
+        WriteOutput(json, options.OutputFile);
+        return 0;
+    }
+
+    if (options.Markdown)
+    {
+        var md = WinSentinel.Core.Services.FindingDependencyGraph.FormatMarkdown(analysis);
+        WriteOutput(md, options.OutputFile);
+        return 0;
+    }
+
+    var text = WinSentinel.Core.Services.FindingDependencyGraph.FormatText(analysis);
+    WriteOutput(text, options.OutputFile);
     return 0;
 }

@@ -113,6 +113,8 @@ public class CliOptions
     public int HotspotMaxRuns { get; set; } = 0;
     public int HotspotTop { get; set; } = 10;
     public string HotspotFormat { get; set; } = "text";
+    public string DepsFormat { get; set; } = "text";
+    public string? DepsSeverityFilter { get; set; }
 }
 
 public enum CliCommand
@@ -148,6 +150,7 @@ public enum CliCommand
     Inventory,
     Tag,
     Hotspots,
+    Deps,
     Help,
     Version
 }
@@ -1210,6 +1213,22 @@ public static class CliParser
                     if (!TryConsumeArg(args, ref i, "--hotspots-format", out var hsFmt, out var hsFmtErr))
                     { options.Error = hsFmtErr; return options; }
                     options.HotspotFormat = hsFmt.ToLowerInvariant();
+                    break;
+
+                case "--deps":
+                    options.Command = CliCommand.Deps;
+                    break;
+
+                case "--deps-format":
+                    if (!TryConsumeArg(args, ref i, "--deps-format", out var depsFmt, out var depsFmtErr))
+                    { options.Error = depsFmtErr; return options; }
+                    options.DepsFormat = depsFmt.ToLowerInvariant();
+                    break;
+
+                case "--deps-severity":
+                    if (!TryConsumeArg(args, ref i, "--deps-severity", out var depsSev, out var depsSevErr))
+                    { options.Error = depsSevErr; return options; }
+                    options.DepsSeverityFilter = depsSev;
                     break;
 
                 default:

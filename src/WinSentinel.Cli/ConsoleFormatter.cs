@@ -353,6 +353,10 @@ public static partial class ConsoleFormatter
         WriteHelpEntry("    --tag-file <path>        ", "File path for tag export/import");
         WriteHelpEntry("    --tag-no-merge           ", "Overwrite on import (default: merge)");
         Console.WriteLine();
+        WriteLineColored("  FINDING DEPENDENCY GRAPH:", ConsoleColor.Yellow);
+        WriteHelpEntry("    --deps                   ", "Analyze finding dependencies to find root causes");
+        WriteHelpEntry("    --deps-severity <s>      ", "Filter by minimum severity (critical/warning/info)");
+        Console.WriteLine();
         Console.WriteLine("  EXAMPLES:");
         WriteLineColored("    winsentinel --audit                              # Full audit with colored output", ConsoleColor.DarkGray);
         WriteLineColored("    winsentinel --audit --json                       # JSON output for scripting", ConsoleColor.DarkGray);

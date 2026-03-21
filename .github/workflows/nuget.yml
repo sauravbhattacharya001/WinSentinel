@@ -56,18 +56,26 @@ jobs:
         "version=$version" >> $env:GITHUB_OUTPUT
 
     - name: Restore dependencies
-      run: dotnet restore src/WinSentinel.Core/WinSentinel.Core.csproj
+      run: |
+        dotnet restore src/WinSentinel.Core/WinSentinel.Core.csproj
+        dotnet restore src/WinSentinel.Cli/WinSentinel.Cli.csproj
 
     - name: Build
-      run: dotnet build src/WinSentinel.Core/WinSentinel.Core.csproj --no-restore -c Release -p:Version=${{ steps.version.outputs.version }}
+      run: |
+        dotnet build src/WinSentinel.Core/WinSentinel.Core.csproj --no-restore -c Release -p:Version=${{ steps.version.outputs.version }}
+        dotnet build src/WinSentinel.Cli/WinSentinel.Cli.csproj --no-restore -c Release -p:Version=${{ steps.version.outputs.version }}
 
     - name: Run tests
       run: dotnet test tests/WinSentinel.Tests/WinSentinel.Tests.csproj -c Release --verbosity normal
       continue-on-error: true
 
-    - name: Pack NuGet package
+    - name: Pack NuGet packages
       run: |
         dotnet pack src/WinSentinel.Core/WinSentinel.Core.csproj `
+          --no-build -c Release `
+          -p:Version=${{ steps.version.outputs.version }} `
+          -o ./nupkg
+        dotnet pack src/WinSentinel.Cli/WinSentinel.Cli.csproj `
           --no-build -c Release `
           -p:Version=${{ steps.version.outputs.version }} `
           -o ./nupkg
@@ -108,18 +116,24 @@ jobs:
       shell: pwsh
       run: |
         $version = "${{ steps.version.outputs.version }}"
-        $pkg = Get-ChildItem ./nupkg -Filter *.nupkg | Select-Object -First 1
-        $sizeMB = if ($pkg) { [math]::Round($pkg.Length / 1KB, 1) } else { "?" }
 
-        "## 📦 NuGet Package Published" >> $env:GITHUB_STEP_SUMMARY
+        "## 📦 NuGet Packages Published" >> $env:GITHUB_STEP_SUMMARY
         "" >> $env:GITHUB_STEP_SUMMARY
-        "| Property | Value |" >> $env:GITHUB_STEP_SUMMARY
-        "|----------|-------|" >> $env:GITHUB_STEP_SUMMARY
-        "| Package | ``WinSentinel.Core`` |" >> $env:GITHUB_STEP_SUMMARY
-        "| Version | ``$version`` |" >> $env:GITHUB_STEP_SUMMARY
-        "| Size | ${sizeMB} KB |" >> $env:GITHUB_STEP_SUMMARY
+        "| Package | Type | Version | Size |" >> $env:GITHUB_STEP_SUMMARY
+        "|---------|------|---------|------|" >> $env:GITHUB_STEP_SUMMARY
+        Get-ChildItem ./nupkg -Filter *.nupkg | ForEach-Object {
+          $sizeKB = [math]::Round($_.Length / 1KB, 1)
+          $name = $_.BaseName -replace '\.\d+\.\d+\.\d+.*$', ''
+          $type = if ($name -match 'Cli') { '.NET Tool' } else { 'Library' }
+          "| ``$name`` | $type | ``$version`` | ${sizeKB} KB |" >> $env:GITHUB_STEP_SUMMARY
+        }
         "" >> $env:GITHUB_STEP_SUMMARY
-        "### Install" >> $env:GITHUB_STEP_SUMMARY
+        "### Install Library" >> $env:GITHUB_STEP_SUMMARY
         "``````" >> $env:GITHUB_STEP_SUMMARY
         "dotnet add package WinSentinel.Core --version $version" >> $env:GITHUB_STEP_SUMMARY
+        "``````" >> $env:GITHUB_STEP_SUMMARY
+        "" >> $env:GITHUB_STEP_SUMMARY
+        "### Install CLI Tool" >> $env:GITHUB_STEP_SUMMARY
+        "``````" >> $env:GITHUB_STEP_SUMMARY
+        "dotnet tool install --global WinSentinel.Cli --version $version" >> $env:GITHUB_STEP_SUMMARY
         "``````" >> $env:GITHUB_STEP_SUMMARY

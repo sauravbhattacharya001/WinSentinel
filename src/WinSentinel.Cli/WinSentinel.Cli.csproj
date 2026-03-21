@@ -12,7 +12,24 @@
     <Description>WinSentinel CLI - Windows Security Auditing from the Command Line</Description>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
+
+    <!-- .NET Tool Packaging -->
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>winsentinel</ToolCommandName>
+    <PackageId>WinSentinel.Cli</PackageId>
+    <Authors>sauravbhattacharya001</Authors>
+    <Company>WinSentinel</Company>
+    <PackageTags>windows;security;audit;cli;dotnet-tool</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/sauravbhattacharya001/WinSentinel</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/sauravbhattacharya001/WinSentinel</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.3" />

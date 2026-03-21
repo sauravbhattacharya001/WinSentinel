@@ -312,113 +312,242 @@ public class SarifExporter
 
     // These follow the SARIF v2.1.0 OASIS standard schema.
     // Only the subset needed for WinSentinel output is modeled.
+    // See: https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html
 
+    /// <summary>
+    /// Top-level SARIF log object. Contains the schema reference, version,
+    /// and one or more <see cref="SarifRun"/> objects.
+    /// </summary>
     internal class SarifLog
     {
+        /// <summary>URI of the SARIF JSON schema for validation.</summary>
         [JsonPropertyName("$schema")]
         public string? Schema { get; set; }
+
+        /// <summary>SARIF specification version (e.g. "2.1.0").</summary>
         public string? Version { get; set; }
+
+        /// <summary>One run per tool invocation.</summary>
         public List<SarifRun>? Runs { get; set; }
     }
 
+    /// <summary>
+    /// A single invocation of a SARIF-producing tool and its results.
+    /// </summary>
     internal class SarifRun
     {
+        /// <summary>The tool that produced this run.</summary>
         public SarifTool? Tool { get; set; }
+
+        /// <summary>Individual findings/results from the run.</summary>
         public List<SarifResult>? Results { get; set; }
+
+        /// <summary>Metadata about the tool invocation (timing, success, machine info).</summary>
         public List<SarifInvocation>? Invocations { get; set; }
+
+        /// <summary>Identifies this run for correlation across multiple reports.</summary>
         public SarifAutomationDetails? AutomationDetails { get; set; }
     }
 
+    /// <summary>
+    /// Describes the analysis tool. Contains a <see cref="SarifToolComponent"/> driver.
+    /// </summary>
     internal class SarifTool
     {
+        /// <summary>Primary driver component (WinSentinel itself).</summary>
         public SarifToolComponent? Driver { get; set; }
     }
 
+    /// <summary>
+    /// Tool component descriptor — name, version, rules, and custom properties.
+    /// </summary>
     internal class SarifToolComponent
     {
+        /// <summary>Display name of the tool.</summary>
         public string? Name { get; set; }
+
+        /// <summary>Tool version string.</summary>
         public string? Version { get; set; }
+
+        /// <summary>Semantic version for tooling that distinguishes version formats.</summary>
         public string? SemanticVersion { get; set; }
+
+        /// <summary>URI for the tool's homepage or documentation.</summary>
         public string? InformationUri { get; set; }
+
+        /// <summary>Rules (findings definitions) that the tool can report.</summary>
         public List<SarifRule>? Rules { get; set; }
+
+        /// <summary>Custom properties (e.g. security score, grade).</summary>
         public Dictionary<string, object>? Properties { get; set; }
     }
 
+    /// <summary>
+    /// A rule definition — describes a class of finding the tool can report.
+    /// </summary>
     internal class SarifRule
     {
+        /// <summary>Stable rule identifier (e.g. "WSFW/firewall-disabled").</summary>
         public string? Id { get; set; }
+
+        /// <summary>Human-readable rule name.</summary>
         public string? Name { get; set; }
+
+        /// <summary>One-line summary of what this rule detects.</summary>
         public SarifMessage? ShortDescription { get; set; }
+
+        /// <summary>Detailed explanation of the rule.</summary>
         public SarifMessage? FullDescription { get; set; }
+
+        /// <summary>Remediation guidance in text and/or markdown.</summary>
         public SarifMessage? Help { get; set; }
+
+        /// <summary>Default severity level and enabled state.</summary>
         public SarifRuleConfiguration? DefaultConfiguration { get; set; }
+
+        /// <summary>Custom properties (category, severity string).</summary>
         public Dictionary<string, object>? Properties { get; set; }
     }
 
+    /// <summary>
+    /// Default configuration for a SARIF rule (severity level and enabled flag).
+    /// </summary>
     internal class SarifRuleConfiguration
     {
+        /// <summary>SARIF severity: "error", "warning", "note", or "none".</summary>
         public string? Level { get; set; }
+
+        /// <summary>Whether this rule is enabled by default.</summary>
         public bool? Enabled { get; set; }
     }
 
+    /// <summary>
+    /// A single result (finding instance) reported by the tool.
+    /// </summary>
     internal class SarifResult
     {
+        /// <summary>The rule ID this result corresponds to.</summary>
         public string? RuleId { get; set; }
+
+        /// <summary>Index into the <see cref="SarifToolComponent.Rules"/> array.</summary>
         public int? RuleIndex { get; set; }
+
+        /// <summary>Severity level for this specific result.</summary>
         public string? Level { get; set; }
+
+        /// <summary>Human-readable result message (finding description).</summary>
         public SarifMessage? Message { get; set; }
+
+        /// <summary>Where in the system this finding was detected.</summary>
         public List<SarifLocation>? Locations { get; set; }
+
+        /// <summary>Suggested fixes for this finding.</summary>
         public List<SarifFix>? Fixes { get; set; }
+
+        /// <summary>Custom properties (module, category, timestamp).</summary>
         public Dictionary<string, object>? Properties { get; set; }
     }
 
+    /// <summary>
+    /// A SARIF message with plain text and optional markdown rendering.
+    /// </summary>
     internal class SarifMessage
     {
+        /// <summary>Plain text content.</summary>
         public string? Text { get; set; }
+
+        /// <summary>Markdown-formatted content (for rich rendering).</summary>
         public string? Markdown { get; set; }
     }
 
+    /// <summary>
+    /// A location where a result was detected. Uses logical locations
+    /// (module/category) since WinSentinel audits system state, not source files.
+    /// </summary>
     internal class SarifLocation
     {
+        /// <summary>Logical locations (e.g. module name, category).</summary>
         public List<SarifLogicalLocation>? LogicalLocations { get; set; }
     }
 
+    /// <summary>
+    /// A named logical location within the audited system.
+    /// </summary>
     internal class SarifLogicalLocation
     {
+        /// <summary>Display name (e.g. audit category).</summary>
         public string? Name { get; set; }
+
+        /// <summary>Kind of location (e.g. "module").</summary>
         public string? Kind { get; set; }
+
+        /// <summary>Fully qualified name (e.g. "WinSentinel/FirewallAudit").</summary>
         public string? FullyQualifiedName { get; set; }
     }
 
+    /// <summary>
+    /// A suggested fix for a SARIF result, with a human-readable description.
+    /// </summary>
     internal class SarifFix
     {
+        /// <summary>Description of the fix (may include PowerShell commands).</summary>
         public SarifMessage? Description { get; set; }
     }
 
+    /// <summary>
+    /// Metadata about a single tool invocation — timing, success, and diagnostics.
+    /// </summary>
     internal class SarifInvocation
     {
+        /// <summary>Whether all audit modules completed without errors.</summary>
         public bool ExecutionSuccessful { get; set; }
+
+        /// <summary>ISO 8601 start time of the audit run.</summary>
         public string? StartTimeUtc { get; set; }
+
+        /// <summary>ISO 8601 end time of the audit run.</summary>
         public string? EndTimeUtc { get; set; }
+
+        /// <summary>Notifications about module failures or warnings during execution.</summary>
         public List<SarifNotification>? ToolExecutionNotifications { get; set; }
+
+        /// <summary>Custom properties (machine name, module counts, finding counts).</summary>
         public Dictionary<string, object>? Properties { get; set; }
     }
 
+    /// <summary>
+    /// A diagnostic notification (e.g. module execution failure).
+    /// </summary>
     internal class SarifNotification
     {
+        /// <summary>Notification message text.</summary>
         public SarifMessage? Message { get; set; }
+
+        /// <summary>Severity level ("error", "warning", "note").</summary>
         public string? Level { get; set; }
+
+        /// <summary>The rule associated with this notification, if any.</summary>
         public SarifAssociatedRule? AssociatedRule { get; set; }
     }
 
+    /// <summary>
+    /// Reference to a rule from a notification context.
+    /// </summary>
     internal class SarifAssociatedRule
     {
+        /// <summary>Rule identifier.</summary>
         public string? Id { get; set; }
     }
 
+    /// <summary>
+    /// Identifies a run for correlation across multiple SARIF reports.
+    /// </summary>
     internal class SarifAutomationDetails
     {
+        /// <summary>Unique automation run ID (e.g. "WinSentinel/HOSTNAME/20260320-181300").</summary>
         public string? Id { get; set; }
+
+        /// <summary>Human-readable description of this automation run.</summary>
         public SarifMessage? Description { get; set; }
     }
 }

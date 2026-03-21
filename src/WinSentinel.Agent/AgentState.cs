@@ -83,16 +83,31 @@ public class AgentState
 }
 
 /// <summary>
-/// Serializable snapshot of agent state for IPC.
+/// Serializable snapshot of agent state for IPC transmission to the UI app.
 /// </summary>
 public class AgentStatusSnapshot
 {
+    /// <summary>When the agent process was started.</summary>
     public DateTimeOffset StartTime { get; set; }
+
+    /// <summary>Total uptime in seconds since agent start.</summary>
     public long UptimeSeconds { get; set; }
+
+    /// <summary>Number of threats detected since midnight UTC.</summary>
     public int ThreatsDetectedToday { get; set; }
+
+    /// <summary>When the last full audit scan completed (null if none yet).</summary>
     public DateTimeOffset? LastScanTime { get; set; }
+
+    /// <summary>Security score (0-100) from the last completed scan.</summary>
     public int? LastScanScore { get; set; }
+
+    /// <summary>Whether an audit scan is currently in progress.</summary>
     public bool IsScanRunning { get; set; }
+
+    /// <summary>Names of currently active monitoring modules.</summary>
     public List<string> ActiveModules { get; set; } = [];
+
+    /// <summary>Agent assembly version string.</summary>
     public string Version { get; set; } = "";
 }

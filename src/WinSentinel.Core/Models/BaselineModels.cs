@@ -43,23 +43,43 @@ public class SecurityBaseline
 /// </summary>
 public class BaselineModuleScore
 {
+    /// <summary>Display name of the audit module.</summary>
     public string ModuleName { get; set; } = "";
+
+    /// <summary>Category grouping (e.g. "Firewall", "Network").</summary>
     public string Category { get; set; } = "";
+
+    /// <summary>Module security score (0-100) at baseline capture time.</summary>
     public int Score { get; set; }
+
+    /// <summary>Total findings in this module at baseline time.</summary>
     public int FindingCount { get; set; }
+
+    /// <summary>Critical-severity findings at baseline time.</summary>
     public int CriticalCount { get; set; }
+
+    /// <summary>Warning-severity findings at baseline time.</summary>
     public int WarningCount { get; set; }
 }
 
 /// <summary>
-/// A finding snapshot within a baseline.
+/// A finding snapshot within a baseline, used for regression detection.
 /// </summary>
 public class BaselineFinding
 {
+    /// <summary>Audit module that produced this finding.</summary>
     public string ModuleName { get; set; } = "";
+
+    /// <summary>Short title describing the finding.</summary>
     public string Title { get; set; } = "";
+
+    /// <summary>Severity level as a string (e.g. "Critical", "Warning").</summary>
     public string Severity { get; set; } = "";
+
+    /// <summary>Detailed description of the finding.</summary>
     public string Description { get; set; } = "";
+
+    /// <summary>Suggested remediation steps, if available.</summary>
     public string? Remediation { get; set; }
 }
 
@@ -104,30 +124,58 @@ public class BaselineCheckResult
 }
 
 /// <summary>
-/// Per-module deviation from baseline.
+/// Per-module score deviation from baseline, showing improvement or regression.
 /// </summary>
 public class BaselineModuleDeviation
 {
+    /// <summary>Audit module name.</summary>
     public string ModuleName { get; set; } = "";
+
+    /// <summary>Module category.</summary>
     public string Category { get; set; } = "";
+
+    /// <summary>Score recorded in the baseline.</summary>
     public int BaselineScore { get; set; }
+
+    /// <summary>Current scan score for this module.</summary>
     public int CurrentScore { get; set; }
+
+    /// <summary>Score delta (positive = improved, negative = regressed).</summary>
     public int ScoreChange => CurrentScore - BaselineScore;
+
+    /// <summary>Human-readable status: "Improved", "Regressed", or "Unchanged".</summary>
     public string Status => ScoreChange > 0 ? "Improved" : ScoreChange < 0 ? "Regressed" : "Unchanged";
 }
 
 /// <summary>
-/// Summary entry for listing saved baselines.
+/// Lightweight summary for listing saved baselines without loading full finding data.
 /// </summary>
 public class BaselineSummary
 {
+    /// <summary>Baseline name identifier.</summary>
     public string Name { get; set; } = "";
+
+    /// <summary>Optional description.</summary>
     public string? Description { get; set; }
+
+    /// <summary>When the baseline was captured.</summary>
     public DateTimeOffset CreatedAt { get; set; }
+
+    /// <summary>Machine where the baseline was taken.</summary>
     public string MachineName { get; set; } = "";
+
+    /// <summary>Overall security score at baseline time.</summary>
     public int OverallScore { get; set; }
+
+    /// <summary>Letter grade at baseline time.</summary>
     public string Grade { get; set; } = "";
+
+    /// <summary>Total finding count.</summary>
     public int TotalFindings { get; set; }
+
+    /// <summary>Critical finding count.</summary>
     public int CriticalCount { get; set; }
+
+    /// <summary>Warning finding count.</summary>
     public int WarningCount { get; set; }
 }

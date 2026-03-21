@@ -1,0 +1,115 @@
+name: ⚡ Performance Issue
+description: Report high CPU, memory, or disk usage by WinSentinel
+title: "[Perf]: "
+labels: ["performance", "triage"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        WinSentinel is designed to run quietly in the background. If it's consuming excessive resources, we want to know.
+
+  - type: input
+    id: version
+    attributes:
+      label: WinSentinel Version
+      description: Which version are you running?
+      placeholder: e.g., 1.0.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which component is consuming excessive resources?
+      options:
+        - Agent (Windows Service)
+        - Dashboard (WPF App)
+        - CLI
+        - Audit Module
+        - Unknown / Multiple
+    validations:
+      required: true
+
+  - type: dropdown
+    id: resource
+    attributes:
+      label: Resource Affected
+      description: What resource is being overused?
+      options:
+        - CPU
+        - Memory (RAM)
+        - Disk I/O
+        - Disk Space (log growth)
+        - Network
+        - Multiple
+    validations:
+      required: true
+
+  - type: textarea
+    id: metrics
+    attributes:
+      label: Resource Metrics
+      description: |
+        Share the numbers you're seeing. Task Manager, Resource Monitor, or `Get-Process` output is helpful.
+      placeholder: |
+        - CPU: 45% sustained (WinSentinel.Agent.exe)
+        - Memory: 1.2 GB working set
+        - Duration: Started after ~2 hours of uptime
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment Details
+      description: |
+        Help us understand your system context — number of monitored endpoints, audit modules enabled, etc.
+      placeholder: |
+        - Windows 11 24H2, 16 GB RAM, 4 cores
+        - Audit modules enabled: FileIntegrity, ProcessMonitor, RegistryWatcher
+        - Monitored paths: ~50,000 files
+        - Uptime since last restart: 3 days
+
+  - type: textarea
+    id: trigger
+    attributes:
+      label: Trigger / Pattern
+      description: When does the issue occur? Is it constant, periodic, or triggered by specific actions?
+      placeholder: |
+        Happens every time a large directory scan completes, or after running for >24 hours...
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Windows Version
+      options:
+        - Windows 11 24H2
+        - Windows 11 23H2
+        - Windows 11 22H2
+        - Windows 10 22H2
+        - Windows 10 (older)
+        - Windows Server 2022
+        - Windows Server 2019
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs / Profiling Output
+      description: Any ETW traces, dotnet-counters output, or log excerpts showing the issue.
+      render: shell
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I have searched existing issues to make sure this isn't a duplicate
+          required: true
+        - label: I have restarted the service and the issue persists
+          required: false

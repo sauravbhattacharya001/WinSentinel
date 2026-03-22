@@ -416,8 +416,10 @@ public static partial class InputSanitizer
             return "Contains string concatenation obfuscation (potential keyword bypass)";
 
         // Semicolon command chaining — `safe-cmd; malicious-cmd` can smuggle dangerous
-        // commands past checks that only examine the overall string once
-        if (command.Contains(';') && !command.TrimEnd().EndsWith(";"))
+        // commands past checks that only examine the overall string once.
+        // Any semicolon in a fix command is suspicious — even trailing ones
+        // (an attacker can append `;` to bypass the old EndsWith check).
+        if (command.Contains(';'))
             return "Contains semicolon command chaining (potential bypass)";
 
         // PowerShell format operator — `"{0}{1}" -f 'Inv','oke-Expression'` reconstructs

@@ -24,8 +24,33 @@ public class IpcServer : BackgroundService
     private readonly AgentConfig _config;
     private readonly ThreatLog _threatLog;
     private readonly ResponsePolicy _responsePolicy;
-    private readonly ConcurrentDictionary<string, StreamWriter> _subscribers = new();
+    private readonly ConcurrentDictionary<string, SubscriberState> _subscribers = new();
     private readonly IServiceProvider _services;
+
+    /// <summary>
+    /// Wraps a subscriber's StreamWriter with a lock to prevent concurrent writes
+    /// from interleaving bytes and producing corrupted JSON on the wire.
+    /// </summary>
+    private sealed class SubscriberState
+    {
+        public StreamWriter Writer { get; }
+        private readonly SemaphoreSlim _writeLock = new(1, 1);
+
+        public SubscriberState(StreamWriter writer) => Writer = writer;
+
+        public async Task SendAsync(IpcMessage message)
+        {
+            await _writeLock.WaitAsync();
+            try
+            {
+                await Writer.WriteLineAsync(message.Serialize());
+            }
+            finally
+            {
+                _writeLock.Release();
+            }
+        }
+    }
 
     /// <summary>Event fired when a "run audit" command is received via IPC.</summary>
     public event Func<Task>? AuditRequested;
@@ -317,7 +342,7 @@ public class IpcServer : BackgroundService
 
     private IpcMessage HandleSubscribe(StreamWriter writer, string clientId, IpcMessage message)
     {
-        _subscribers[clientId] = writer;
+        _subscribers[clientId] = new SubscriberState(writer);
         _logger.LogInformation("Client {ClientId} subscribed to events", clientId);
         return IpcMessage.Response(IpcMessageType.Subscribed, requestId: message.RequestId);
     }
@@ -384,11 +409,11 @@ public class IpcServer : BackgroundService
     {
         var deadClients = new List<string>();
 
-        foreach (var (clientId, writer) in _subscribers)
+        foreach (var (clientId, subscriber) in _subscribers)
         {
             try
             {
-                await SendAsync(writer, message);
+                await subscriber.SendAsync(message);
             }
             catch
             {

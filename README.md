@@ -43,31 +43,55 @@ Most Windows security tools run once and give you a report. WinSentinel is diffe
 
 Two-process design: a background agent (Windows Service) and a WPF dashboard connected via named pipe IPC.
 
+```mermaid
+graph TB
+    subgraph Agent["🛡️ WinSentinel Agent (Windows Service)"]
+        PM[⚙️ Process Monitor]
+        FM[📁 File System Watcher]
+        EL[📋 Event Log Listener]
+        NM[🌐 Network Monitor]
+        SA[📊 Scheduled Auditor<br/>13 modules]
+        AB[🧠 Agent Brain +<br/>Threat Correlator]
+        AR[🔧 Auto-Remediator<br/>7 actions + undo]
+        IS[🔒 Input Sanitizer]
+        IPC_S[📡 IPC Server]
+    end
+
+    subgraph Dashboard["💻 WinSentinel Dashboard (WPF)"]
+        LD[📊 Live Dashboard +<br/>Score Gauge]
+        TF[⚠️ Real-time Threat Feed]
+        CC[💬 Chat Control Plane]
+        SH[📈 Score History & Trends]
+        CP[📋 Compliance Profiles]
+        FR[🔕 Finding Rules]
+        PC[⚙️ Policy Configuration]
+        ER[📤 Export Reports]
+    end
+
+    PM & FM & EL & NM -->|events| AB
+    SA -->|findings| AB
+    AB -->|threats| AR
+    AB -->|alerts| IPC_S
+    IPC_S <-->|Named Pipe IPC| Dashboard
 ```
-┌─────────────────────────────────────────┐
-│  WinSentinel Agent (Windows Service)    │
-│  ├── Process Monitor (real-time)        │
-│  ├── File System Watcher (real-time)    │
-│  ├── Event Log Listener (real-time)     │
-│  ├── Network Monitor (real-time)        │
-│  ├── Scheduled Auditor (13 modules)     │
-│  ├── Agent Brain + Threat Correlator    │
-│  ├── Auto-Remediator (7 actions + undo) │
-│  ├── Input Sanitizer (security layer)   │
-│  └── IPC Server (named pipe)            │
-└──────────────┬──────────────────────────┘
-               │ Named Pipe IPC
-┌──────────────┴──────────────────────────┐
-│  WinSentinel Dashboard (WPF)            │
-│  ├── Live Dashboard + Score Gauge       │
-│  ├── Real-time Threat Feed              │
-│  ├── Chat Control Plane                 │
-│  ├── Score History & Trends             │
-│  ├── Compliance Profile Selector        │
-│  ├── Finding Ignore/Suppress Rules      │
-│  ├── Policy Configuration               │
-│  └── Export Reports (HTML/JSON/MD/Text) │
-└─────────────────────────────────────────┘
+
+### Threat Detection Flow
+
+```mermaid
+flowchart LR
+    A[Raw Events] --> B{Monitor<br/>Modules}
+    B --> C[Process<br/>Events]
+    B --> D[File<br/>Events]
+    B --> E[EventLog<br/>Events]
+    B --> F[Network<br/>Events]
+    C & D & E & F --> G[🧠 Threat<br/>Correlator]
+    G -->|Single event| H[Classify &<br/>Score]
+    G -->|Multi-event<br/>pattern| I[Attack Chain<br/>Detection]
+    H & I --> J{Severity?}
+    J -->|Critical/High| K[⚡ Auto-Remediate]
+    J -->|Medium| L[⚠️ Alert User]
+    J -->|Low/Info| M[📝 Log]
+    K --> N[Undo Log]
 ```
 
 The agent runs continuously — even with the dashboard closed — watching processes, file changes, event logs, and network activity. When it detects suspicious behavior, it correlates events, classifies threats, and auto-remediates based on configurable policies.

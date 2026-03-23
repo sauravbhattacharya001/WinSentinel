@@ -120,70 +120,81 @@ public class ThreatCorrelator
     // ══════════════════════════════════════════
 
     /// <summary>
+    /// Attempts a bidirectional correlation: checks whether the new event matches
+    /// either side of a two-sided pattern (A↔B) and finds a matching counterpart
+    /// in the window. This eliminates the duplicated forward/reverse logic that
+    /// previously existed in every correlation rule.
+    /// </summary>
+    /// <param name="newEvent">The event that just arrived.</param>
+    /// <param name="window">Current sliding window of events.</param>
+    /// <param name="matchesSideA">Predicate: does this event look like "side A"?</param>
+    /// <param name="matchesSideB">Predicate: does this event look like "side B"?</param>
+    /// <param name="areRelated">Optional pairwise check (e.g. same directory). Null = always related.</param>
+    /// <returns>
+    /// A tuple of (sideA, sideB) events if a correlation is found, or null if no match.
+    /// The first element is always the side-A event; second is side-B.
+    /// </returns>
+    private (ThreatEvent sideA, ThreatEvent sideB)? TryBidirectionalMatch(
+        ThreatEvent newEvent,
+        List<ThreatEvent> window,
+        Func<ThreatEvent, bool> matchesSideA,
+        Func<ThreatEvent, bool> matchesSideB,
+        Func<ThreatEvent, ThreatEvent, bool>? areRelated = null)
+    {
+        areRelated ??= (_, _) => true;
+
+        if (matchesSideA(newEvent))
+        {
+            var counterpart = window.FirstOrDefault(e =>
+                e.Id != newEvent.Id && matchesSideB(e) && areRelated(newEvent, e));
+            if (counterpart != null)
+                return (newEvent, counterpart);
+        }
+        else if (matchesSideB(newEvent))
+        {
+            var counterpart = window.FirstOrDefault(e =>
+                e.Id != newEvent.Id && matchesSideA(e) && areRelated(e, newEvent));
+            if (counterpart != null)
+                return (counterpart, newEvent);
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Rule 1: Suspicious process + new DLL in same directory = DLL sideloading attack.
     /// </summary>
     internal void CheckProcessPlusDll(ThreatEvent newEvent, List<ThreatEvent> window, List<CorrelatedThreat> results)
     {
-        // If a new DLL was detected by FileSystemMonitor...
-        if (newEvent.Source == "FileSystemMonitor" &&
-            newEvent.Title.Contains("DLL", StringComparison.OrdinalIgnoreCase))
-        {
-            // Look for suspicious process events in the same time window
-            var processEvents = window.Where(e =>
-                e.Source == "ProcessMonitor" &&
-                e.Id != newEvent.Id &&
-                e.Severity >= ThreatSeverity.Medium).ToList();
-
-            if (processEvents.Count > 0)
+        var match = TryBidirectionalMatch(
+            newEvent, window,
+            matchesSideA: e => e.Source == "FileSystemMonitor" &&
+                        e.Title.Contains("DLL", StringComparison.OrdinalIgnoreCase),
+            matchesSideB: e => e.Source == "ProcessMonitor" && e.Severity >= ThreatSeverity.Medium,
+            areRelated: (dllEvent, processEvent) =>
             {
-                // Check if any process event is in a related directory
-                var dllDir = ExtractDirectory(newEvent.Description);
-                var relatedProcess = processEvents.FirstOrDefault(pe =>
-                    !string.IsNullOrEmpty(dllDir) &&
-                    pe.Description.Contains(dllDir, StringComparison.OrdinalIgnoreCase));
+                var dir = ExtractDirectory(dllEvent.Description);
+                return !string.IsNullOrEmpty(dir) &&
+                       processEvent.Description.Contains(dir, StringComparison.OrdinalIgnoreCase);
+            });
 
-                if (relatedProcess != null && !IsRecentCorrelation("ProcessPlusDll", dllDir ?? ""))
-                {
-                    results.Add(new CorrelatedThreat
-                    {
-                        ContributingEvents = { relatedProcess, newEvent },
-                        CombinedSeverity = ThreatSeverity.Critical,
-                        RuleName = "ProcessPlusDll",
-                        ChainDescription = $"Suspicious process detected alongside new DLL in same directory. " +
-                                           $"Process: {relatedProcess.Title}. DLL: {newEvent.Title}. " +
-                                           $"This combination strongly suggests DLL sideloading or injection.",
-                        ThreatScore = CalculateChainScore(relatedProcess, newEvent) + 30
-                    });
-                }
-            }
-        }
+        if (match == null) return;
 
-        // Also check reverse: suspicious process detected, look for recent DLLs
-        if (newEvent.Source == "ProcessMonitor" && newEvent.Severity >= ThreatSeverity.Medium)
+        var (dllEvt, processEvt) = match.Value;
+        var dllDir = ExtractDirectory(dllEvt.Description) ?? "";
+
+        if (!IsRecentCorrelation("ProcessPlusDll", dllDir))
         {
-            var dllEvents = window.Where(e =>
-                e.Source == "FileSystemMonitor" &&
-                e.Title.Contains("DLL", StringComparison.OrdinalIgnoreCase) &&
-                e.Id != newEvent.Id).ToList();
-
-            var processDir = ExtractDirectory(newEvent.Description);
-            var relatedDll = dllEvents.FirstOrDefault(de =>
-                !string.IsNullOrEmpty(processDir) &&
-                de.Description.Contains(processDir, StringComparison.OrdinalIgnoreCase));
-
-            if (relatedDll != null && !IsRecentCorrelation("ProcessPlusDll", processDir ?? ""))
+            results.Add(new CorrelatedThreat
             {
-                results.Add(new CorrelatedThreat
-                {
-                    ContributingEvents = { newEvent, relatedDll },
-                    CombinedSeverity = ThreatSeverity.Critical,
-                    RuleName = "ProcessPlusDll",
-                    ChainDescription = $"Suspicious process detected alongside new DLL in same directory. " +
-                                       $"Process: {newEvent.Title}. DLL: {relatedDll.Title}. " +
-                                       $"This combination strongly suggests DLL sideloading or injection.",
-                    ThreatScore = CalculateChainScore(newEvent, relatedDll) + 30
-                });
-            }
+                ContributingEvents = { processEvt, dllEvt },
+                CombinedSeverity = ThreatSeverity.Critical,
+                RuleName = "ProcessPlusDll",
+                ChainDescription = $"Suspicious process detected alongside new DLL in same directory. " +
+                                   $"Process: {processEvt.Title}. DLL: {dllEvt.Title}. " +
+                                   $"This combination strongly suggests DLL sideloading or injection.",
+                ThreatScore = CalculateChainScore(processEvt, dllEvt) + 30
+            });
         }
     }
 
@@ -192,34 +203,25 @@ public class ThreatCorrelator
     /// </summary>
     internal void CheckDefenderPlusUnsigned(ThreatEvent newEvent, List<ThreatEvent> window, List<CorrelatedThreat> results)
     {
-        bool defenderDisabled = window.Any(e =>
+        static bool IsDefenderDisable(ThreatEvent e) =>
             e.Title.Contains("Defender", StringComparison.OrdinalIgnoreCase) &&
-            e.Title.Contains("Disabled", StringComparison.OrdinalIgnoreCase));
+            e.Title.Contains("Disabled", StringComparison.OrdinalIgnoreCase);
 
-        if (!defenderDisabled) return;
-
-        var suspiciousProcessEvent = window.FirstOrDefault(e =>
+        static bool IsSuspiciousProcess(ThreatEvent e) =>
             e.Source == "ProcessMonitor" &&
-            e.Severity >= ThreatSeverity.Medium &&
-            (e.Title.Contains("Unsigned", StringComparison.OrdinalIgnoreCase) ||
-             e.Title.Contains("Suspicious", StringComparison.OrdinalIgnoreCase) ||
-             e.Description.Contains("Temp", StringComparison.OrdinalIgnoreCase)));
+            e.Severity >= ThreatSeverity.Medium;
 
-        bool suspiciousProcess = suspiciousProcessEvent != null;
+        var match = TryBidirectionalMatch(
+            newEvent, window,
+            matchesSideA: IsDefenderDisable,
+            matchesSideB: IsSuspiciousProcess);
 
-        // Only correlate if newEvent IS the suspicious process — otherwise every
-        // benign process event floods Critical correlations while the window
-        // contains any earlier suspicious process + Defender-disabled pair.
-        if (newEvent.Source == "ProcessMonitor" &&
-            newEvent.Severity >= ThreatSeverity.Medium &&
-            !IsRecentCorrelation("DefenderPlusUnsigned", newEvent.Id))
+        if (match == null) return;
+
+        var (defenderEvent, processEvent) = match.Value;
+
+        if (!IsRecentCorrelation("DefenderPlusUnsigned", newEvent.Id))
         {
-            var defenderEvent = window.First(e =>
-                e.Title.Contains("Defender", StringComparison.OrdinalIgnoreCase) &&
-                e.Title.Contains("Disabled", StringComparison.OrdinalIgnoreCase));
-
-            var processEvent = newEvent;
-
             results.Add(new CorrelatedThreat
             {
                 ContributingEvents = { defenderEvent, processEvent },
@@ -229,25 +231,6 @@ public class ThreatCorrelator
                                    $"Process: {processEvent.Title}. " +
                                    $"This is a classic attack pattern: disable defenses, then deploy payload.",
                 ThreatScore = CalculateChainScore(defenderEvent, processEvent) + 50
-            });
-        }
-
-        // Also trigger if the new event IS the Defender disable and there are already suspicious processes
-        // Skip if we already emitted a correlation from the first branch above
-        if (results.All(r => r.RuleName != "DefenderPlusUnsigned") &&
-            newEvent.Title.Contains("Defender", StringComparison.OrdinalIgnoreCase) &&
-            newEvent.Title.Contains("Disabled", StringComparison.OrdinalIgnoreCase) &&
-            suspiciousProcess &&
-            !IsRecentCorrelation("DefenderPlusUnsigned", "reverse"))
-        {
-            results.Add(new CorrelatedThreat
-            {
-                ContributingEvents = { newEvent, suspiciousProcessEvent },
-                CombinedSeverity = ThreatSeverity.Critical,
-                RuleName = "DefenderPlusUnsigned",
-                ChainDescription = $"Windows Defender was just disabled while suspicious processes are running. " +
-                                   $"Process: {suspiciousProcessEvent.Title}. Immediate investigation required.",
-                ThreatScore = CalculateChainScore(newEvent, suspiciousProcessEvent!) + 50
             });
         }
     }
@@ -260,53 +243,33 @@ public class ThreatCorrelator
     {
         if (newEvent.Source != "EventLogMonitor") return;
 
-        // Look for brute force + privilege escalation or account creation
-        if (newEvent.Title.Contains("Brute Force", StringComparison.OrdinalIgnoreCase))
+        static bool IsBruteForce(ThreatEvent e) =>
+            e.Source == "EventLogMonitor" &&
+            e.Title.Contains("Brute Force", StringComparison.OrdinalIgnoreCase);
+
+        static bool IsEscalation(ThreatEvent e) =>
+            e.Source == "EventLogMonitor" &&
+            (e.Title.Contains("Privilege", StringComparison.OrdinalIgnoreCase) ||
+             e.Title.Contains("Account Created", StringComparison.OrdinalIgnoreCase) ||
+             e.Title.Contains("Kill Chain", StringComparison.OrdinalIgnoreCase));
+
+        var match = TryBidirectionalMatch(newEvent, window, IsBruteForce, IsEscalation);
+
+        if (match == null) return;
+
+        var (bruteForce, escalation) = match.Value;
+
+        if (!IsRecentCorrelation("BruteForceChain", newEvent.Id))
         {
-            // Check for recent successful logon or privilege escalation
-            var escalation = window.FirstOrDefault(e =>
-                e.Source == "EventLogMonitor" &&
-                e.Id != newEvent.Id &&
-                (e.Title.Contains("Privilege", StringComparison.OrdinalIgnoreCase) ||
-                 e.Title.Contains("Account Created", StringComparison.OrdinalIgnoreCase) ||
-                 e.Title.Contains("Kill Chain", StringComparison.OrdinalIgnoreCase)));
-
-            if (escalation != null && !IsRecentCorrelation("BruteForceChain", newEvent.Id))
+            results.Add(new CorrelatedThreat
             {
-                results.Add(new CorrelatedThreat
-                {
-                    ContributingEvents = { newEvent, escalation },
-                    CombinedSeverity = ThreatSeverity.Critical,
-                    RuleName = "BruteForceChain",
-                    ChainDescription = $"Brute force attack detected alongside {escalation.Title}. " +
-                                       $"An attacker may have gained access and is escalating privileges.",
-                    ThreatScore = CalculateChainScore(newEvent, escalation) + 40
-                });
-            }
-        }
-
-        // Reverse: escalation/account creation arrives after brute force is already in window
-        if (newEvent.Title.Contains("Privilege", StringComparison.OrdinalIgnoreCase) ||
-            newEvent.Title.Contains("Account Created", StringComparison.OrdinalIgnoreCase) ||
-            newEvent.Title.Contains("Kill Chain", StringComparison.OrdinalIgnoreCase))
-        {
-            var bruteForce = window.FirstOrDefault(e =>
-                e.Source == "EventLogMonitor" &&
-                e.Id != newEvent.Id &&
-                e.Title.Contains("Brute Force", StringComparison.OrdinalIgnoreCase));
-
-            if (bruteForce != null && !IsRecentCorrelation("BruteForceChain", $"rev-{newEvent.Id}"))
-            {
-                results.Add(new CorrelatedThreat
-                {
-                    ContributingEvents = { bruteForce, newEvent },
-                    CombinedSeverity = ThreatSeverity.Critical,
-                    RuleName = "BruteForceChain",
-                    ChainDescription = $"{newEvent.Title} detected following brute force activity. " +
-                                       $"An attacker may have successfully breached and is escalating privileges.",
-                    ThreatScore = CalculateChainScore(bruteForce, newEvent) + 40
-                });
-            }
+                ContributingEvents = { bruteForce, escalation },
+                CombinedSeverity = ThreatSeverity.Critical,
+                RuleName = "BruteForceChain",
+                ChainDescription = $"Brute force attack detected alongside {escalation.Title}. " +
+                                   $"An attacker may have gained access and is escalating privileges.",
+                ThreatScore = CalculateChainScore(bruteForce, escalation) + 40
+            });
         }
     }
 

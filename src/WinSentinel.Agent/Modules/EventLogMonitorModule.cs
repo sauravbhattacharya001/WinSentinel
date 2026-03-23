@@ -260,20 +260,28 @@ public class EventLogMonitorModule : IAgentModule
 
         var now = DateTimeOffset.UtcNow;
 
-        // Track for brute force correlation
+        // Track for brute force correlation — by source IP/workstation
         var failedList = _failedLogons.GetOrAdd(source, _ => new List<DateTimeOffset>());
+        int failCount;
         lock (failedList)
         {
             failedList.Add(now);
             // Trim old entries outside correlation window
             failedList.RemoveAll(t => (now - t) > CorrelationWindow);
+            failCount = failedList.Count;
         }
 
-        // Check brute force threshold
-        int failCount;
-        lock (failedList)
+        // Also track by target username for kill chain correlation (issue #141).
+        // HandleExplicitCredentialLogon checks _failedLogons by username, so we
+        // need the target account indexed here as well.
+        if (targetUser != "unknown" && targetUser != source)
         {
-            failCount = failedList.Count;
+            var userFailedList = _failedLogons.GetOrAdd(targetUser, _ => new List<DateTimeOffset>());
+            lock (userFailedList)
+            {
+                userFailedList.Add(now);
+                userFailedList.RemoveAll(t => (now - t) > CorrelationWindow);
+            }
         }
 
         if (failCount >= BruteForceThreshold)
@@ -313,11 +321,17 @@ public class EventLogMonitorModule : IAgentModule
         var targetServer = GetEventDataValue(record, "TargetServerName") ?? "unknown";
         var processName = GetEventDataValue(record, "ProcessName") ?? "";
 
-        // Track as potential successful logon (for kill chain correlation)
-        var source = subjectUser;
-        if (_failedLogons.ContainsKey(source))
+        // Track as potential successful logon (for kill chain correlation).
+        // Check both subjectUser and targetUser against _failedLogons, since
+        // HandleFailedLogon tracks by both IP/workstation and target username (issue #141).
+        var now = DateTimeOffset.UtcNow;
+        if (_failedLogons.ContainsKey(subjectUser))
         {
-            _successfulLogonsAfterFailure[source] = DateTimeOffset.UtcNow;
+            _successfulLogonsAfterFailure[subjectUser] = now;
+        }
+        if (targetUser != "unknown" && targetUser != subjectUser && _failedLogons.ContainsKey(targetUser))
+        {
+            _successfulLogonsAfterFailure[targetUser] = now;
         }
 
         EmitThreat(new ThreatEvent
@@ -982,14 +996,24 @@ public class EventLogMonitorModule : IAgentModule
         var now = DateTimeOffset.UtcNow;
 
         var failedList = _failedLogons.GetOrAdd(source, _ => new List<DateTimeOffset>());
+        int failCount;
         lock (failedList)
         {
             failedList.Add(now);
             failedList.RemoveAll(t => (now - t) > CorrelationWindow);
+            failCount = failedList.Count;
         }
 
-        int failCount;
-        lock (failedList) { failCount = failedList.Count; }
+        // Also track by target username for kill chain correlation (issue #141)
+        if (targetUser != "unknown" && targetUser != source)
+        {
+            var userFailedList = _failedLogons.GetOrAdd(targetUser, _ => new List<DateTimeOffset>());
+            lock (userFailedList)
+            {
+                userFailedList.Add(now);
+                userFailedList.RemoveAll(t => (now - t) > CorrelationWindow);
+            }
+        }
 
         if (failCount >= BruteForceThreshold)
         {
@@ -1024,8 +1048,11 @@ public class EventLogMonitorModule : IAgentModule
         var targetUser = data.GetValueOrDefault("TargetUserName", "unknown");
         var targetServer = data.GetValueOrDefault("TargetServerName", "unknown");
 
+        var now = DateTimeOffset.UtcNow;
         if (_failedLogons.ContainsKey(subjectUser))
-            _successfulLogonsAfterFailure[subjectUser] = DateTimeOffset.UtcNow;
+            _successfulLogonsAfterFailure[subjectUser] = now;
+        if (targetUser != "unknown" && targetUser != subjectUser && _failedLogons.ContainsKey(targetUser))
+            _successfulLogonsAfterFailure[targetUser] = now;
 
         EmitThreat(new ThreatEvent
         {

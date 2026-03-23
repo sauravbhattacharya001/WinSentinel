@@ -122,6 +122,8 @@ public class CliOptions
     public string? SlaResolveNotes { get; set; }
     public string? SlaSeverityFilter { get; set; }
     public int SlaTop { get; set; } = 10;
+    public string CoverageFormat { get; set; } = "text";
+    public bool CoverageGapsOnly { get; set; }
 }
 
 public enum CliCommand
@@ -159,6 +161,7 @@ public enum CliCommand
     Hotspots,
     Kpi,
     Sla,
+    Coverage,
     Help,
     Version
 }
@@ -1292,6 +1295,20 @@ public static class CliParser
                     if (!TryConsumeInt(args, ref i, "--sla-top", 1, 100, out var slaTop, out var slaTopErr))
                     { options.Error = slaTopErr; return options; }
                     options.SlaTop = slaTop;
+                    break;
+
+                case "--coverage":
+                    options.Command = CliCommand.Coverage;
+                    break;
+
+                case "--coverage-format":
+                    if (!TryConsumeArg(args, ref i, "--coverage-format", out var covFmt, out var covFmtErr))
+                    { options.Error = covFmtErr; return options; }
+                    options.CoverageFormat = covFmt.ToLowerInvariant();
+                    break;
+
+                case "--coverage-gaps":
+                    options.CoverageGapsOnly = true;
                     break;
 
                 default:

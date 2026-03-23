@@ -52,6 +52,7 @@ return options.Command switch
     CliCommand.Hotspots => HandleHotspots(options),
     CliCommand.Kpi => HandleKpi(options),
     CliCommand.Sla => await HandleSla(options),
+    CliCommand.Coverage => await HandleCoverage(options),
     _ => HandleHelp()
 };
 
@@ -4211,4 +4212,64 @@ static int HandleSlaApproaching(SlaTracker tracker, CliOptions options)
 
     Console.WriteLine();
     return 0;
+}
+
+// ── Coverage Map ─────────────────────────────────────────────────────
+
+static async Task<int> HandleCoverage(CliOptions options)
+{
+    var engine = BuildEngine(options.ModulesFilter);
+    var sw = Stopwatch.StartNew();
+
+    if (!options.Quiet)
+    {
+        ConsoleFormatter.PrintBanner();
+        Console.WriteLine("  Running audit to generate coverage map...");
+        Console.WriteLine();
+    }
+
+    var progress = options.Quiet
+        ? null
+        : new Progress<(string module, int current, int total)>(p =>
+            ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
+
+    var report = await engine.RunFullAuditAsync(progress);
+    sw.Stop();
+
+    if (!options.Quiet)
+    {
+        ConsoleFormatter.PrintProgressDone(engine.Modules.Count, sw.Elapsed);
+    }
+
+    var coverageService = new SecurityCoverageService();
+    var coverage = coverageService.Analyze(report);
+
+    // Filter to gaps only if requested
+    if (options.CoverageGapsOnly)
+    {
+        coverage = coverage with
+        {
+            Domains = coverage.Domains.Where(d => d.HasGap).ToList()
+        };
+    }
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        WriteOutput(JsonSerializer.Serialize(coverage, jsonOptions), options.OutputFile);
+        return 0;
+    }
+
+    if (options.Markdown)
+    {
+        WriteOutput(ConsoleFormatter.FormatCoverageMarkdown(coverage), options.OutputFile);
+        return 0;
+    }
+
+    if (!options.Quiet)
+    {
+        ConsoleFormatter.PrintCoverage(coverage);
+    }
+
+    return coverage.GapDomains > 0 ? 1 : 0;
 }

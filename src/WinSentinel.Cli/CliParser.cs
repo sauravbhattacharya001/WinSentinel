@@ -115,6 +115,13 @@ public class CliOptions
     public string HotspotFormat { get; set; } = "text";
     public int KpiDays { get; set; } = 90;
     public string KpiFormat { get; set; } = "text";
+    public SlaAction SlaAction { get; set; } = SlaAction.None;
+    public string SlaPolicy { get; set; } = "enterprise";
+    public string SlaFormat { get; set; } = "text";
+    public string? SlaResolveId { get; set; }
+    public string? SlaResolveNotes { get; set; }
+    public string? SlaSeverityFilter { get; set; }
+    public int SlaTop { get; set; } = 10;
 }
 
 public enum CliCommand
@@ -151,6 +158,7 @@ public enum CliCommand
     Tag,
     Hotspots,
     Kpi,
+    Sla,
     Help,
     Version
 }
@@ -245,6 +253,16 @@ public enum TagAction
     Delete,
     Export,
     Import
+}
+
+public enum SlaAction
+{
+    None,
+    Report,
+    Overdue,
+    Approaching,
+    Track,
+    Export
 }
 
 /// <summary>
@@ -1229,6 +1247,51 @@ public static class CliParser
                     if (!TryConsumeArg(args, ref i, "--kpi-format", out var kpiFmt, out var kpiFmtErr))
                     { options.Error = kpiFmtErr; return options; }
                     options.KpiFormat = kpiFmt.ToLowerInvariant();
+                    break;
+
+                case "--sla":
+                    options.Command = CliCommand.Sla;
+                    // Check for sub-action
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith("--"))
+                    {
+                        options.SlaAction = args[++i].ToLowerInvariant() switch
+                        {
+                            "report" => SlaAction.Report,
+                            "overdue" => SlaAction.Overdue,
+                            "approaching" => SlaAction.Approaching,
+                            "track" => SlaAction.Track,
+                            "export" => SlaAction.Export,
+                            _ => SlaAction.Report
+                        };
+                    }
+                    else
+                    {
+                        options.SlaAction = SlaAction.Report;
+                    }
+                    break;
+
+                case "--sla-policy":
+                    if (!TryConsumeArg(args, ref i, "--sla-policy", out var slaPol, out var slaPolErr))
+                    { options.Error = slaPolErr; return options; }
+                    options.SlaPolicy = slaPol.ToLowerInvariant();
+                    break;
+
+                case "--sla-format":
+                    if (!TryConsumeArg(args, ref i, "--sla-format", out var slaFmt, out var slaFmtErr))
+                    { options.Error = slaFmtErr; return options; }
+                    options.SlaFormat = slaFmt.ToLowerInvariant();
+                    break;
+
+                case "--sla-severity":
+                    if (!TryConsumeArg(args, ref i, "--sla-severity", out var slaSev, out var slaSevErr))
+                    { options.Error = slaSevErr; return options; }
+                    options.SlaSeverityFilter = slaSev.ToLowerInvariant();
+                    break;
+
+                case "--sla-top":
+                    if (!TryConsumeInt(args, ref i, "--sla-top", 1, 100, out var slaTop, out var slaTopErr))
+                    { options.Error = slaTopErr; return options; }
+                    options.SlaTop = slaTop;
                     break;
 
                 default:

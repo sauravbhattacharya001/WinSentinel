@@ -51,6 +51,7 @@ return options.Command switch
     CliCommand.Tag => HandleTag(options),
     CliCommand.Hotspots => HandleHotspots(options),
     CliCommand.Kpi => HandleKpi(options),
+    CliCommand.Sla => await HandleSla(options),
     _ => HandleHelp()
 };
 
@@ -3742,5 +3743,472 @@ static int HandleKpi(CliOptions options)
     }
 
     ConsoleFormatter.PrintKpiReport(result, options.Quiet);
+    return 0;
+}
+
+// ── SLA Tracker ──────────────────────────────────────────────────────
+
+static async Task<int> HandleSla(CliOptions options)
+{
+    var engine = BuildEngine(options.ModulesFilter);
+    var sw = Stopwatch.StartNew();
+
+    if (!options.Quiet && !options.Json)
+    {
+        ConsoleFormatter.PrintBanner();
+        Console.WriteLine("  Running audit for SLA tracking...");
+        Console.WriteLine();
+    }
+
+    var progress = options.Quiet || options.Json
+        ? null
+        : new Progress<(string module, int current, int total)>(p =>
+            ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
+
+    var report = await engine.RunFullAuditAsync(progress);
+    sw.Stop();
+
+    if (!options.Quiet && !options.Json)
+    {
+        ConsoleFormatter.PrintProgressDone(engine.Modules.Count, sw.Elapsed);
+        ConsoleFormatter.PrintScore(report.SecurityScore);
+        Console.WriteLine();
+    }
+
+    // Select SLA policy
+    var policy = options.SlaPolicy switch
+    {
+        "strict" => SlaTracker.SlaPolicy.Strict,
+        "relaxed" => SlaTracker.SlaPolicy.Relaxed,
+        _ => SlaTracker.SlaPolicy.Enterprise
+    };
+
+    var tracker = new SlaTracker(policy);
+
+    // Load existing tracked findings from history if available
+    var slaDataPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "WinSentinel", "sla-tracking.json");
+
+    if (File.Exists(slaDataPath))
+    {
+        try
+        {
+            var existingJson = File.ReadAllText(slaDataPath);
+            tracker.ImportJson(existingJson);
+        }
+        catch
+        {
+            // Ignore corrupt data, start fresh
+        }
+    }
+
+    // Track new findings from current scan
+    var tracked = tracker.TrackReport(report);
+
+    // Auto-resolve findings that are no longer present
+    var currentTitles = new HashSet<string>(
+        report.Results.SelectMany(r => r.Findings)
+            .Where(f => f.Severity != Severity.Pass)
+            .Select(f => f.Title));
+
+    var autoResolved = 0;
+    foreach (var finding in tracker.GetOpen())
+    {
+        if (!currentTitles.Contains(finding.Title))
+        {
+            finding.ResolvedAt = DateTimeOffset.UtcNow;
+            finding.ResolutionNotes = "Auto-resolved: finding no longer present in scan";
+            autoResolved++;
+        }
+    }
+
+    // Save updated tracking data
+    var dir = Path.GetDirectoryName(slaDataPath);
+    if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+    File.WriteAllText(slaDataPath, tracker.ExportJson());
+
+    // Generate output based on action
+    switch (options.SlaAction)
+    {
+        case SlaAction.Overdue:
+            return HandleSlaOverdue(tracker, options);
+
+        case SlaAction.Approaching:
+            return HandleSlaApproaching(tracker, options);
+
+        case SlaAction.Export:
+            var exportJson = tracker.ExportJson();
+            WriteOutput(exportJson, options.OutputFile);
+            if (!options.Quiet && options.OutputFile != null)
+            {
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"  ✓ SLA tracking data exported to {options.OutputFile}");
+                Console.ResetColor();
+            }
+            return 0;
+
+        case SlaAction.Report:
+        default:
+            return HandleSlaReport(tracker, options, tracked, autoResolved);
+    }
+}
+
+static int HandleSlaReport(SlaTracker tracker, CliOptions options, int newlyTracked, int autoResolved)
+{
+    var slaReport = tracker.GenerateReport();
+
+    if (options.Json)
+    {
+        var jsonResult = new
+        {
+            policy = slaReport.PolicyName,
+            generatedAt = slaReport.GeneratedAt,
+            totalTracked = slaReport.TotalTracked,
+            openCount = slaReport.OpenCount,
+            resolvedCount = slaReport.ResolvedCount,
+            overdueCount = slaReport.OverdueCount,
+            approachingCount = slaReport.ApproachingCount,
+            compliancePercent = slaReport.CompliancePercent,
+            meanTimeToRemediate = slaReport.MeanTimeToRemediate?.TotalHours,
+            newlyTracked,
+            autoResolved,
+            bySeverity = slaReport.BySeverity.ToDictionary(
+                kv => kv.Key.ToString(),
+                kv => new
+                {
+                    total = kv.Value.Total,
+                    metSla = kv.Value.MetSla,
+                    missedSla = kv.Value.MissedSla,
+                    onTrack = kv.Value.OnTrack,
+                    compliancePercent = kv.Value.CompliancePercent
+                }),
+            overdue = slaReport.TopOverdue.Select(a => new
+            {
+                id = a.Finding.Id,
+                title = a.Finding.Title,
+                severity = a.Finding.Severity.ToString(),
+                category = a.Finding.Category,
+                urgency = a.UrgencyLabel
+            }),
+            approaching = slaReport.ApproachingDeadline.Select(a => new
+            {
+                id = a.Finding.Id,
+                title = a.Finding.Title,
+                severity = a.Finding.Severity.ToString(),
+                category = a.Finding.Category,
+                urgency = a.UrgencyLabel
+            })
+        };
+
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        WriteOutput(JsonSerializer.Serialize(jsonResult, jsonOptions), options.OutputFile);
+        return 0;
+    }
+
+    // Text report
+    var orig = Console.ForegroundColor;
+
+    Console.ForegroundColor = ConsoleColor.Cyan;
+    Console.WriteLine("  ╔══════════════════════════════════════════════╗");
+    Console.WriteLine("  ║       ⏱️  SLA Compliance Dashboard          ║");
+    Console.WriteLine("  ╚══════════════════════════════════════════════╝");
+    Console.ForegroundColor = orig;
+    Console.WriteLine();
+
+    // Policy info
+    Console.Write("  Policy:         ");
+    Console.ForegroundColor = ConsoleColor.White;
+    Console.WriteLine(slaReport.PolicyName);
+    Console.ForegroundColor = orig;
+
+    // Compliance
+    Console.Write("  SLA Compliance: ");
+    Console.ForegroundColor = slaReport.CompliancePercent >= 90 ? ConsoleColor.Green :
+                               slaReport.CompliancePercent >= 70 ? ConsoleColor.Yellow : ConsoleColor.Red;
+    Console.WriteLine($"{slaReport.CompliancePercent}%");
+    Console.ForegroundColor = orig;
+
+    // Counts
+    Console.Write("  Total Tracked:  ");
+    Console.ForegroundColor = ConsoleColor.White;
+    Console.WriteLine(slaReport.TotalTracked);
+    Console.ForegroundColor = orig;
+
+    Console.Write("  Open:           ");
+    Console.ForegroundColor = slaReport.OpenCount > 0 ? ConsoleColor.Yellow : ConsoleColor.Green;
+    Console.WriteLine(slaReport.OpenCount);
+    Console.ForegroundColor = orig;
+
+    Console.Write("  Resolved:       ");
+    Console.ForegroundColor = ConsoleColor.Green;
+    Console.WriteLine(slaReport.ResolvedCount);
+    Console.ForegroundColor = orig;
+
+    Console.Write("  Overdue:        ");
+    Console.ForegroundColor = slaReport.OverdueCount > 0 ? ConsoleColor.Red : ConsoleColor.Green;
+    Console.WriteLine(slaReport.OverdueCount);
+    Console.ForegroundColor = orig;
+
+    Console.Write("  Approaching:    ");
+    Console.ForegroundColor = slaReport.ApproachingCount > 0 ? ConsoleColor.Yellow : ConsoleColor.DarkGray;
+    Console.WriteLine(slaReport.ApproachingCount);
+    Console.ForegroundColor = orig;
+
+    if (slaReport.MeanTimeToRemediate.HasValue)
+    {
+        Console.Write("  Mean TTR:       ");
+        Console.ForegroundColor = ConsoleColor.White;
+        var mttr = slaReport.MeanTimeToRemediate.Value;
+        if (mttr.TotalDays >= 1)
+            Console.WriteLine($"{mttr.Days}d {mttr.Hours}h");
+        else
+            Console.WriteLine($"{(int)mttr.TotalHours}h {mttr.Minutes}m");
+        Console.ForegroundColor = orig;
+    }
+
+    if (newlyTracked > 0 || autoResolved > 0)
+    {
+        Console.WriteLine();
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine($"  This scan: +{newlyTracked} tracked, {autoResolved} auto-resolved");
+        Console.ForegroundColor = orig;
+    }
+
+    // Severity breakdown
+    Console.WriteLine();
+    Console.ForegroundColor = ConsoleColor.White;
+    Console.WriteLine("  BY SEVERITY");
+    Console.ForegroundColor = ConsoleColor.DarkGray;
+    Console.WriteLine("  ──────────────────────────────────────────");
+    Console.ForegroundColor = orig;
+
+    foreach (var (sev, comp) in slaReport.BySeverity.OrderByDescending(kv => (int)kv.Key))
+    {
+        if (comp.Total == 0) continue;
+        var sevColor = sev switch
+        {
+            Severity.Critical => ConsoleColor.Red,
+            Severity.Warning => ConsoleColor.Yellow,
+            _ => ConsoleColor.Cyan
+        };
+        Console.ForegroundColor = sevColor;
+        Console.Write($"  {sev,-10}");
+        Console.ForegroundColor = orig;
+        Console.Write($"  Total: {comp.Total} | Met SLA: ");
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.Write(comp.MetSla);
+        Console.ForegroundColor = orig;
+        Console.Write(" | Missed: ");
+        Console.ForegroundColor = comp.MissedSla > 0 ? ConsoleColor.Red : ConsoleColor.DarkGray;
+        Console.Write(comp.MissedSla);
+        Console.ForegroundColor = orig;
+        Console.Write(" | On Track: ");
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.Write(comp.OnTrack);
+        Console.ForegroundColor = orig;
+        Console.Write($" | {comp.CompliancePercent}%");
+        Console.WriteLine();
+    }
+
+    // Overdue items
+    if (slaReport.TopOverdue.Count > 0)
+    {
+        Console.WriteLine();
+        Console.ForegroundColor = ConsoleColor.Red;
+        Console.WriteLine("  ⚠️  OVERDUE FINDINGS");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine("  ──────────────────────────────────────────");
+        Console.ForegroundColor = orig;
+
+        foreach (var a in slaReport.TopOverdue.Take(options.SlaTop))
+        {
+            var sevColor = a.Finding.Severity == Severity.Critical ? ConsoleColor.Red : ConsoleColor.Yellow;
+            Console.Write("  ");
+            Console.ForegroundColor = sevColor;
+            Console.Write($"[{a.Finding.Severity}]");
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.Write($" {a.Finding.Title}");
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.Write($"  ({a.Finding.Category})");
+            Console.ForegroundColor = orig;
+            Console.WriteLine();
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"    {a.UrgencyLabel}");
+            Console.ForegroundColor = orig;
+        }
+    }
+
+    // Approaching deadline
+    if (slaReport.ApproachingDeadline.Count > 0)
+    {
+        Console.WriteLine();
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.WriteLine("  ⏳ APPROACHING DEADLINE");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine("  ──────────────────────────────────────────");
+        Console.ForegroundColor = orig;
+
+        foreach (var a in slaReport.ApproachingDeadline.Take(options.SlaTop))
+        {
+            var sevColor = a.Finding.Severity == Severity.Critical ? ConsoleColor.Red : ConsoleColor.Yellow;
+            Console.Write("  ");
+            Console.ForegroundColor = sevColor;
+            Console.Write($"[{a.Finding.Severity}]");
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.Write($" {a.Finding.Title}");
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.Write($"  ({a.Finding.Category})");
+            Console.ForegroundColor = orig;
+            Console.WriteLine();
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine($"    {a.UrgencyLabel}");
+            Console.ForegroundColor = orig;
+        }
+    }
+
+    Console.WriteLine();
+    Console.ForegroundColor = ConsoleColor.DarkGray;
+    Console.WriteLine("  Options: --sla overdue | --sla approaching | --sla export");
+    Console.WriteLine("           --sla-policy strict|enterprise|relaxed");
+    Console.ForegroundColor = orig;
+    Console.WriteLine();
+
+    // Save audit to history
+    using var historyService = new AuditHistoryService();
+    historyService.EnsureDatabase();
+
+    return slaReport.OverdueCount > 0 ? 1 : 0;
+}
+
+static int HandleSlaOverdue(SlaTracker tracker, CliOptions options)
+{
+    var overdue = tracker.GetOverdue();
+
+    if (options.Json)
+    {
+        var jsonResult = overdue.Select(f => new
+        {
+            id = f.Id,
+            title = f.Title,
+            severity = f.Severity.ToString(),
+            category = f.Category,
+            detectedAt = f.DetectedAt,
+            deadline = f.Deadline,
+            overdueBy = (DateTimeOffset.UtcNow - f.Deadline).TotalHours
+        });
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        WriteOutput(JsonSerializer.Serialize(jsonResult, jsonOptions), options.OutputFile);
+        return 0;
+    }
+
+    var orig = Console.ForegroundColor;
+    Console.WriteLine();
+
+    if (overdue.Count == 0)
+    {
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.WriteLine("  ✓ No overdue findings. All within SLA!");
+        Console.ForegroundColor = orig;
+        Console.WriteLine();
+        return 0;
+    }
+
+    Console.ForegroundColor = ConsoleColor.Red;
+    Console.WriteLine($"  ⚠️  {overdue.Count} OVERDUE FINDING(S)");
+    Console.ForegroundColor = ConsoleColor.DarkGray;
+    Console.WriteLine("  ──────────────────────────────────────────");
+    Console.ForegroundColor = orig;
+    Console.WriteLine();
+
+    foreach (var f in overdue.Take(options.SlaTop))
+    {
+        var overdueBy = DateTimeOffset.UtcNow - f.Deadline;
+        var sevColor = f.Severity == Severity.Critical ? ConsoleColor.Red : ConsoleColor.Yellow;
+
+        Console.Write($"  {f.Id}  ");
+        Console.ForegroundColor = sevColor;
+        Console.Write($"[{f.Severity}]");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine($" {f.Title}");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write($"    Category: {f.Category}");
+        Console.ForegroundColor = ConsoleColor.Red;
+        Console.Write($"  | Overdue by: ");
+        if (overdueBy.TotalDays >= 1)
+            Console.Write($"{overdueBy.Days}d {overdueBy.Hours}h");
+        else
+            Console.Write($"{(int)overdueBy.TotalHours}h {overdueBy.Minutes}m");
+        Console.ForegroundColor = orig;
+        Console.WriteLine();
+    }
+
+    Console.WriteLine();
+    return 1;
+}
+
+static int HandleSlaApproaching(SlaTracker tracker, CliOptions options)
+{
+    var approaching = tracker.GetApproaching();
+
+    if (options.Json)
+    {
+        var jsonResult = approaching.Select(f => new
+        {
+            id = f.Id,
+            title = f.Title,
+            severity = f.Severity.ToString(),
+            category = f.Category,
+            detectedAt = f.DetectedAt,
+            deadline = f.Deadline,
+            hoursRemaining = (f.Deadline - DateTimeOffset.UtcNow).TotalHours
+        });
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        WriteOutput(JsonSerializer.Serialize(jsonResult, jsonOptions), options.OutputFile);
+        return 0;
+    }
+
+    var orig = Console.ForegroundColor;
+    Console.WriteLine();
+
+    if (approaching.Count == 0)
+    {
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.WriteLine("  ✓ No findings approaching their deadline.");
+        Console.ForegroundColor = orig;
+        Console.WriteLine();
+        return 0;
+    }
+
+    Console.ForegroundColor = ConsoleColor.Yellow;
+    Console.WriteLine($"  ⏳ {approaching.Count} FINDING(S) APPROACHING DEADLINE");
+    Console.ForegroundColor = ConsoleColor.DarkGray;
+    Console.WriteLine("  ──────────────────────────────────────────");
+    Console.ForegroundColor = orig;
+    Console.WriteLine();
+
+    foreach (var f in approaching.Take(options.SlaTop))
+    {
+        var remaining = f.Deadline - DateTimeOffset.UtcNow;
+        var sevColor = f.Severity == Severity.Critical ? ConsoleColor.Red : ConsoleColor.Yellow;
+
+        Console.Write($"  {f.Id}  ");
+        Console.ForegroundColor = sevColor;
+        Console.Write($"[{f.Severity}]");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine($" {f.Title}");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write($"    Category: {f.Category}");
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.Write($"  | Time left: ");
+        if (remaining.TotalDays >= 1)
+            Console.Write($"{remaining.Days}d {remaining.Hours}h");
+        else
+            Console.Write($"{(int)remaining.TotalHours}h {remaining.Minutes}m");
+        Console.ForegroundColor = orig;
+        Console.WriteLine();
+    }
+
+    Console.WriteLine();
     return 0;
 }

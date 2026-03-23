@@ -115,6 +115,9 @@ public class CliOptions
     public string HotspotFormat { get; set; } = "text";
     public int KpiDays { get; set; } = 90;
     public string KpiFormat { get; set; } = "text";
+    public string? DriftBaseline { get; set; }
+    public int DriftHistoryDays { get; set; } = 90;
+    public string DriftFormat { get; set; } = "text";
 }
 
 public enum CliCommand
@@ -151,6 +154,7 @@ public enum CliCommand
     Tag,
     Hotspots,
     Kpi,
+    Drift,
     Help,
     Version
 }
@@ -1229,6 +1233,25 @@ public static class CliParser
                     if (!TryConsumeArg(args, ref i, "--kpi-format", out var kpiFmt, out var kpiFmtErr))
                     { options.Error = kpiFmtErr; return options; }
                     options.KpiFormat = kpiFmt.ToLowerInvariant();
+                    break;
+
+                case "--drift":
+                    options.Command = CliCommand.Drift;
+                    // Optional: next arg is baseline name
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                        options.DriftBaseline = args[++i];
+                    break;
+
+                case "--drift-days":
+                    if (!TryConsumeInt(args, ref i, "--drift-days", 1, 365, out var driftDays, out var driftDaysErr))
+                    { options.Error = driftDaysErr; return options; }
+                    options.DriftHistoryDays = driftDays;
+                    break;
+
+                case "--drift-format":
+                    if (!TryConsumeArg(args, ref i, "--drift-format", out var driftFmt, out var driftFmtErr))
+                    { options.Error = driftFmtErr; return options; }
+                    options.DriftFormat = driftFmt.ToLowerInvariant();
                     break;
 
                 default:

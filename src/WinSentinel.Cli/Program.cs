@@ -51,6 +51,7 @@ return options.Command switch
     CliCommand.Tag => HandleTag(options),
     CliCommand.Hotspots => HandleHotspots(options),
     CliCommand.Kpi => HandleKpi(options),
+    CliCommand.Drift => await HandleDrift(options),
     _ => HandleHelp()
 };
 
@@ -3743,4 +3744,74 @@ static int HandleKpi(CliOptions options)
 
     ConsoleFormatter.PrintKpiReport(result, options.Quiet);
     return 0;
+}
+
+// ── Drift Detection ──────────────────────────────────────────────────
+
+static async Task<int> HandleDrift(CliOptions options)
+{
+    var engine = BuildEngine(options.ModulesFilter);
+    var sw = Stopwatch.StartNew();
+
+    if (!options.Quiet)
+    {
+        ConsoleFormatter.PrintBanner();
+        Console.WriteLine("  Running audit for drift detection...");
+        Console.WriteLine();
+    }
+
+    var progress = options.Quiet
+        ? null
+        : new Progress<(string module, int current, int total)>(p =>
+            ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
+
+    var report = await engine.RunFullAuditAsync(progress);
+    sw.Stop();
+
+    if (!options.Quiet)
+    {
+        ConsoleFormatter.PrintProgressDone(engine.Modules.Count, sw.Elapsed);
+    }
+
+    var baselineService = new BaselineService();
+    using var historyService = new AuditHistoryService();
+    historyService.EnsureDatabase();
+
+    var driftService = new DriftDetectionService(baselineService, historyService);
+
+    try
+    {
+        var driftReport = driftService.Analyze(report, options.DriftBaseline, options.DriftHistoryDays);
+
+        if (options.Json || options.DriftFormat == "json")
+        {
+            var json = DriftDetectionService.RenderJson(driftReport);
+            WriteOutput(json, options.OutputFile);
+        }
+        else
+        {
+            var text = DriftDetectionService.RenderText(driftReport);
+            WriteOutput(text, options.OutputFile);
+        }
+
+        // Save this run to history
+        historyService.SaveAuditResult(report);
+
+        // Exit code: 0 = stable, 1 = drift detected, 2 = critical drift
+        if (driftReport.DriftScore >= 50) return 2;
+        if (driftReport.DriftScore > 0) return 1;
+        return 0;
+    }
+    catch (InvalidOperationException ex)
+    {
+        if (options.Json)
+        {
+            WriteOutput($"{{\"error\": \"{ex.Message}\"}}", options.OutputFile);
+        }
+        else
+        {
+            ConsoleFormatter.PrintError(ex.Message);
+        }
+        return 3;
+    }
 }

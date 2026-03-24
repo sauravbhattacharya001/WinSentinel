@@ -126,6 +126,10 @@ public class CliOptions
     public bool CoverageGapsOnly { get; set; }
     public string RiskMatrixFormat { get; set; } = "text";
     public bool RiskMatrixCounts { get; set; }
+    public FingerprintAction FingerprintAction { get; set; } = FingerprintAction.None;
+    public string? FingerprintCompareFile { get; set; }
+    public string FingerprintFormat { get; set; } = "text";
+    public bool FingerprintShort { get; set; }
 }
 
 public enum CliCommand
@@ -165,6 +169,7 @@ public enum CliCommand
     Sla,
     Coverage,
     RiskMatrix,
+    Fingerprint,
     Help,
     Version
 }
@@ -269,6 +274,14 @@ public enum SlaAction
     Approaching,
     Track,
     Export
+}
+
+public enum FingerprintAction
+{
+    None,
+    Generate,
+    Compare,
+    Badge
 }
 
 /// <summary>
@@ -1326,6 +1339,40 @@ public static class CliParser
 
                 case "--risk-matrix-counts":
                     options.RiskMatrixCounts = true;
+                    break;
+
+                case "--fingerprint":
+                    options.Command = CliCommand.Fingerprint;
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                    {
+                        var fpAction = args[++i].ToLowerInvariant();
+                        options.FingerprintAction = fpAction switch
+                        {
+                            "compare" => FingerprintAction.Compare,
+                            "badge" => FingerprintAction.Badge,
+                            _ => FingerprintAction.Generate
+                        };
+                    }
+                    else
+                    {
+                        options.FingerprintAction = FingerprintAction.Generate;
+                    }
+                    break;
+
+                case "--fingerprint-compare":
+                    if (!TryConsumeArg(args, ref i, "--fingerprint-compare", out var fpFile, out var fpFileErr))
+                    { options.Error = fpFileErr; return options; }
+                    options.FingerprintCompareFile = fpFile;
+                    break;
+
+                case "--fingerprint-format":
+                    if (!TryConsumeArg(args, ref i, "--fingerprint-format", out var fpFmt, out var fpFmtErr))
+                    { options.Error = fpFmtErr; return options; }
+                    options.FingerprintFormat = fpFmt.ToLowerInvariant();
+                    break;
+
+                case "--fingerprint-short":
+                    options.FingerprintShort = true;
                     break;
 
                 default:

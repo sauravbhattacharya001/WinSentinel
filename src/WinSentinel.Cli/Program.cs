@@ -54,6 +54,7 @@ return options.Command switch
     CliCommand.Sla => await HandleSla(options),
     CliCommand.Coverage => await HandleCoverage(options),
     CliCommand.RiskMatrix => await HandleRiskMatrix(options),
+    CliCommand.Fingerprint => await HandleFingerprint(options),
     _ => HandleHelp()
 };
 
@@ -4309,6 +4310,291 @@ static async Task<int> HandleRiskMatrix(CliOptions options)
     }
 
     ConsoleFormatter.PrintRiskMatrix(report, options.RiskMatrixCounts);
+    return 0;
+}
+
+// 🔑 Security Fingerprint ────────────────────────────────────────────
+
+static async Task<int> HandleFingerprint(CliOptions options)
+{
+    var engine = BuildEngine(options.ModulesFilter);
+    var sw = Stopwatch.StartNew();
+
+    if (!options.Quiet)
+    {
+        ConsoleFormatter.PrintBanner();
+        Console.WriteLine("  Running audit to generate security fingerprint...");
+        Console.WriteLine();
+    }
+
+    var progress = options.Quiet
+        ? null
+        : new Progress<(string module, int current, int total)>(p =>
+            ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
+
+    var report = await engine.RunFullAuditAsync(progress);
+    sw.Stop();
+
+    if (!options.Quiet)
+    {
+        ConsoleFormatter.PrintProgressDone(engine.Modules.Count, sw.Elapsed);
+    }
+
+    var fpService = new SecurityFingerprintService();
+    var fingerprint = fpService.Generate(report);
+
+    // Handle compare mode
+    if (options.FingerprintAction == FingerprintAction.Compare && !string.IsNullOrEmpty(options.FingerprintCompareFile))
+    {
+        if (!File.Exists(options.FingerprintCompareFile))
+        {
+            ConsoleFormatter.PrintError($"Baseline fingerprint file not found: {options.FingerprintCompareFile}");
+            return 3;
+        }
+
+        var baselineJson = await File.ReadAllTextAsync(options.FingerprintCompareFile);
+        var baseline = SecurityFingerprintService.FromJson(baselineJson);
+        if (baseline == null)
+        {
+            ConsoleFormatter.PrintError("Could not parse baseline fingerprint file.");
+            return 3;
+        }
+
+        var drift = fpService.Compare(baseline, fingerprint);
+
+        if (options.Json || options.FingerprintFormat == "json")
+        {
+            var jsonOpts = new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                Converters = { new JsonStringEnumConverter() }
+            };
+            var json = JsonSerializer.Serialize(drift, jsonOpts);
+            WriteOutput(json, options.OutputFile);
+        }
+        else
+        {
+            // Print drift report
+            var orig = Console.ForegroundColor;
+            Console.WriteLine();
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine("  ╔══════════════════════════════════════════════╗");
+            Console.WriteLine("  ║       🔑  Fingerprint Drift Analysis        ║");
+            Console.WriteLine("  ╚══════════════════════════════════════════════╝");
+            Console.ForegroundColor = orig;
+            Console.WriteLine();
+
+            Console.Write("  Baseline:  ");
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.WriteLine($"{drift.BaselineId} ({drift.BaselineScore}/100 {drift.BaselineGrade})");
+            Console.ForegroundColor = orig;
+
+            Console.Write("  Current:   ");
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.WriteLine($"{drift.CurrentId} ({drift.CurrentScore}/100 {drift.CurrentGrade})");
+            Console.ForegroundColor = orig;
+
+            Console.Write("  Drift:     ");
+            var driftColor = drift.DriftLevel switch
+            {
+                "none" => ConsoleColor.Green,
+                "low" => ConsoleColor.Yellow,
+                "medium" => ConsoleColor.DarkYellow,
+                _ => ConsoleColor.Red
+            };
+            Console.ForegroundColor = driftColor;
+            Console.WriteLine($"{drift.DriftLevel.ToUpperInvariant()} (score Δ{drift.ScoreChange:+#;-#;0})");
+            Console.ForegroundColor = orig;
+
+            Console.Write("  Elapsed:   ");
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine($"{drift.TimeSinceBaseline.Days}d {drift.TimeSinceBaseline.Hours}h");
+            Console.ForegroundColor = orig;
+
+            if (drift.IsIdentical)
+            {
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine("\n  ✅ Fingerprints are identical — no drift detected.");
+                Console.ForegroundColor = orig;
+            }
+            else if (drift.Changes.Count > 0)
+            {
+                Console.WriteLine();
+                Console.ForegroundColor = ConsoleColor.White;
+                Console.WriteLine("  CHANGED MODULES:");
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.WriteLine("  ──────────────────────────────────────────");
+                Console.ForegroundColor = orig;
+
+                foreach (var change in drift.Changes)
+                {
+                    var statusIcon = change.Status switch
+                    {
+                        "added" => "➕",
+                        "removed" => "➖",
+                        _ => "🔄"
+                    };
+                    var statusColor = change.Status switch
+                    {
+                        "added" => ConsoleColor.Cyan,
+                        "removed" => ConsoleColor.Red,
+                        _ => change.ScoreChange >= 0 ? ConsoleColor.Green : ConsoleColor.Yellow
+                    };
+
+                    Console.Write($"  {statusIcon} ");
+                    Console.ForegroundColor = statusColor;
+                    Console.Write($"{change.Module,-25}");
+                    Console.ForegroundColor = ConsoleColor.DarkGray;
+                    Console.Write($" [{change.Status}]");
+                    if (change.ScoreChange != 0)
+                    {
+                        Console.ForegroundColor = change.ScoreChange > 0 ? ConsoleColor.Green : ConsoleColor.Red;
+                        Console.Write($" score: {change.ScoreChange:+#;-#;0}");
+                    }
+                    if (change.NewFindings != change.PreviousFindings)
+                    {
+                        Console.ForegroundColor = ConsoleColor.DarkGray;
+                        Console.Write($" findings: {change.PreviousFindings}→{change.NewFindings}");
+                    }
+                    Console.ForegroundColor = orig;
+                    Console.WriteLine();
+                }
+            }
+            Console.WriteLine();
+        }
+
+        return drift.DriftLevel == "high" ? 2 : drift.DriftLevel == "none" ? 0 : 1;
+    }
+
+    // Handle badge mode
+    if (options.FingerprintAction == FingerprintAction.Badge || options.FingerprintShort)
+    {
+        Console.WriteLine(SecurityFingerprintService.RenderBadge(fingerprint));
+        return 0;
+    }
+
+    // Default: generate mode
+    if (options.Json || options.FingerprintFormat == "json")
+    {
+        var json = SecurityFingerprintService.ToJson(fingerprint);
+        WriteOutput(json, options.OutputFile);
+    }
+    else
+    {
+        // Pretty console output
+        var orig = Console.ForegroundColor;
+        Console.WriteLine();
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.WriteLine("  ╔══════════════════════════════════════════════╗");
+        Console.WriteLine("  ║       🔑  Security Fingerprint              ║");
+        Console.WriteLine("  ╚══════════════════════════════════════════════╝");
+        Console.ForegroundColor = orig;
+        Console.WriteLine();
+
+        Console.Write("  ID:        ");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine(fingerprint.Id);
+        Console.ForegroundColor = orig;
+
+        Console.Write("  Hash:      ");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine(fingerprint.FullHash);
+        Console.ForegroundColor = orig;
+
+        Console.Write("  Score:     ");
+        Console.ForegroundColor = GetScoreColor(fingerprint.Score);
+        Console.WriteLine($"{fingerprint.Score}/100 ({fingerprint.Grade})");
+        Console.ForegroundColor = orig;
+
+        Console.Write("  Posture:   ");
+        var postureColor = fingerprint.Posture switch
+        {
+            "Hardened" => ConsoleColor.Green,
+            "Strong" => ConsoleColor.Green,
+            "Moderate" => ConsoleColor.Yellow,
+            "Weak" => ConsoleColor.Red,
+            _ => ConsoleColor.DarkRed
+        };
+        Console.ForegroundColor = postureColor;
+        Console.WriteLine(fingerprint.Posture);
+        Console.ForegroundColor = orig;
+
+        Console.Write("  Machine:   ");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine($"{fingerprint.Machine} ({fingerprint.User})");
+        Console.ForegroundColor = orig;
+
+        Console.Write("  OS:        ");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine(fingerprint.Os);
+        Console.ForegroundColor = orig;
+
+        Console.Write("  Generated: ");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine(fingerprint.GeneratedAt.ToString("yyyy-MM-dd HH:mm:ss"));
+        Console.ForegroundColor = orig;
+
+        Console.Write("  Modules:   ");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.Write(fingerprint.ModuleCount);
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.Write($"  ({fingerprint.TotalCritical} critical, {fingerprint.TotalWarnings} warnings)");
+        Console.ForegroundColor = orig;
+        Console.WriteLine();
+
+        Console.WriteLine();
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine("  MODULE HASHES:");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine("  ──────────────────────────────────────────");
+        Console.ForegroundColor = orig;
+
+        foreach (var comp in fingerprint.Components)
+        {
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.Write($"  {comp.Hash[..8]}  ");
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.Write($"{comp.Module,-25}");
+            Console.ForegroundColor = GetScoreColor(comp.Score);
+            Console.Write($" {comp.Score,3}/100");
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            if (comp.CriticalCount > 0)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.Write($" {comp.CriticalCount}C");
+            }
+            if (comp.WarningCount > 0)
+            {
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.Write($" {comp.WarningCount}W");
+            }
+            Console.ForegroundColor = orig;
+            Console.WriteLine();
+        }
+
+        Console.WriteLine();
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine("  Save fingerprint:  winsentinel --fingerprint --json -o fingerprint.json");
+        Console.WriteLine("  Compare later:     winsentinel --fingerprint compare --fingerprint-compare fingerprint.json");
+        Console.ForegroundColor = orig;
+        Console.WriteLine();
+
+        // Save to output file if specified
+        if (!string.IsNullOrEmpty(options.OutputFile))
+        {
+            var json = SecurityFingerprintService.ToJson(fingerprint);
+            WriteOutput(json, options.OutputFile);
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"  ✅ Fingerprint saved to {options.OutputFile}");
+            Console.ForegroundColor = orig;
+            Console.WriteLine();
+        }
+    }
+
+    // Save audit to history
+    using var historyService = new AuditHistoryService();
+    historyService.SaveAuditResult(report);
+
     return 0;
 }
 

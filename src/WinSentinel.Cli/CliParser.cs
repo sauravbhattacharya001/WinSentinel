@@ -124,6 +124,8 @@ public class CliOptions
     public int SlaTop { get; set; } = 10;
     public string CoverageFormat { get; set; } = "text";
     public bool CoverageGapsOnly { get; set; }
+    public string RiskMatrixFormat { get; set; } = "text";
+    public bool RiskMatrixCounts { get; set; }
 }
 
 public enum CliCommand
@@ -162,6 +164,7 @@ public enum CliCommand
     Kpi,
     Sla,
     Coverage,
+    RiskMatrix,
     Help,
     Version
 }
@@ -1309,6 +1312,20 @@ public static class CliParser
 
                 case "--coverage-gaps":
                     options.CoverageGapsOnly = true;
+                    break;
+
+                case "--risk-matrix":
+                    options.Command = CliCommand.RiskMatrix;
+                    break;
+
+                case "--risk-matrix-format":
+                    if (!TryConsumeArg(args, ref i, "--risk-matrix-format", out var rmFmt, out var rmFmtErr))
+                    { options.Error = rmFmtErr; return options; }
+                    options.RiskMatrixFormat = rmFmt.ToLowerInvariant();
+                    break;
+
+                case "--risk-matrix-counts":
+                    options.RiskMatrixCounts = true;
                     break;
 
                 default:

@@ -53,6 +53,7 @@ return options.Command switch
     CliCommand.Kpi => HandleKpi(options),
     CliCommand.Sla => await HandleSla(options),
     CliCommand.Coverage => await HandleCoverage(options),
+    CliCommand.RiskMatrix => await HandleRiskMatrix(options),
     _ => HandleHelp()
 };
 
@@ -4272,4 +4273,81 @@ static async Task<int> HandleCoverage(CliOptions options)
     }
 
     return coverage.GapDomains > 0 ? 1 : 0;
+}
+
+// ── Risk Matrix ──────────────────────────────────────────────────────
+
+static async Task<int> HandleRiskMatrix(CliOptions options)
+{
+    var engine = BuildEngine(options.ModulesFilter);
+
+    if (!options.Quiet)
+    {
+        ConsoleFormatter.PrintBanner();
+        Console.WriteLine("  Running audit to build risk matrix...");
+        Console.WriteLine();
+    }
+
+    var progress = options.Quiet
+        ? null
+        : new Progress<(string module, int current, int total)>(p =>
+            ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
+
+    var report = await engine.RunFullAuditAsync(progress);
+
+    if (options.Json)
+    {
+        // Build the matrix data as JSON
+        var matrixData = BuildRiskMatrixData(report);
+        var jsonOpts = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Converters = { new JsonStringEnumConverter() }
+        };
+        Console.WriteLine(JsonSerializer.Serialize(matrixData, jsonOpts));
+        return 0;
+    }
+
+    ConsoleFormatter.PrintRiskMatrix(report, options.RiskMatrixCounts);
+    return 0;
+}
+
+static object BuildRiskMatrixData(SecurityReport report)
+{
+    // Classify findings into a likelihood × impact matrix
+    // Impact: derived from severity (Critical=High, Warning=Medium, Info=Low)
+    // Likelihood: derived from category frequency (how many findings in that category)
+    var allFindings = report.Results.SelectMany(r => r.Findings)
+        .Where(f => f.Severity != Severity.Pass)
+        .ToList();
+
+    var categoryGroups = allFindings.GroupBy(f => f.Category).ToList();
+    var maxCount = categoryGroups.Any() ? categoryGroups.Max(g => g.Count()) : 0;
+
+    var cells = new List<object>();
+    foreach (var group in categoryGroups)
+    {
+        var likelihood = maxCount <= 1 ? "Low"
+            : group.Count() >= maxCount * 0.66 ? "High"
+            : group.Count() >= maxCount * 0.33 ? "Medium"
+            : "Low";
+
+        foreach (var finding in group)
+        {
+            var impact = finding.Severity switch
+            {
+                Severity.Critical => "High",
+                Severity.Warning => "Medium",
+                _ => "Low"
+            };
+            cells.Add(new { finding.Title, finding.Category, Impact = impact, Likelihood = likelihood, finding.Severity });
+        }
+    }
+
+    return new
+    {
+        GeneratedAt = DateTimeOffset.UtcNow,
+        TotalFindings = allFindings.Count,
+        Matrix = cells
+    };
 }

@@ -62,29 +62,8 @@ return options.Command switch
 
 static async Task<int> HandleHarden(CliOptions options)
 {
-    var engine = BuildEngine(options.ModulesFilter);
-    var sw = Stopwatch.StartNew();
-
-    if (!options.Quiet)
-    {
-        ConsoleFormatter.PrintBanner();
-        Console.WriteLine("  Running audit to generate hardening script...");
-        Console.WriteLine();
-    }
-
-    var progress = options.Quiet
-        ? null
-        : new Progress<(string module, int current, int total)>(p =>
-            ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
-
-    var report = await engine.RunFullAuditAsync(progress);
-    sw.Stop();
-
-    if (!options.Quiet)
-    {
-        ConsoleFormatter.PrintProgressDone(engine.Modules.Count, sw.Elapsed);
-        ConsoleFormatter.PrintScore(report.SecurityScore);
-    }
+    var (report, engine, elapsed) = await RunAuditAsync(options, suppressOutput: options.Quiet,
+        bannerMessage: "Running audit to generate hardening script...");
 
     var generator = new HardenScriptGenerator();
     var hardenOptions = new HardenScriptOptions
@@ -454,26 +433,8 @@ static async Task<int> HandleScore(CliOptions options)
         return await HandleProfileAudit(options);
     }
 
-    var engine = BuildEngine(options.ModulesFilter);
-    var sw = Stopwatch.StartNew();
-
-    if (!options.Quiet && !options.Json)
-    {
-        ConsoleFormatter.PrintBanner();
-    }
-
-    var progress = options.Quiet || options.Json
-        ? null
-        : new Progress<(string module, int current, int total)>(p =>
-            ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
-
-    var report = await engine.RunFullAuditAsync(progress);
-    sw.Stop();
-
-    if (!options.Quiet && !options.Json)
-    {
-        ConsoleFormatter.PrintProgressDone(engine.Modules.Count, sw.Elapsed);
-    }
+    var (report, engine, elapsed) = await RunAuditAsync(options,
+        suppressOutput: options.Quiet || options.Json, showScore: false);
 
     if (options.Json)
     {
@@ -633,29 +594,11 @@ static async Task<int> HandleAudit(CliOptions options)
 
 static async Task<int> HandleFixAll(CliOptions options)
 {
-    var engine = BuildEngine(options.ModulesFilter);
     var fixEngine = new FixEngine();
-    var sw = Stopwatch.StartNew();
 
-    if (!options.Quiet && !options.Json)
-    {
-        ConsoleFormatter.PrintBanner();
-        Console.WriteLine("  Running audit before fix...");
-        Console.WriteLine();
-    }
-
-    var progress = options.Quiet || options.Json
-        ? null
-        : new Progress<(string module, int current, int total)>(p =>
-            ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
-
-    var report = await engine.RunFullAuditAsync(progress);
-
-    if (!options.Quiet && !options.Json)
-    {
-        ConsoleFormatter.PrintProgressDone(engine.Modules.Count, sw.Elapsed);
-        ConsoleFormatter.PrintScore(report.SecurityScore);
-    }
+    var (report, engine, elapsed) = await RunAuditAsync(options,
+        suppressOutput: options.Quiet || options.Json,
+        bannerMessage: "Running audit before fix...");
 
     // Collect fixable findings
     var fixableFindings = report.Results
@@ -1086,29 +1029,11 @@ static async Task<int> HandleProfileAudit(CliOptions options)
 
 static async Task<int> HandleChecklist(CliOptions options)
 {
-    var engine = BuildEngine(options.ModulesFilter);
     var planner = new RemediationPlanner();
-    var sw = Stopwatch.StartNew();
 
-    if (!options.Quiet && !options.Json)
-    {
-        ConsoleFormatter.PrintBanner();
-        Console.WriteLine("  Running audit to generate remediation checklist...");
-        Console.WriteLine();
-    }
-
-    var progress = options.Quiet || options.Json
-        ? null
-        : new Progress<(string module, int current, int total)>(p =>
-            ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
-
-    var report = await engine.RunFullAuditAsync(progress);
-    sw.Stop();
-
-    if (!options.Quiet && !options.Json)
-    {
-        ConsoleFormatter.PrintProgressDone(engine.Modules.Count, sw.Elapsed);
-    }
+    var (report, engine, elapsed) = await RunAuditAsync(options,
+        suppressOutput: options.Quiet || options.Json, showScore: false,
+        bannerMessage: "Running audit to generate remediation checklist...");
 
     var plan = planner.GeneratePlan(report);
 
@@ -1742,6 +1667,48 @@ static void WriteOutput(string content, string? outputFile)
     {
         Console.WriteLine(content);
     }
+}
+
+/// <summary>
+/// Shared boilerplate: build engine → print banner → run audit → print progress/score.
+/// Eliminates ~20 copies of the same 15-line block across command handlers.
+/// </summary>
+/// <param name="options">CLI options (for modules filter).</param>
+/// <param name="suppressOutput">When true, suppresses banner/progress/score output (e.g. JSON/HTML/Markdown mode).</param>
+/// <param name="showScore">When true, prints the security score after the audit (default true).</param>
+/// <param name="bannerMessage">Optional message to print after the banner (e.g. "Running audit to generate hardening script...").</param>
+static async Task<(SecurityReport report, AuditEngine engine, TimeSpan elapsed)> RunAuditAsync(
+    CliOptions options, bool suppressOutput = false, bool showScore = true, string? bannerMessage = null)
+{
+    var engine = BuildEngine(options.ModulesFilter);
+    var sw = Stopwatch.StartNew();
+
+    if (!suppressOutput)
+    {
+        ConsoleFormatter.PrintBanner();
+        if (bannerMessage != null)
+        {
+            Console.WriteLine($"  {bannerMessage}");
+            Console.WriteLine();
+        }
+    }
+
+    var progress = suppressOutput
+        ? null
+        : new Progress<(string module, int current, int total)>(p =>
+            ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
+
+    var report = await engine.RunFullAuditAsync(progress);
+    sw.Stop();
+
+    if (!suppressOutput)
+    {
+        ConsoleFormatter.PrintProgressDone(engine.Modules.Count, sw.Elapsed);
+        if (showScore)
+            ConsoleFormatter.PrintScore(report.SecurityScore);
+    }
+
+    return (report, engine, sw.Elapsed);
 }
 
 // ── Trend Analysis ───────────────────────────────────────────────────

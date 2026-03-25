@@ -129,6 +129,8 @@ public class CliOptions
     public int NoiseDays { get; set; } = 90;
     public int NoiseTop { get; set; } = 15;
     public string NoiseFormat { get; set; } = "text";
+    public int GamifyDays { get; set; } = 365;
+    public string GamifyFormat { get; set; } = "text";
 }
 
 public enum CliCommand
@@ -169,6 +171,7 @@ public enum CliCommand
     Coverage,
     RiskMatrix,
     Noise,
+    Gamify,
     Help,
     Version
 }
@@ -1354,6 +1357,23 @@ public static class CliParser
                     if (!TryConsumeArg(args, ref i, "--noise-format", out var noiseFmt, out var noiseFmtErr))
                     { options.Error = noiseFmtErr; return options; }
                     options.NoiseFormat = noiseFmt.ToLowerInvariant();
+                    break;
+
+                case "--gamify":
+                    options.Command = CliCommand.Gamify;
+                    break;
+
+                case "--gamify-days":
+                    if (!TryConsumeArg(args, ref i, "--gamify-days", out var gamifyDaysStr, out var gamifyDaysErr))
+                    { options.Error = gamifyDaysErr; return options; }
+                    if (int.TryParse(gamifyDaysStr, out var gamifyDays))
+                        options.GamifyDays = gamifyDays;
+                    break;
+
+                case "--gamify-format":
+                    if (!TryConsumeArg(args, ref i, "--gamify-format", out var gamifyFmt, out var gamifyFmtErr))
+                    { options.Error = gamifyFmtErr; return options; }
+                    options.GamifyFormat = gamifyFmt.ToLowerInvariant();
                     break;
 
                 default:

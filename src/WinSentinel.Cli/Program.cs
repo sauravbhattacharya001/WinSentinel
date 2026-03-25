@@ -55,6 +55,7 @@ return options.Command switch
     CliCommand.Coverage => await HandleCoverage(options),
     CliCommand.RiskMatrix => await HandleRiskMatrix(options),
     CliCommand.Noise => HandleNoise(options),
+    CliCommand.Gamify => HandleGamify(options),
     _ => HandleHelp()
 };
 
@@ -4412,5 +4413,76 @@ static int HandleNoise(CliOptions options)
     }
 
     ConsoleFormatter.PrintNoise(result, options);
+    return 0;
+}
+
+// ── Gamification ─────────────────────────────────────────────────────
+
+static int HandleGamify(CliOptions options)
+{
+    using var historyService = new AuditHistoryService();
+    historyService.EnsureDatabase();
+
+    var runs = historyService.GetHistory(options.GamifyDays);
+
+    if (runs.Count == 0)
+    {
+        if (options.Json)
+        {
+            WriteOutput("{\"error\": \"No audit history found. Run some audits to start earning XP!\"}", options.OutputFile);
+        }
+        else if (!options.Quiet)
+        {
+            Console.WriteLine();
+            ConsoleFormatter.PrintError("No audit history found. Run some audits to start earning XP!");
+        }
+        return 1;
+    }
+
+    var service = new GamificationService();
+    var profile = service.Analyze(runs);
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        WriteOutput(JsonSerializer.Serialize(profile, jsonOptions), options.OutputFile);
+        return 0;
+    }
+
+    if (options.Markdown)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("# 🎮 Security Gamification Profile");
+        sb.AppendLine();
+        sb.AppendLine($"**Level:** {profile.Level} | **XP:** {profile.TotalXp:N0}");
+        if (profile.XpToNextLevel > 0)
+            sb.AppendLine($"**XP to next level:** {profile.XpToNextLevel:N0}");
+        else
+            sb.AppendLine("**🌟 MAX LEVEL REACHED!**");
+        sb.AppendLine();
+        sb.AppendLine("## Stats");
+        sb.AppendLine();
+        sb.AppendLine($"- Total Audits: {profile.TotalAudits}");
+        sb.AppendLine($"- Latest Score: {profile.LatestScore}");
+        sb.AppendLine($"- Highest Score: {profile.HighestScore}");
+        sb.AppendLine($"- Average Score: {profile.AverageScore}");
+        sb.AppendLine($"- Criticals Fixed: {profile.TotalCriticalFixed}");
+        sb.AppendLine();
+        sb.AppendLine("## Streaks");
+        sb.AppendLine();
+        sb.AppendLine($"- 🔥 Improvement: {profile.CurrentImprovementStreak} current / {profile.BestImprovementStreak} best");
+        sb.AppendLine($"- 💪 Perfect (90+): {profile.CurrentPerfectStreak} current / {profile.BestPerfectStreak} best");
+        sb.AppendLine();
+        sb.AppendLine("## Achievements");
+        sb.AppendLine();
+        foreach (var a in profile.Achievements)
+        {
+            sb.AppendLine($"- {a.Icon} **{a.Name}** — {a.Description}");
+        }
+        WriteOutput(sb.ToString(), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintGamification(profile);
     return 0;
 }

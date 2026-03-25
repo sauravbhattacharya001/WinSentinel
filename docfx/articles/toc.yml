@@ -16,5 +16,7 @@
   href: input-validation.md
 - name: Extending WinSentinel
   href: extending.md
+- name: Enterprise Deployment
+  href: enterprise-deployment.md
 - name: Troubleshooting
   href: troubleshooting.md

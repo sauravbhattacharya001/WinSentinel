@@ -54,6 +54,7 @@ return options.Command switch
     CliCommand.Sla => await HandleSla(options),
     CliCommand.Coverage => await HandleCoverage(options),
     CliCommand.RiskMatrix => await HandleRiskMatrix(options),
+    CliCommand.Noise => HandleNoise(options),
     _ => HandleHelp()
 };
 
@@ -4350,4 +4351,99 @@ static object BuildRiskMatrixData(SecurityReport report)
         TotalFindings = allFindings.Count,
         Matrix = cells
     };
+}
+
+// ── Noise Analyzer ──────────────────────────────────────────────────
+
+static int HandleNoise(CliOptions options)
+{
+    var historyService = new AuditHistoryService();
+    historyService.EnsureDatabase();
+
+    var runs = historyService.GetHistory(options.NoiseDays);
+
+    if (runs.Count == 0)
+    {
+        if (options.Json)
+        {
+            WriteOutput("{\"error\": \"No audit history found. Run some audits first.\"}", options.OutputFile);
+        }
+        else if (!options.Quiet)
+        {
+            Console.WriteLine();
+            ConsoleFormatter.PrintError("No audit history found. Run some audits first.");
+        }
+        return 1;
+    }
+
+    var detailedRuns = new List<AuditRunRecord>();
+    foreach (var run in runs)
+    {
+        var detailed = historyService.GetRunDetails(run.Id);
+        if (detailed != null)
+            detailedRuns.Add(detailed);
+    }
+
+    var analyzer = new NoiseAnalyzer();
+    var result = analyzer.Analyze(detailedRuns, options.NoiseTop);
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        WriteOutput(JsonSerializer.Serialize(result, jsonOptions), options.OutputFile);
+        return 0;
+    }
+
+    if (options.Markdown)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("# 🔊 Noise Analysis Report");
+        sb.AppendLine();
+        sb.AppendLine($"**Period:** {options.NoiseDays} days ({result.RunsAnalyzed} scans)");
+        sb.AppendLine($"**Noise Level:** {result.Stats.NoiseLevelRating}");
+        sb.AppendLine($"**Total Finding Occurrences:** {result.TotalFindingOccurrences} ({result.UniqueFindingTitles} unique)");
+        sb.AppendLine($"**Avg Findings/Scan:** {result.Stats.AvgFindingsPerScan}");
+        sb.AppendLine();
+
+        if (result.TopNoisyFindings.Count > 0)
+        {
+            sb.AppendLine("## Noisiest Findings");
+            sb.AppendLine();
+            sb.AppendLine("| # | Finding | Module | Severity | Hits | Rate | Action |");
+            sb.AppendLine("|---|---------|--------|----------|------|------|--------|");
+            for (int i = 0; i < result.TopNoisyFindings.Count; i++)
+            {
+                var f = result.TopNoisyFindings[i];
+                var perennial = f.IsPerennial ? " 🔁" : "";
+                sb.AppendLine($"| {i + 1} | {f.Title}{perennial} | {f.ModuleName} | {f.Severity} | {f.Occurrences} | {f.OccurrenceRate}% | {f.SuggestedAction} |");
+            }
+            sb.AppendLine();
+        }
+
+        if (result.TopNoisyModules.Count > 0)
+        {
+            sb.AppendLine("## Noisiest Modules");
+            sb.AppendLine();
+            sb.AppendLine("| Module | Category | Total | Avg/Scan | Unique | Share |");
+            sb.AppendLine("|--------|----------|-------|----------|--------|-------|");
+            foreach (var m in result.TopNoisyModules)
+            {
+                sb.AppendLine($"| {m.ModuleName} | {m.Category} | {m.TotalFindings} | {m.AvgFindingsPerScan} | {m.UniqueFindingTitles} | {m.NoiseShare}% |");
+            }
+            sb.AppendLine();
+        }
+
+        sb.AppendLine("## Summary");
+        sb.AppendLine();
+        sb.AppendLine($"- **Perennial findings** (100% of scans): {result.Stats.PerennialFindings}");
+        sb.AppendLine($"- **High-frequency** (>80%): {result.Stats.HighFrequencyFindings}");
+        sb.AppendLine($"- **Low-frequency** (<20%): {result.Stats.LowFrequencyFindings}");
+        sb.AppendLine($"- **Estimated suppressible:** {result.Stats.EstimatedSuppressibleFindings}");
+
+        WriteOutput(sb.ToString(), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintNoise(result, options);
+    return 0;
 }

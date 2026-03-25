@@ -126,6 +126,9 @@ public class CliOptions
     public bool CoverageGapsOnly { get; set; }
     public string RiskMatrixFormat { get; set; } = "text";
     public bool RiskMatrixCounts { get; set; }
+    public int NoiseDays { get; set; } = 90;
+    public int NoiseTop { get; set; } = 15;
+    public string NoiseFormat { get; set; } = "text";
 }
 
 public enum CliCommand
@@ -165,6 +168,7 @@ public enum CliCommand
     Sla,
     Coverage,
     RiskMatrix,
+    Noise,
     Help,
     Version
 }
@@ -1326,6 +1330,30 @@ public static class CliParser
 
                 case "--risk-matrix-counts":
                     options.RiskMatrixCounts = true;
+                    break;
+
+                case "--noise":
+                    options.Command = CliCommand.Noise;
+                    break;
+
+                case "--noise-days":
+                    if (!TryConsumeArg(args, ref i, "--noise-days", out var noiseDaysStr, out var noiseDaysErr))
+                    { options.Error = noiseDaysErr; return options; }
+                    if (int.TryParse(noiseDaysStr, out var noiseDays))
+                        options.NoiseDays = noiseDays;
+                    break;
+
+                case "--noise-top":
+                    if (!TryConsumeArg(args, ref i, "--noise-top", out var noiseTopStr, out var noiseTopErr))
+                    { options.Error = noiseTopErr; return options; }
+                    if (int.TryParse(noiseTopStr, out var noiseTop))
+                        options.NoiseTop = noiseTop;
+                    break;
+
+                case "--noise-format":
+                    if (!TryConsumeArg(args, ref i, "--noise-format", out var noiseFmt, out var noiseFmtErr))
+                    { options.Error = noiseFmtErr; return options; }
+                    options.NoiseFormat = noiseFmt.ToLowerInvariant();
                     break;
 
                 default:

@@ -407,6 +407,15 @@ public static partial class ConsoleFormatter
         WriteLineColored("    winsentinel --age --age-module firewall              # Filter by module", ConsoleColor.DarkGray);
         WriteLineColored("    winsentinel --age --age-days 7 --json               # Last 7 days as JSON", ConsoleColor.DarkGray);
         Console.WriteLine();
+        WriteLineColored("  NOISE ANALYSIS:", ConsoleColor.Yellow);
+        WriteHelpEntry("    --noise                  ", "Identify noisiest finding sources across audit history");
+        WriteHelpEntry("    --noise-days <n>         ", "Analysis window in days (default: 90)");
+        WriteHelpEntry("    --noise-top <n>          ", "Number of top noisy items to show (default: 15)");
+        WriteHelpEntry("    --noise-format <fmt>     ", "Output format: text, json, markdown");
+        WriteLineColored("    winsentinel --noise                                 # Full noise analysis", ConsoleColor.DarkGray);
+        WriteLineColored("    winsentinel --noise --noise-days 30 --noise-top 5   # Last 30 days, top 5", ConsoleColor.DarkGray);
+        WriteLineColored("    winsentinel --noise --json                          # Noise data as JSON", ConsoleColor.DarkGray);
+        Console.WriteLine();
         Console.WriteLine("  EXIT CODES:");
         Console.WriteLine("    0  All checks pass (or score >= threshold)");
         Console.WriteLine("    1  Warnings found (or score < threshold)");

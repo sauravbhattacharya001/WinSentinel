@@ -129,6 +129,9 @@ public class CliOptions
     public int NoiseDays { get; set; } = 90;
     public int NoiseTop { get; set; } = 15;
     public string NoiseFormat { get; set; } = "text";
+    public int PriorityTop { get; set; } = 10;
+    public string PriorityFormat { get; set; } = "text";
+    public bool PriorityQuickWinsOnly { get; set; }
 }
 
 public enum CliCommand
@@ -169,6 +172,7 @@ public enum CliCommand
     Coverage,
     RiskMatrix,
     Noise,
+    Priorities,
     Help,
     Version
 }
@@ -1354,6 +1358,27 @@ public static class CliParser
                     if (!TryConsumeArg(args, ref i, "--noise-format", out var noiseFmt, out var noiseFmtErr))
                     { options.Error = noiseFmtErr; return options; }
                     options.NoiseFormat = noiseFmt.ToLowerInvariant();
+                    break;
+
+                case "--priorities":
+                    options.Command = CliCommand.Priorities;
+                    break;
+
+                case "--priority-top":
+                    if (!TryConsumeArg(args, ref i, "--priority-top", out var prioTopStr, out var prioTopErr))
+                    { options.Error = prioTopErr; return options; }
+                    if (int.TryParse(prioTopStr, out var prioTop))
+                        options.PriorityTop = prioTop;
+                    break;
+
+                case "--priority-format":
+                    if (!TryConsumeArg(args, ref i, "--priority-format", out var prioFmt, out var prioFmtErr))
+                    { options.Error = prioFmtErr; return options; }
+                    options.PriorityFormat = prioFmt.ToLowerInvariant();
+                    break;
+
+                case "--quick-wins":
+                    options.PriorityQuickWinsOnly = true;
                     break;
 
                 default:

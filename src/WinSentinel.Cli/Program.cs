@@ -55,6 +55,7 @@ return options.Command switch
     CliCommand.Coverage => await HandleCoverage(options),
     CliCommand.RiskMatrix => await HandleRiskMatrix(options),
     CliCommand.Noise => HandleNoise(options),
+    CliCommand.Priorities => await HandlePriorities(options),
     _ => HandleHelp()
 };
 
@@ -4445,5 +4446,97 @@ static int HandleNoise(CliOptions options)
     }
 
     ConsoleFormatter.PrintNoise(result, options);
+    return 0;
+}
+
+// ── Priority Planner ─────────────────────────────────────────────
+
+static async Task<int> HandlePriorities(CliOptions options)
+{
+    var engine = BuildEngine(options.ModulesFilter);
+    var sw = Stopwatch.StartNew();
+
+    if (!options.Quiet)
+    {
+        ConsoleFormatter.PrintBanner();
+        Console.WriteLine("  Running audit for priority analysis...");
+        Console.WriteLine();
+    }
+
+    var progress = options.Quiet
+        ? null
+        : new Progress<(string module, int current, int total)>(p =>
+            ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
+
+    var report = await engine.RunFullAuditAsync(progress);
+    sw.Stop();
+
+    if (!options.Quiet)
+    {
+        ConsoleFormatter.PrintProgressDone(engine.Modules.Count, sw.Elapsed);
+    }
+
+    var planner = new PriorityPlanner();
+    var plan = planner.Generate(report, options.PriorityTop);
+
+    // Filter to quick wins only if requested
+    if (options.PriorityQuickWinsOnly)
+    {
+        plan.Actions = plan.Actions.Where(a => a.QuickWin).ToList();
+    }
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Converters = { new JsonStringEnumConverter() },
+            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+        };
+        WriteOutput(JsonSerializer.Serialize(plan, jsonOptions), options.OutputFile);
+        return 0;
+    }
+
+    if (options.Markdown)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("# 🎯 Security Priority Plan");
+        sb.AppendLine();
+        sb.AppendLine($"**Machine:** {plan.MachineName}");
+        sb.AppendLine($"**Score:** {plan.CurrentScore}/100 ({plan.CurrentGrade})");
+        sb.AppendLine($"**Actionable findings:** {plan.TotalActionsAvailable}");
+        if (plan.QuickWinCount > 0)
+            sb.AppendLine($"**Quick wins:** {plan.QuickWinCount} ⚡");
+        sb.AppendLine();
+        sb.AppendLine("## Priority Actions");
+        sb.AppendLine();
+        sb.AppendLine("| # | Sev | Category | Finding | Est. | Gain | Quick Win |");
+        sb.AppendLine("|---|-----|----------|---------|------|------|-----------|");
+        for (int i = 0; i < plan.Actions.Count; i++)
+        {
+            var a = plan.Actions[i];
+            var qw = a.QuickWin ? "⚡" : "";
+            sb.AppendLine($"| {i + 1} | {a.Severity} | {a.Category} | {a.Title} | ~{a.EstimatedMinutes}m | +{a.ExpectedScoreGain:F1} | {qw} |");
+        }
+        sb.AppendLine();
+        sb.AppendLine($"**Estimated total time:** ~{plan.EstimatedTotalMinutes} minutes");
+        sb.AppendLine($"**Projected score:** {plan.ExpectedScoreAfter:F0}/100");
+        WriteOutput(sb.ToString(), options.OutputFile);
+        return 0;
+    }
+
+    var text = PriorityPlanner.RenderText(plan);
+
+    if (!string.IsNullOrWhiteSpace(options.OutputFile))
+    {
+        await File.WriteAllTextAsync(options.OutputFile, text);
+        if (!options.Quiet)
+            Console.WriteLine($"  Plan saved to {options.OutputFile}");
+    }
+    else
+    {
+        Console.WriteLine(text);
+    }
+
     return 0;
 }

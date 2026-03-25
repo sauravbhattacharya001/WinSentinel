@@ -416,6 +416,15 @@ public static partial class ConsoleFormatter
         WriteLineColored("    winsentinel --noise --noise-days 30 --noise-top 5   # Last 30 days, top 5", ConsoleColor.DarkGray);
         WriteLineColored("    winsentinel --noise --json                          # Noise data as JSON", ConsoleColor.DarkGray);
         Console.WriteLine();
+        WriteLineColored("  PRIORITY PLANNER:", ConsoleColor.Yellow);
+        WriteHelpEntry("    --priorities             ", "Ranked action plan: what to fix first for max impact");
+        WriteHelpEntry("    --priority-top <n>       ", "Number of top actions to show (default: 10)");
+        WriteHelpEntry("    --priority-format <fmt>  ", "Output format: text, json, markdown");
+        WriteHelpEntry("    --quick-wins             ", "Show only quick wins (high impact, low effort)");
+        WriteLineColored("    winsentinel --priorities                            # Full priority plan", ConsoleColor.DarkGray);
+        WriteLineColored("    winsentinel --priorities --quick-wins               # Quick wins only", ConsoleColor.DarkGray);
+        WriteLineColored("    winsentinel --priorities --json -o plan.json        # Export as JSON", ConsoleColor.DarkGray);
+        Console.WriteLine();
         Console.WriteLine("  EXIT CODES:");
         Console.WriteLine("    0  All checks pass (or score >= threshold)");
         Console.WriteLine("    1  Warnings found (or score < threshold)");

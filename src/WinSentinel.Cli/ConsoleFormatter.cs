@@ -469,65 +469,41 @@ public static partial class ConsoleFormatter
     /// </summary>
     public static void PrintBaselineSaved(SecurityBaseline baseline)
     {
-        var original = Console.ForegroundColor;
-
-        Console.ForegroundColor = ConsoleColor.Cyan;
         Console.WriteLine();
-        Console.WriteLine("  ╔══════════════════════════════════════════════╗");
-        Console.WriteLine("  ║       📌 Baseline Saved                     ║");
-        Console.WriteLine("  ╚══════════════════════════════════════════════╝");
-        Console.ForegroundColor = original;
+        WriteLineColored("  ╔══════════════════════════════════════════════╗", ConsoleColor.Cyan);
+        WriteLineColored("  ║       📌 Baseline Saved                     ║", ConsoleColor.Cyan);
+        WriteLineColored("  ╚══════════════════════════════════════════════╝", ConsoleColor.Cyan);
         Console.WriteLine();
 
-        Console.ForegroundColor = ConsoleColor.White;
-        Console.Write("  Name:     ");
-        Console.ForegroundColor = ConsoleColor.Cyan;
-        Console.WriteLine(baseline.Name);
+        WriteColored("  Name:     ", ConsoleColor.White);
+        WriteLineColored(baseline.Name, ConsoleColor.Cyan);
 
         if (!string.IsNullOrEmpty(baseline.Description))
         {
-            Console.ForegroundColor = ConsoleColor.White;
-            Console.Write("  Desc:     ");
-            Console.ForegroundColor = ConsoleColor.DarkGray;
-            Console.WriteLine(baseline.Description);
+            WriteColored("  Desc:     ", ConsoleColor.White);
+            WriteLineColored(baseline.Description, ConsoleColor.DarkGray);
         }
 
-        Console.ForegroundColor = ConsoleColor.White;
-        Console.Write("  Score:    ");
-        Console.ForegroundColor = GetScoreConsoleColor(baseline.OverallScore);
-        Console.WriteLine($"{baseline.OverallScore}/100 ({baseline.Grade})");
+        WriteColored("  Score:    ", ConsoleColor.White);
+        WriteLineColored($"{baseline.OverallScore}/100 ({baseline.Grade})", GetScoreConsoleColor(baseline.OverallScore));
 
-        Console.ForegroundColor = ConsoleColor.White;
-        Console.Write("  Findings: ");
-        Console.ForegroundColor = ConsoleColor.Red;
-        Console.Write($"{baseline.CriticalCount} critical");
-        Console.ForegroundColor = original;
+        WriteColored("  Findings: ", ConsoleColor.White);
+        WriteColored($"{baseline.CriticalCount} critical", ConsoleColor.Red);
         Console.Write(" │ ");
-        Console.ForegroundColor = ConsoleColor.Yellow;
-        Console.Write($"{baseline.WarningCount} warnings");
-        Console.ForegroundColor = original;
+        WriteColored($"{baseline.WarningCount} warnings", ConsoleColor.Yellow);
         Console.Write(" │ ");
-        Console.ForegroundColor = ConsoleColor.DarkGray;
-        Console.WriteLine($"{baseline.TotalFindings} total");
+        WriteLineColored($"{baseline.TotalFindings} total", ConsoleColor.DarkGray);
 
-        Console.ForegroundColor = ConsoleColor.White;
-        Console.Write("  Modules:  ");
-        Console.ForegroundColor = ConsoleColor.DarkGray;
-        Console.WriteLine($"{baseline.ModuleScores.Count} captured");
+        WriteColored("  Modules:  ", ConsoleColor.White);
+        WriteLineColored($"{baseline.ModuleScores.Count} captured", ConsoleColor.DarkGray);
 
-        Console.ForegroundColor = ConsoleColor.White;
-        Console.Write("  Machine:  ");
-        Console.ForegroundColor = ConsoleColor.DarkGray;
-        Console.WriteLine(baseline.MachineName);
+        WriteColored("  Machine:  ", ConsoleColor.White);
+        WriteLineColored(baseline.MachineName, ConsoleColor.DarkGray);
 
-        Console.ForegroundColor = original;
         Console.WriteLine();
 
-        Console.ForegroundColor = ConsoleColor.Green;
-        Console.WriteLine("  ✓ Baseline snapshot saved. Check against it with:");
-        Console.ForegroundColor = ConsoleColor.DarkGray;
-        Console.WriteLine($"    winsentinel --baseline check {baseline.Name}");
-        Console.ForegroundColor = original;
+        WriteLineColored("  ✓ Baseline snapshot saved. Check against it with:", ConsoleColor.Green);
+        WriteLineColored($"    winsentinel --baseline check {baseline.Name}", ConsoleColor.DarkGray);
         Console.WriteLine();
     }
 
@@ -1405,69 +1381,47 @@ public static partial class ConsoleFormatter
     /// </summary>
     public static void PrintIgnoreRuleAdded(IgnoreRule rule)
     {
-        var original = Console.ForegroundColor;
-
-        Console.ForegroundColor = ConsoleColor.Cyan;
         Console.WriteLine();
-        Console.WriteLine("  ╔══════════════════════════════════════════════╗");
-        Console.WriteLine("  ║       🔇 Ignore Rule Added                  ║");
-        Console.WriteLine("  ╚══════════════════════════════════════════════╝");
-        Console.ForegroundColor = original;
+        WriteLineColored("  ╔══════════════════════════════════════════════╗", ConsoleColor.Cyan);
+        WriteLineColored("  ║       🔇 Ignore Rule Added                  ║", ConsoleColor.Cyan);
+        WriteLineColored("  ╚══════════════════════════════════════════════╝", ConsoleColor.Cyan);
         Console.WriteLine();
 
-        Console.ForegroundColor = ConsoleColor.White;
-        Console.Write("  ID:       ");
-        Console.ForegroundColor = ConsoleColor.Cyan;
-        Console.WriteLine(rule.Id);
+        WriteColored("  ID:       ", ConsoleColor.White);
+        WriteLineColored(rule.Id, ConsoleColor.Cyan);
 
-        Console.ForegroundColor = ConsoleColor.White;
-        Console.Write("  Pattern:  ");
-        Console.ForegroundColor = ConsoleColor.DarkGray;
-        Console.Write($"\"{rule.Pattern}\"");
-        Console.ForegroundColor = ConsoleColor.DarkGray;
-        Console.WriteLine($"  ({rule.MatchMode})");
+        WriteColored("  Pattern:  ", ConsoleColor.White);
+        WriteLineColored($"\"{rule.Pattern}\"  ({rule.MatchMode})", ConsoleColor.DarkGray);
 
         if (!string.IsNullOrEmpty(rule.Module))
         {
-            Console.ForegroundColor = ConsoleColor.White;
-            Console.Write("  Module:   ");
-            Console.ForegroundColor = ConsoleColor.DarkGray;
-            Console.WriteLine(rule.Module);
+            WriteColored("  Module:   ", ConsoleColor.White);
+            WriteLineColored(rule.Module, ConsoleColor.DarkGray);
         }
 
         if (rule.Severity.HasValue)
         {
-            Console.ForegroundColor = ConsoleColor.White;
-            Console.Write("  Severity: ");
-            Console.ForegroundColor = GetSeverityConsoleColor(rule.Severity.Value);
-            Console.WriteLine(rule.Severity.Value);
+            WriteColored("  Severity: ", ConsoleColor.White);
+            WriteLineColored(rule.Severity.Value.ToString(), GetSeverityConsoleColor(rule.Severity.Value));
         }
 
         if (!string.IsNullOrEmpty(rule.Reason))
         {
-            Console.ForegroundColor = ConsoleColor.White;
-            Console.Write("  Reason:   ");
-            Console.ForegroundColor = ConsoleColor.DarkGray;
-            Console.WriteLine(rule.Reason);
+            WriteColored("  Reason:   ", ConsoleColor.White);
+            WriteLineColored(rule.Reason, ConsoleColor.DarkGray);
         }
 
         if (rule.ExpiresAt.HasValue)
         {
-            Console.ForegroundColor = ConsoleColor.White;
-            Console.Write("  Expires:  ");
-            Console.ForegroundColor = ConsoleColor.DarkGray;
-            Console.WriteLine(rule.ExpiresAt.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm"));
+            WriteColored("  Expires:  ", ConsoleColor.White);
+            WriteLineColored(rule.ExpiresAt.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm"), ConsoleColor.DarkGray);
         }
 
-        Console.ForegroundColor = original;
         Console.WriteLine();
 
-        Console.ForegroundColor = ConsoleColor.Green;
-        Console.WriteLine("  ✓ Matching findings will be suppressed in future audits.");
-        Console.ForegroundColor = ConsoleColor.DarkGray;
-        Console.WriteLine("    Use --show-ignored with --audit to see suppressed findings.");
-        Console.WriteLine($"    Remove with: winsentinel --ignore remove {rule.Id}");
-        Console.ForegroundColor = original;
+        WriteLineColored("  ✓ Matching findings will be suppressed in future audits.", ConsoleColor.Green);
+        WriteLineColored("    Use --show-ignored with --audit to see suppressed findings.", ConsoleColor.DarkGray);
+        WriteLineColored($"    Remove with: winsentinel --ignore remove {rule.Id}", ConsoleColor.DarkGray);
         Console.WriteLine();
     }
 

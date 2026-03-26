@@ -13,7 +13,7 @@ namespace WinSentinel.Agent.Services;
 /// The agent has live monitors, threat log, journal, audit engine — so it can give
 /// rich, contextual answers to user queries and execute commands.
 /// </summary>
-public class ChatHandler
+public partial class ChatHandler
 {
     private readonly ILogger<ChatHandler> _logger;
     private readonly AgentState _state;
@@ -178,7 +178,7 @@ public class ChatHandler
                 "firewall check", "how is my firewall"))
                 return await HandleScanAsync("firewall");
 
-            if (Regex.IsMatch(lower, @"block.+(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})"))
+            if (BlockIpRegex().IsMatch(lower))
             {
                 var ip = ExtractAndSanitizeIp(trimmed);
                 if (ip != null) return HandleBlockIp(ip);
@@ -1198,12 +1198,18 @@ public class ChatHandler
         return response;
     }
 
+    [GeneratedRegex(@"block.+(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})")]
+    private static partial Regex BlockIpRegex();
+
     private static bool MatchesAny(string input, params string[] patterns) =>
         patterns.Any(p => input.Contains(p, StringComparison.OrdinalIgnoreCase));
 
+    [GeneratedRegex(@"\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b")]
+    private static partial Regex ExtractIpRegex();
+
     private static string? ExtractIp(string text)
     {
-        var match = Regex.Match(text, @"\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b");
+        var match = ExtractIpRegex().Match(text);
         return match.Success ? match.Groups[1].Value : null;
     }
 

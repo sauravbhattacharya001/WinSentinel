@@ -8,7 +8,7 @@ namespace WinSentinel.Agent.Services;
 /// Receives ThreatEvents from all monitor modules, evaluates them against policies,
 /// correlates across modules, decides on response actions, and executes them.
 /// </summary>
-public class AgentBrain
+public partial class AgentBrain
 {
     private readonly ILogger<AgentBrain> _logger;
     private readonly ResponsePolicy _policy;
@@ -333,10 +333,26 @@ public class AgentBrain
     //  Extraction Helpers
     // ══════════════════════════════════════════
 
+    // Pre-compiled regex instances avoid re-parsing patterns on every call.
+    // Using GeneratedRegex source generators for optimal .NET 8+ performance:
+    // each pattern is compiled to IL at build time with zero runtime overhead.
+
+    [GeneratedRegex(@"PID\s+(\d+)", RegexOptions.IgnoreCase)]
+    private static partial Regex PidRegex();
+
+    [GeneratedRegex(@"['""]([^'""]+\.exe)['""]", RegexOptions.IgnoreCase)]
+    private static partial Regex ProcessNameRegex();
+
+    [GeneratedRegex(@"Path:\s*([A-Za-z]:\\[^\s,\n]+\.\w+)", RegexOptions.IgnoreCase)]
+    private static partial Regex FilePathRegex();
+
+    [GeneratedRegex(@"\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b")]
+    private static partial Regex IpAddressRegex();
+
     /// <summary>Extract a PID from a threat description like "PID 1234".</summary>
     internal static int? ExtractPid(string description)
     {
-        var match = Regex.Match(description, @"PID\s+(\d+)", RegexOptions.IgnoreCase);
+        var match = PidRegex().Match(description);
         return match.Success && int.TryParse(match.Groups[1].Value, out var pid) ? pid : null;
     }
 
@@ -344,7 +360,7 @@ public class AgentBrain
     internal static string? ExtractProcessName(string description)
     {
         // Pattern: 'processname.exe' or "processname.exe"
-        var match = Regex.Match(description, @"['""]([^'""]+\.exe)['""]", RegexOptions.IgnoreCase);
+        var match = ProcessNameRegex().Match(description);
         return match.Success ? match.Groups[1].Value : null;
     }
 
@@ -352,18 +368,15 @@ public class AgentBrain
     internal static string? ExtractFilePath(string description)
     {
         // Pattern: Path: C:\something\file.ext
-        // The previous regex excluded dots from the path segment ([^\s,\.\n]),
-        // which broke paths containing dots in directory names (e.g.
-        // "C:\Users\onlin\some.folder\file.exe"). The fix allows dots
-        // within path segments while still requiring a file extension.
-        var match = Regex.Match(description, @"Path:\s*([A-Za-z]:\\[^\s,\n]+\.\w+)", RegexOptions.IgnoreCase);
+        // Allows dots within path segments (e.g. "C:\Users\onlin\some.folder\file.exe").
+        var match = FilePathRegex().Match(description);
         return match.Success ? match.Groups[1].Value : null;
     }
 
     /// <summary>Extract an IP address from a threat description.</summary>
     internal static string? ExtractIpAddress(string description)
     {
-        var match = Regex.Match(description, @"\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b");
+        var match = IpAddressRegex().Match(description);
         return match.Success ? match.Groups[1].Value : null;
     }
 }

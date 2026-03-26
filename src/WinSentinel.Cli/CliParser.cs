@@ -135,6 +135,9 @@ public class CliOptions
     public string HeatmapFormat { get; set; } = "text";
     public string MaturityFormat { get; set; } = "text";
     public bool MaturityGapsOnly { get; set; }
+    public int WatchIntervalSeconds { get; set; } = 300;
+    public int WatchMaxRuns { get; set; } = 0;
+    public bool WatchBeep { get; set; }
 }
 
 public enum CliCommand
@@ -178,6 +181,7 @@ public enum CliCommand
     Gamify,
     Heatmap,
     Maturity,
+    Watch,
     Help,
     Version
 }
@@ -1411,6 +1415,30 @@ public static class CliParser
 
                 case "--maturity-gaps-only":
                     options.MaturityGapsOnly = true;
+                    break;
+
+                case "--watch":
+                    options.Command = CliCommand.Watch;
+                    break;
+
+                case "--watch-interval":
+                    if (!TryConsumeArg(args, ref i, "--watch-interval", out var watchInt, out var watchIntErr))
+                    { options.Error = watchIntErr; return options; }
+                    if (!int.TryParse(watchInt, out var watchSec) || watchSec < 10)
+                    { options.Error = "--watch-interval must be >= 10 seconds"; return options; }
+                    options.WatchIntervalSeconds = watchSec;
+                    break;
+
+                case "--watch-max":
+                    if (!TryConsumeArg(args, ref i, "--watch-max", out var watchMax, out var watchMaxErr))
+                    { options.Error = watchMaxErr; return options; }
+                    if (!int.TryParse(watchMax, out var maxRuns) || maxRuns < 1)
+                    { options.Error = "--watch-max must be >= 1"; return options; }
+                    options.WatchMaxRuns = maxRuns;
+                    break;
+
+                case "--watch-beep":
+                    options.WatchBeep = true;
                     break;
 
                 default:

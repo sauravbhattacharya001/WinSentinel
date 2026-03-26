@@ -58,6 +58,7 @@ return options.Command switch
     CliCommand.Gamify => HandleGamify(options),
     CliCommand.Heatmap => HandleHeatmap(options),
     CliCommand.Maturity => await HandleMaturity(options),
+    CliCommand.Watch => await HandleWatch(options),
     _ => HandleHelp()
 };
 
@@ -4613,5 +4614,190 @@ static async Task<int> HandleMaturity(CliOptions options)
     }
 
     ConsoleFormatter.PrintMaturity(assessment, options.MaturityGapsOnly);
+    return 0;
+}
+
+// ── Watch (Continuous Monitor) ───────────────────────────────────────
+
+static async Task<int> HandleWatch(CliOptions options)
+{
+    var orig = Console.ForegroundColor;
+
+    Console.ForegroundColor = ConsoleColor.Cyan;
+    Console.WriteLine("╔══════════════════════════════════════════════════════════════╗");
+    Console.WriteLine("║          🔭  WinSentinel Watch — Live Monitor               ║");
+    Console.WriteLine("╚══════════════════════════════════════════════════════════════╝");
+    Console.ForegroundColor = orig;
+    Console.WriteLine();
+    Console.ForegroundColor = ConsoleColor.DarkGray;
+    Console.Write("  Interval: ");
+    Console.ForegroundColor = ConsoleColor.White;
+    Console.Write($"{options.WatchIntervalSeconds}s");
+    Console.ForegroundColor = ConsoleColor.DarkGray;
+    if (options.WatchMaxRuns > 0)
+    {
+        Console.Write($"  │  Max runs: {options.WatchMaxRuns}");
+    }
+    Console.WriteLine($"  │  Press Ctrl+C to stop");
+    Console.ForegroundColor = orig;
+    Console.WriteLine();
+
+    int? previousScore = null;
+    var previousFindings = new HashSet<string>();
+    int runCount = 0;
+
+    var cts = new CancellationTokenSource();
+    Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
+
+    while (!cts.Token.IsCancellationRequested)
+    {
+        runCount++;
+
+        // Run audit silently
+        var engine = BuildEngine(options.ModulesFilter);
+        SecurityReport report;
+        try
+        {
+            report = await engine.RunFullAuditAsync(null);
+        }
+        catch (Exception ex)
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"  [{DateTime.Now:HH:mm:ss}] Audit error: {ex.Message}");
+            Console.ForegroundColor = orig;
+            await Task.Delay(options.WatchIntervalSeconds * 1000, cts.Token).ConfigureAwait(false);
+            continue;
+        }
+
+        var currentFindings = new HashSet<string>(
+            report.Results.SelectMany(r => r.Findings)
+                .Where(f => f.Severity is Severity.Critical or Severity.Warning)
+                .Select(f => f.Title));
+
+        var newFindings = currentFindings.Except(previousFindings).ToList();
+        var resolvedFindings = previousFindings.Except(currentFindings).ToList();
+        var scoreChange = previousScore.HasValue ? report.SecurityScore - previousScore.Value : 0;
+
+        // Print status line
+        Console.Write($"  [{DateTime.Now:HH:mm:ss}] ");
+
+        var scoreColor = report.SecurityScore switch
+        {
+            >= 80 => ConsoleColor.Green,
+            >= 60 => ConsoleColor.Yellow,
+            _ => ConsoleColor.Red
+        };
+
+        Console.ForegroundColor = scoreColor;
+        Console.Write($"Score: {report.SecurityScore}/100");
+        Console.ForegroundColor = orig;
+
+        Console.Write($"  ({SecurityScorer.GetGrade(report.SecurityScore)})");
+
+        if (previousScore.HasValue)
+        {
+            if (scoreChange > 0)
+            {
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.Write($"  ↑+{scoreChange}");
+            }
+            else if (scoreChange < 0)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.Write($"  ↓{scoreChange}");
+            }
+            else
+            {
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.Write("  →0");
+            }
+            Console.ForegroundColor = orig;
+        }
+
+        Console.Write($"  │  ");
+        Console.ForegroundColor = ConsoleColor.Red;
+        Console.Write($"{report.TotalCritical}C");
+        Console.ForegroundColor = orig;
+        Console.Write("/");
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        Console.Write($"{report.TotalWarnings}W");
+        Console.ForegroundColor = orig;
+
+        if (newFindings.Count > 0 || resolvedFindings.Count > 0)
+        {
+            Console.Write("  │  ");
+            if (newFindings.Count > 0)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.Write($"+{newFindings.Count} new");
+                Console.ForegroundColor = orig;
+            }
+            if (newFindings.Count > 0 && resolvedFindings.Count > 0) Console.Write(", ");
+            if (resolvedFindings.Count > 0)
+            {
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.Write($"-{resolvedFindings.Count} resolved");
+                Console.ForegroundColor = orig;
+            }
+        }
+
+        Console.WriteLine();
+
+        // Detail new/resolved findings
+        foreach (var f in newFindings)
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"           ⚠  NEW: {f}");
+            Console.ForegroundColor = orig;
+        }
+        foreach (var f in resolvedFindings)
+        {
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"           ✓  RESOLVED: {f}");
+            Console.ForegroundColor = orig;
+        }
+
+        // Beep on new critical/warning findings
+        if (options.WatchBeep && newFindings.Count > 0)
+        {
+            Console.Beep();
+        }
+
+        // Save to history
+        using (var historyService = new AuditHistoryService())
+        {
+            historyService.SaveAuditResult(report);
+        }
+
+        previousScore = report.SecurityScore;
+        previousFindings = currentFindings;
+
+        // Check max runs
+        if (options.WatchMaxRuns > 0 && runCount >= options.WatchMaxRuns)
+        {
+            Console.WriteLine();
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine($"  Watch complete — {runCount} runs finished.");
+            Console.ForegroundColor = orig;
+            break;
+        }
+
+        // Wait for next interval
+        try
+        {
+            await Task.Delay(options.WatchIntervalSeconds * 1000, cts.Token).ConfigureAwait(false);
+        }
+        catch (TaskCanceledException)
+        {
+            break;
+        }
+    }
+
+    Console.WriteLine();
+    Console.ForegroundColor = ConsoleColor.DarkGray;
+    Console.WriteLine($"  Watch stopped after {runCount} run(s).");
+    Console.ForegroundColor = orig;
+    Console.WriteLine();
+
     return 0;
 }

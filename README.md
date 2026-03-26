@@ -436,6 +436,76 @@ WinSentinel.sln
 
 ---
 
+## 🔐 Security Model
+
+WinSentinel follows a defense-in-depth approach:
+
+| Layer | Protection |
+|:---|:---|
+| **Input Sanitization** | All user inputs (chat, CLI, config) pass through a centralized `InputSanitizer` that blocks command injection, path traversal, and control characters |
+| **Least Privilege** | The dashboard runs as the current user. Only the agent service and remediation actions require Administrator |
+| **Undo Journal** | Every auto-remediation action is logged with full undo metadata — quarantined files can be restored, blocked IPs unblocked, disabled accounts re-enabled |
+| **Named Pipe IPC** | Dashboard↔Agent communication uses local-only named pipes (no network exposure). The pipe is ACL-restricted to the installing user and SYSTEM |
+| **Finding Suppression Audit Trail** | When you suppress a finding, WinSentinel records who, when, why, and expiration — suppressions don't silently hide real threats |
+| **No Outbound Telemetry** | WinSentinel sends zero data home. All analysis is local. AI features use local Ollama models only |
+
+> **Reporting vulnerabilities:** See [SECURITY.md](SECURITY.md) for responsible disclosure guidelines.
+
+---
+
+## ❓ Troubleshooting
+
+<details>
+<summary><strong>Agent service won't start</strong></summary>
+
+1. Ensure you're running PowerShell as **Administrator**
+2. Check .NET 8 is installed: `dotnet --list-runtimes`
+3. Review Windows Event Viewer → Application log for `WinSentinel.Agent` errors
+4. Try running the agent manually first: `dotnet run --project src/WinSentinel.Agent`
+
+</details>
+
+<details>
+<summary><strong>Dashboard can't connect to agent</strong></summary>
+
+1. Verify the agent service is running: `.\Install-Agent.ps1 -Status`
+2. Named pipe connections require both processes to run under the same user (or SYSTEM)
+3. Some antivirus software blocks named pipe creation — add an exclusion for `WinSentinel.Agent.exe`
+
+</details>
+
+<details>
+<summary><strong>False positives in audit results</strong></summary>
+
+1. Use **Finding Rules** in the dashboard to suppress known-acceptable findings
+2. Switch to a more appropriate **Compliance Profile** (e.g., Home vs Enterprise)
+3. Use `--modules` flag in CLI to skip irrelevant audit modules
+4. Open an [issue](https://github.com/sauravbhattacharya001/WinSentinel/issues) if a detection rule is genuinely wrong
+
+</details>
+
+<details>
+<summary><strong>Build fails on x86 or ARM</strong></summary>
+
+WinSentinel targets **x64 only**. Always pass `-p:Platform=x64`:
+```powershell
+dotnet build WinSentinel.sln -p:Platform=x64
+dotnet test -p:Platform=x64
+```
+
+</details>
+
+<details>
+<summary><strong>Network score seems wrong</strong></summary>
+
+1. Run `.\Fix-Network.ps1` to apply recommended network hardening
+2. Some findings (LLMNR, NetBIOS) require registry changes + reboot
+3. VPN adapters can trigger false "open port" findings — suppress with Finding Rules
+
+</details>
+
+---
+
 ## 🤝 Contributing
 
 1. **Fork** the repository

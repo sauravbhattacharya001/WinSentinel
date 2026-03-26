@@ -133,6 +133,8 @@ public class CliOptions
     public string GamifyFormat { get; set; } = "text";
     public int HeatmapWeeks { get; set; } = 26;
     public string HeatmapFormat { get; set; } = "text";
+    public string MaturityFormat { get; set; } = "text";
+    public bool MaturityGapsOnly { get; set; }
 }
 
 public enum CliCommand
@@ -175,6 +177,7 @@ public enum CliCommand
     Noise,
     Gamify,
     Heatmap,
+    Maturity,
     Help,
     Version
 }
@@ -1394,6 +1397,20 @@ public static class CliParser
                     if (!TryConsumeArg(args, ref i, "--heatmap-format", out var heatmapFmt, out var heatmapFmtErr))
                     { options.Error = heatmapFmtErr; return options; }
                     options.HeatmapFormat = heatmapFmt.ToLowerInvariant();
+                    break;
+
+                case "--maturity":
+                    options.Command = CliCommand.Maturity;
+                    break;
+
+                case "--maturity-format":
+                    if (!TryConsumeArg(args, ref i, "--maturity-format", out var maturityFmt, out var maturityFmtErr))
+                    { options.Error = maturityFmtErr; return options; }
+                    options.MaturityFormat = maturityFmt.ToLowerInvariant();
+                    break;
+
+                case "--maturity-gaps-only":
+                    options.MaturityGapsOnly = true;
                     break;
 
                 default:

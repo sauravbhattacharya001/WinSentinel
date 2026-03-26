@@ -57,6 +57,7 @@ return options.Command switch
     CliCommand.Noise => HandleNoise(options),
     CliCommand.Gamify => HandleGamify(options),
     CliCommand.Heatmap => HandleHeatmap(options),
+    CliCommand.Maturity => await HandleMaturity(options),
     _ => HandleHelp()
 };
 
@@ -4553,5 +4554,64 @@ static int HandleHeatmap(CliOptions options)
     }
 
     ConsoleFormatter.PrintCalendarHeatmap(heatmap);
+    return 0;
+}
+
+// ── Maturity Assessment ──────────────────────────────────────────────
+
+static async Task<int> HandleMaturity(CliOptions options)
+{
+    var (report, engine, elapsed) = await RunAuditAsync(options, suppressOutput: options.Quiet,
+        bannerMessage: "Running audit to assess security maturity...");
+
+    var service = new MaturityAssessmentService();
+    var assessment = service.Assess(report);
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        WriteOutput(JsonSerializer.Serialize(assessment, jsonOptions), options.OutputFile);
+        return 0;
+    }
+
+    if (options.Markdown)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("# 🏛️ Security Maturity Assessment");
+        sb.AppendLine();
+        sb.AppendLine($"- **Overall Grade:** {assessment.Grade} (Level {(int)assessment.OverallLevel} – {assessment.OverallLevel})");
+        sb.AppendLine($"- **Score:** {assessment.OverallScore:F1}/5.0");
+        sb.AppendLine($"- **Findings:** {assessment.TotalFindings} total, {assessment.CriticalFindings} critical, {assessment.WarningFindings} warnings");
+        sb.AppendLine();
+        sb.AppendLine("## Domain Breakdown");
+        sb.AppendLine();
+        sb.AppendLine("| Domain | Level | Score | Status |");
+        sb.AppendLine("|--------|-------|-------|--------|");
+        foreach (var d in assessment.Domains.OrderBy(d => (int)d.Level))
+        {
+            var emoji = d.Level switch
+            {
+                MaturityLevel.Optimizing => "🟢",
+                MaturityLevel.Managed => "🟡",
+                MaturityLevel.Defined => "🟠",
+                _ => "🔴",
+            };
+            sb.AppendLine($"| {d.Name} | L{(int)d.Level} – {d.Level} | {d.Percentage:F0}% | {emoji} |");
+        }
+        sb.AppendLine();
+
+        if (assessment.TopPriorities.Length > 0)
+        {
+            sb.AppendLine("## Top Priorities");
+            sb.AppendLine();
+            foreach (var p in assessment.TopPriorities)
+                sb.AppendLine($"1. {p}");
+        }
+
+        WriteOutput(sb.ToString(), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintMaturity(assessment, options.MaturityGapsOnly);
     return 0;
 }

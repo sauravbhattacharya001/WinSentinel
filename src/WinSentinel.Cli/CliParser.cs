@@ -131,6 +131,8 @@ public class CliOptions
     public string NoiseFormat { get; set; } = "text";
     public int GamifyDays { get; set; } = 365;
     public string GamifyFormat { get; set; } = "text";
+    public int HeatmapWeeks { get; set; } = 26;
+    public string HeatmapFormat { get; set; } = "text";
 }
 
 public enum CliCommand
@@ -172,6 +174,7 @@ public enum CliCommand
     RiskMatrix,
     Noise,
     Gamify,
+    Heatmap,
     Help,
     Version
 }
@@ -1374,6 +1377,23 @@ public static class CliParser
                     if (!TryConsumeArg(args, ref i, "--gamify-format", out var gamifyFmt, out var gamifyFmtErr))
                     { options.Error = gamifyFmtErr; return options; }
                     options.GamifyFormat = gamifyFmt.ToLowerInvariant();
+                    break;
+
+                case "--heatmap":
+                    options.Command = CliCommand.Heatmap;
+                    break;
+
+                case "--heatmap-weeks":
+                    if (!TryConsumeArg(args, ref i, "--heatmap-weeks", out var heatmapWeeksStr, out var heatmapWeeksErr))
+                    { options.Error = heatmapWeeksErr; return options; }
+                    if (int.TryParse(heatmapWeeksStr, out var heatmapWeeks))
+                        options.HeatmapWeeks = heatmapWeeks;
+                    break;
+
+                case "--heatmap-format":
+                    if (!TryConsumeArg(args, ref i, "--heatmap-format", out var heatmapFmt, out var heatmapFmtErr))
+                    { options.Error = heatmapFmtErr; return options; }
+                    options.HeatmapFormat = heatmapFmt.ToLowerInvariant();
                     break;
 
                 default:

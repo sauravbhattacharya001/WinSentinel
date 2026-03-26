@@ -56,6 +56,7 @@ return options.Command switch
     CliCommand.RiskMatrix => await HandleRiskMatrix(options),
     CliCommand.Noise => HandleNoise(options),
     CliCommand.Gamify => HandleGamify(options),
+    CliCommand.Heatmap => HandleHeatmap(options),
     _ => HandleHelp()
 };
 
@@ -4484,5 +4485,73 @@ static int HandleGamify(CliOptions options)
     }
 
     ConsoleFormatter.PrintGamification(profile);
+    return 0;
+}
+
+static int HandleHeatmap(CliOptions options)
+{
+    using var historyService = new AuditHistoryService();
+    historyService.EnsureDatabase();
+
+    var days = options.HeatmapWeeks * 7;
+    var runs = historyService.GetHistory(days);
+
+    if (runs.Count == 0)
+    {
+        if (options.Json)
+        {
+            WriteOutput("{\"error\": \"No audit history found. Run some audits to see your heatmap!\"}", options.OutputFile);
+        }
+        else if (!options.Quiet)
+        {
+            Console.WriteLine();
+            ConsoleFormatter.PrintError("No audit history found. Run some audits to see your heatmap!");
+        }
+        return 1;
+    }
+
+    var service = new CalendarHeatmapService();
+    var heatmap = service.Analyze(runs, options.HeatmapWeeks);
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        WriteOutput(JsonSerializer.Serialize(heatmap, jsonOptions), options.OutputFile);
+        return 0;
+    }
+
+    if (options.Markdown)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("# 📅 Audit Activity Heatmap");
+        sb.AppendLine();
+        sb.AppendLine($"- **Total Audits:** {heatmap.TotalAudits}");
+        sb.AppendLine($"- **Active Days:** {heatmap.ActiveDays}");
+        sb.AppendLine($"- **Best Score:** {heatmap.BestScore}/100");
+        sb.AppendLine($"- **Worst Score:** {heatmap.WorstScore}/100");
+        sb.AppendLine($"- **Current Streak:** {heatmap.CurrentStreak} days 🔥");
+        sb.AppendLine($"- **Longest Streak:** {heatmap.LongestStreak} days 🏆");
+        sb.AppendLine();
+        sb.AppendLine("## Weekly Activity");
+        sb.AppendLine();
+
+        // Group by week
+        var weekGroups = heatmap.Days.GroupBy(d => System.Globalization.CultureInfo.CurrentCulture.Calendar.GetWeekOfYear(
+            d.Date.ToDateTime(TimeOnly.MinValue), System.Globalization.CalendarWeekRule.FirstDay, DayOfWeek.Sunday));
+        foreach (var week in weekGroups.TakeLast(4))
+        {
+            var weekAudits = week.Sum(d => d.AuditCount);
+            var weekFindings = week.Sum(d => d.TotalFindings);
+            var weekCritical = week.Sum(d => d.CriticalCount);
+            var start = week.First().Date;
+            sb.AppendLine($"- **{start:MMM dd}**: {weekAudits} audits, {weekFindings} findings" +
+                (weekCritical > 0 ? $", ⚠️ {weekCritical} critical" : ""));
+        }
+
+        WriteOutput(sb.ToString(), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintCalendarHeatmap(heatmap);
     return 0;
 }

@@ -416,6 +416,14 @@ public static partial class ConsoleFormatter
         WriteLineColored("    winsentinel --noise --noise-days 30 --noise-top 5   # Last 30 days, top 5", ConsoleColor.DarkGray);
         WriteLineColored("    winsentinel --noise --json                          # Noise data as JSON", ConsoleColor.DarkGray);
         Console.WriteLine();
+        WriteLineColored("  CALENDAR HEATMAP:", ConsoleColor.Yellow);
+        WriteHelpEntry("    --heatmap                ", "Show GitHub-style calendar heatmap of audit activity");
+        WriteHelpEntry("    --heatmap-weeks <n>      ", "Number of weeks to display (default: 26)");
+        WriteHelpEntry("    --heatmap-format <fmt>   ", "Output format: text, json, markdown");
+        WriteLineColored("    winsentinel --heatmap                               # 6-month activity heatmap", ConsoleColor.DarkGray);
+        WriteLineColored("    winsentinel --heatmap --heatmap-weeks 52            # Full year heatmap", ConsoleColor.DarkGray);
+        WriteLineColored("    winsentinel --heatmap --json                        # Heatmap data as JSON", ConsoleColor.DarkGray);
+        Console.WriteLine();
         Console.WriteLine("  EXIT CODES:");
         Console.WriteLine("    0  All checks pass (or score >= threshold)");
         Console.WriteLine("    1  Warnings found (or score < threshold)");

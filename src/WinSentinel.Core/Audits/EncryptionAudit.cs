@@ -2,7 +2,6 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using Microsoft.Win32;
 using WinSentinel.Core.Helpers;
-using WinSentinel.Core.Interfaces;
 using WinSentinel.Core.Models;
 
 namespace WinSentinel.Core.Audits;
@@ -11,11 +10,11 @@ namespace WinSentinel.Core.Audits;
 /// Audits encryption configuration: BitLocker, TPM, EFS, certificate store health,
 /// TLS/SSL protocol configuration, Credential Guard, and DPAPI protection.
 /// </summary>
-public class EncryptionAudit : IAuditModule
+public class EncryptionAudit : AuditModuleBase
 {
-    public string Name => "Encryption Audit";
-    public string Category => "Encryption";
-    public string Description => "Checks BitLocker status, TPM availability, EFS usage, certificate store health, TLS/SSL configuration, Credential Guard, and DPAPI protection.";
+    public override string Name => "Encryption Audit";
+    public override string Category => "Encryption";
+    public override string Description => "Checks BitLocker status, TPM availability, EFS usage, certificate store health, TLS/SSL configuration, Credential Guard, and DPAPI protection.";
 
     private const string SchannelProtocolsPath =
         @"SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols";
@@ -23,33 +22,15 @@ public class EncryptionAudit : IAuditModule
     private static readonly string[] LegacyProtocols = { "TLS 1.0", "TLS 1.1", "SSL 2.0", "SSL 3.0" };
     private static readonly string[] ModernProtocols = { "TLS 1.2", "TLS 1.3" };
 
-    public async Task<AuditResult> RunAuditAsync(CancellationToken cancellationToken = default)
+    protected override async Task ExecuteAuditAsync(AuditResult result, CancellationToken cancellationToken)
     {
-        var result = new AuditResult
-        {
-            ModuleName = Name,
-            Category = Category,
-            StartTime = DateTimeOffset.UtcNow
-        };
-
-        try
-        {
-            await CheckBitLockerStatus(result, cancellationToken);
-            await CheckTpmStatus(result, cancellationToken);
-            CheckEfsAvailability(result);
-            CheckCertificateStore(result);
-            CheckTlsSslConfiguration(result);
-            await CheckCredentialGuard(result, cancellationToken);
-            await CheckDpapiProtection(result, cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            result.Success = false;
-            result.Error = ex.Message;
-        }
-
-        result.EndTime = DateTimeOffset.UtcNow;
-        return result;
+        await CheckBitLockerStatus(result, cancellationToken);
+        await CheckTpmStatus(result, cancellationToken);
+        CheckEfsAvailability(result);
+        CheckCertificateStore(result);
+        CheckTlsSslConfiguration(result);
+        await CheckCredentialGuard(result, cancellationToken);
+        await CheckDpapiProtection(result, cancellationToken);
     }
 
     #region BitLocker

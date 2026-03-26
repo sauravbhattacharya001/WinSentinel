@@ -1,6 +1,5 @@
 using System.Net;
 using WinSentinel.Core.Helpers;
-using WinSentinel.Core.Interfaces;
 using WinSentinel.Core.Models;
 
 namespace WinSentinel.Core.Audits;
@@ -14,11 +13,11 @@ namespace WinSentinel.Core.Audits;
 /// - DNS client settings that leak queries to untrusted networks
 /// - Hosts file tampering
 /// </summary>
-public class DnsAudit : IAuditModule
+public class DnsAudit : AuditModuleBase
 {
-    public string Name => "DNS Security Audit";
-    public string Category => "DNS";
-    public string Description =>
+    public override string Name => "DNS Security Audit";
+    public override string Category => "DNS";
+    public override string Description =>
         "Checks DNS server configuration, DNS-over-HTTPS status, " +
         "LLMNR/NetBIOS exposure, hosts file integrity, and cache settings.";
 
@@ -119,28 +118,10 @@ public class DnsAudit : IAuditModule
         public int LineNumber { get; set; }
     }
 
-    public async Task<AuditResult> RunAuditAsync(CancellationToken cancellationToken = default)
+    protected override async Task ExecuteAuditAsync(AuditResult result, CancellationToken cancellationToken)
     {
-        var result = new AuditResult
-        {
-            ModuleName = Name,
-            Category = Category,
-            StartTime = DateTimeOffset.UtcNow
-        };
-
-        try
-        {
-            var state = await GatherStateAsync(cancellationToken);
-            AnalyzeState(state, result);
-        }
-        catch (Exception ex)
-        {
-            result.Success = false;
-            result.Error = ex.Message;
-        }
-
-        result.EndTime = DateTimeOffset.UtcNow;
-        return result;
+        var state = await GatherStateAsync(cancellationToken);
+        AnalyzeState(state, result);
     }
 
     /// <summary>

@@ -1,5 +1,4 @@
 using WinSentinel.Core.Helpers;
-using WinSentinel.Core.Interfaces;
 using WinSentinel.Core.Models;
 
 namespace WinSentinel.Core.Audits;
@@ -8,11 +7,11 @@ namespace WinSentinel.Core.Audits;
 /// Audits network configuration: open ports, listening services, SMB/RDP exposure,
 /// IPv6, Wi-Fi security, network profile, LLMNR/NetBIOS poisoning, and ARP anomalies.
 /// </summary>
-public class NetworkAudit : IAuditModule
+public class NetworkAudit : AuditModuleBase
 {
-    public string Name => "Network Audit";
-    public string Category => "Network";
-    public string Description => "Checks open ports, listening services, SMB/RDP exposure, IPv6, Wi-Fi security, network profile, LLMNR/NetBIOS, and ARP anomalies.";
+    public override string Name => "Network Audit";
+    public override string Category => "Network";
+    public override string Description => "Checks open ports, listening services, SMB/RDP exposure, IPv6, Wi-Fi security, network profile, LLMNR/NetBIOS, and ARP anomalies.";
 
     private static readonly HashSet<int> HighRiskPorts = new()
     {
@@ -29,36 +28,18 @@ public class NetworkAudit : IAuditModule
         5986,  // WinRM HTTPS
     };
 
-    public async Task<AuditResult> RunAuditAsync(CancellationToken cancellationToken = default)
+    protected override async Task ExecuteAuditAsync(AuditResult result, CancellationToken cancellationToken)
     {
-        var result = new AuditResult
-        {
-            ModuleName = Name,
-            Category = Category,
-            StartTime = DateTimeOffset.UtcNow
-        };
-
-        try
-        {
-            await CheckListeningPorts(result, cancellationToken);
-            await CheckSmbExposure(result, cancellationToken);
-            await CheckRdpExposure(result, cancellationToken);
-            await CheckWinRm(result, cancellationToken);
-            await CheckDnsSettings(result, cancellationToken);
-            await CheckNetworkProfile(result, cancellationToken);
-            await CheckWiFiSecurity(result, cancellationToken);
-            await CheckLlmnrNetBios(result, cancellationToken);
-            await CheckArpAnomalies(result, cancellationToken);
-            await CheckIPv6Exposure(result, cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            result.Success = false;
-            result.Error = ex.Message;
-        }
-
-        result.EndTime = DateTimeOffset.UtcNow;
-        return result;
+        await CheckListeningPorts(result, cancellationToken);
+        await CheckSmbExposure(result, cancellationToken);
+        await CheckRdpExposure(result, cancellationToken);
+        await CheckWinRm(result, cancellationToken);
+        await CheckDnsSettings(result, cancellationToken);
+        await CheckNetworkProfile(result, cancellationToken);
+        await CheckWiFiSecurity(result, cancellationToken);
+        await CheckLlmnrNetBios(result, cancellationToken);
+        await CheckArpAnomalies(result, cancellationToken);
+        await CheckIPv6Exposure(result, cancellationToken);
     }
 
     private async Task CheckListeningPorts(AuditResult result, CancellationToken ct)

@@ -1,7 +1,6 @@
 using System.Text.Json;
 using Microsoft.Win32;
 using WinSentinel.Core.Helpers;
-using WinSentinel.Core.Interfaces;
 using WinSentinel.Core.Models;
 
 namespace WinSentinel.Core.Audits;
@@ -11,11 +10,11 @@ namespace WinSentinel.Core.Audits;
 /// extension safety, saved passwords, auto-update, Safe Browsing / SmartScreen,
 /// Do Not Track, popup blocker, and general security settings.
 /// </summary>
-public class BrowserAudit : IAuditModule
+public class BrowserAudit : AuditModuleBase
 {
-    public string Name => "Browser Audit";
-    public string Category => "Browser";
-    public string Description =>
+    public override string Name => "Browser Audit";
+    public override string Category => "Browser";
+    public override string Description =>
         "Checks installed browsers (Chrome, Edge, Firefox), versions, extensions, " +
         "saved passwords, auto-update, Safe Browsing, SmartScreen, and security settings.";
 
@@ -55,36 +54,19 @@ public class BrowserAudit : IAuditModule
         "https://*/*",
     };
 
-    public async Task<AuditResult> RunAuditAsync(CancellationToken cancellationToken = default)
+    protected override Task ExecuteAuditAsync(AuditResult result, CancellationToken cancellationToken)
     {
-        var result = new AuditResult
-        {
-            ModuleName = Name,
-            Category = Category,
-            StartTime = DateTimeOffset.UtcNow
-        };
-
-        try
-        {
-            CheckChromeInstallation(result);
-            CheckEdgeInstallation(result);
-            CheckFirefoxInstallation(result);
-            CheckChromeExtensions(result);
-            CheckBrowserAutoUpdate(result);
-            CheckSafeBrowsingSmartScreen(result);
-            CheckSavedPasswords(result);
-            CheckPopupBlocker(result);
-            CheckDoNotTrack(result);
-            CheckBrowserSecurityPolicies(result);
-        }
-        catch (Exception ex)
-        {
-            result.Success = false;
-            result.Error = ex.Message;
-        }
-
-        result.EndTime = DateTimeOffset.UtcNow;
-        return await Task.FromResult(result);
+        CheckChromeInstallation(result);
+        CheckEdgeInstallation(result);
+        CheckFirefoxInstallation(result);
+        CheckChromeExtensions(result);
+        CheckBrowserAutoUpdate(result);
+        CheckSafeBrowsingSmartScreen(result);
+        CheckSavedPasswords(result);
+        CheckPopupBlocker(result);
+        CheckDoNotTrack(result);
+        CheckBrowserSecurityPolicies(result);
+        return Task.CompletedTask;
     }
 
     #region Browser Installation & Version Checks

@@ -1,5 +1,4 @@
 using WinSentinel.Core.Helpers;
-using WinSentinel.Core.Interfaces;
 using WinSentinel.Core.Models;
 
 namespace WinSentinel.Core.Audits;
@@ -13,11 +12,11 @@ namespace WinSentinel.Core.Audits;
 /// - Ransomware resilience indicators (VSS accessible, backups recent)
 /// - Recovery partition presence
 /// </summary>
-public class BackupAudit : IAuditModule
+public class BackupAudit : AuditModuleBase
 {
-    public string Name => "Backup Security Audit";
-    public string Category => "Backup";
-    public string Description =>
+    public override string Name => "Backup Security Audit";
+    public override string Category => "Backup";
+    public override string Description =>
         "Checks Volume Shadow Copy, System Restore, File History, " +
         "backup recency, and ransomware resilience posture.";
 
@@ -104,28 +103,10 @@ public class BackupAudit : IAuditModule
 
     // ── Live audit ────────────────────────────────────────────────
 
-    public async Task<AuditResult> RunAuditAsync(CancellationToken cancellationToken = default)
+    protected override async Task ExecuteAuditAsync(AuditResult result, CancellationToken cancellationToken)
     {
-        var result = new AuditResult
-        {
-            ModuleName = Name,
-            Category = Category,
-            StartTime = DateTimeOffset.UtcNow
-        };
-
-        try
-        {
-            var state = await GatherStateAsync(cancellationToken);
-            Analyze(state, result);
-        }
-        catch (Exception ex)
-        {
-            result.Success = false;
-            result.Error = ex.Message;
-        }
-
-        result.EndTime = DateTimeOffset.UtcNow;
-        return result;
+        var state = await GatherStateAsync(cancellationToken);
+        Analyze(state, result);
     }
 
     // ── State gathering ───────────────────────────────────────────

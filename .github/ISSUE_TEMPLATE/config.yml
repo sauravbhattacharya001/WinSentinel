@@ -1,4 +1,5 @@
 blank_issues_enabled: false
+# Templates: bug_report, feature_request, performance_issue, security_report, audit_module_request, compatibility_issue
 contact_links:
   - name: 📖 Documentation
     url: https://sauravbhattacharya001.github.io/WinSentinel/

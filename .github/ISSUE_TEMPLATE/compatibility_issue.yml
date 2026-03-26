@@ -1,0 +1,127 @@
+name: ⚠️ Compatibility Issue
+description: Report a conflict with other software, antivirus, Group Policy, or driver incompatibility
+title: "[Compatibility]: "
+labels: ["compatibility", "triage"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template when WinSentinel conflicts with other security software, drivers, or system policies.
+
+  - type: input
+    id: version
+    attributes:
+      label: WinSentinel Version
+      placeholder: e.g., 1.0.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Windows Version
+      options:
+        - Windows 11 24H2
+        - Windows 11 23H2
+        - Windows 11 22H2
+        - Windows 10 22H2
+        - Windows 10 (older)
+        - Windows Server 2022
+        - Windows Server 2019
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: conflict-type
+    attributes:
+      label: Type of Conflict
+      description: What kind of compatibility issue are you seeing?
+      options:
+        - Antivirus / EDR interference (Defender, CrowdStrike, SentinelOne, etc.)
+        - Group Policy blocking WinSentinel features
+        - Driver conflict (BSOD, crash, or instability)
+        - Firewall blocking WinSentinel communications
+        - Other security software conflict
+        - .NET runtime incompatibility
+        - Permission / UAC issue
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: conflicting-software
+    attributes:
+      label: Conflicting Software
+      description: Name and version of the software causing the conflict.
+      placeholder: e.g., CrowdStrike Falcon 7.x, Windows Defender with Tamper Protection
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Conflict Description
+      description: Describe what happens when both WinSentinel and the other software are running.
+      placeholder: |
+        When WinSentinel agent starts, the XYZ antivirus quarantines it...
+    validations:
+      required: true
+
+  - type: textarea
+    id: symptoms
+    attributes:
+      label: Symptoms
+      description: What observable effects does this conflict cause?
+      placeholder: |
+        - Agent service fails to start
+        - Dashboard freezes
+        - High CPU usage
+        - BSOD with stop code...
+    validations:
+      required: true
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: Workaround Attempted
+      description: Have you tried any workarounds (exclusions, disabling features, etc.)?
+      placeholder: |
+        1. Added WinSentinel install directory to AV exclusions
+        2. Disabled real-time protection temporarily
+        3. Result...
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs / Event Viewer Entries
+      description: Include Windows Event Viewer entries, WinSentinel logs, or crash dumps if available.
+      render: shell
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Environment Type
+      description: Is this a managed enterprise environment?
+      options:
+        - Personal / unmanaged machine
+        - Enterprise with Intune / SCCM
+        - Enterprise with Group Policy
+        - Server environment
+        - Virtual machine
+        - Other
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I have searched existing issues to make sure this isn't a duplicate
+          required: true
+        - label: I have tried running WinSentinel with administrator privileges
+          required: false
+        - label: I have checked the Windows Event Viewer for related errors
+          required: false

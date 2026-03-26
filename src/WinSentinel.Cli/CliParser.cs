@@ -131,6 +131,10 @@ public class CliOptions
     public string NoiseFormat { get; set; } = "text";
     public int GamifyDays { get; set; } = 365;
     public string GamifyFormat { get; set; } = "text";
+    public int RegressionDays { get; set; } = 90;
+    public int RegressionTop { get; set; } = 20;
+    public string RegressionFormat { get; set; } = "text";
+    public string? RegressionSeverityFilter { get; set; }
 }
 
 public enum CliCommand
@@ -172,6 +176,7 @@ public enum CliCommand
     RiskMatrix,
     Noise,
     Gamify,
+    Regression,
     Help,
     Version
 }
@@ -1374,6 +1379,36 @@ public static class CliParser
                     if (!TryConsumeArg(args, ref i, "--gamify-format", out var gamifyFmt, out var gamifyFmtErr))
                     { options.Error = gamifyFmtErr; return options; }
                     options.GamifyFormat = gamifyFmt.ToLowerInvariant();
+                    break;
+
+                case "--regression":
+                    options.Command = CliCommand.Regression;
+                    break;
+
+                case "--regression-days":
+                    if (!TryConsumeArg(args, ref i, "--regression-days", out var regDaysStr, out var regDaysErr))
+                    { options.Error = regDaysErr; return options; }
+                    if (int.TryParse(regDaysStr, out var regDays))
+                        options.RegressionDays = regDays;
+                    break;
+
+                case "--regression-top":
+                    if (!TryConsumeArg(args, ref i, "--regression-top", out var regTopStr, out var regTopErr))
+                    { options.Error = regTopErr; return options; }
+                    if (int.TryParse(regTopStr, out var regTop))
+                        options.RegressionTop = regTop;
+                    break;
+
+                case "--regression-severity":
+                    if (!TryConsumeArg(args, ref i, "--regression-severity", out var regSev, out var regSevErr))
+                    { options.Error = regSevErr; return options; }
+                    options.RegressionSeverityFilter = regSev.ToLowerInvariant();
+                    break;
+
+                case "--regression-format":
+                    if (!TryConsumeArg(args, ref i, "--regression-format", out var regFmt, out var regFmtErr))
+                    { options.Error = regFmtErr; return options; }
+                    options.RegressionFormat = regFmt.ToLowerInvariant();
                     break;
 
                 default:

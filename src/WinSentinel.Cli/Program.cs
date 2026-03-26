@@ -56,6 +56,7 @@ return options.Command switch
     CliCommand.RiskMatrix => await HandleRiskMatrix(options),
     CliCommand.Noise => HandleNoise(options),
     CliCommand.Gamify => HandleGamify(options),
+    CliCommand.Regression => HandleRegression(options),
     _ => HandleHelp()
 };
 
@@ -4485,4 +4486,78 @@ static int HandleGamify(CliOptions options)
 
     ConsoleFormatter.PrintGamification(profile);
     return 0;
+}
+
+// ── Regression Detector ──────────────────────────────────────────────
+
+static int HandleRegression(CliOptions options)
+{
+    using var history = new AuditHistoryService();
+    history.EnsureDatabase();
+
+    var runs = history.GetHistory(options.RegressionDays);
+
+    if (runs.Count < 2)
+    {
+        if (options.Json || options.RegressionFormat == "json")
+        {
+            WriteOutput("{\"hasData\": false, \"message\": \"Need at least 2 audit runs to detect regressions.\"}", options.OutputFile);
+        }
+        else
+        {
+            ConsoleFormatter.PrintWarning("Need at least 2 audit runs to detect regressions. Run --audit a few times first.");
+        }
+        return 1;
+    }
+
+    // Load full details (findings) for each run
+    for (int i = 0; i < runs.Count; i++)
+    {
+        var fullRun = history.GetRunDetails(runs[i].Id);
+        if (fullRun != null)
+        {
+            runs[i].Findings = fullRun.Findings;
+            runs[i].ModuleScores = fullRun.ModuleScores;
+        }
+    }
+
+    var detector = new RegressionDetector();
+    var report = detector.Analyze(runs);
+
+    // Apply severity filter
+    if (!string.IsNullOrEmpty(options.RegressionSeverityFilter))
+    {
+        report.Regressions = report.Regressions
+            .Where(r => r.Severity.Equals(options.RegressionSeverityFilter, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        report.ActiveRegressions = report.ActiveRegressions
+            .Where(r => r.Severity.Equals(options.RegressionSeverityFilter, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        report.TotalRegressions = report.Regressions.Count;
+    }
+
+    // Apply top-N limit
+    if (report.Regressions.Count > options.RegressionTop)
+    {
+        report.Regressions = report.Regressions.Take(options.RegressionTop).ToList();
+    }
+
+    if (options.Json || options.RegressionFormat == "json")
+    {
+        var dict = RegressionDetector.ToDict(report);
+        var jsonOptions = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            Converters = { new JsonStringEnumConverter() }
+        };
+        var json = JsonSerializer.Serialize(dict, jsonOptions);
+        WriteOutput(json, options.OutputFile);
+        return 0;
+    }
+
+    var text = RegressionDetector.FormatText(report);
+    WriteOutput(text, options.OutputFile);
+
+    return report.CriticalRegressions > 0 ? 2 : (report.TotalRegressions > 0 ? 1 : 0);
 }

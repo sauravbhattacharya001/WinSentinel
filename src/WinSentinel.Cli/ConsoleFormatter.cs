@@ -416,6 +416,16 @@ public static partial class ConsoleFormatter
         WriteLineColored("    winsentinel --noise --noise-days 30 --noise-top 5   # Last 30 days, top 5", ConsoleColor.DarkGray);
         WriteLineColored("    winsentinel --noise --json                          # Noise data as JSON", ConsoleColor.DarkGray);
         Console.WriteLine();
+        WriteLineColored("  REGRESSION DETECTION:", ConsoleColor.Yellow);
+        WriteHelpEntry("    --regression             ", "Detect resolved findings that have reappeared");
+        WriteHelpEntry("    --regression-days <n>    ", "Analysis window in days (default: 90)");
+        WriteHelpEntry("    --regression-top <n>     ", "Max regressions to show (default: 20)");
+        WriteHelpEntry("    --regression-severity <s>", "Filter by severity: critical, warning, info");
+        WriteHelpEntry("    --regression-format <fmt>", "Output format: text, json");
+        WriteLineColored("    winsentinel --regression                            # Full regression report", ConsoleColor.DarkGray);
+        WriteLineColored("    winsentinel --regression --regression-severity critical  # Critical only", ConsoleColor.DarkGray);
+        WriteLineColored("    winsentinel --regression --json                     # JSON output", ConsoleColor.DarkGray);
+        Console.WriteLine();
         Console.WriteLine("  EXIT CODES:");
         Console.WriteLine("    0  All checks pass (or score >= threshold)");
         Console.WriteLine("    1  Warnings found (or score < threshold)");

@@ -23,6 +23,30 @@ public class EventLogAudit : IAuditModule
     /// <summary>Timeout per individual event log query.</summary>
     private static readonly TimeSpan QueryTimeout = TimeSpan.FromSeconds(30);
 
+    /// <summary>
+    /// Lock guarding <see cref="AuditResult.Findings"/> additions from
+    /// concurrent check tasks (see <see cref="RunAuditAsync"/>).
+    /// </summary>
+    private readonly object _findingsLock = new();
+
+    /// <summary>Thread-safe helper to add a finding to the result.</summary>
+    private void AddFinding(AuditResult result, Finding finding)
+    {
+        lock (_findingsLock)
+        {
+            AddFinding(result, finding);
+        }
+    }
+
+    /// <summary>Thread-safe helper to add multiple findings to the result.</summary>
+    private void AddFindings(AuditResult result, IEnumerable<Finding> findings)
+    {
+        lock (_findingsLock)
+        {
+            AddFindings(result, findings);
+        }
+    }
+
     /// <summary>Suspicious PowerShell patterns (case-insensitive).</summary>
     private static readonly Regex SuspiciousPowerShellPattern = new(
         @"(?i)(Invoke-Expression|IEX\s*\(|Invoke-WebRequest|DownloadString|DownloadFile|" +
@@ -43,18 +67,26 @@ public class EventLogAudit : IAuditModule
 
         try
         {
-            // Run all checks — each is isolated so one failure doesn't block others
+            // First check the Event Log service — if it's not running, no point
+            // in running the other checks.
             await CheckEventLogServiceRunning(result, cancellationToken);
-            await CheckFailedLogins(result, cancellationToken);
-            await CheckAccountLockouts(result, cancellationToken);
-            await CheckPrivilegeEscalation(result, cancellationToken);
-            await CheckAuditPolicyGaps(result, cancellationToken);
-            await CheckServiceInstallations(result, cancellationToken);
-            await CheckSuspiciousPowerShell(result, cancellationToken);
-            await CheckDefenderDetections(result, cancellationToken);
-            await CheckSystemErrors(result, cancellationToken);
-            await CheckSecurityLogSize(result, cancellationToken);
-            await CheckLogCleared(result, cancellationToken);
+
+            // Run all independent event-log checks concurrently. Each check
+            // queries a different log / event ID, so there is no ordering
+            // dependency. Running them in parallel cuts total wall-clock time
+            // from the sum of all timeouts to the duration of the slowest
+            // individual check (up to ~11× faster on a cold Security log).
+            await Task.WhenAll(
+                CheckFailedLogins(result, cancellationToken),
+                CheckAccountLockouts(result, cancellationToken),
+                CheckPrivilegeEscalation(result, cancellationToken),
+                CheckAuditPolicyGaps(result, cancellationToken),
+                CheckServiceInstallations(result, cancellationToken),
+                CheckSuspiciousPowerShell(result, cancellationToken),
+                CheckDefenderDetections(result, cancellationToken),
+                CheckSystemErrors(result, cancellationToken),
+                CheckSecurityLogSize(result, cancellationToken),
+                CheckLogCleared(result, cancellationToken));
         }
         catch (Exception ex)
         {
@@ -76,14 +108,14 @@ public class EventLogAudit : IAuditModule
             using var sc = new ServiceController("EventLog");
             if (sc.Status == ServiceControllerStatus.Running)
             {
-                result.Findings.Add(Finding.Pass(
+                AddFinding(result, Finding.Pass(
                     "Event Log Service Running",
                     "The Windows Event Log service is running. Event logging is active.",
                     Category));
             }
             else
             {
-                result.Findings.Add(Finding.Critical(
+                AddFinding(result, Finding.Critical(
                     "Event Log Service Not Running",
                     $"The Windows Event Log service is in state '{sc.Status}'. Security events are NOT being recorded. This is a severe security gap.",
                     Category,
@@ -93,7 +125,7 @@ public class EventLogAudit : IAuditModule
         }
         catch (Exception ex)
         {
-            result.Findings.Add(Finding.Info(
+            AddFinding(result, Finding.Info(
                 "Event Log Service Check Error",
                 $"Could not check Event Log service status: {ex.Message}",
                 Category,
@@ -122,7 +154,7 @@ public class EventLogAudit : IAuditModule
 
             if (events == null)
             {
-                result.Findings.Add(Finding.Info(
+                AddFinding(result, Finding.Info(
                     "Failed Login Check — Access Denied",
                     "Could not read the Security event log. Administrator privileges are required to access Security events.",
                     Category,
@@ -165,7 +197,7 @@ public class EventLogAudit : IAuditModule
 
             if (count == 0)
             {
-                result.Findings.Add(Finding.Pass(
+                AddFinding(result, Finding.Pass(
                     "No Failed Login Attempts",
                     "No failed login attempts (Event ID 4625) detected in the last 24 hours.",
                     Category));
@@ -192,7 +224,7 @@ public class EventLogAudit : IAuditModule
 
                 if (count > 20)
                 {
-                    result.Findings.Add(Finding.Critical(
+                    AddFinding(result, Finding.Critical(
                         $"High Failed Login Rate — {count} in 24h",
                         $"{description} This may indicate a brute-force attack or credential stuffing attempt.",
                         Category,
@@ -201,7 +233,7 @@ public class EventLogAudit : IAuditModule
                 }
                 else if (count > 5)
                 {
-                    result.Findings.Add(Finding.Warning(
+                    AddFinding(result, Finding.Warning(
                         $"Failed Login Attempts — {count} in 24h",
                         $"{description} Multiple failed login attempts detected — monitor for patterns.",
                         Category,
@@ -209,7 +241,7 @@ public class EventLogAudit : IAuditModule
                 }
                 else
                 {
-                    result.Findings.Add(Finding.Info(
+                    AddFinding(result, Finding.Info(
                         $"Failed Login Attempts — {count} in 24h",
                         $"{description} A small number of failed logins is normal (mistyped passwords, etc.).",
                         Category));
@@ -218,7 +250,7 @@ public class EventLogAudit : IAuditModule
         }
         catch (Exception ex)
         {
-            result.Findings.Add(Finding.Info(
+            AddFinding(result, Finding.Info(
                 "Failed Login Check Error",
                 $"Could not check failed logins: {ex.Message}",
                 Category,
@@ -242,7 +274,7 @@ public class EventLogAudit : IAuditModule
 
             if (events == null)
             {
-                result.Findings.Add(Finding.Info(
+                AddFinding(result, Finding.Info(
                     "Account Lockout Check — Access Denied",
                     "Could not read Security event log for lockout events. Administrator privileges required.",
                     Category,
@@ -271,7 +303,7 @@ public class EventLogAudit : IAuditModule
 
             if (count == 0)
             {
-                result.Findings.Add(Finding.Pass(
+                AddFinding(result, Finding.Pass(
                     "No Account Lockouts",
                     "No account lockout events (Event ID 4740) in the last 7 days.",
                     Category));
@@ -281,7 +313,7 @@ public class EventLogAudit : IAuditModule
                 var accountsList = lockedAccounts.OrderByDescending(kv => kv.Value)
                     .Take(5).Select(kv => $"{kv.Key} ({kv.Value}x)");
 
-                result.Findings.Add(count > 5
+                AddFinding(result, count > 5
                     ? Finding.Warning(
                         $"Account Lockouts — {count} in 7 Days",
                         $"Detected {count} account lockout event(s). Affected accounts: {string.Join(", ", accountsList)}. Frequent lockouts may indicate brute-force attacks.",
@@ -295,7 +327,7 @@ public class EventLogAudit : IAuditModule
         }
         catch (Exception ex)
         {
-            result.Findings.Add(Finding.Info(
+            AddFinding(result, Finding.Info(
                 "Account Lockout Check Error",
                 $"Could not check account lockouts: {ex.Message}",
                 Category,
@@ -321,7 +353,7 @@ public class EventLogAudit : IAuditModule
 
             if (events == null)
             {
-                result.Findings.Add(Finding.Info(
+                AddFinding(result, Finding.Info(
                     "Privilege Escalation Check — Access Denied",
                     "Could not read Security event log for privilege escalation events. Administrator privileges required.",
                     Category,
@@ -366,7 +398,7 @@ public class EventLogAudit : IAuditModule
 
             if (total == 0)
             {
-                result.Findings.Add(Finding.Info(
+                AddFinding(result, Finding.Info(
                     "No Privilege Escalation Events",
                     "No privilege escalation events (4672/4673) detected in the last 24 hours. Note: this may mean audit policies are not enabled for privilege use.",
                     Category,
@@ -383,7 +415,7 @@ public class EventLogAudit : IAuditModule
 
                 if (privilegedUsers.Count > 10 || event4673Count > 50)
                 {
-                    result.Findings.Add(Finding.Warning(
+                    AddFinding(result, Finding.Warning(
                         "Unusual Privilege Activity",
                         details + " High volume of privilege usage from non-system accounts may indicate compromise or misconfiguration.",
                         Category,
@@ -391,7 +423,7 @@ public class EventLogAudit : IAuditModule
                 }
                 else
                 {
-                    result.Findings.Add(Finding.Pass(
+                    AddFinding(result, Finding.Pass(
                         "Privilege Escalation Events — Normal",
                         details + " Volume appears normal for this system.",
                         Category));
@@ -400,7 +432,7 @@ public class EventLogAudit : IAuditModule
         }
         catch (Exception ex)
         {
-            result.Findings.Add(Finding.Info(
+            AddFinding(result, Finding.Info(
                 "Privilege Escalation Check Error",
                 $"Could not check privilege escalation events: {ex.Message}",
                 Category,
@@ -422,7 +454,7 @@ public class EventLogAudit : IAuditModule
             if (string.IsNullOrWhiteSpace(output) ||
                 output.Contains("Access is denied", StringComparison.OrdinalIgnoreCase))
             {
-                result.Findings.Add(Finding.Info(
+                AddFinding(result, Finding.Info(
                     "Audit Policy Check — Access Denied",
                     "Could not read audit policies. Administrator privileges are required to run 'auditpol /get /category:*'.",
                     Category,
@@ -477,14 +509,14 @@ public class EventLogAudit : IAuditModule
 
             if (gaps.Count == 0)
             {
-                result.Findings.Add(Finding.Pass(
+                AddFinding(result, Finding.Pass(
                     "Audit Policies Configured",
                     $"All key audit policies are enabled ({enabled.Count} subcategories checked). Security events are being logged for logon/logoff, object access, privilege use, policy changes, and account management.",
                     Category));
             }
             else if (gaps.Count <= 3)
             {
-                result.Findings.Add(Finding.Warning(
+                AddFinding(result, Finding.Warning(
                     $"Audit Policy Gaps — {gaps.Count} Missing",
                     $"Some audit policies are not enabled: {string.Join(", ", gaps)}. Missing audit policies create blind spots where malicious activity goes unrecorded.",
                     Category,
@@ -493,7 +525,7 @@ public class EventLogAudit : IAuditModule
             }
             else
             {
-                result.Findings.Add(Finding.Critical(
+                AddFinding(result, Finding.Critical(
                     $"Major Audit Policy Gaps — {gaps.Count} Missing",
                     $"Many critical audit policies are disabled: {string.Join(", ", gaps.Take(8))}. The system is not recording important security events, making incident investigation extremely difficult.",
                     Category,
@@ -503,7 +535,7 @@ public class EventLogAudit : IAuditModule
         }
         catch (Exception ex)
         {
-            result.Findings.Add(Finding.Info(
+            AddFinding(result, Finding.Info(
                 "Audit Policy Check Error",
                 $"Could not check audit policies: {ex.Message}",
                 Category,
@@ -527,7 +559,7 @@ public class EventLogAudit : IAuditModule
 
             if (events == null)
             {
-                result.Findings.Add(Finding.Info(
+                AddFinding(result, Finding.Info(
                     "Service Installation Check — Error",
                     "Could not read the System event log for service installation events.",
                     Category,
@@ -539,7 +571,7 @@ public class EventLogAudit : IAuditModule
 
             if (count == 0)
             {
-                result.Findings.Add(Finding.Pass(
+                AddFinding(result, Finding.Pass(
                     "No New Services Installed",
                     "No new service installations (Event ID 7045) detected in the last 7 days.",
                     Category));
@@ -572,7 +604,7 @@ public class EventLogAudit : IAuditModule
 
                 if (count > 5)
                 {
-                    result.Findings.Add(Finding.Warning(
+                    AddFinding(result, Finding.Warning(
                         $"New Services Installed — {count} in 7 Days",
                         description,
                         Category,
@@ -580,7 +612,7 @@ public class EventLogAudit : IAuditModule
                 }
                 else
                 {
-                    result.Findings.Add(Finding.Info(
+                    AddFinding(result, Finding.Info(
                         $"New Services Installed — {count} in 7 Days",
                         description,
                         Category,
@@ -590,7 +622,7 @@ public class EventLogAudit : IAuditModule
         }
         catch (Exception ex)
         {
-            result.Findings.Add(Finding.Info(
+            AddFinding(result, Finding.Info(
                 "Service Installation Check Error",
                 $"Could not check service installations: {ex.Message}",
                 Category));
@@ -622,7 +654,7 @@ public class EventLogAudit : IAuditModule
 
                 if (scriptBlockLogging != 1)
                 {
-                    result.Findings.Add(Finding.Warning(
+                    AddFinding(result, Finding.Warning(
                         "PowerShell Script Block Logging Not Enabled",
                         "PowerShell Script Block Logging is not enabled. Malicious PowerShell commands will not be recorded in event logs, making it difficult to detect living-off-the-land attacks.",
                         Category,
@@ -631,7 +663,7 @@ public class EventLogAudit : IAuditModule
                 }
                 else
                 {
-                    result.Findings.Add(Finding.Info(
+                    AddFinding(result, Finding.Info(
                         "PowerShell Activity Check — No Events",
                         "Script Block Logging is enabled but could not read events. Run as Administrator.",
                         Category));
@@ -680,7 +712,7 @@ public class EventLogAudit : IAuditModule
 
                 if (scriptBlockLogging != 1)
                 {
-                    result.Findings.Add(Finding.Warning(
+                    AddFinding(result, Finding.Warning(
                         "PowerShell Script Block Logging Not Enabled",
                         "PowerShell Script Block Logging is not enabled. Malicious PowerShell commands will not be recorded, making detection of attacks difficult.",
                         Category,
@@ -689,7 +721,7 @@ public class EventLogAudit : IAuditModule
                 }
                 else
                 {
-                    result.Findings.Add(Finding.Pass(
+                    AddFinding(result, Finding.Pass(
                         "No Suspicious PowerShell Activity",
                         "PowerShell Script Block Logging is enabled and no suspicious patterns detected in the last 7 days.",
                         Category));
@@ -697,7 +729,7 @@ public class EventLogAudit : IAuditModule
             }
             else if (suspiciousCount == 0)
             {
-                result.Findings.Add(Finding.Pass(
+                AddFinding(result, Finding.Pass(
                     "No Suspicious PowerShell Activity",
                     $"Analyzed {events.Count} PowerShell script block event(s) from the last 7 days. No suspicious patterns (encoded commands, download cradles, bypass techniques) detected.",
                     Category));
@@ -709,7 +741,7 @@ public class EventLogAudit : IAuditModule
                 if (suspiciousCommands.Count > 0)
                     description += "\n\nExamples:\n" + string.Join("\n", suspiciousCommands);
 
-                result.Findings.Add(suspiciousCount > 5
+                AddFinding(result, suspiciousCount > 5
                     ? Finding.Critical(
                         $"Suspicious PowerShell Activity — {suspiciousCount} Events",
                         description,
@@ -724,7 +756,7 @@ public class EventLogAudit : IAuditModule
         }
         catch (Exception ex)
         {
-            result.Findings.Add(Finding.Info(
+            AddFinding(result, Finding.Info(
                 "PowerShell Activity Check Error",
                 $"Could not check PowerShell activity: {ex.Message}",
                 Category));
@@ -747,7 +779,7 @@ public class EventLogAudit : IAuditModule
 
             if (events == null)
             {
-                result.Findings.Add(Finding.Info(
+                AddFinding(result, Finding.Info(
                     "Defender Detection Check — Log Unavailable",
                     "Could not read Windows Defender operational log. Defender may not be installed or the log may be inaccessible.",
                     Category,
@@ -785,7 +817,7 @@ public class EventLogAudit : IAuditModule
 
             if (detections == 0)
             {
-                result.Findings.Add(Finding.Pass(
+                AddFinding(result, Finding.Pass(
                     "No Defender Threat Detections",
                     "Windows Defender has not detected any threats (Event IDs 1116/1117) in the last 7 days.",
                     Category));
@@ -799,7 +831,7 @@ public class EventLogAudit : IAuditModule
 
                 if (detections > actions)
                 {
-                    result.Findings.Add(Finding.Critical(
+                    AddFinding(result, Finding.Critical(
                         $"Defender Threats Detected — {detections} ({detections - actions} Unresolved)",
                         description + " Some threats may not have been remediated.",
                         Category,
@@ -808,7 +840,7 @@ public class EventLogAudit : IAuditModule
                 }
                 else
                 {
-                    result.Findings.Add(Finding.Warning(
+                    AddFinding(result, Finding.Warning(
                         $"Defender Threats Detected — {detections} (All Remediated)",
                         description + " All detected threats were remediated.",
                         Category,
@@ -819,7 +851,7 @@ public class EventLogAudit : IAuditModule
         }
         catch (Exception ex)
         {
-            result.Findings.Add(Finding.Info(
+            AddFinding(result, Finding.Info(
                 "Defender Detection Check Error",
                 $"Could not check Defender detections: {ex.Message}",
                 Category));
@@ -842,7 +874,7 @@ public class EventLogAudit : IAuditModule
 
             if (events == null)
             {
-                result.Findings.Add(Finding.Info(
+                AddFinding(result, Finding.Info(
                     "System Error Check — Error",
                     "Could not read the System event log for error events.",
                     Category));
@@ -862,7 +894,7 @@ public class EventLogAudit : IAuditModule
 
             if (total == 0)
             {
-                result.Findings.Add(Finding.Pass(
+                AddFinding(result, Finding.Pass(
                     "No System Errors",
                     "No critical or error events in the System log in the last 24 hours. System stability appears good.",
                     Category));
@@ -902,7 +934,7 @@ public class EventLogAudit : IAuditModule
 
                 if (criticalCount > 0)
                 {
-                    result.Findings.Add(Finding.Warning(
+                    AddFinding(result, Finding.Warning(
                         $"System Critical Errors — {criticalCount} Critical, {errorCount} Errors",
                         description,
                         Category,
@@ -911,7 +943,7 @@ public class EventLogAudit : IAuditModule
                 }
                 else if (errorCount > 20)
                 {
-                    result.Findings.Add(Finding.Warning(
+                    AddFinding(result, Finding.Warning(
                         $"High System Error Rate — {errorCount} Errors in 24h",
                         description,
                         Category,
@@ -919,7 +951,7 @@ public class EventLogAudit : IAuditModule
                 }
                 else
                 {
-                    result.Findings.Add(Finding.Info(
+                    AddFinding(result, Finding.Info(
                         $"System Errors — {errorCount} in 24h",
                         description,
                         Category,
@@ -929,7 +961,7 @@ public class EventLogAudit : IAuditModule
         }
         catch (Exception ex)
         {
-            result.Findings.Add(Finding.Info(
+            AddFinding(result, Finding.Info(
                 "System Error Check Error",
                 $"Could not check system errors: {ex.Message}",
                 Category));
@@ -1003,7 +1035,7 @@ public class EventLogAudit : IAuditModule
 
             if (maxSizeBytes < minimumSize)
             {
-                result.Findings.Add(Finding.Critical(
+                AddFinding(result, Finding.Critical(
                     $"Security Log Too Small — {maxSizeMB:F0} MB",
                     $"The Security event log maximum size is only {maxSizeMB:F0} MB. Recommended minimum is 128 MB. Small log sizes cause events to be overwritten quickly, potentially destroying forensic evidence. Overwrite mode: {overwriteMode}.",
                     Category,
@@ -1012,7 +1044,7 @@ public class EventLogAudit : IAuditModule
             }
             else if (maxSizeBytes < recommendedSize)
             {
-                result.Findings.Add(Finding.Warning(
+                AddFinding(result, Finding.Warning(
                     $"Security Log Size — {maxSizeMB:F0} MB",
                     $"The Security event log is {maxSizeMB:F0} MB. Recommended size is >= 128 MB for adequate forensic retention. Overwrite mode: {overwriteMode}.",
                     Category,
@@ -1021,7 +1053,7 @@ public class EventLogAudit : IAuditModule
             }
             else
             {
-                result.Findings.Add(Finding.Pass(
+                AddFinding(result, Finding.Pass(
                     $"Security Log Size — {maxSizeMB:F0} MB",
                     $"The Security event log is adequately sized at {maxSizeMB:F0} MB (recommended >= 128 MB). Overwrite mode: {overwriteMode}.",
                     Category));
@@ -1030,7 +1062,7 @@ public class EventLogAudit : IAuditModule
             // Warn if set to "do not overwrite" — can cause event loss if log fills up
             if (retention == -1)
             {
-                result.Findings.Add(Finding.Warning(
+                AddFinding(result, Finding.Warning(
                     "Security Log — Do Not Overwrite Mode",
                     "The Security event log is configured to NOT overwrite events. When the log fills up, new events will be silently dropped. This can cause a denial-of-logging attack.",
                     Category,
@@ -1040,7 +1072,7 @@ public class EventLogAudit : IAuditModule
         }
         catch (Exception ex)
         {
-            result.Findings.Add(Finding.Info(
+            AddFinding(result, Finding.Info(
                 "Security Log Size Check Error",
                 $"Could not check Security log size: {ex.Message}",
                 Category,
@@ -1065,7 +1097,7 @@ public class EventLogAudit : IAuditModule
 
             if (events == null)
             {
-                result.Findings.Add(Finding.Info(
+                AddFinding(result, Finding.Info(
                     "Log Cleared Check — Access Denied",
                     "Could not check for log-cleared events. Administrator privileges required.",
                     Category,
@@ -1075,7 +1107,7 @@ public class EventLogAudit : IAuditModule
 
             if (events.Count == 0)
             {
-                result.Findings.Add(Finding.Pass(
+                AddFinding(result, Finding.Pass(
                     "No Audit Log Clears",
                     "No audit log clear events (Event ID 1102) detected in the last 30 days. Log integrity appears intact.",
                     Category));
@@ -1103,7 +1135,7 @@ public class EventLogAudit : IAuditModule
                     }
                 }
 
-                result.Findings.Add(Finding.Critical(
+                AddFinding(result, Finding.Critical(
                     $"Audit Log Cleared — {events.Count} Time(s)",
                     $"The Security audit log was cleared {events.Count} time(s) in the last 30 days. This destroys forensic evidence and may indicate an attacker covering their tracks.\n\nClear events:\n{string.Join("\n", clearDetails)}",
                     Category,
@@ -1112,7 +1144,7 @@ public class EventLogAudit : IAuditModule
         }
         catch (Exception ex)
         {
-            result.Findings.Add(Finding.Info(
+            AddFinding(result, Finding.Info(
                 "Log Cleared Check Error",
                 $"Could not check for log-cleared events: {ex.Message}",
                 Category,

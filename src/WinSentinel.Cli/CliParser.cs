@@ -138,6 +138,8 @@ public class CliOptions
     public int WatchIntervalSeconds { get; set; } = 300;
     public int WatchMaxRuns { get; set; } = 0;
     public bool WatchBeep { get; set; }
+    public string AttackSurfaceFormat { get; set; } = "text";
+    public int AttackSurfaceTop { get; set; } = 10;
 }
 
 public enum CliCommand
@@ -182,6 +184,7 @@ public enum CliCommand
     Heatmap,
     Maturity,
     Watch,
+    AttackSurface,
     Help,
     Version
 }
@@ -1439,6 +1442,22 @@ public static class CliParser
 
                 case "--watch-beep":
                     options.WatchBeep = true;
+                    break;
+
+                case "--attack-surface":
+                    options.Command = CliCommand.AttackSurface;
+                    break;
+
+                case "--attack-surface-format":
+                    if (!TryConsumeArg(args, ref i, "--attack-surface-format", out var asFmt, out var asFmtErr))
+                    { options.Error = asFmtErr; return options; }
+                    options.AttackSurfaceFormat = asFmt.ToLowerInvariant();
+                    break;
+
+                case "--attack-surface-top":
+                    if (!TryConsumeInt(args, ref i, "--attack-surface-top", 1, 50, out var asTop, out var asTopErr))
+                    { options.Error = asTopErr; return options; }
+                    options.AttackSurfaceTop = asTop;
                     break;
 
                 default:

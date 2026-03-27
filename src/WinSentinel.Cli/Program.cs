@@ -59,6 +59,7 @@ return options.Command switch
     CliCommand.Heatmap => HandleHeatmap(options),
     CliCommand.Maturity => await HandleMaturity(options),
     CliCommand.Watch => await HandleWatch(options),
+    CliCommand.AttackSurface => await HandleAttackSurface(options),
     _ => HandleHelp()
 };
 
@@ -4798,6 +4799,45 @@ static async Task<int> HandleWatch(CliOptions options)
     Console.WriteLine($"  Watch stopped after {runCount} run(s).");
     Console.ForegroundColor = orig;
     Console.WriteLine();
+
+    return 0;
+}
+
+// ── Attack Surface Analyzer ──────────────────────────────────────────
+
+static async Task<int> HandleAttackSurface(CliOptions options)
+{
+    var (report, engine, elapsed) = await RunAuditAsync(options, suppressOutput: options.Quiet,
+        bannerMessage: "Running audit for attack surface analysis...");
+
+    var analyzer = new AttackSurfaceAnalyzer();
+    var surfaceReport = analyzer.Analyze(report);
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Converters = { new JsonStringEnumConverter() },
+            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+        };
+        var json = JsonSerializer.Serialize(surfaceReport, jsonOptions);
+
+        if (!string.IsNullOrWhiteSpace(options.OutputFile))
+        {
+            await File.WriteAllTextAsync(options.OutputFile, json);
+            if (!options.Quiet)
+                Console.WriteLine($"  Attack surface report saved to {options.OutputFile}");
+        }
+        else
+        {
+            Console.WriteLine(json);
+        }
+
+        return 0;
+    }
+
+    ConsoleFormatter.PrintAttackSurface(surfaceReport, options.AttackSurfaceTop);
 
     return 0;
 }

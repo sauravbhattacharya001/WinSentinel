@@ -281,7 +281,7 @@ public static partial class InputSanitizer
         // Destructive commands
         if (lower.Contains("format ") && lower.Contains("/y"))
             return "Contains destructive format command";
-        if (lower.Contains("del /s /q") || lower.Contains("remove-item -recurse -force /"))
+        if (lower.Contains("del /s /q") || lower.Contains("remove-item -recurse -force"))
             return "Contains recursive delete command";
 
         // Network exfiltration

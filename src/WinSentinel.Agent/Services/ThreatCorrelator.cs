@@ -402,7 +402,10 @@ public class ThreatCorrelator
             while (pathStart < description.Length && description[pathStart] == ' ')
                 pathStart++;
 
-            var pathEnd = description.IndexOfAny(new[] { '\n', '\r', '.', ',' }, pathStart);
+            // Don't stop at '.' — directory names often contain dots
+            // (e.g. "C:\Users\user.name\AppData"). Only stop at whitespace,
+            // newlines, or commas.
+            var pathEnd = description.IndexOfAny(new[] { '\n', '\r', ' ', '\t', ',' }, pathStart);
             if (pathEnd < 0) pathEnd = description.Length;
 
             var fullPath = description[pathStart..pathEnd].Trim();

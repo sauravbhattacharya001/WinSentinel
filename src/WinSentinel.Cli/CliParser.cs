@@ -131,6 +131,12 @@ public class CliOptions
     public string NoiseFormat { get; set; } = "text";
     public int GamifyDays { get; set; } = 365;
     public string GamifyFormat { get; set; } = "text";
+    public HabitAction HabitAction { get; set; } = HabitAction.Report;
+    public string? HabitName { get; set; }
+    public string? HabitCategory { get; set; }
+    public string? HabitFrequency { get; set; }
+    public string? HabitDate { get; set; }
+    public int HabitDays { get; set; } = 30;
     public int HeatmapWeeks { get; set; } = 26;
     public string HeatmapFormat { get; set; } = "text";
     public string MaturityFormat { get; set; } = "text";
@@ -191,6 +197,7 @@ public enum CliCommand
     AttackSurface,
     Playbook,
     Quick,
+    Habits,
     Help,
     Version
 }
@@ -270,6 +277,15 @@ public enum WhatIfAction
     Module,
     Pattern,
     TopN
+}
+
+public enum HabitAction
+{
+    Report,
+    Add,
+    Remove,
+    Complete,
+    List
 }
 
 public enum TagAction
@@ -1397,6 +1413,54 @@ public static class CliParser
 
                 case "--heatmap":
                     options.Command = CliCommand.Heatmap;
+                    break;
+
+                case "--habits":
+                    options.Command = CliCommand.Habits;
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                    {
+                        var sub = args[++i].ToLowerInvariant();
+                        options.HabitAction = sub switch
+                        {
+                            "add" => HabitAction.Add,
+                            "remove" => HabitAction.Remove,
+                            "complete" or "done" => HabitAction.Complete,
+                            "list" => HabitAction.List,
+                            "report" => HabitAction.Report,
+                            _ => HabitAction.Report
+                        };
+                    }
+                    break;
+
+                case "--habit-name":
+                    if (!TryConsumeArg(args, ref i, "--habit-name", out var habitName, out var habitNameErr))
+                    { options.Error = habitNameErr; return options; }
+                    options.HabitName = habitName;
+                    break;
+
+                case "--habit-category":
+                    if (!TryConsumeArg(args, ref i, "--habit-category", out var habitCat, out var habitCatErr))
+                    { options.Error = habitCatErr; return options; }
+                    options.HabitCategory = habitCat;
+                    break;
+
+                case "--habit-frequency":
+                    if (!TryConsumeArg(args, ref i, "--habit-frequency", out var habitFreq, out var habitFreqErr))
+                    { options.Error = habitFreqErr; return options; }
+                    options.HabitFrequency = habitFreq;
+                    break;
+
+                case "--habit-date":
+                    if (!TryConsumeArg(args, ref i, "--habit-date", out var habitDate, out var habitDateErr))
+                    { options.Error = habitDateErr; return options; }
+                    options.HabitDate = habitDate;
+                    break;
+
+                case "--habit-days":
+                    if (!TryConsumeArg(args, ref i, "--habit-days", out var habitDaysStr, out var habitDaysErr))
+                    { options.Error = habitDaysErr; return options; }
+                    if (int.TryParse(habitDaysStr, out var habitDays))
+                        options.HabitDays = habitDays;
                     break;
 
                 case "--heatmap-weeks":

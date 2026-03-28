@@ -62,6 +62,7 @@ return options.Command switch
     CliCommand.AttackSurface => await HandleAttackSurface(options),
     CliCommand.Playbook => await HandlePlaybook(options),
     CliCommand.Quick => await HandleQuick(options),
+    CliCommand.Habits => HandleHabits(options),
     _ => HandleHelp()
 };
 
@@ -5084,4 +5085,85 @@ static async Task<int> HandlePlaybook(CliOptions options)
 
     ConsoleFormatter.PrintPlaybookPlan(plan, options.PlaybookVerbose);
     return 0;
+}
+
+// ── Security Habit Tracker ───────────────────────────────────────────
+
+static int HandleHabits(CliOptions options)
+{
+    var tracker = new SecurityHabitTracker();
+
+    try
+    {
+        switch (options.HabitAction)
+        {
+            case HabitAction.Add:
+                if (string.IsNullOrWhiteSpace(options.HabitName))
+                {
+                    ConsoleFormatter.PrintError("--habit-name is required. Example: --habits add --habit-name \"Check Windows Update\"");
+                    return 1;
+                }
+                tracker.AddHabit(options.HabitName, options.HabitCategory, options.HabitFrequency);
+                if (!options.Quiet)
+                    Console.WriteLine($"\n  Added habit: {options.HabitName}\n");
+                return 0;
+
+            case HabitAction.Remove:
+                if (string.IsNullOrWhiteSpace(options.HabitName))
+                {
+                    ConsoleFormatter.PrintError("--habit-name is required.");
+                    return 1;
+                }
+                tracker.RemoveHabit(options.HabitName);
+                if (!options.Quiet)
+                    Console.WriteLine($"\n  Removed habit: {options.HabitName}\n");
+                return 0;
+
+            case HabitAction.Complete:
+                if (string.IsNullOrWhiteSpace(options.HabitName))
+                {
+                    ConsoleFormatter.PrintError("--habit-name is required.");
+                    return 1;
+                }
+                tracker.Complete(options.HabitName, options.HabitDate);
+                if (!options.Quiet)
+                {
+                    var day = options.HabitDate ?? DateTime.UtcNow.ToString("yyyy-MM-dd");
+                    Console.WriteLine($"\n  Completed '{options.HabitName}' for {day}\n");
+                }
+                return 0;
+
+            case HabitAction.List:
+                var data = tracker.Load();
+                if (options.Json)
+                {
+                    var jsonOpts = new JsonSerializerOptions { WriteIndented = true };
+                    WriteOutput(JsonSerializer.Serialize(data.Habits, jsonOpts), options.OutputFile);
+                }
+                else
+                {
+                    ConsoleFormatter.PrintHabitList(data.Habits);
+                }
+                return 0;
+
+            case HabitAction.Report:
+            default:
+                var report = tracker.GetReport(options.HabitDays);
+                if (options.Json)
+                {
+                    var jsonOpts = new JsonSerializerOptions { WriteIndented = true };
+                    WriteOutput(JsonSerializer.Serialize(report, jsonOpts), options.OutputFile);
+                }
+                else
+                {
+                    ConsoleFormatter.PrintHabits(report);
+                }
+                return 0;
+        }
+    }
+    catch (InvalidOperationException ex)
+    {
+        ConsoleFormatter.PrintError(ex.Message);
+        return 1;
+    }
 }

@@ -146,6 +146,16 @@ public static partial class InputSanitizer
         if (trimmed.StartsWith(@"\\") || trimmed.StartsWith("//"))
             return null;
 
+        // Reject NT object manager paths (\??\, \Device\, \DosDevices\) which
+        // bypass normal path resolution and could target arbitrary volumes
+        if (trimmed.StartsWith(@"\??") || trimmed.StartsWith(@"\Device", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.StartsWith(@"\DosDevices", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        // Reject forward-slash UNC variants (//?/, //./device)
+        if (trimmed.StartsWith("//?") || trimmed.StartsWith("//./"))
+            return null;
+
         // Reject path traversal sequences before canonicalization
         if (trimmed.Contains(".."))
             return null;
@@ -169,18 +179,35 @@ public static partial class InputSanitizer
         if (fullPath.Contains(".."))
             return null;
 
-        // Check against protected system directories
+        // Resolve symlinks/junctions to the real target path to prevent
+        // bypass via junction pointing into a protected directory
+        string resolvedPath;
+        try
+        {
+            // ResolveLinkTarget returns null for non-links; fall back to fullPath
+            var linkTarget = File.ResolveLinkTarget(fullPath, returnFinalTarget: true);
+            resolvedPath = linkTarget?.FullName ?? fullPath;
+        }
+        catch
+        {
+            resolvedPath = fullPath;
+        }
+
+        // Check BOTH the stated path and the resolved target against protected dirs
         foreach (var protectedDir in ProtectedDirectories)
         {
-            if (fullPath.StartsWith(protectedDir, StringComparison.OrdinalIgnoreCase))
+            if (fullPath.StartsWith(protectedDir, StringComparison.OrdinalIgnoreCase) ||
+                resolvedPath.StartsWith(protectedDir, StringComparison.OrdinalIgnoreCase))
                 return null;
         }
 
-        // Check against protected system file names
+        // Check against protected system file names (check both paths)
         var fileName = Path.GetFileName(fullPath);
+        var resolvedFileName = Path.GetFileName(resolvedPath);
         foreach (var protectedFile in ProtectedFileNames)
         {
-            if (fileName.Equals(protectedFile, StringComparison.OrdinalIgnoreCase))
+            if (fileName.Equals(protectedFile, StringComparison.OrdinalIgnoreCase) ||
+                resolvedFileName.Equals(protectedFile, StringComparison.OrdinalIgnoreCase))
                 return null;
         }
 

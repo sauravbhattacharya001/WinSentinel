@@ -364,24 +364,24 @@ public class AutoRemediator
             if (allSucceeded)
             {
                 record.Success = true;
-                record.Description = $"Blocked inbound and outbound traffic for {ipAddress}. Reason: {reason}";
+                record.Description = $"Blocked inbound and outbound traffic for {sanitizedIp}. Reason: {reason}";
                 record.UndoCommand = $"netsh advfirewall firewall delete rule name=\"{ruleBaseName}_in\" & netsh advfirewall firewall delete rule name=\"{ruleBaseName}_out\"";
                 record.UndoMetadata["RuleName"] = ruleBaseName;
-                _logger.LogWarning("AUTO-REMEDIATION: Blocked IP {Ip} (inbound + outbound)", ipAddress);
+                _logger.LogWarning("AUTO-REMEDIATION: Blocked IP {Ip} (inbound + outbound)", sanitizedIp);
             }
             else
             {
                 record.Success = false;
                 record.ErrorMessage = lastError ?? "Unknown error";
-                record.Description = $"Failed to block {ipAddress}: {lastError}";
+                record.Description = $"Failed to block {sanitizedIp}: {lastError}";
             }
         }
         catch (Exception ex)
         {
             record.Success = false;
             record.ErrorMessage = ex.Message;
-            record.Description = $"Failed to block {ipAddress}: {ex.Message}";
-            _logger.LogError(ex, "Failed to block IP {Ip}", ipAddress);
+            record.Description = $"Failed to block {sanitizedIp}: {ex.Message}";
+            _logger.LogError(ex, "Failed to block IP {Ip}", sanitizedIp);
         }
 
         AddRecord(record);
@@ -422,16 +422,16 @@ public class AutoRemediator
             if (exitCode == 0)
             {
                 record.Success = true;
-                record.Description = $"Disabled user account '{username}'";
-                record.UndoCommand = $"net user \"{username}\" /active:yes";
-                record.UndoMetadata["Username"] = username;
+                record.Description = $"Disabled user account '{sanitizedUsername}'";
+                record.UndoCommand = $"net user \"{sanitizedUsername}\" /active:yes";
+                record.UndoMetadata["Username"] = sanitizedUsername;
                 _logger.LogWarning("AUTO-REMEDIATION: Disabled user account {User}", username);
             }
             else
             {
                 record.Success = false;
                 record.ErrorMessage = string.IsNullOrEmpty(stdErr) ? "Unknown error" : stdErr;
-                record.Description = $"Failed to disable account '{username}': {record.ErrorMessage}";
+                record.Description = $"Failed to disable account '{sanitizedUsername}': {record.ErrorMessage}";
             }
         }
         catch (Exception ex)

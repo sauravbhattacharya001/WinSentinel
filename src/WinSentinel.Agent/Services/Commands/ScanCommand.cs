@@ -1,5 +1,6 @@
 using System.Text;
 using WinSentinel.Agent.Ipc;
+using WinSentinel.Core.Models;
 using WinSentinel.Core.Services;
 
 namespace WinSentinel.Agent.Services.Commands;

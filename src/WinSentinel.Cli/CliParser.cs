@@ -185,6 +185,7 @@ public enum CliCommand
     Maturity,
     Watch,
     AttackSurface,
+    Quick,
     Help,
     Version
 }
@@ -1442,6 +1443,10 @@ public static class CliParser
 
                 case "--watch-beep":
                     options.WatchBeep = true;
+                    break;
+
+                case "--quick":
+                    options.Command = CliCommand.Quick;
                     break;
 
                 case "--attack-surface":

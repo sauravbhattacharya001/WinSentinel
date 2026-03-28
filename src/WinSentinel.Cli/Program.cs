@@ -60,6 +60,7 @@ return options.Command switch
     CliCommand.Maturity => await HandleMaturity(options),
     CliCommand.Watch => await HandleWatch(options),
     CliCommand.AttackSurface => await HandleAttackSurface(options),
+    CliCommand.Quick => await HandleQuick(options),
     _ => HandleHelp()
 };
 
@@ -415,6 +416,171 @@ static ConsoleColor GetScoreColor(int score)
         >= 60 => ConsoleColor.Yellow,
         _ => ConsoleColor.Red
     };
+}
+
+// ── Quick Scan ────────────────────────────────────────────────────────
+
+static async Task<int> HandleQuick(CliOptions options)
+{
+    // Quick scan runs only the most critical modules for a fast health check
+    var criticalModules = new List<IAuditModule>
+    {
+        new FirewallAudit(),
+        new DefenderAudit(),
+        new UpdateAudit(),
+        new AccountAudit(),
+        new NetworkAudit(),
+    };
+
+    var engine = new AuditEngine(criticalModules);
+    var sw = Stopwatch.StartNew();
+
+    if (!options.Quiet && !options.Json)
+    {
+        var orig = Console.ForegroundColor;
+        Console.WriteLine();
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.WriteLine("  ⚡ WinSentinel Quick Scan");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine("  ──────────────────────────────────────────");
+        Console.WriteLine("  Running 5 critical modules (Firewall, Defender, Updates, Accounts, Network)");
+        Console.ForegroundColor = orig;
+        Console.WriteLine();
+    }
+
+    var progress = options.Quiet || options.Json
+        ? null
+        : new Progress<(string module, int current, int total)>(p =>
+            ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
+
+    var report = await engine.RunFullAuditAsync(progress);
+    sw.Stop();
+
+    if (options.Json)
+    {
+        var jsonResult = new
+        {
+            mode = "quick",
+            score = report.SecurityScore,
+            grade = SecurityScorer.GetGrade(report.SecurityScore),
+            critical = report.TotalCritical,
+            warnings = report.TotalWarnings,
+            totalFindings = report.TotalFindings,
+            modulesScanned = criticalModules.Count,
+            elapsed = sw.Elapsed.TotalSeconds,
+            machine = Environment.MachineName,
+            timestamp = DateTimeOffset.UtcNow
+        };
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        var json = JsonSerializer.Serialize(jsonResult, jsonOptions);
+        WriteOutput(json, options.OutputFile);
+        return DetermineExitCode(report, options.Threshold);
+    }
+
+    if (!options.Quiet)
+    {
+        ConsoleFormatter.PrintProgressDone(criticalModules.Count, sw.Elapsed);
+    }
+
+    // Print compact results
+    var orig2 = Console.ForegroundColor;
+    Console.WriteLine();
+
+    // Score line
+    var scoreColor = report.SecurityScore switch { >= 80 => ConsoleColor.Green, >= 60 => ConsoleColor.Yellow, _ => ConsoleColor.Red };
+    Console.Write("  Score: ");
+    Console.ForegroundColor = scoreColor;
+    Console.Write($"{report.SecurityScore}/100 ({SecurityScorer.GetGrade(report.SecurityScore)})");
+    Console.ForegroundColor = ConsoleColor.DarkGray;
+    Console.WriteLine($"  [{sw.Elapsed.TotalSeconds:F1}s]");
+    Console.ForegroundColor = orig2;
+    Console.WriteLine();
+
+    // Module results in compact format
+    foreach (var result in report.Results)
+    {
+        var totalChecks = result.Findings.Count;
+        var passCount = result.Findings.Count(f => f.Severity == Severity.Pass || f.Severity == Severity.Info);
+        var modScore = totalChecks > 0 ? (int)(100.0 * passCount / totalChecks) : 100;
+        var icon = modScore >= 90 ? "✅" : modScore >= 70 ? "⚠️" : "❌";
+        var modColor = modScore switch { >= 80 => ConsoleColor.Green, >= 60 => ConsoleColor.Yellow, _ => ConsoleColor.Red };
+
+        Console.Write($"  {icon} ");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.Write($"{result.Category,-20}");
+        Console.ForegroundColor = modColor;
+        Console.Write($"{modScore,3}/100");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+
+        var critCount = result.Findings.Count(f => f.Severity == Severity.Critical);
+        var warnCount = result.Findings.Count(f => f.Severity == Severity.Warning);
+
+        if (critCount > 0 || warnCount > 0)
+        {
+            Console.Write("  (");
+            if (critCount > 0)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.Write($"{critCount} critical");
+                if (warnCount > 0) { Console.ForegroundColor = ConsoleColor.DarkGray; Console.Write(", "); }
+            }
+            if (warnCount > 0)
+            {
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.Write($"{warnCount} warning{(warnCount != 1 ? "s" : "")}");
+            }
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.Write(")");
+        }
+
+        Console.ForegroundColor = orig2;
+        Console.WriteLine();
+    }
+
+    Console.WriteLine();
+
+    // Critical findings summary
+    var criticalFindings = report.Results
+        .SelectMany(r => r.Findings)
+        .Where(f => f.Severity == Severity.Critical)
+        .ToList();
+
+    if (criticalFindings.Count > 0)
+    {
+        Console.ForegroundColor = ConsoleColor.Red;
+        Console.WriteLine($"  🚨 {criticalFindings.Count} critical issue{(criticalFindings.Count != 1 ? "s" : "")} found:");
+        Console.ForegroundColor = orig2;
+
+        foreach (var f in criticalFindings.Take(5))
+        {
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.Write("     • ");
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.WriteLine(f.Title);
+        }
+
+        if (criticalFindings.Count > 5)
+        {
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine($"     ... and {criticalFindings.Count - 5} more");
+        }
+        Console.ForegroundColor = orig2;
+        Console.WriteLine();
+    }
+    else
+    {
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.WriteLine("  ✅ No critical issues in core security modules!");
+        Console.ForegroundColor = orig2;
+        Console.WriteLine();
+    }
+
+    Console.ForegroundColor = ConsoleColor.DarkGray;
+    Console.WriteLine("  Tip: Run --audit for a full 20-module deep scan");
+    Console.ForegroundColor = orig2;
+    Console.WriteLine();
+
+    return DetermineExitCode(report, options.Threshold);
 }
 
 // ── Command Handlers ─────────────────────────────────────────────────

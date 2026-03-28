@@ -140,6 +140,10 @@ public class CliOptions
     public bool WatchBeep { get; set; }
     public string AttackSurfaceFormat { get; set; } = "text";
     public int AttackSurfaceTop { get; set; } = 10;
+    public string PlaybookFormat { get; set; } = "text";
+    public string? PlaybookId { get; set; }
+    public bool PlaybookListAll { get; set; }
+    public bool PlaybookVerbose { get; set; }
 }
 
 public enum CliCommand
@@ -185,6 +189,7 @@ public enum CliCommand
     Maturity,
     Watch,
     AttackSurface,
+    Playbook,
     Quick,
     Help,
     Version
@@ -1463,6 +1468,31 @@ public static class CliParser
                     if (!TryConsumeInt(args, ref i, "--attack-surface-top", 1, 50, out var asTop, out var asTopErr))
                     { options.Error = asTopErr; return options; }
                     options.AttackSurfaceTop = asTop;
+                    break;
+
+                case "--playbook":
+                    options.Command = CliCommand.Playbook;
+                    break;
+
+                case "--playbook-format":
+                    if (!TryConsumeArg(args, ref i, "--playbook-format", out var pbFmt, out var pbFmtErr))
+                    { options.Error = pbFmtErr; return options; }
+                    options.PlaybookFormat = pbFmt.ToLowerInvariant();
+                    break;
+
+                case "--playbook-id":
+                    if (!TryConsumeArg(args, ref i, "--playbook-id", out var pbId, out var pbIdErr))
+                    { options.Error = pbIdErr; return options; }
+                    options.PlaybookId = pbId;
+                    break;
+
+                case "--playbook-list":
+                    options.Command = CliCommand.Playbook;
+                    options.PlaybookListAll = true;
+                    break;
+
+                case "--playbook-verbose":
+                    options.PlaybookVerbose = true;
                     break;
 
                 default:

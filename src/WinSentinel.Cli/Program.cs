@@ -60,6 +60,7 @@ return options.Command switch
     CliCommand.Maturity => await HandleMaturity(options),
     CliCommand.Watch => await HandleWatch(options),
     CliCommand.AttackSurface => await HandleAttackSurface(options),
+    CliCommand.Playbook => await HandlePlaybook(options),
     CliCommand.Quick => await HandleQuick(options),
     _ => HandleHelp()
 };
@@ -5005,5 +5006,82 @@ static async Task<int> HandleAttackSurface(CliOptions options)
 
     ConsoleFormatter.PrintAttackSurface(surfaceReport, options.AttackSurfaceTop);
 
+    return 0;
+}
+
+// ── Incident Response Playbook ───────────────────────────────────────
+
+static async Task<int> HandlePlaybook(CliOptions options)
+{
+    var playbook = new IncidentResponsePlaybook();
+
+    // --playbook-list: show all built-in playbooks without running an audit
+    if (options.PlaybookListAll)
+    {
+        if (options.Json)
+        {
+            var data = playbook.AllPlaybooks.Select(p => new
+            {
+                p.Id,
+                p.Name,
+                p.Description,
+                DefaultPriority = p.DefaultPriority.ToString(),
+                TriggerCategories = p.TriggerCategories,
+                StepCount = p.Steps.Count
+            });
+            Console.WriteLine(JsonSerializer.Serialize(data,
+                new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } }));
+            return 0;
+        }
+
+        ConsoleFormatter.PrintPlaybookList(playbook.AllPlaybooks, options.PlaybookVerbose);
+        return 0;
+    }
+
+    // --playbook-id: show a specific playbook's details without audit
+    if (options.PlaybookId is not null && options.PlaybookFormat == "text")
+    {
+        var pb = playbook.GetPlaybook(options.PlaybookId);
+        if (pb is null)
+        {
+            Console.Error.WriteLine($"Unknown playbook ID: {options.PlaybookId}");
+            Console.Error.WriteLine($"Use --playbook-list to see available playbooks.");
+            return 1;
+        }
+
+        ConsoleFormatter.PrintPlaybookDetail(pb);
+        return 0;
+    }
+
+    // Run audit and generate incident response plan
+    var (report, _, _) = await RunAuditAsync(options, suppressOutput: options.Quiet,
+        bannerMessage: "Running audit to generate incident response plan...");
+
+    var plan = playbook.GeneratePlan(report);
+
+    if (options.Json)
+    {
+        var jsonOpts = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Converters = { new JsonStringEnumConverter() }
+        };
+        var json = JsonSerializer.Serialize(plan, jsonOpts);
+
+        if (!string.IsNullOrWhiteSpace(options.OutputFile))
+        {
+            await File.WriteAllTextAsync(options.OutputFile, json);
+            if (!options.Quiet)
+                Console.WriteLine($"  Incident response plan saved to {options.OutputFile}");
+        }
+        else
+        {
+            Console.WriteLine(json);
+        }
+
+        return 0;
+    }
+
+    ConsoleFormatter.PrintPlaybookPlan(plan, options.PlaybookVerbose);
     return 0;
 }

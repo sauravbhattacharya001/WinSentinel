@@ -275,33 +275,30 @@ public class ThreatCorrelator
 
     /// <summary>
     /// Rule 4: Hosts file modification + suspicious process = DNS hijacking with malware.
+    /// Uses TryBidirectionalMatch to avoid self-correlation (newEvent being picked as
+    /// both sides) and generates a stable dedup key from the matched event pair.
     /// </summary>
     internal void CheckHostsFileAndProcess(ThreatEvent newEvent, List<ThreatEvent> window, List<CorrelatedThreat> results)
     {
-        bool hostsModified = window.Any(e =>
-            e.Title.Contains("Hosts File", StringComparison.OrdinalIgnoreCase));
+        var match = TryBidirectionalMatch(
+            newEvent, window,
+            matchesSideA: e => e.Title.Contains("Hosts File", StringComparison.OrdinalIgnoreCase),
+            matchesSideB: e => e.Source == "ProcessMonitor" && e.Severity >= ThreatSeverity.Medium);
 
-        bool suspiciousProcess = window.Any(e =>
-            e.Source == "ProcessMonitor" &&
-            e.Severity >= ThreatSeverity.Medium);
+        if (match == null) return;
 
-        if (!hostsModified || !suspiciousProcess) return;
+        var (hostsEvent, processEvent) = match.Value;
 
-        if ((newEvent.Title.Contains("Hosts File", StringComparison.OrdinalIgnoreCase) ||
-             (newEvent.Source == "ProcessMonitor" && newEvent.Severity >= ThreatSeverity.Medium)) &&
-            !IsRecentCorrelation("HostsFilePlusProcess", ""))
+        // Use both event IDs for the dedup key so unrelated pairs don't block each other
+        if (!IsRecentCorrelation("HostsFilePlusProcess", $"{hostsEvent.Id}|{processEvent.Id}"))
         {
-            var hostsEvent = window.First(e =>
-                e.Title.Contains("Hosts File", StringComparison.OrdinalIgnoreCase));
-            var processEvent = window.First(e =>
-                e.Source == "ProcessMonitor" && e.Severity >= ThreatSeverity.Medium);
-
             results.Add(new CorrelatedThreat
             {
                 ContributingEvents = { hostsEvent, processEvent },
                 CombinedSeverity = ThreatSeverity.Critical,
                 RuleName = "HostsFilePlusProcess",
                 ChainDescription = $"Hosts file modification detected alongside suspicious process activity. " +
+                                   $"Process: {processEvent.Title}. " +
                                    $"This combination suggests DNS hijacking as part of a malware attack.",
                 ThreatScore = CalculateChainScore(hostsEvent, processEvent) + 25
             });

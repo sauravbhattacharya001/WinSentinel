@@ -63,6 +63,7 @@ return options.Command switch
     CliCommand.Playbook => await HandlePlaybook(options),
     CliCommand.Quick => await HandleQuick(options),
     CliCommand.Habits => HandleHabits(options),
+    CliCommand.Grep => await HandleGrep(options),
     _ => HandleHelp()
 };
 
@@ -5166,4 +5167,102 @@ static int HandleHabits(CliOptions options)
         ConsoleFormatter.PrintError(ex.Message);
         return 1;
     }
+}
+
+// ── Grep (Finding Search) ───────────────────────────────────────────
+
+static async Task<int> HandleGrep(CliOptions options)
+{
+    if (string.IsNullOrWhiteSpace(options.GrepPattern))
+    {
+        ConsoleFormatter.PrintError("Missing search pattern. Usage: winsentinel grep <pattern>");
+        return 1;
+    }
+
+    System.Text.RegularExpressions.Regex regex;
+    try
+    {
+        var regexOptions = options.GrepCaseSensitive
+            ? System.Text.RegularExpressions.RegexOptions.None
+            : System.Text.RegularExpressions.RegexOptions.IgnoreCase;
+        regex = new System.Text.RegularExpressions.Regex(options.GrepPattern, regexOptions);
+    }
+    catch (System.Text.RegularExpressions.RegexParseException ex)
+    {
+        ConsoleFormatter.PrintError($"Invalid regex pattern: {ex.Message}");
+        return 1;
+    }
+
+    var (report, _, elapsed) = await RunAuditAsync(options, suppressOutput: true,
+        bannerMessage: "Scanning for matching findings...");
+
+    var allFindings = report.Results
+        .SelectMany(m => m.Findings.Select(f => new { Module = m.ModuleName, Finding = f }))
+        .ToList();
+
+    // Apply severity filter
+    if (!string.IsNullOrEmpty(options.GrepSeverityFilter))
+    {
+        if (Enum.TryParse<Severity>(options.GrepSeverityFilter, true, out var sevFilter))
+        {
+            allFindings = allFindings.Where(f => f.Finding.Severity == sevFilter).ToList();
+        }
+    }
+
+    // Apply module filter
+    if (!string.IsNullOrEmpty(options.GrepModuleFilter))
+    {
+        allFindings = allFindings
+            .Where(f => f.Module.Contains(options.GrepModuleFilter, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+    }
+
+    // Search across title, description, and remediation
+    var matches = allFindings
+        .Where(f =>
+            regex.IsMatch(f.Finding.Title ?? "") ||
+            regex.IsMatch(f.Finding.Description ?? "") ||
+            regex.IsMatch(f.Finding.Remediation ?? ""))
+        .Take(options.GrepMaxResults)
+        .ToList();
+
+    if (options.GrepCountOnly)
+    {
+        if (options.Json)
+        {
+            WriteOutput($"{{\"pattern\": \"{options.GrepPattern}\", \"matches\": {matches.Count}, \"total\": {allFindings.Count}}}", options.OutputFile);
+        }
+        else
+        {
+            Console.WriteLine();
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.Write($"  {matches.Count}");
+            Console.ResetColor();
+            Console.WriteLine($" findings match '{options.GrepPattern}' (of {allFindings.Count} total)");
+        }
+        return 0;
+    }
+
+    if (options.Json)
+    {
+        var jsonOpts = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Converters = { new JsonStringEnumConverter() }
+        };
+        var output = matches.Select(m => new
+        {
+            module = m.Module,
+            title = m.Finding.Title,
+            severity = m.Finding.Severity.ToString(),
+            description = m.Finding.Description,
+            recommendation = m.Finding.Remediation
+        });
+        WriteOutput(JsonSerializer.Serialize(output, jsonOpts), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintGrepResults(matches.Select(m => (m.Module, m.Finding)).ToList(),
+        options.GrepPattern, regex, allFindings.Count, options.GrepShowContext, elapsed);
+    return 0;
 }

@@ -150,6 +150,14 @@ public class CliOptions
     public string? PlaybookId { get; set; }
     public bool PlaybookListAll { get; set; }
     public bool PlaybookVerbose { get; set; }
+    public string? GrepPattern { get; set; }
+    public string? GrepSeverityFilter { get; set; }
+    public string? GrepModuleFilter { get; set; }
+    public bool GrepCaseSensitive { get; set; }
+    public bool GrepCountOnly { get; set; }
+    public bool GrepShowContext { get; set; } = true;
+    public string GrepFormat { get; set; } = "text";
+    public int GrepMaxResults { get; set; } = 100;
 }
 
 public enum CliCommand
@@ -198,6 +206,7 @@ public enum CliCommand
     Playbook,
     Quick,
     Habits,
+    Grep,
     Help,
     Version
 }
@@ -1557,6 +1566,57 @@ public static class CliParser
 
                 case "--playbook-verbose":
                     options.PlaybookVerbose = true;
+                    break;
+
+                case "--grep":
+                case "grep":
+                    options.Command = CliCommand.Grep;
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                    {
+                        options.GrepPattern = args[++i];
+                    }
+                    break;
+
+                case "--grep-pattern":
+                    if (!TryConsumeArg(args, ref i, "--grep-pattern", out var gPat, out var gPatErr))
+                    { options.Error = gPatErr; return options; }
+                    options.GrepPattern = gPat;
+                    break;
+
+                case "--grep-severity":
+                    if (!TryConsumeArg(args, ref i, "--grep-severity", out var gSev, out var gSevErr))
+                    { options.Error = gSevErr; return options; }
+                    options.GrepSeverityFilter = gSev.ToLowerInvariant();
+                    break;
+
+                case "--grep-module":
+                    if (!TryConsumeArg(args, ref i, "--grep-module", out var gMod, out var gModErr))
+                    { options.Error = gModErr; return options; }
+                    options.GrepModuleFilter = gMod.ToLowerInvariant();
+                    break;
+
+                case "--grep-case-sensitive":
+                    options.GrepCaseSensitive = true;
+                    break;
+
+                case "--grep-count":
+                    options.GrepCountOnly = true;
+                    break;
+
+                case "--grep-no-context":
+                    options.GrepShowContext = false;
+                    break;
+
+                case "--grep-format":
+                    if (!TryConsumeArg(args, ref i, "--grep-format", out var gFmt, out var gFmtErr))
+                    { options.Error = gFmtErr; return options; }
+                    options.GrepFormat = gFmt.ToLowerInvariant();
+                    break;
+
+                case "--grep-max":
+                    if (!TryConsumeInt(args, ref i, "--grep-max", 1, 1000, out var gMax, out var gMaxErr))
+                    { options.Error = gMaxErr; return options; }
+                    options.GrepMaxResults = gMax;
                     break;
 
                 default:

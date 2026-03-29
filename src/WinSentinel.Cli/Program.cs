@@ -64,6 +64,7 @@ return options.Command switch
     CliCommand.Quick => await HandleQuick(options),
     CliCommand.Habits => HandleHabits(options),
     CliCommand.Grep => await HandleGrep(options),
+    CliCommand.DepGraph => await HandleDepGraph(options),
     _ => HandleHelp()
 };
 
@@ -5264,5 +5265,74 @@ static async Task<int> HandleGrep(CliOptions options)
 
     ConsoleFormatter.PrintGrepResults(matches.Select(m => (m.Module, m.Finding)).ToList(),
         options.GrepPattern, regex, allFindings.Count, options.GrepShowContext, elapsed);
+    return 0;
+}
+
+// ── Finding Dependency Graph ────────────────────────────────────────────────
+
+static async Task<int> HandleDepGraph(CliOptions options)
+{
+    var (report, engine, elapsed) = await RunAuditAsync(options, suppressOutput: options.Quiet,
+        bannerMessage: "Running audit for dependency analysis...");
+
+    var analyzer = new FindingDependencyAnalyzer();
+    var result = analyzer.Analyze(report.Results, options.DepGraphTop);
+
+    if (options.Json || options.DepGraphFormat == "json")
+    {
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        WriteOutput(JsonSerializer.Serialize(result, jsonOptions), options.OutputFile);
+        return 0;
+    }
+
+    if (options.Markdown || options.DepGraphFormat == "markdown")
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("# 🔗 Finding Dependency Graph");
+        sb.AppendLine();
+        sb.AppendLine($"**Findings Analyzed:** {result.TotalFindings}");
+        sb.AppendLine($"**Root Causes:** {result.RootFindings}");
+        sb.AppendLine($"**Cascade-Resolvable:** {result.EstimatedAutoResolve}");
+        sb.AppendLine();
+
+        if (result.TopCascadeImpacts.Count > 0)
+        {
+            sb.AppendLine("## Top Cascade Impacts");
+            sb.AppendLine();
+            sb.AppendLine("| # | Finding | Module | Severity | Cascade | Score Impact | Auto-Fix |");
+            sb.AppendLine("|---|---------|--------|----------|---------|-------------|----------|");
+            for (int i = 0; i < result.TopCascadeImpacts.Count; i++)
+            {
+                var impact = result.TopCascadeImpacts[i];
+                sb.AppendLine($"| {i + 1} | {impact.Title} | {impact.Module} | {impact.Severity} | {impact.CascadeCount} | +{impact.ScoreImpact:F1} | {(impact.HasAutoFix ? "✅" : "❌")} |");
+            }
+            sb.AppendLine();
+        }
+
+        if (result.Clusters.Count > 0)
+        {
+            sb.AppendLine("## Dependency Clusters");
+            sb.AppendLine();
+            foreach (var cluster in result.Clusters.Take(options.DepGraphTop))
+            {
+                sb.AppendLine($"### Cluster {cluster.ClusterId}: {cluster.RootTitle}");
+                sb.AppendLine($"- **Module:** {cluster.RootModule}");
+                sb.AppendLine($"- **Severity:** {cluster.RootSeverity}");
+                sb.AppendLine($"- **Relationship:** {cluster.RelationshipType}");
+                sb.AppendLine($"- **Dependents:** {cluster.CascadeCount}");
+                sb.AppendLine();
+                foreach (var dep in cluster.Dependents)
+                {
+                    sb.AppendLine($"  - [{dep.Severity}] {dep.Title} ({dep.Module}) — {dep.Reason}");
+                }
+                sb.AppendLine();
+            }
+        }
+
+        WriteOutput(sb.ToString(), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintDepGraph(result, options);
     return 0;
 }

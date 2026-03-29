@@ -158,6 +158,8 @@ public class CliOptions
     public bool GrepShowContext { get; set; } = true;
     public string GrepFormat { get; set; } = "text";
     public int GrepMaxResults { get; set; } = 100;
+    public int DepGraphTop { get; set; } = 10;
+    public string DepGraphFormat { get; set; } = "text";
 }
 
 public enum CliCommand
@@ -207,6 +209,7 @@ public enum CliCommand
     Quick,
     Habits,
     Grep,
+    DepGraph,
     Help,
     Version
 }
@@ -1617,6 +1620,23 @@ public static class CliParser
                     if (!TryConsumeInt(args, ref i, "--grep-max", 1, 1000, out var gMax, out var gMaxErr))
                     { options.Error = gMaxErr; return options; }
                     options.GrepMaxResults = gMax;
+                    break;
+
+                case "--depgraph":
+                case "depgraph":
+                    options.Command = CliCommand.DepGraph;
+                    break;
+
+                case "--depgraph-top":
+                    if (!TryConsumeInt(args, ref i, "--depgraph-top", 1, 100, out var dgTop, out var dgTopErr))
+                    { options.Error = dgTopErr; return options; }
+                    options.DepGraphTop = dgTop;
+                    break;
+
+                case "--depgraph-format":
+                    if (!TryConsumeArg(args, ref i, "--depgraph-format", out var dgFmt, out var dgFmtErr))
+                    { options.Error = dgFmtErr; return options; }
+                    options.DepGraphFormat = dgFmt.ToLowerInvariant();
                     break;
 
                 default:

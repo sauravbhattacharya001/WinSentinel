@@ -227,6 +227,7 @@ public enum CliCommand
     Triage,
     Cookbook,
     Cluster,
+    Peers,
     Help,
     Version
 }
@@ -1719,6 +1720,11 @@ public static class CliParser
                 case "--cluster":
                 case "cluster":
                     options.Command = CliCommand.Cluster;
+                    break;
+
+                case "--peers":
+                case "peers":
+                    options.Command = CliCommand.Peers;
                     break;
 
                 case "--cluster-top":

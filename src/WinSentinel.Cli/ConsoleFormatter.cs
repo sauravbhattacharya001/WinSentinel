@@ -424,6 +424,10 @@ public static partial class ConsoleFormatter
         WriteLineColored("    winsentinel --heatmap --heatmap-weeks 52            # Full year heatmap", ConsoleColor.DarkGray);
         WriteLineColored("    winsentinel --heatmap --json                        # Heatmap data as JSON", ConsoleColor.DarkGray);
         Console.WriteLine();
+        WriteHelpEntry("    --peers                  ", "Compare your score against typical machine profiles");
+        WriteLineColored("    winsentinel --peers                                 # Peer benchmark comparison", ConsoleColor.DarkGray);
+        WriteLineColored("    winsentinel --peers --json                          # Peer data as JSON", ConsoleColor.DarkGray);
+        Console.WriteLine();
         Console.WriteLine("  EXIT CODES:");
         Console.WriteLine("    0  All checks pass (or score >= threshold)");
         Console.WriteLine("    1  Warnings found (or score < threshold)");

@@ -68,6 +68,7 @@ return options.Command switch
     CliCommand.Triage => await HandleTriage(options),
     CliCommand.Cookbook => await HandleCookbook(options),
     CliCommand.Cluster => await HandleCluster(options),
+    CliCommand.Peers => await HandlePeers(options),
     _ => HandleHelp()
 };
 
@@ -5746,3 +5747,52 @@ static int LevenshteinDistance(string a, string b)
 
     return dp[n, m];
 }
+
+// ── Peer Benchmark ──────────────────────────────────────────────────
+
+static async Task<int> HandlePeers(CliOptions options)
+{
+    var (report, engine, elapsed) = await RunAuditAsync(options, suppressOutput: options.Quiet,
+        bannerMessage: "Running audit for peer comparison...");
+
+    var userScore = report.SecurityScore;
+    var critCount = report.TotalCritical;
+    var warnCount = report.TotalWarnings;
+    var infoCount = report.Results.Sum(r => r.InfoCount);
+    var passCount = report.Results.Sum(r => r.PassCount);
+
+    var peers = new[]
+    {
+        new PeerProfile("Enterprise Workstation (managed)", 82, 0, 2, 5, 18, "IT-managed with GPO, EDR, SCCM patching"),
+        new PeerProfile("Developer Workstation", 64, 1, 5, 10, 14, "Dev tools, relaxed UAC, Docker, WSL"),
+        new PeerProfile("Home Office PC", 55, 2, 7, 12, 16, "Personal use, manual updates, some security awareness"),
+        new PeerProfile("Gaming PC", 42, 4, 10, 15, 12, "Performance-tuned, AV often disabled, admin-mode games"),
+        new PeerProfile("Small Business Server", 71, 0, 3, 8, 20, "Windows Server with AD, periodic patching"),
+        new PeerProfile("Hardened Security Lab", 94, 0, 0, 2, 25, "CIS benchmarks applied, minimal software"),
+        new PeerProfile("SOHO NAS/Media Server", 48, 3, 8, 13, 10, "Always-on, rarely patched, exposed services"),
+    };
+
+    if (options.Json)
+    {
+        var jsonObj = new
+        {
+            yourScore = userScore,
+            yourFindings = new { critical = critCount, warning = warnCount, info = infoCount, pass = passCount },
+            peers = peers.Select(p => new
+            {
+                name = p.Name,
+                typicalScore = p.TypicalScore,
+                typicalFindings = new { critical = p.Critical, warning = p.Warning, info = p.Info, pass = p.Pass },
+                description = p.Description
+            })
+        };
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        WriteOutput(JsonSerializer.Serialize(jsonObj, jsonOptions), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintPeers(userScore, critCount, warnCount, infoCount, passCount, peers);
+    return 0;
+}
+
+public record PeerProfile(string Name, int TypicalScore, int Critical, int Warning, int Info, int Pass, string Description);

@@ -306,19 +306,16 @@ public class ThreatCorrelator
     }
 
     /// <summary>
-    /// Rule 5: Rapid multi-module activity — events from 3+ different sources in the window = coordinated attack.
+    /// Rule 5: Rapid multi-module activity - events from 3+ different sources in the window = coordinated attack.
     /// </summary>
     internal void CheckRapidMultiModule(ThreatEvent newEvent, List<ThreatEvent> window, List<CorrelatedThreat> results)
     {
-        // Only trigger when the new event itself is significant — otherwise a
+        // Only trigger when the new event itself is significant - otherwise a
         // low/info event (e.g. periodic heartbeat) arriving while the window
         // already has 3+ medium+ sources would incorrectly fire a Critical
         // "coordinated attack" correlation.
         if (newEvent.Severity < ThreatSeverity.Medium)
             return;
-
-        // Only check for medium+ severity events
-        if (newEvent.Severity < ThreatSeverity.Medium) return;
 
         var significantEvents = window.Where(e => e.Severity >= ThreatSeverity.Medium).ToList();
         var distinctSources = significantEvents.Select(e => e.Source).Distinct().ToList();
@@ -409,7 +406,7 @@ public class ThreatCorrelator
             while (pathStart < description.Length && description[pathStart] == ' ')
                 pathStart++;
 
-            // Don't stop at '.' — directory names often contain dots
+            // Don't stop at '.' - directory names often contain dots
             // (e.g. "C:\Users\user.name\AppData"). Only stop at whitespace,
             // newlines, or commas.
             var pathEnd = description.IndexOfAny(new[] { '\n', '\r', ' ', '\t', ',' }, pathStart);

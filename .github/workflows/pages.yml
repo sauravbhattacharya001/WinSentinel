@@ -48,7 +48,7 @@ jobs:
           cp docs/index.html docfx/_site/index.html 2>/dev/null || true
 
       - name: Setup Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v4

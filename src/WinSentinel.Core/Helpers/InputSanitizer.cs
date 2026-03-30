@@ -462,6 +462,58 @@ public static partial class InputSanitizer
             lower.Contains("add-type") && lower.Contains("dllname"))
             return "Contains DLL loading (arbitrary native code execution)";
 
+        // ── Additional LOLBin vectors ──
+
+        // MSBuild inline task execution — compiles and runs arbitrary C#/VB code
+        // embedded in a .csproj or .targets file without triggering script-based detections
+        if (lower.Contains("msbuild") && (lower.Contains(".csproj") || lower.Contains(".targets") ||
+            lower.Contains(".xml") || lower.Contains("/t:") || lower.Contains("-t:")))
+            return "Contains MSBuild execution (potential inline task code execution)";
+
+        // InstallUtil / RegAsm / RegSvcs — .NET Framework LOLBins that execute
+        // code in [RunInstaller] or [ComRegisterFunction] attributes during
+        // assembly registration, bypassing application whitelisting
+        if (lower.Contains("installutil") || lower.Contains("installutil.exe"))
+            return "Contains InstallUtil execution (.NET LOLBin — runs installer code)";
+        if (lower.Contains("regasm") || lower.Contains("regasm.exe"))
+            return "Contains RegAsm execution (.NET LOLBin — runs COM registration code)";
+        if (lower.Contains("regsvcs") || lower.Contains("regsvcs.exe"))
+            return "Contains RegSvcs execution (.NET LOLBin — runs COM+ registration code)";
+
+        // CMSTP — Connection Manager Profile Installer can execute arbitrary
+        // commands via specially crafted .inf files
+        if (lower.Contains("cmstp"))
+            return "Contains CMSTP execution (INF-based code execution LOLBin)";
+
+        // Mavinject — legitimate Microsoft tool for DLL injection into running processes
+        if (lower.Contains("mavinject"))
+            return "Contains Mavinject execution (DLL injection LOLBin)";
+
+        // MSXSL — Microsoft XML transform tool can execute JScript/VBScript via XSL
+        if (lower.Contains("msxsl"))
+            return "Contains MSXSL execution (XSL transform code execution)";
+
+        // Forfiles — executes commands for matching files; /c flag runs arbitrary commands
+        if (lower.Contains("forfiles") && lower.Contains("/c"))
+            return "Contains Forfiles /c execution (command execution LOLBin)";
+
+        // PcaLua — Program Compatibility Assistant can launch arbitrary executables
+        // bypassing SmartScreen and application whitelisting
+        if (lower.Contains("pcalua") && lower.Contains("-a"))
+            return "Contains PcaLua execution (application whitelisting bypass)";
+
+        // SyncAppvPublishingServer — executes PowerShell commands via App-V
+        if (lower.Contains("syncappvpublishingserver"))
+            return "Contains SyncAppvPublishingServer (PowerShell execution via App-V)";
+
+        // Desktopimgdownldr / Replace — additional bypass binaries
+        if (lower.Contains("desktopimgdownldr"))
+            return "Contains DesktopImgDownldr (file download LOLBin)";
+
+        // Finger.exe — can be used for file download/exfiltration on port 79
+        if (lower.Contains("finger.exe") || (lower.Contains("finger ") && lower.Contains("@")))
+            return "Contains Finger command (potential data exfiltration)";
+
         // AMSI bypass — disables Antimalware Scan Interface to evade detection.
         // Catches both direct field access and string-concat obfuscation patterns.
         if (lower.Contains("amsiutils") || lower.Contains("amsiinitfailed") ||

@@ -169,6 +169,11 @@ public class CliOptions
     public string? TriageSeverityFilter { get; set; }
     public string? TriageModuleFilter { get; set; }
     public bool TriageFixableOnly { get; set; }
+    public int ClusterTop { get; set; } = 15;
+    public double ClusterThreshold { get; set; } = 0.6;
+    public string ClusterFormat { get; set; } = "text";
+    public string? ClusterSeverityFilter { get; set; }
+    public string? ClusterModuleFilter { get; set; }
 }
 
 public enum CliCommand
@@ -221,6 +226,7 @@ public enum CliCommand
     DepGraph,
     Triage,
     Cookbook,
+    Cluster,
     Help,
     Version
 }
@@ -1708,6 +1714,43 @@ public static class CliParser
 
                 case "--cookbook-fixable":
                     options.CookbookFixableOnly = true;
+                    break;
+
+                case "--cluster":
+                case "cluster":
+                    options.Command = CliCommand.Cluster;
+                    break;
+
+                case "--cluster-top":
+                    if (!TryConsumeArg(args, ref i, "--cluster-top", out var clTop, out var clTopErr))
+                    { options.Error = clTopErr; return options; }
+                    if (int.TryParse(clTop, out var clTopVal))
+                        options.ClusterTop = clTopVal;
+                    break;
+
+                case "--cluster-threshold":
+                    if (!TryConsumeArg(args, ref i, "--cluster-threshold", out var clThresh, out var clThreshErr))
+                    { options.Error = clThreshErr; return options; }
+                    if (double.TryParse(clThresh, System.Globalization.CultureInfo.InvariantCulture, out var clThreshVal))
+                        options.ClusterThreshold = Math.Clamp(clThreshVal, 0.1, 1.0);
+                    break;
+
+                case "--cluster-format":
+                    if (!TryConsumeArg(args, ref i, "--cluster-format", out var clFmt, out var clFmtErr))
+                    { options.Error = clFmtErr; return options; }
+                    options.ClusterFormat = clFmt.ToLowerInvariant();
+                    break;
+
+                case "--cluster-severity":
+                    if (!TryConsumeArg(args, ref i, "--cluster-severity", out var clSev, out var clSevErr))
+                    { options.Error = clSevErr; return options; }
+                    options.ClusterSeverityFilter = clSev;
+                    break;
+
+                case "--cluster-module":
+                    if (!TryConsumeArg(args, ref i, "--cluster-module", out var clMod, out var clModErr))
+                    { options.Error = clModErr; return options; }
+                    options.ClusterModuleFilter = clMod;
                     break;
 
                 default:

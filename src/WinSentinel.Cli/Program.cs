@@ -67,6 +67,7 @@ return options.Command switch
     CliCommand.DepGraph => await HandleDepGraph(options),
     CliCommand.Triage => await HandleTriage(options),
     CliCommand.Cookbook => await HandleCookbook(options),
+    CliCommand.Cluster => await HandleCluster(options),
     _ => HandleHelp()
 };
 
@@ -5551,4 +5552,197 @@ static string EstimateEffort(Finding finding)
     }
 
     return finding.Severity == Severity.Critical ? "🔴 Investigation needed" : "🟡 Medium (~15 min)";
+}
+
+// ── Finding Cluster ──────────────────────────────────────────────────
+
+static async Task<int> HandleCluster(CliOptions options)
+{
+    var (report, engine, elapsed) = await RunAuditAsync(options, suppressOutput: options.Quiet,
+        bannerMessage: "Running audit to cluster findings...");
+
+    var allFindings = report.Results
+        .SelectMany(r => r.Findings.Select(f => (Module: r.ModuleName, Finding: f)))
+        .ToList();
+
+    // Apply severity filter
+    if (!string.IsNullOrEmpty(options.ClusterSeverityFilter))
+    {
+        if (Enum.TryParse<Severity>(options.ClusterSeverityFilter, true, out var sevFilter))
+            allFindings = allFindings.Where(f => f.Finding.Severity == sevFilter).ToList();
+    }
+
+    // Apply module filter
+    if (!string.IsNullOrEmpty(options.ClusterModuleFilter))
+    {
+        var modFilter = options.ClusterModuleFilter.ToLowerInvariant();
+        allFindings = allFindings.Where(f => f.Module.ToLowerInvariant().Contains(modFilter)).ToList();
+    }
+
+    if (allFindings.Count == 0)
+    {
+        if (options.Json)
+        {
+            WriteOutput("{\"clusters\": [], \"totalFindings\": 0}", options.OutputFile);
+        }
+        else if (!options.Quiet)
+        {
+            Console.WriteLine();
+            ConsoleFormatter.PrintError("No findings to cluster.");
+        }
+        return 0;
+    }
+
+    // Cluster findings by title similarity using normalized Levenshtein distance
+    var clusters = ClusterFindings(allFindings, options.ClusterThreshold, options.ClusterTop);
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        var output = new
+        {
+            totalFindings = allFindings.Count,
+            clusterCount = clusters.Count,
+            threshold = options.ClusterThreshold,
+            clusters = clusters.Select((c, i) => new
+            {
+                id = i + 1,
+                label = c.Label,
+                size = c.Items.Count,
+                highestSeverity = c.HighestSeverity.ToString(),
+                modules = c.Modules.Distinct().ToList(),
+                hasAutoFix = c.Items.Any(it => !string.IsNullOrEmpty(it.Finding.FixCommand)),
+                items = c.Items.Select(it => new
+                {
+                    title = it.Finding.Title,
+                    module = it.Module,
+                    severity = it.Finding.Severity.ToString()
+                })
+            })
+        };
+        WriteOutput(JsonSerializer.Serialize(output, jsonOptions), options.OutputFile);
+        return 0;
+    }
+
+    if (options.Markdown)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("# 🔗 Finding Clusters Report");
+        sb.AppendLine();
+        sb.AppendLine($"**Total Findings:** {allFindings.Count} | **Clusters:** {clusters.Count} | **Threshold:** {options.ClusterThreshold:F1}");
+        sb.AppendLine();
+        for (int i = 0; i < clusters.Count; i++)
+        {
+            var c = clusters[i];
+            sb.AppendLine($"## Cluster {i + 1}: {c.Label} ({c.Items.Count} findings)");
+            sb.AppendLine();
+            sb.AppendLine($"Highest severity: **{c.HighestSeverity}** | Modules: {string.Join(", ", c.Modules.Distinct())}");
+            sb.AppendLine();
+            sb.AppendLine("| Finding | Module | Severity |");
+            sb.AppendLine("|---------|--------|----------|");
+            foreach (var item in c.Items)
+                sb.AppendLine($"| {item.Finding.Title} | {item.Module} | {item.Finding.Severity} |");
+            sb.AppendLine();
+        }
+        WriteOutput(sb.ToString(), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintCluster(clusters, allFindings.Count, options.ClusterThreshold, elapsed);
+    return 0;
+}
+
+static List<FindingCluster> ClusterFindings(
+    List<(string Module, Finding Finding)> findings,
+    double threshold,
+    int maxClusters)
+{
+    var clusters = new List<FindingCluster>();
+    var assigned = new bool[findings.Count];
+
+    for (int i = 0; i < findings.Count; i++)
+    {
+        if (assigned[i]) continue;
+
+        var cluster = new FindingCluster
+        {
+            Label = findings[i].Finding.Title,
+            Items = [(findings[i].Module, findings[i].Finding)],
+            Modules = [findings[i].Module],
+            HighestSeverity = findings[i].Finding.Severity
+        };
+        assigned[i] = true;
+
+        for (int j = i + 1; j < findings.Count; j++)
+        {
+            if (assigned[j]) continue;
+
+            var similarity = ComputeSimilarity(
+                findings[i].Finding.Title.ToLowerInvariant(),
+                findings[j].Finding.Title.ToLowerInvariant());
+
+            if (similarity >= threshold)
+            {
+                cluster.Items.Add((findings[j].Module, findings[j].Finding));
+                cluster.Modules.Add(findings[j].Module);
+                if (findings[j].Finding.Severity > cluster.HighestSeverity)
+                    cluster.HighestSeverity = findings[j].Finding.Severity;
+                assigned[j] = true;
+            }
+        }
+
+        clusters.Add(cluster);
+    }
+
+    // Return top N clusters sorted by size descending, then by severity
+    return clusters
+        .Where(c => c.Items.Count > 1)
+        .OrderByDescending(c => c.Items.Count)
+        .ThenByDescending(c => c.HighestSeverity)
+        .Take(maxClusters)
+        .ToList();
+}
+
+static double ComputeSimilarity(string a, string b)
+{
+    if (a == b) return 1.0;
+    if (a.Length == 0 || b.Length == 0) return 0.0;
+
+    // Also check word-level overlap (Jaccard)
+    var wordsA = a.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToHashSet();
+    var wordsB = b.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToHashSet();
+    var intersection = wordsA.Intersect(wordsB).Count();
+    var union = wordsA.Union(wordsB).Count();
+    var jaccard = union > 0 ? (double)intersection / union : 0.0;
+
+    // Levenshtein-based similarity
+    var maxLen = Math.Max(a.Length, b.Length);
+    var dist = LevenshteinDistance(a, b);
+    var levenSim = 1.0 - (double)dist / maxLen;
+
+    // Return the higher of the two (either structural or word overlap can indicate similarity)
+    return Math.Max(jaccard, levenSim);
+}
+
+static int LevenshteinDistance(string a, string b)
+{
+    var n = a.Length;
+    var m = b.Length;
+    var dp = new int[n + 1, m + 1];
+
+    for (int i = 0; i <= n; i++) dp[i, 0] = i;
+    for (int j = 0; j <= m; j++) dp[0, j] = j;
+
+    for (int i = 1; i <= n; i++)
+    {
+        for (int j = 1; j <= m; j++)
+        {
+            var cost = a[i - 1] == b[j - 1] ? 0 : 1;
+            dp[i, j] = Math.Min(
+                Math.Min(dp[i - 1, j] + 1, dp[i, j - 1] + 1),
+                dp[i - 1, j - 1] + cost);
+        }
+    }
+
+    return dp[n, m];
 }

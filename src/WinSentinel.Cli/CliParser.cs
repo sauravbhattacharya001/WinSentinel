@@ -161,6 +161,11 @@ public class CliOptions
     public int DepGraphTop { get; set; } = 10;
     public string DepGraphFormat { get; set; } = "text";
     public int TriageTop { get; set; } = 20;
+    public string CookbookFormat { get; set; } = "text";
+    public string? CookbookSeverityFilter { get; set; }
+    public string? CookbookModuleFilter { get; set; }
+    public string? CookbookCategoryFilter { get; set; }
+    public bool CookbookFixableOnly { get; set; }
     public string? TriageSeverityFilter { get; set; }
     public string? TriageModuleFilter { get; set; }
     public bool TriageFixableOnly { get; set; }
@@ -215,6 +220,7 @@ public enum CliCommand
     Grep,
     DepGraph,
     Triage,
+    Cookbook,
     Help,
     Version
 }
@@ -1669,6 +1675,39 @@ public static class CliParser
 
                 case "--triage-fixable":
                     options.TriageFixableOnly = true;
+                    break;
+
+                case "--cookbook":
+                case "cookbook":
+                    options.Command = CliCommand.Cookbook;
+                    break;
+
+                case "--cookbook-format":
+                    if (!TryConsumeArg(args, ref i, "--cookbook-format", out var cbFmt, out var cbFmtErr))
+                    { options.Error = cbFmtErr; return options; }
+                    options.CookbookFormat = cbFmt.ToLowerInvariant();
+                    break;
+
+                case "--cookbook-severity":
+                    if (!TryConsumeArg(args, ref i, "--cookbook-severity", out var cbSev, out var cbSevErr))
+                    { options.Error = cbSevErr; return options; }
+                    options.CookbookSeverityFilter = cbSev;
+                    break;
+
+                case "--cookbook-module":
+                    if (!TryConsumeArg(args, ref i, "--cookbook-module", out var cbMod, out var cbModErr))
+                    { options.Error = cbModErr; return options; }
+                    options.CookbookModuleFilter = cbMod;
+                    break;
+
+                case "--cookbook-category":
+                    if (!TryConsumeArg(args, ref i, "--cookbook-category", out var cbCat, out var cbCatErr))
+                    { options.Error = cbCatErr; return options; }
+                    options.CookbookCategoryFilter = cbCat;
+                    break;
+
+                case "--cookbook-fixable":
+                    options.CookbookFixableOnly = true;
                     break;
 
                 default:

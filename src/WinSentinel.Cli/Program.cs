@@ -66,6 +66,7 @@ return options.Command switch
     CliCommand.Grep => await HandleGrep(options),
     CliCommand.DepGraph => await HandleDepGraph(options),
     CliCommand.Triage => await HandleTriage(options),
+    CliCommand.Cookbook => await HandleCookbook(options),
     _ => HandleHelp()
 };
 
@@ -5428,4 +5429,126 @@ static async Task<int> HandleTriage(CliOptions options)
         (s.Module, s.Finding, s.PriorityScore, s.Fixable, s.Tier)).ToList(),
         allFindings.Count, elapsed);
     return 0;
+}
+
+// 📖 Remediation Cookbook ─────────────────────────────────────────────────
+
+static async Task<int> HandleCookbook(CliOptions options)
+{
+    var (report, _, elapsed) = await RunAuditAsync(options, suppressOutput: options.Quiet,
+        bannerMessage: "Running audit to generate remediation cookbook...");
+
+    // Collect all non-pass findings
+    var allFindings = report.Results
+        .SelectMany(r => r.Findings.Where(f => f.Severity != Severity.Pass)
+            .Select(f => (Module: r.ModuleName, Finding: f)))
+        .ToList();
+
+    // Apply severity filter
+    if (!string.IsNullOrEmpty(options.CookbookSeverityFilter))
+    {
+        if (Enum.TryParse<Severity>(options.CookbookSeverityFilter, true, out var sevFilter))
+        {
+            allFindings = allFindings.Where(f => f.Finding.Severity == sevFilter).ToList();
+        }
+    }
+
+    // Apply module filter
+    if (!string.IsNullOrEmpty(options.CookbookModuleFilter))
+    {
+        allFindings = allFindings
+            .Where(f => f.Module.Contains(options.CookbookModuleFilter, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+    }
+
+    // Apply category filter
+    if (!string.IsNullOrEmpty(options.CookbookCategoryFilter))
+    {
+        allFindings = allFindings
+            .Where(f => f.Finding.Category.Contains(options.CookbookCategoryFilter, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+    }
+
+    // Apply fixable-only filter
+    if (options.CookbookFixableOnly)
+    {
+        allFindings = allFindings.Where(f => !string.IsNullOrEmpty(f.Finding.FixCommand)).ToList();
+    }
+
+    // Group by category, then sort groups by highest severity in each
+    var grouped = allFindings
+        .GroupBy(f => string.IsNullOrEmpty(f.Finding.Category) ? "Uncategorized" : f.Finding.Category)
+        .Select(g => new CookbookRecipeGroup
+        {
+            Category = g.Key,
+            Recipes = g.Select(f => new CookbookRecipe
+            {
+                Module = f.Module,
+                Title = f.Finding.Title,
+                Description = f.Finding.Description,
+                Severity = f.Finding.Severity,
+                Remediation = f.Finding.Remediation,
+                FixCommand = f.Finding.FixCommand,
+                Effort = EstimateEffort(f.Finding)
+            })
+            .OrderByDescending(r => r.Severity)
+            .ThenBy(r => r.Effort)
+            .ToList(),
+            HighestSeverity = g.Max(f => f.Finding.Severity)
+        })
+        .OrderByDescending(g => g.HighestSeverity)
+        .ThenBy(g => g.Category)
+        .ToList();
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        var output = new
+        {
+            generatedAt = DateTimeOffset.UtcNow,
+            elapsed = elapsed.TotalSeconds,
+            totalFindings = allFindings.Count,
+            categories = grouped.Count,
+            recipes = grouped.Select(g => new
+            {
+                category = g.Category,
+                highestSeverity = g.HighestSeverity.ToString(),
+                items = g.Recipes.Select(r => new
+                {
+                    severity = r.Severity.ToString(),
+                    title = r.Title,
+                    module = r.Module,
+                    description = r.Description,
+                    effort = r.Effort,
+                    remediation = r.Remediation,
+                    fixCommand = r.FixCommand,
+                    hasAutoFix = !string.IsNullOrEmpty(r.FixCommand)
+                })
+            })
+        };
+        WriteOutput(JsonSerializer.Serialize(output, jsonOptions), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintCookbook(grouped, allFindings.Count, elapsed);
+    return 0;
+}
+
+static string EstimateEffort(Finding finding)
+{
+    if (!string.IsNullOrEmpty(finding.FixCommand))
+        return "⚡ Auto-fix (~1 min)";
+
+    if (finding.Severity == Severity.Info)
+        return "🟢 Low (~5 min)";
+
+    if (!string.IsNullOrEmpty(finding.Remediation))
+    {
+        var steps = finding.Remediation.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length;
+        if (steps <= 2)
+            return "🟡 Medium (~10 min)";
+        return "🟠 High (~30 min)";
+    }
+
+    return finding.Severity == Severity.Critical ? "🔴 Investigation needed" : "🟡 Medium (~15 min)";
 }

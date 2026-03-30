@@ -65,6 +65,7 @@ return options.Command switch
     CliCommand.Habits => HandleHabits(options),
     CliCommand.Grep => await HandleGrep(options),
     CliCommand.DepGraph => await HandleDepGraph(options),
+    CliCommand.Triage => await HandleTriage(options),
     _ => HandleHelp()
 };
 
@@ -5334,5 +5335,97 @@ static async Task<int> HandleDepGraph(CliOptions options)
     }
 
     ConsoleFormatter.PrintDepGraph(result, options);
+    return 0;
+}
+
+// 🎯 Triage (Prioritized Finding Queue) ═══════════════════════════════════════
+
+static async Task<int> HandleTriage(CliOptions options)
+{
+    var (report, _, elapsed) = await RunAuditAsync(options, suppressOutput: options.Quiet,
+        bannerMessage: "Running audit for triage analysis...");
+
+    // Collect all non-pass findings
+    var allFindings = report.Results
+        .SelectMany(r => r.Findings.Where(f => f.Severity != Severity.Pass)
+            .Select(f => (Module: r.ModuleName, Finding: f)))
+        .ToList();
+
+    // Apply severity filter
+    if (!string.IsNullOrEmpty(options.TriageSeverityFilter))
+    {
+        if (Enum.TryParse<Severity>(options.TriageSeverityFilter, true, out var sevFilter))
+        {
+            allFindings = allFindings.Where(f => f.Finding.Severity == sevFilter).ToList();
+        }
+    }
+
+    // Apply module filter
+    if (!string.IsNullOrEmpty(options.TriageModuleFilter))
+    {
+        allFindings = allFindings
+            .Where(f => f.Module.Contains(options.TriageModuleFilter, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+    }
+
+    // Apply fixable-only filter
+    if (options.TriageFixableOnly)
+    {
+        allFindings = allFindings.Where(f => !string.IsNullOrEmpty(f.Finding.FixCommand)).ToList();
+    }
+
+    // Score each finding: Critical=100, Warning=60, Info=20, then boost if fixable
+    var scored = allFindings.Select(f =>
+    {
+        int baseScore = f.Finding.Severity switch
+        {
+            Severity.Critical => 100,
+            Severity.Warning => 60,
+            Severity.Info => 20,
+            _ => 0
+        };
+        bool fixable = !string.IsNullOrEmpty(f.Finding.FixCommand);
+        // Fixable items get a small boost (easier to act on)
+        int priorityScore = fixable ? baseScore + 10 : baseScore;
+        string tier = priorityScore >= 90 ? "IMMEDIATE" :
+                      priorityScore >= 50 ? "SOON" :
+                      priorityScore >= 20 ? "LATER" : "MONITOR";
+
+        return (f.Module, f.Finding, PriorityScore: priorityScore, Fixable: fixable, Tier: tier);
+    })
+    .OrderByDescending(f => f.PriorityScore)
+    .ThenBy(f => f.Module)
+    .Take(options.TriageTop)
+    .ToList();
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        var output = new
+        {
+            generatedAt = DateTimeOffset.UtcNow,
+            elapsed = elapsed.TotalSeconds,
+            totalFindings = allFindings.Count,
+            triaged = scored.Count,
+            items = scored.Select(s => new
+            {
+                tier = s.Tier,
+                priorityScore = s.PriorityScore,
+                module = s.Module,
+                severity = s.Finding.Severity.ToString(),
+                title = s.Finding.Title,
+                description = s.Finding.Description,
+                remediation = s.Finding.Remediation,
+                fixable = s.Fixable,
+                fixCommand = s.Finding.FixCommand
+            })
+        };
+        WriteOutput(JsonSerializer.Serialize(output, jsonOptions), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintTriage(scored.Select(s =>
+        (s.Module, s.Finding, s.PriorityScore, s.Fixable, s.Tier)).ToList(),
+        allFindings.Count, elapsed);
     return 0;
 }

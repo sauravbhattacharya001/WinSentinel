@@ -160,6 +160,10 @@ public class CliOptions
     public int GrepMaxResults { get; set; } = 100;
     public int DepGraphTop { get; set; } = 10;
     public string DepGraphFormat { get; set; } = "text";
+    public int TriageTop { get; set; } = 20;
+    public string? TriageSeverityFilter { get; set; }
+    public string? TriageModuleFilter { get; set; }
+    public bool TriageFixableOnly { get; set; }
 }
 
 public enum CliCommand
@@ -210,6 +214,7 @@ public enum CliCommand
     Habits,
     Grep,
     DepGraph,
+    Triage,
     Help,
     Version
 }
@@ -1637,6 +1642,33 @@ public static class CliParser
                     if (!TryConsumeArg(args, ref i, "--depgraph-format", out var dgFmt, out var dgFmtErr))
                     { options.Error = dgFmtErr; return options; }
                     options.DepGraphFormat = dgFmt.ToLowerInvariant();
+                    break;
+
+                case "--triage":
+                case "triage":
+                    options.Command = CliCommand.Triage;
+                    break;
+
+                case "--triage-top":
+                    if (!TryConsumeInt(args, ref i, "--triage-top", 1, 200, out var trTop, out var trTopErr))
+                    { options.Error = trTopErr; return options; }
+                    options.TriageTop = trTop;
+                    break;
+
+                case "--triage-severity":
+                    if (!TryConsumeArg(args, ref i, "--triage-severity", out var trSev, out var trSevErr))
+                    { options.Error = trSevErr; return options; }
+                    options.TriageSeverityFilter = trSev;
+                    break;
+
+                case "--triage-module":
+                    if (!TryConsumeArg(args, ref i, "--triage-module", out var trMod, out var trModErr))
+                    { options.Error = trModErr; return options; }
+                    options.TriageModuleFilter = trMod;
+                    break;
+
+                case "--triage-fixable":
+                    options.TriageFixableOnly = true;
                     break;
 
                 default:

@@ -1,8 +1,8 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Management;
-using System.Security.Cryptography.X509Certificates;
 using Microsoft.Extensions.Logging;
+using WinSentinel.Core.Helpers;
 
 namespace WinSentinel.Agent.Modules;
 
@@ -675,17 +675,7 @@ public class ProcessMonitorModule : IAgentModule
     }
 
     private static bool VerifyAuthenticodeSignature(string filePath)
-    {
-        try
-        {
-            var cert = X509Certificate.CreateFromSignedFile(filePath);
-            return cert != null;
-        }
-        catch
-        {
-            return false;
-        }
-    }
+        => SignatureHelper.HasAuthenticodeSignature(filePath);
 
     /// <summary>Rate-limit: returns true if this alert was already sent recently.</summary>
     private bool ShouldRateLimit(ThreatEvent threat) => _rateLimiter.ShouldRateLimit(threat);

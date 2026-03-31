@@ -360,6 +360,13 @@ public static partial class ConsoleFormatter
         WriteHelpEntry("    --forecast-format <f>    ", "Output format: text (default), json");
         WriteHelpEntry("    --forecast-weekly        ", "Show weekly projections instead of daily");
         Console.WriteLine();
+        WriteLineColored("  FINDINGS BURNDOWN:", ConsoleColor.Yellow);
+        WriteHelpEntry("    --burndown               ", "Show findings burndown chart with zero-date projection");
+        WriteHelpEntry("    --burndown-days <n>      ", "Days of history to chart (default: 90, max: 365)");
+        WriteHelpEntry("    --burndown-width <n>     ", "Chart width in columns (default: 60, max: 120)");
+        WriteHelpEntry("    --burndown-severity <s>  ", "Filter: critical, high, medium, low (default: all)");
+        WriteHelpEntry("    --burndown-format <f>    ", "Output format: text (default), json");
+        Console.WriteLine();
         Console.WriteLine("  EXAMPLES:");
         WriteLineColored("    winsentinel --audit                              # Full audit with colored output", ConsoleColor.DarkGray);
         WriteLineColored("    winsentinel --audit --json                       # JSON output for scripting", ConsoleColor.DarkGray);

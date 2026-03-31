@@ -70,6 +70,7 @@ return options.Command switch
     CliCommand.Cluster => await HandleCluster(options),
     CliCommand.Forecast => HandleForecast(options),
     CliCommand.ReportCard => await HandleReportCard(options),
+    CliCommand.Burndown => HandleBurndown(options),
     _ => HandleHelp()
 };
 
@@ -5757,4 +5758,124 @@ static async Task<int> HandleReportCard(CliOptions options)
     historyService.SaveAuditResult(report);
 
     return 0;
+}
+// 📉 Burndown ──────────────────────────────────────────────────────
+
+static int HandleBurndown(CliOptions options)
+{
+    using var history = new AuditHistoryService();
+    history.EnsureDatabase();
+
+    var runs = history.GetHistory(options.BurndownDays);
+
+    if (runs.Count < 2)
+    {
+        ConsoleFormatter.PrintWarning("Need at least 2 audit runs for burndown. Run --score or --audit first.");
+        return 1;
+    }
+
+    var dataPoints = runs
+        .OrderBy(r => r.Timestamp)
+        .Select(r =>
+        {
+            var findings = r.Findings ?? [];
+            var total = findings.Count;
+            var critical = findings.Count(f => string.Equals(f.Severity, "Critical", StringComparison.OrdinalIgnoreCase));
+            var high = findings.Count(f => string.Equals(f.Severity, "High", StringComparison.OrdinalIgnoreCase));
+            var medium = findings.Count(f => string.Equals(f.Severity, "Medium", StringComparison.OrdinalIgnoreCase));
+            var low = findings.Count(f => string.Equals(f.Severity, "Low", StringComparison.OrdinalIgnoreCase));
+            return (date: r.Timestamp, total, critical, high, medium, low);
+        })
+        .ToList();
+
+    var filteredCounts = dataPoints
+        .Select(p => GetBurndownFilteredCount(p, options.BurndownSeverityFilter))
+        .ToList();
+
+    var earliest = dataPoints[0].date;
+    var xs = dataPoints.Select(p => (p.date - earliest).TotalDays).ToArray();
+    var ys = filteredCounts.Select(c => (double)c).ToArray();
+
+    // Linear regression
+    static (double slope, double intercept, double r2) LinReg(double[] x, double[] y)
+    {
+        int n = x.Length;
+        double sumX = x.Sum(), sumY = y.Sum();
+        double sumXY = x.Zip(y, (a, b) => a * b).Sum();
+        double sumX2 = x.Sum(a => a * a);
+        double denom = n * sumX2 - sumX * sumX;
+        if (Math.Abs(denom) < 1e-10)
+            return (0, sumY / n, 0);
+        double slope = (n * sumXY - sumX * sumY) / denom;
+        double intercept = (sumY - slope * sumX) / n;
+        double ssRes = x.Zip(y, (xi, yi) => Math.Pow(yi - (slope * xi + intercept), 2)).Sum();
+        double meanY = sumY / n;
+        double ssTot = y.Sum(yi => Math.Pow(yi - meanY, 2));
+        double r2 = ssTot > 0 ? 1 - ssRes / ssTot : 0;
+        return (slope, intercept, r2);
+    }
+
+    var (slope, intercept, _) = LinReg(xs, ys);
+
+    DateTimeOffset? projectedZero = null;
+    if (slope < 0 && intercept > 0)
+    {
+        var daysToZero = -intercept / slope;
+        projectedZero = earliest.AddDays(daysToZero);
+        if (projectedZero < DateTimeOffset.UtcNow)
+            projectedZero = null;
+    }
+
+    if (options.Json)
+    {
+        var result = new
+        {
+            historyDays = options.BurndownDays,
+            dataPoints = dataPoints.Select(p => new
+            {
+                date = p.date.ToString("yyyy-MM-dd"),
+                total = p.total,
+                critical = p.critical,
+                high = p.high,
+                medium = p.medium,
+                low = p.low
+            }),
+            burnRate = Math.Round(slope, 4),
+            projectedZeroDate = projectedZero?.ToString("yyyy-MM-dd"),
+            severityFilter = options.BurndownSeverityFilter ?? "all"
+        };
+        var jsonOptions = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Converters = { new JsonStringEnumConverter() }
+        };
+        var json = JsonSerializer.Serialize(result, jsonOptions);
+        WriteOutput(json, options.OutputFile);
+    }
+    else
+    {
+        ConsoleFormatter.PrintBurndown(
+            options.BurndownDays,
+            dataPoints,
+            options.BurndownWidth,
+            options.BurndownSeverityFilter,
+            projectedZero,
+            slope);
+    }
+
+    return 0;
+}
+
+static int GetBurndownFilteredCount(
+    (DateTimeOffset date, int total, int critical, int high, int medium, int low) point,
+    string? severityFilter)
+{
+    return severityFilter switch
+    {
+        "critical" => point.critical,
+        "high" => point.high,
+        "medium" => point.medium,
+        "low" => point.low,
+        _ => point.total
+    };
 }

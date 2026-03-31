@@ -180,6 +180,10 @@ public class CliOptions
     public bool ForecastWeekly { get; set; }
     public string ReportCardFormat { get; set; } = "text";
     public int ReportCardDays { get; set; } = 30;
+    public int BurndownDays { get; set; } = 90;
+    public int BurndownWidth { get; set; } = 60;
+    public string BurndownFormat { get; set; } = "text";
+    public string? BurndownSeverityFilter { get; set; }
 }
 
 public enum CliCommand
@@ -235,6 +239,7 @@ public enum CliCommand
     Cluster,
     Forecast,
     ReportCard,
+    Burndown,
     Help,
     Version
 }
@@ -1806,6 +1811,37 @@ public static class CliParser
                     { options.Error = rcDaysErr; return options; }
                     if (int.TryParse(rcDays, out var rcDaysVal))
                         options.ReportCardDays = Math.Clamp(rcDaysVal, 1, 365);
+                    break;
+
+                case "--burndown":
+                case "burndown":
+                    options.Command = CliCommand.Burndown;
+                    break;
+
+                case "--burndown-days":
+                    if (!TryConsumeArg(args, ref i, "--burndown-days", out var bdDays, out var bdDaysErr))
+                    { options.Error = bdDaysErr; return options; }
+                    if (int.TryParse(bdDays, out var bdDaysVal))
+                        options.BurndownDays = Math.Clamp(bdDaysVal, 7, 365);
+                    break;
+
+                case "--burndown-width":
+                    if (!TryConsumeArg(args, ref i, "--burndown-width", out var bdW, out var bdWErr))
+                    { options.Error = bdWErr; return options; }
+                    if (int.TryParse(bdW, out var bdWVal))
+                        options.BurndownWidth = Math.Clamp(bdWVal, 20, 120);
+                    break;
+
+                case "--burndown-format":
+                    if (!TryConsumeArg(args, ref i, "--burndown-format", out var bdFmt, out var bdFmtErr))
+                    { options.Error = bdFmtErr; return options; }
+                    options.BurndownFormat = bdFmt.ToLowerInvariant();
+                    break;
+
+                case "--burndown-severity":
+                    if (!TryConsumeArg(args, ref i, "--burndown-severity", out var bdSev, out var bdSevErr))
+                    { options.Error = bdSevErr; return options; }
+                    options.BurndownSeverityFilter = bdSev.ToLowerInvariant();
                     break;
 
                 default:

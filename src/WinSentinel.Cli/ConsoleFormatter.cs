@@ -353,6 +353,13 @@ public static partial class ConsoleFormatter
         WriteHelpEntry("    --tag-file <path>        ", "File path for tag export/import");
         WriteHelpEntry("    --tag-no-merge           ", "Overwrite on import (default: merge)");
         Console.WriteLine();
+        WriteLineColored("  SECURITY FORECAST:", ConsoleColor.Yellow);
+        WriteHelpEntry("    --forecast               ", "Predict future security score using historical trend analysis");
+        WriteHelpEntry("    --forecast-days <n>      ", "Forecast horizon in days (default: 30, max: 365)");
+        WriteHelpEntry("    --forecast-history <n>   ", "Days of history to analyze (default: 90)");
+        WriteHelpEntry("    --forecast-format <f>    ", "Output format: text (default), json");
+        WriteHelpEntry("    --forecast-weekly        ", "Show weekly projections instead of daily");
+        Console.WriteLine();
         Console.WriteLine("  EXAMPLES:");
         WriteLineColored("    winsentinel --audit                              # Full audit with colored output", ConsoleColor.DarkGray);
         WriteLineColored("    winsentinel --audit --json                       # JSON output for scripting", ConsoleColor.DarkGray);
@@ -374,6 +381,9 @@ public static partial class ConsoleFormatter
         WriteLineColored("    winsentinel --baseline check prod                # Check current vs baseline", ConsoleColor.DarkGray);
         WriteLineColored("    winsentinel --baseline check prod --json         # Check result as JSON", ConsoleColor.DarkGray);
         WriteLineColored("    winsentinel --baseline delete prod               # Delete a baseline", ConsoleColor.DarkGray);
+        WriteLineColored("    winsentinel --forecast                           # 30-day security forecast", ConsoleColor.DarkGray);
+        WriteLineColored("    winsentinel --forecast --forecast-days 90 --forecast-weekly  # 90-day weekly forecast", ConsoleColor.DarkGray);
+        WriteLineColored("    winsentinel --forecast --json                    # Forecast as JSON", ConsoleColor.DarkGray);
         WriteLineColored("    winsentinel --checklist                          # Prioritized fix plan", ConsoleColor.DarkGray);
         WriteLineColored("    winsentinel --checklist --json                   # Checklist as JSON", ConsoleColor.DarkGray);
         WriteLineColored("    winsentinel --checklist -m firewall,network      # Checklist for specific modules", ConsoleColor.DarkGray);

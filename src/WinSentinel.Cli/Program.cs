@@ -68,6 +68,7 @@ return options.Command switch
     CliCommand.Triage => await HandleTriage(options),
     CliCommand.Cookbook => await HandleCookbook(options),
     CliCommand.Cluster => await HandleCluster(options),
+    CliCommand.Forecast => HandleForecast(options),
     _ => HandleHelp()
 };
 
@@ -5505,4 +5506,141 @@ static int LevenshteinDistance(string a, string b)
     }
 
     return dp[n, m];
+}
+
+// ── Security Forecast ────────────────────────────────────────────────
+
+static int HandleForecast(CliOptions options)
+{
+    using var history = new AuditHistoryService();
+    history.EnsureDatabase();
+
+    var runs = history.GetHistory(options.ForecastHistoryDays);
+
+    if (runs.Count < 2)
+    {
+        ConsoleFormatter.PrintWarning("Need at least 2 audit runs for forecasting. Run --score or --audit first.");
+        return 1;
+    }
+
+    // Build data points: (dayOffset, score, findings)
+    var earliest = runs.Min(r => r.Timestamp);
+    var dataPoints = runs
+        .OrderBy(r => r.Timestamp)
+        .Select(r => new
+        {
+            DayOffset = (r.Timestamp - earliest).TotalDays,
+            Score = (double)r.OverallScore,
+            Findings = (double)r.TotalFindings,
+            Critical = (double)r.CriticalCount,
+            Warnings = (double)r.WarningCount
+        })
+        .ToList();
+
+    // Linear regression helper
+    static (double slope, double intercept, double r2) LinearRegression(double[] x, double[] y)
+    {
+        int n = x.Length;
+        double sumX = x.Sum(), sumY = y.Sum();
+        double sumXY = x.Zip(y, (a, b) => a * b).Sum();
+        double sumX2 = x.Sum(a => a * a);
+        double sumY2 = y.Sum(b => b * b);
+
+        double denom = n * sumX2 - sumX * sumX;
+        if (Math.Abs(denom) < 1e-10)
+            return (0, sumY / n, 0);
+
+        double slope = (n * sumXY - sumX * sumY) / denom;
+        double intercept = (sumY - slope * sumX) / n;
+
+        // R² calculation
+        double ssRes = x.Zip(y, (xi, yi) => Math.Pow(yi - (slope * xi + intercept), 2)).Sum();
+        double meanY = sumY / n;
+        double ssTot = y.Sum(yi => Math.Pow(yi - meanY, 2));
+        double r2 = ssTot > 0 ? 1 - ssRes / ssTot : 0;
+
+        return (slope, intercept, r2);
+    }
+
+    var xDays = dataPoints.Select(p => p.DayOffset).ToArray();
+    var scoreReg = LinearRegression(xDays, dataPoints.Select(p => p.Score).ToArray());
+    var findingsReg = LinearRegression(xDays, dataPoints.Select(p => p.Findings).ToArray());
+    var criticalReg = LinearRegression(xDays, dataPoints.Select(p => p.Critical).ToArray());
+
+    var lastDay = dataPoints.Last().DayOffset;
+    var forecastDays = options.ForecastDays;
+    var interval = options.ForecastWeekly ? 7 : 1;
+
+    // Generate forecast points
+    var forecasts = new List<(int day, double score, double findings, double critical)>();
+    for (int d = interval; d <= forecastDays; d += interval)
+    {
+        var futureX = lastDay + d;
+        var predScore = Math.Clamp(scoreReg.slope * futureX + scoreReg.intercept, 0, 100);
+        var predFindings = Math.Max(0, findingsReg.slope * futureX + findingsReg.intercept);
+        var predCritical = Math.Max(0, criticalReg.slope * futureX + criticalReg.intercept);
+        forecasts.Add((d, predScore, predFindings, predCritical));
+    }
+
+    // Determine trend direction
+    string ScoreTrend()
+    {
+        if (scoreReg.slope > 0.5) return "improving";
+        if (scoreReg.slope < -0.5) return "declining";
+        return "stable";
+    }
+
+    var currentScore = dataPoints.Last().Score;
+    var projectedScore = Math.Clamp(scoreReg.slope * (lastDay + forecastDays) + scoreReg.intercept, 0, 100);
+
+    if (options.Json)
+    {
+        var result = new
+        {
+            historyDays = options.ForecastHistoryDays,
+            forecastDays,
+            dataPoints = runs.Count,
+            currentScore,
+            projectedScore = Math.Round(projectedScore, 1),
+            trend = ScoreTrend(),
+            confidence = new
+            {
+                scoreR2 = Math.Round(scoreReg.r2, 3),
+                findingsR2 = Math.Round(findingsReg.r2, 3),
+            },
+            regressionCoefficients = new
+            {
+                scoreSlopePerDay = Math.Round(scoreReg.slope, 4),
+                findingsSlopePerDay = Math.Round(findingsReg.slope, 4),
+                criticalSlopePerDay = Math.Round(criticalReg.slope, 4),
+            },
+            projections = forecasts.Select(f => new
+            {
+                daysFromNow = f.day,
+                date = DateTimeOffset.UtcNow.AddDays(f.day).ToString("yyyy-MM-dd"),
+                predictedScore = Math.Round(f.score, 1),
+                predictedFindings = (int)Math.Round(f.findings),
+                predictedCritical = (int)Math.Round(f.critical),
+            }).ToArray()
+        };
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true };
+        var json = JsonSerializer.Serialize(result, jsonOptions);
+        WriteOutput(json, options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintForecast(
+        runs.Count,
+        options.ForecastHistoryDays,
+        forecastDays,
+        currentScore,
+        projectedScore,
+        ScoreTrend(),
+        scoreReg.r2,
+        scoreReg.slope,
+        findingsReg.slope,
+        criticalReg.slope,
+        forecasts);
+
+    return 0;
 }

@@ -174,6 +174,10 @@ public class CliOptions
     public string ClusterFormat { get; set; } = "text";
     public string? ClusterSeverityFilter { get; set; }
     public string? ClusterModuleFilter { get; set; }
+    public int ForecastDays { get; set; } = 30;
+    public int ForecastHistoryDays { get; set; } = 90;
+    public string ForecastFormat { get; set; } = "text";
+    public bool ForecastWeekly { get; set; }
 }
 
 public enum CliCommand
@@ -227,6 +231,7 @@ public enum CliCommand
     Triage,
     Cookbook,
     Cluster,
+    Forecast,
     Help,
     Version
 }
@@ -1751,6 +1756,35 @@ public static class CliParser
                     if (!TryConsumeArg(args, ref i, "--cluster-module", out var clMod, out var clModErr))
                     { options.Error = clModErr; return options; }
                     options.ClusterModuleFilter = clMod;
+                    break;
+
+                case "--forecast":
+                case "forecast":
+                    options.Command = CliCommand.Forecast;
+                    break;
+
+                case "--forecast-days":
+                    if (!TryConsumeArg(args, ref i, "--forecast-days", out var fcDays, out var fcDaysErr))
+                    { options.Error = fcDaysErr; return options; }
+                    if (int.TryParse(fcDays, out var fcDaysVal))
+                        options.ForecastDays = Math.Clamp(fcDaysVal, 1, 365);
+                    break;
+
+                case "--forecast-history":
+                    if (!TryConsumeArg(args, ref i, "--forecast-history", out var fcHist, out var fcHistErr))
+                    { options.Error = fcHistErr; return options; }
+                    if (int.TryParse(fcHist, out var fcHistVal))
+                        options.ForecastHistoryDays = Math.Clamp(fcHistVal, 7, 365);
+                    break;
+
+                case "--forecast-format":
+                    if (!TryConsumeArg(args, ref i, "--forecast-format", out var fcFmt, out var fcFmtErr))
+                    { options.Error = fcFmtErr; return options; }
+                    options.ForecastFormat = fcFmt.ToLowerInvariant();
+                    break;
+
+                case "--forecast-weekly":
+                    options.ForecastWeekly = true;
                     break;
 
                 default:

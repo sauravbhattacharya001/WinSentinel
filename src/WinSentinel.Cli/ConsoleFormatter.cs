@@ -282,6 +282,7 @@ public static partial class ConsoleFormatter
         WriteHelpEntry("    --threats            ", "STRIDE threat model from audit findings");
         WriteHelpEntry("    --attack-paths       ", "Kill chain attack path analysis with chokepoints");
         WriteHelpEntry("    --summary            ", "Executive security summary (plain-English brief)");
+        WriteHelpEntry("    --doctor             ", "Self-diagnostic: check database, modules, disk, config");
         WriteHelpEntry("    --help, -h           ", "Show this help message");
         WriteHelpEntry("    --version, -v        ", "Show version information");
         Console.WriteLine();

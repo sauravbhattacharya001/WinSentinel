@@ -68,6 +68,7 @@ return options.Command switch
     CliCommand.Triage => await HandleTriage(options),
     CliCommand.Cookbook => await HandleCookbook(options),
     CliCommand.Cluster => await HandleCluster(options),
+    CliCommand.Doctor => HandleDoctor(options),
     _ => HandleHelp()
 };
 
@@ -5410,6 +5411,192 @@ static async Task<int> HandleCluster(CliOptions options)
 
     ConsoleFormatter.PrintCluster(clusters, allFindings.Count, options.ClusterThreshold, elapsed);
     return 0;
+}
+
+// 🩺 Doctor — Self-Diagnostics
+
+static int HandleDoctor(CliOptions options)
+{
+    var checks = new List<(string Name, string Level, string Detail)>();
+
+    // 1. Database connectivity
+    try
+    {
+        using var historyService = new AuditHistoryService();
+        historyService.EnsureDatabase();
+        var runCount = historyService.GetRunCount();
+        checks.Add(("Database", "PASS", $"SQLite connected, {runCount} audit run{(runCount != 1 ? "s" : "")} stored"));
+
+        // 7. Last audit freshness
+        var recentRuns = historyService.GetRecentRuns(1);
+        if (recentRuns.Count > 0)
+        {
+            var lastRun = recentRuns[0];
+            var age = DateTimeOffset.Now - lastRun.Timestamp;
+            if (age.TotalDays > 30)
+                checks.Add(("Last Audit", "WARN", $"{(int)age.TotalDays} days ago (consider running --score)"));
+            else
+                checks.Add(("Last Audit", "PASS", $"{FormatTimeAgo(lastRun.Timestamp)} (score: {lastRun.OverallScore}/100, grade: {lastRun.Grade})"));
+        }
+        else
+        {
+            checks.Add(("Last Audit", "WARN", "No audits recorded yet (run --score to start)"));
+        }
+    }
+    catch (Exception ex)
+    {
+        checks.Add(("Database", "FAIL", $"Cannot connect: {ex.Message}"));
+        checks.Add(("Last Audit", "FAIL", "Skipped (database unavailable)"));
+    }
+
+    // 2. Module availability
+    try
+    {
+        var engine = new AuditEngine();
+        var moduleCount = engine.Modules.Count;
+        if (moduleCount == 0)
+            checks.Add(("Audit Modules", "WARN", "No audit modules registered"));
+        else
+            checks.Add(("Audit Modules", "PASS", $"{moduleCount} module{(moduleCount != 1 ? "s" : "")} registered"));
+    }
+    catch (Exception ex)
+    {
+        checks.Add(("Audit Modules", "FAIL", $"Error loading modules: {ex.Message}"));
+    }
+
+    // 3. Data directory
+    try
+    {
+        var dataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WinSentinel");
+        if (Directory.Exists(dataDir))
+        {
+            var driveInfo = new DriveInfo(Path.GetPathRoot(dataDir)!);
+            var freeMb = driveInfo.AvailableFreeSpace / (1024 * 1024);
+            if (freeMb < 100)
+                checks.Add(("Data Directory", "WARN", $"{dataDir} ({freeMb} MB free — low disk space)"));
+            else
+                checks.Add(("Data Directory", "PASS", $"{dataDir} ({freeMb} MB free)"));
+        }
+        else
+        {
+            checks.Add(("Data Directory", "INFO", $"{dataDir} (will be created on first use)"));
+        }
+    }
+    catch (Exception ex)
+    {
+        checks.Add(("Data Directory", "WARN", $"Cannot check: {ex.Message}"));
+    }
+
+    // 4. Admin privileges
+    bool isAdmin = false;
+    try
+    {
+        using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
+        var principal = new System.Security.Principal.WindowsPrincipal(identity);
+        isAdmin = principal.IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
+    }
+    catch { }
+    checks.Add(("Admin Privileges", "INFO", isAdmin ? "Running as administrator" : "Not running as administrator"));
+
+    // 5. .NET runtime
+    checks.Add((".NET Runtime", "PASS", $".NET {Environment.Version}"));
+
+    // 6. Configuration
+    try
+    {
+        var ignoreService = new IgnoreRuleService();
+        var baselineService = new BaselineService();
+        var ignoreCount = ignoreService.GetActiveRules().Count;
+        var baselineCount = baselineService.ListBaselines().Count;
+
+        var policyDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WinSentinel", "policies");
+        var policyCount = Directory.Exists(policyDir) ? Directory.GetFiles(policyDir, "*.json").Length : 0;
+
+        checks.Add(("Configuration", "INFO", $"{ignoreCount} ignore rule{(ignoreCount != 1 ? "s" : "")}, {baselineCount} baseline{(baselineCount != 1 ? "s" : "")}, {policyCount} polic{(policyCount != 1 ? "ies" : "y")}"));
+    }
+    catch
+    {
+        checks.Add(("Configuration", "INFO", "No configuration found (defaults will be used)"));
+    }
+
+    if (options.Json)
+    {
+        var jsonObj = new
+        {
+            timestamp = DateTimeOffset.Now,
+            machine = Environment.MachineName,
+            checks = checks.Select(c => new { name = c.Name, level = c.Level, detail = c.Detail }),
+            summary = new
+            {
+                passed = checks.Count(c => c.Level == "PASS"),
+                warnings = checks.Count(c => c.Level == "WARN"),
+                failed = checks.Count(c => c.Level == "FAIL"),
+                info = checks.Count(c => c.Level == "INFO")
+            }
+        };
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        WriteOutput(JsonSerializer.Serialize(jsonObj, jsonOptions), options.OutputFile);
+        return 0;
+    }
+
+    // Console output
+    if (!options.Quiet)
+    {
+        Console.WriteLine();
+        var original = Console.ForegroundColor;
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.WriteLine("  🩺 WinSentinel Doctor");
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine("  ══════════════════════");
+        Console.WriteLine();
+        Console.ForegroundColor = original;
+    }
+
+    foreach (var (name, level, detail) in checks)
+    {
+        if (options.Quiet && level != "FAIL" && level != "WARN")
+            continue;
+
+        var original = Console.ForegroundColor;
+        Console.Write("  ");
+        Console.ForegroundColor = level switch
+        {
+            "PASS" => ConsoleColor.Green,
+            "WARN" => ConsoleColor.Yellow,
+            "FAIL" => ConsoleColor.Red,
+            _ => ConsoleColor.Cyan
+        };
+        Console.Write($"[{level}]");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.Write($" {name,-20}");
+        Console.ForegroundColor = ConsoleColor.Gray;
+        Console.WriteLine($" {detail}");
+        Console.ForegroundColor = original;
+    }
+
+    if (!options.Quiet)
+    {
+        Console.WriteLine();
+        var passCount = checks.Count(c => c.Level == "PASS");
+        var warnCount = checks.Count(c => c.Level == "WARN");
+        var failCount = checks.Count(c => c.Level == "FAIL");
+        var original = Console.ForegroundColor;
+        Console.Write("  Result: ");
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.Write($"{passCount} passed");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.Write(", ");
+        Console.ForegroundColor = warnCount > 0 ? ConsoleColor.Yellow : ConsoleColor.Gray;
+        Console.Write($"{warnCount} warning{(warnCount != 1 ? "s" : "")}");
+        Console.ForegroundColor = ConsoleColor.White;
+        Console.Write(", ");
+        Console.ForegroundColor = failCount > 0 ? ConsoleColor.Red : ConsoleColor.Gray;
+        Console.WriteLine($"{failCount} failed");
+        Console.ForegroundColor = original;
+        Console.WriteLine();
+    }
+
+    return checks.Any(c => c.Level == "FAIL") ? 1 : 0;
 }
 
 static List<FindingCluster> ClusterFindings(

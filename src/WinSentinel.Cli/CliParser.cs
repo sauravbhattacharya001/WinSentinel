@@ -227,6 +227,7 @@ public enum CliCommand
     Triage,
     Cookbook,
     Cluster,
+    Doctor,
     Help,
     Version
 }
@@ -401,6 +402,11 @@ public static class CliParser
 
             switch (arg)
             {
+                case "--doctor":
+                case "doctor":
+                    options.Command = CliCommand.Doctor;
+                    break;
+
                 case "--help" or "-h" or "/?" or "/h":
                     options.Command = CliCommand.Help;
                     options.ShowHelp = true;

@@ -176,9 +176,16 @@ public class FixEngine
     private async Task<FixResult> ExecuteElevatedAsync(
         string command, string findingTitle, Stopwatch sw, CancellationToken ct)
     {
-        var tempOutputFile = Path.GetTempFileName();
-        var tempErrorFile = Path.GetTempFileName();
-        var tempScriptFile = Path.Combine(Path.GetTempPath(), $"ws_fix_{Guid.NewGuid():N}.ps1");
+        // Use GUID-based names for ALL temp files to prevent symlink attacks.
+        // Path.GetTempFileName() creates sequentially-named files (tmpXXXX.tmp)
+        // that an attacker can predict, delete, and replace with a symlink to a
+        // sensitive system file.  Since the elevated process writes to these paths
+        // as admin, a successful symlink attack grants arbitrary file overwrite.
+        var tempDir = Path.GetTempPath();
+        var nonce = Guid.NewGuid().ToString("N");
+        var tempOutputFile = Path.Combine(tempDir, $"ws_out_{nonce}.tmp");
+        var tempErrorFile = Path.Combine(tempDir, $"ws_err_{nonce}.tmp");
+        var tempScriptFile = Path.Combine(tempDir, $"ws_fix_{nonce}.ps1");
 
         try
         {

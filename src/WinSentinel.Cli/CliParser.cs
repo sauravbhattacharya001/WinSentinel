@@ -178,6 +178,8 @@ public class CliOptions
     public int ForecastHistoryDays { get; set; } = 90;
     public string ForecastFormat { get; set; } = "text";
     public bool ForecastWeekly { get; set; }
+    public string ReportCardFormat { get; set; } = "text";
+    public int ReportCardDays { get; set; } = 30;
 }
 
 public enum CliCommand
@@ -232,6 +234,7 @@ public enum CliCommand
     Cookbook,
     Cluster,
     Forecast,
+    ReportCard,
     Help,
     Version
 }
@@ -1785,6 +1788,24 @@ public static class CliParser
 
                 case "--forecast-weekly":
                     options.ForecastWeekly = true;
+                    break;
+
+                case "--reportcard":
+                case "reportcard":
+                    options.Command = CliCommand.ReportCard;
+                    break;
+
+                case "--reportcard-format":
+                    if (!TryConsumeArg(args, ref i, "--reportcard-format", out var rcFmt, out var rcFmtErr))
+                    { options.Error = rcFmtErr; return options; }
+                    options.ReportCardFormat = rcFmt.ToLowerInvariant();
+                    break;
+
+                case "--reportcard-days":
+                    if (!TryConsumeArg(args, ref i, "--reportcard-days", out var rcDays, out var rcDaysErr))
+                    { options.Error = rcDaysErr; return options; }
+                    if (int.TryParse(rcDays, out var rcDaysVal))
+                        options.ReportCardDays = Math.Clamp(rcDaysVal, 1, 365);
                     break;
 
                 default:

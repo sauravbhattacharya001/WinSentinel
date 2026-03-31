@@ -69,6 +69,7 @@ return options.Command switch
     CliCommand.Cookbook => await HandleCookbook(options),
     CliCommand.Cluster => await HandleCluster(options),
     CliCommand.Forecast => HandleForecast(options),
+    CliCommand.ReportCard => await HandleReportCard(options),
     _ => HandleHelp()
 };
 
@@ -5641,6 +5642,119 @@ static int HandleForecast(CliOptions options)
         findingsReg.slope,
         criticalReg.slope,
         forecasts);
+
+    return 0;
+}
+
+// ── Report Card ──────────────────────────────────────────────────────
+
+static async Task<int> HandleReportCard(CliOptions options)
+{
+    var engine = BuildEngine(options.ModulesFilter);
+    var sw = Stopwatch.StartNew();
+
+    if (!options.Quiet)
+    {
+        ConsoleFormatter.PrintBanner();
+        Console.WriteLine("  Generating security report card...");
+        Console.WriteLine();
+    }
+
+    var progress = options.Quiet
+        ? null
+        : new Progress<(string module, int current, int total)>(p =>
+            ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
+
+    var report = await engine.RunFullAuditAsync(progress);
+    sw.Stop();
+
+    if (!options.Quiet)
+    {
+        ConsoleFormatter.PrintProgressDone(engine.Modules.Count, sw.Elapsed);
+    }
+
+    // Build per-module grades
+    var moduleGrades = report.Results
+        .OrderBy(r => r.Score)
+        .Select(r => new ConsoleFormatter.ModuleGrade
+        {
+            ModuleName = r.ModuleName,
+            Category = r.Category,
+            Score = r.Score,
+            Grade = SecurityScorer.GetGrade(r.Score),
+            CriticalCount = r.CriticalCount,
+            WarningCount = r.WarningCount,
+            InfoCount = r.InfoCount,
+            PassCount = r.PassCount,
+            TopIssue = r.Findings
+                .Where(f => f.Severity is Severity.Critical or Severity.Warning)
+                .OrderByDescending(f => f.Severity)
+                .Select(f => f.Title)
+                .FirstOrDefault()
+        })
+        .ToList();
+
+    // Load history for trend comparison
+    using var historyService = new AuditHistoryService();
+    var history = historyService.GetHistory(options.ReportCardDays);
+    int? previousScore = history.Count > 1 ? history[1].OverallScore : null;
+    var previousModuleScores = new Dictionary<string, int>();
+    if (history.Count > 1)
+    {
+        foreach (var finding in history[1].Findings)
+        {
+            // Approximate previous module scores from finding data
+            // We'll just track the overall previous score
+        }
+    }
+
+    var card = new ConsoleFormatter.ReportCardData
+    {
+        MachineName = Environment.MachineName,
+        GeneratedAt = DateTimeOffset.Now,
+        OverallScore = report.SecurityScore,
+        OverallGrade = SecurityScorer.GetGrade(report.SecurityScore),
+        PreviousScore = previousScore,
+        TotalModules = report.Results.Count,
+        TotalFindings = report.TotalFindings,
+        TotalCritical = report.TotalCritical,
+        TotalWarnings = report.TotalWarnings,
+        ModuleGrades = moduleGrades,
+        TopActions = report.Results
+            .SelectMany(r => r.Findings)
+            .Where(f => f.Severity is Severity.Critical or Severity.Warning)
+            .OrderByDescending(f => f.Severity)
+            .ThenBy(f => f.Title)
+            .Take(5)
+            .Select(f => $"[{f.Severity}] {f.Title}")
+            .ToList(),
+        ScanDuration = sw.Elapsed,
+        HistoryDays = options.ReportCardDays,
+        RunsInPeriod = history.Count
+    };
+
+    if (options.ReportCardFormat == "json")
+    {
+        var jsonOptions = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Converters = { new JsonStringEnumConverter() }
+        };
+        var json = JsonSerializer.Serialize(card, jsonOptions);
+        WriteOutput(json, options.OutputFile);
+    }
+    else if (options.ReportCardFormat is "md" or "markdown")
+    {
+        var md = ConsoleFormatter.RenderReportCardMarkdown(card);
+        WriteOutput(md, options.OutputFile);
+    }
+    else
+    {
+        ConsoleFormatter.PrintReportCard(card);
+    }
+
+    // Save this run to history
+    historyService.SaveAuditResult(report);
 
     return 0;
 }

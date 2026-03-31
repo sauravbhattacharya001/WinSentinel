@@ -154,7 +154,8 @@ public class FindingDeduplicator
             {
                 var dups = sorted.Skip(1).Select(idx => findings[idx]).ToList();
 
-                // Compute average similarity among group members
+                // Compute average similarity among group members using precomputed data
+                // to avoid redundant Normalize() calls and n-gram extraction.
                 double totalSim = 0;
                 int comparisons = 0;
                 string groupReason = "mixed";
@@ -163,7 +164,8 @@ public class FindingDeduplicator
                     foreach (var m2 in members)
                     {
                         if (m1 >= m2) continue;
-                        var (s, r) = ComputeSimilarity(findings[m1], findings[m2]);
+                        var (s, r) = ComputeSimilarityPrecomputed(
+                            findings[m1], findings[m2], precomputed[m1], precomputed[m2]);
                         totalSim += s;
                         comparisons++;
                         groupReason = r; // last reason wins for simplicity

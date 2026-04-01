@@ -663,7 +663,36 @@ public class AutoRemediator
             return;
         }
 
-        File.Move(quarantinePath, originalPath);
+        // Verify the quarantine source is actually inside _quarantineDir to prevent
+        // an attacker from setting QuarantinePath to an arbitrary file in tampered history.
+        var canonicalQuarantine = Path.GetFullPath(quarantinePath);
+        var canonicalQuarantineDir = Path.GetFullPath(_quarantineDir);
+        if (!canonicalQuarantine.StartsWith(canonicalQuarantineDir + Path.DirectorySeparatorChar,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            undoRecord.Success = false;
+            undoRecord.ErrorMessage = "Quarantine path is outside quarantine directory";
+            undoRecord.Description = $"Cannot restore — source path is not in quarantine: {quarantinePath}";
+            _logger.LogWarning("UNDO: Blocked restore from outside quarantine dir: {Path}", quarantinePath);
+            return;
+        }
+
+        // Validate the restore destination path to prevent writing to protected
+        // system directories. The remediation history is persisted as JSON in
+        // %LOCALAPPDATA%; if an attacker tampers with it they could set
+        // OriginalPath to a sensitive system file and trick an undo into
+        // overwriting it. Re-validate just like the original quarantine does.
+        var validatedOriginalPath = Core.Helpers.InputSanitizer.ValidateFilePath(originalPath);
+        if (validatedOriginalPath == null)
+        {
+            undoRecord.Success = false;
+            undoRecord.ErrorMessage = "Restore path is protected or invalid";
+            undoRecord.Description = $"Cannot restore — target path failed validation: {originalPath}";
+            _logger.LogWarning("UNDO: Blocked restore to invalid/protected path: {Path}", originalPath);
+            return;
+        }
+
+        File.Move(quarantinePath, validatedOriginalPath);
 
         // Clean up metadata file
         var metaPath = original.UndoMetadata.GetValueOrDefault("MetadataPath", "");
@@ -671,8 +700,8 @@ public class AutoRemediator
             File.Delete(metaPath);
 
         undoRecord.Success = true;
-        undoRecord.Description = $"Restored file from quarantine: {originalPath}";
-        _logger.LogInformation("UNDO: Restored quarantined file to {Path}", originalPath);
+        undoRecord.Description = $"Restored file from quarantine: {validatedOriginalPath}";
+        _logger.LogInformation("UNDO: Restored quarantined file to {Path}", validatedOriginalPath);
     }
 
     private void UndoBlockIp(RemediationRecord original, RemediationRecord undoRecord)

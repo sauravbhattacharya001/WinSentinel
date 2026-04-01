@@ -3,7 +3,6 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
-using System.Security.Cryptography.X509Certificates;
 using Microsoft.Extensions.Logging;
 using WinSentinel.Core.Helpers;
 
@@ -726,17 +725,7 @@ public class NetworkMonitorModule : IAgentModule
 
     /// <summary>Verify Authenticode signature of an executable.</summary>
     private static bool VerifySignature(string filePath)
-    {
-        try
-        {
-            var cert = X509Certificate.CreateFromSignedFile(filePath);
-            return cert != null;
-        }
-        catch
-        {
-            return false;
-        }
-    }
+        => SignatureHelper.HasAuthenticodeSignature(filePath);
 
     /// <summary>
     /// Get the MAC address of the default gateway.

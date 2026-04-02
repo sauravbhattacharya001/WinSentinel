@@ -71,6 +71,7 @@ return options.Command switch
     CliCommand.Forecast => HandleForecast(options),
     CliCommand.ReportCard => await HandleReportCard(options),
     CliCommand.Burndown => HandleBurndown(options),
+    CliCommand.Changelog => HandleChangelog(options),
     _ => HandleHelp()
 };
 
@@ -5877,5 +5878,179 @@ static int GetBurndownFilteredCount(
         "medium" => point.medium,
         "low" => point.low,
         _ => point.total
+    };
+}
+
+// ── Security Changelog ───────────────────────────────────────────
+
+static int HandleChangelog(CliOptions options)
+{
+    using var history = new AuditHistoryService();
+    history.EnsureDatabase();
+
+    var runs = history.GetHistory(options.ChangelogDays);
+
+    if (runs.Count < 2)
+    {
+        ConsoleFormatter.PrintWarning("Need at least 2 audit runs for changelog. Run --score or --audit first.");
+        return 1;
+    }
+
+    var ordered = runs.OrderBy(r => r.Timestamp).ToList();
+
+    // Group runs into periods (week or month)
+    var periods = new List<ChangelogPeriod>();
+    var groupedRuns = options.ChangelogGroupBy switch
+    {
+        "month" => ordered.GroupBy(r => new { r.Timestamp.Year, r.Timestamp.Month })
+            .Select(g => (
+                label: $"{g.First().Timestamp:yyyy-MM}",
+                runs: g.ToList()
+            )),
+        "day" => ordered.GroupBy(r => r.Timestamp.Date)
+            .Select(g => (
+                label: $"{g.First().Timestamp:yyyy-MM-dd}",
+                runs: g.ToList()
+            )),
+        _ => ordered.GroupBy(r =>
+            {
+                var cal = System.Globalization.CultureInfo.InvariantCulture.Calendar;
+                var week = cal.GetWeekOfYear(r.Timestamp.DateTime, System.Globalization.CalendarWeekRule.FirstDay, DayOfWeek.Monday);
+                return new { r.Timestamp.Year, Week = week };
+            })
+            .Select(g => (
+                label: $"Week of {g.First().Timestamp:yyyy-MM-dd}",
+                runs: g.ToList()
+            ))
+    };
+
+    var totalNew = 0;
+    var totalResolved = 0;
+    var moduleNewCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+    var moduleResolvedCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+    // For each period, compare first vs last run to find new/resolved findings
+    AuditRunRecord? previousPeriodLast = null;
+
+    foreach (var (label, periodRuns) in groupedRuns)
+    {
+        var first = periodRuns.First();
+        var last = periodRuns.Last();
+
+        // Compare against end of previous period (or first run of this period)
+        var baseline = previousPeriodLast ?? first;
+        var current = last;
+
+        var baselineFindings = new HashSet<string>(
+            (baseline.Findings ?? []).Select(f => $"{f.ModuleName}::{f.Title}"),
+            StringComparer.OrdinalIgnoreCase);
+
+        var currentFindings = new HashSet<string>(
+            (current.Findings ?? []).Select(f => $"{f.ModuleName}::{f.Title}"),
+            StringComparer.OrdinalIgnoreCase);
+
+        var newKeys = currentFindings.Except(baselineFindings).ToList();
+        var resolvedKeys = baselineFindings.Except(currentFindings).ToList();
+
+        var currentFindingsLookup = (current.Findings ?? [])
+            .GroupBy(f => $"{f.ModuleName}::{f.Title}", StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+        var baselineFindingsLookup = (baseline.Findings ?? [])
+            .GroupBy(f => $"{f.ModuleName}::{f.Title}", StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+        var period = new ChangelogPeriod
+        {
+            Label = label,
+            AuditCount = periodRuns.Count,
+            StartScore = baseline.OverallScore,
+            EndScore = current.OverallScore,
+            NewFindings = newKeys
+                .Where(k => currentFindingsLookup.ContainsKey(k))
+                .Select(k => {
+                    var f = currentFindingsLookup[k];
+                    return new ChangelogFinding { Title = f.Title, Severity = f.Severity, Module = f.ModuleName };
+                })
+                .OrderByDescending(f => SeverityRank(f.Severity))
+                .ToList(),
+            ResolvedFindings = resolvedKeys
+                .Where(k => baselineFindingsLookup.ContainsKey(k))
+                .Select(k => {
+                    var f = baselineFindingsLookup[k];
+                    return new ChangelogFinding { Title = f.Title, Severity = f.Severity, Module = f.ModuleName };
+                })
+                .OrderByDescending(f => SeverityRank(f.Severity))
+                .ToList()
+        };
+
+        // Track module impact
+        foreach (var f in period.NewFindings)
+        {
+            moduleNewCounts.TryGetValue(f.Module, out var c);
+            moduleNewCounts[f.Module] = c + 1;
+        }
+        foreach (var f in period.ResolvedFindings)
+        {
+            moduleResolvedCounts.TryGetValue(f.Module, out var c);
+            moduleResolvedCounts[f.Module] = c + 1;
+        }
+
+        totalNew += period.NewFindings.Count;
+        totalResolved += period.ResolvedFindings.Count;
+
+        // Only add periods with changes (or if it's the only period)
+        if (period.NewFindings.Count > 0 || period.ResolvedFindings.Count > 0)
+            periods.Add(period);
+
+        previousPeriodLast = last;
+    }
+
+    // Build module impact
+    var allModules = moduleNewCounts.Keys.Union(moduleResolvedCounts.Keys, StringComparer.OrdinalIgnoreCase);
+    var moduleImpact = allModules.Select(m => new ModuleImpactEntry
+    {
+        Module = m,
+        NewCount = moduleNewCounts.GetValueOrDefault(m),
+        ResolvedCount = moduleResolvedCounts.GetValueOrDefault(m)
+    }).Where(e => e.NewCount > 0 || e.ResolvedCount > 0).ToList();
+
+    var report = new ChangelogReport
+    {
+        StartDate = ordered.First().Timestamp,
+        EndDate = ordered.Last().Timestamp,
+        TotalDays = options.ChangelogDays,
+        TotalAudits = ordered.Count,
+        StartScore = ordered.First().OverallScore,
+        EndScore = ordered.Last().OverallScore,
+        TotalNew = totalNew,
+        TotalResolved = totalResolved,
+        Periods = periods,
+        ModuleImpact = moduleImpact
+    };
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Converters = { new JsonStringEnumConverter() }
+        };
+        var json = JsonSerializer.Serialize(report, jsonOptions);
+        WriteOutput(json, options.OutputFile);
+    }
+    else
+    {
+        ConsoleFormatter.PrintChangelog(report);
+    }
+
+    return 0;
+
+    static int SeverityRank(string severity) => severity.ToLowerInvariant() switch
+    {
+        "critical" => 3,
+        "warning" => 2,
+        "info" => 1,
+        _ => 0
     };
 }

@@ -184,6 +184,9 @@ public class CliOptions
     public int BurndownWidth { get; set; } = 60;
     public string BurndownFormat { get; set; } = "text";
     public string? BurndownSeverityFilter { get; set; }
+    public int ChangelogDays { get; set; } = 30;
+    public string ChangelogFormat { get; set; } = "text";
+    public string ChangelogGroupBy { get; set; } = "week";
 }
 
 public enum CliCommand
@@ -240,6 +243,7 @@ public enum CliCommand
     Forecast,
     ReportCard,
     Burndown,
+    Changelog,
     Help,
     Version
 }
@@ -1842,6 +1846,30 @@ public static class CliParser
                     if (!TryConsumeArg(args, ref i, "--burndown-severity", out var bdSev, out var bdSevErr))
                     { options.Error = bdSevErr; return options; }
                     options.BurndownSeverityFilter = bdSev.ToLowerInvariant();
+                    break;
+
+                case "--changelog":
+                case "changelog":
+                    options.Command = CliCommand.Changelog;
+                    break;
+
+                case "--changelog-days":
+                    if (!TryConsumeArg(args, ref i, "--changelog-days", out var clDays, out var clDaysErr))
+                    { options.Error = clDaysErr; return options; }
+                    if (int.TryParse(clDays, out var clDaysVal))
+                        options.ChangelogDays = Math.Clamp(clDaysVal, 7, 365);
+                    break;
+
+                case "--changelog-format":
+                    if (!TryConsumeArg(args, ref i, "--changelog-format", out var chgFmt, out var chgFmtErr))
+                    { options.Error = chgFmtErr; return options; }
+                    options.ChangelogFormat = chgFmt.ToLowerInvariant();
+                    break;
+
+                case "--changelog-group":
+                    if (!TryConsumeArg(args, ref i, "--changelog-group", out var chgGrp, out var chgGrpErr))
+                    { options.Error = chgGrpErr; return options; }
+                    options.ChangelogGroupBy = chgGrp.ToLowerInvariant();
                     break;
 
                 default:

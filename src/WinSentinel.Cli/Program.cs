@@ -72,6 +72,7 @@ return options.Command switch
     CliCommand.ReportCard => await HandleReportCard(options),
     CliCommand.Burndown => HandleBurndown(options),
     CliCommand.Changelog => HandleChangelog(options),
+    CliCommand.Pulse => HandlePulse(options),
     _ => HandleHelp()
 };
 
@@ -6053,4 +6054,66 @@ static int HandleChangelog(CliOptions options)
         "info" => 1,
         _ => 0
     };
+}
+
+// ── Security Pulse ──────────────────────────────────────────────────
+
+static int HandlePulse(CliOptions options)
+{
+    using var history = new AuditHistoryService();
+    history.EnsureDatabase();
+
+    var runs = history.GetHistory(options.PulseDays);
+
+    if (runs.Count < 2)
+    {
+        ConsoleFormatter.PrintWarning("Need at least 2 audit runs for pulse. Run --score or --audit first.");
+        return 1;
+    }
+
+    var dataPoints = runs
+        .OrderBy(r => r.Timestamp)
+        .Select(r =>
+        {
+            var findings = r.Findings ?? [];
+            var critical = findings.Count(f => string.Equals(f.Severity, "Critical", StringComparison.OrdinalIgnoreCase));
+            var high = findings.Count(f => string.Equals(f.Severity, "High", StringComparison.OrdinalIgnoreCase));
+            var medium = findings.Count(f => string.Equals(f.Severity, "Medium", StringComparison.OrdinalIgnoreCase));
+            var low = findings.Count(f => string.Equals(f.Severity, "Low", StringComparison.OrdinalIgnoreCase));
+            return (date: r.Timestamp, score: r.OverallScore, total: findings.Count, critical, high, medium, low);
+        })
+        .ToList();
+
+    if (options.Json)
+    {
+        var report = new
+        {
+            command = "pulse",
+            period = new { days = options.PulseDays, from = dataPoints[0].date, to = dataPoints[^1].date },
+            alertThreshold = options.PulseAlertBelow,
+            points = dataPoints.Select(p => new
+            {
+                date = p.date,
+                score = p.score,
+                findings = p.total,
+                critical = p.critical,
+                high = p.high,
+                medium = p.medium,
+                low = p.low
+            })
+        };
+        var jsonOptions = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Converters = { new JsonStringEnumConverter() }
+        };
+        var json = JsonSerializer.Serialize(report, jsonOptions);
+        WriteOutput(json, options.OutputFile);
+    }
+    else
+    {
+        ConsoleFormatter.PrintPulse(dataPoints, options.PulseWidth, options.PulseAlertBelow, options.PulseShowFindings);
+    }
+
+    return 0;
 }

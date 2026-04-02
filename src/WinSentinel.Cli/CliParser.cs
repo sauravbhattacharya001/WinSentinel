@@ -187,6 +187,11 @@ public class CliOptions
     public int ChangelogDays { get; set; } = 30;
     public string ChangelogFormat { get; set; } = "text";
     public string ChangelogGroupBy { get; set; } = "week";
+    public int PulseDays { get; set; } = 60;
+    public int PulseWidth { get; set; } = 60;
+    public string PulseFormat { get; set; } = "text";
+    public int PulseAlertBelow { get; set; } = 50;
+    public bool PulseShowFindings { get; set; }
 }
 
 public enum CliCommand
@@ -244,6 +249,7 @@ public enum CliCommand
     ReportCard,
     Burndown,
     Changelog,
+    Pulse,
     Help,
     Version
 }
@@ -1870,6 +1876,42 @@ public static class CliParser
                     if (!TryConsumeArg(args, ref i, "--changelog-group", out var chgGrp, out var chgGrpErr))
                     { options.Error = chgGrpErr; return options; }
                     options.ChangelogGroupBy = chgGrp.ToLowerInvariant();
+                    break;
+
+                case "--pulse":
+                case "pulse":
+                    options.Command = CliCommand.Pulse;
+                    break;
+
+                case "--pulse-days":
+                    if (!TryConsumeArg(args, ref i, "--pulse-days", out var plDays, out var plDaysErr))
+                    { options.Error = plDaysErr; return options; }
+                    if (int.TryParse(plDays, out var plDaysVal))
+                        options.PulseDays = Math.Clamp(plDaysVal, 7, 365);
+                    break;
+
+                case "--pulse-width":
+                    if (!TryConsumeArg(args, ref i, "--pulse-width", out var plW, out var plWErr))
+                    { options.Error = plWErr; return options; }
+                    if (int.TryParse(plW, out var plWVal))
+                        options.PulseWidth = Math.Clamp(plWVal, 20, 120);
+                    break;
+
+                case "--pulse-format":
+                    if (!TryConsumeArg(args, ref i, "--pulse-format", out var plFmt, out var plFmtErr))
+                    { options.Error = plFmtErr; return options; }
+                    options.PulseFormat = plFmt.ToLowerInvariant();
+                    break;
+
+                case "--pulse-alert-below":
+                    if (!TryConsumeArg(args, ref i, "--pulse-alert-below", out var plAlert, out var plAlertErr))
+                    { options.Error = plAlertErr; return options; }
+                    if (int.TryParse(plAlert, out var plAlertVal))
+                        options.PulseAlertBelow = Math.Clamp(plAlertVal, 0, 100);
+                    break;
+
+                case "--pulse-findings":
+                    options.PulseShowFindings = true;
                     break;
 
                 default:

@@ -73,6 +73,7 @@ return options.Command switch
     CliCommand.Burndown => HandleBurndown(options),
     CliCommand.Changelog => HandleChangelog(options),
     CliCommand.Pulse => HandlePulse(options),
+    CliCommand.Calendar => HandleCalendar(options),
     _ => HandleHelp()
 };
 
@@ -6117,3 +6118,211 @@ static int HandlePulse(CliOptions options)
 
     return 0;
 }
+
+// ── Security Calendar ────────────────────────────────────────────────
+
+static int HandleCalendar(CliOptions options)
+{
+    using var history = new AuditHistoryService();
+    history.EnsureDatabase();
+
+    var runs = history.GetHistory(options.CalendarDays);
+    var ordered = runs.OrderBy(r => r.Timestamp).ToList();
+    var now = DateTimeOffset.Now;
+    var forecastEnd = now.AddDays(options.CalendarForecastDays);
+
+    var intervals = new List<double>();
+    for (int idx = 1; idx < ordered.Count; idx++)
+        intervals.Add((ordered[idx].Timestamp - ordered[idx - 1].Timestamp).TotalDays);
+    var avgInterval = intervals.Count > 0 ? intervals.Average() : 7.0;
+    var recommendedInterval = Math.Max(1, Math.Round(avgInterval));
+
+    var latestRun = ordered.LastOrDefault();
+    var criticalFindings = (latestRun?.Findings ?? [])
+        .Where(f => f.Severity is "Critical" or "High")
+        .ToList();
+
+    var events = new List<CalendarEvent>();
+
+    if (options.CalendarIncludeAudits)
+    {
+        var nextAudit = now.AddDays(recommendedInterval);
+        var auditNum = 1;
+        while (nextAudit <= forecastEnd)
+        {
+            events.Add(new CalendarEvent
+            {
+                Title = $"Scheduled Security Audit #{auditNum}",
+                Start = nextAudit,
+                Duration = TimeSpan.FromMinutes(30),
+                Description = $"Regular WinSentinel audit (every {recommendedInterval} days based on history)",
+                Category = "Audit",
+                Priority = "Normal"
+            });
+            nextAudit = nextAudit.AddDays(recommendedInterval);
+            auditNum++;
+        }
+    }
+
+    if (options.CalendarIncludeSla && criticalFindings.Count > 0)
+    {
+        foreach (var finding in criticalFindings)
+        {
+            var slaDays = finding.Severity == "Critical" ? 3 : 14;
+            var deadline = now.AddDays(slaDays);
+            if (deadline <= forecastEnd)
+            {
+                events.Add(new CalendarEvent
+                {
+                    Title = $"SLA Deadline: {CalTruncate(finding.Title, 50)}",
+                    Start = deadline,
+                    Duration = TimeSpan.FromMinutes(15),
+                    Description = $"[{finding.Severity}] {finding.Title}\nModule: {finding.ModuleName}\n\nRemediation: {finding.Remediation ?? "See audit details"}",
+                    Category = "SLA",
+                    Priority = finding.Severity == "Critical" ? "High" : "Normal"
+                });
+
+                if (slaDays > 1)
+                {
+                    events.Add(new CalendarEvent
+                    {
+                        Title = $"SLA Warning: {CalTruncate(finding.Title, 50)} (due tomorrow)",
+                        Start = deadline.AddDays(-1),
+                        Duration = TimeSpan.FromMinutes(10),
+                        Description = $"Reminder: {finding.Severity} finding due tomorrow.\n{finding.Title}",
+                        Category = "SLA Reminder",
+                        Priority = "High"
+                    });
+                }
+            }
+        }
+    }
+
+    if (options.CalendarIncludeReviews)
+    {
+        var nextSunday = now.AddDays(((int)DayOfWeek.Sunday - (int)now.DayOfWeek + 7) % 7);
+        if (nextSunday == now) nextSunday = nextSunday.AddDays(7);
+        while (nextSunday <= forecastEnd)
+        {
+            events.Add(new CalendarEvent
+            {
+                Title = "Weekly Security Review",
+                Start = nextSunday.Date.AddHours(10),
+                Duration = TimeSpan.FromMinutes(30),
+                Description = "Review WinSentinel trends, check for regressions, plan remediation.\nRun: winsentinel --reportcard",
+                Category = "Review",
+                Priority = "Normal"
+            });
+            nextSunday = nextSunday.AddDays(7);
+        }
+
+        var nextMonth = new DateTimeOffset(now.Year, now.Month, 1, 14, 0, 0, now.Offset).AddMonths(1);
+        while (nextMonth <= forecastEnd)
+        {
+            events.Add(new CalendarEvent
+            {
+                Title = "Monthly Security Deep Review",
+                Start = nextMonth,
+                Duration = TimeSpan.FromHours(1),
+                Description = "Comprehensive review: compliance, maturity, baseline.\nRun: winsentinel --compliance\nRun: winsentinel --maturity\nRun: winsentinel --baseline save monthly",
+                Category = "Review",
+                Priority = "Normal"
+            });
+            nextMonth = nextMonth.AddMonths(1);
+        }
+    }
+
+    events = events.OrderBy(e => e.Start).ToList();
+
+    if (options.Json)
+    {
+        var report = new
+        {
+            generated = now,
+            historyDays = options.CalendarDays,
+            forecastDays = options.CalendarForecastDays,
+            auditHistory = new
+            {
+                totalRuns = ordered.Count,
+                averageIntervalDays = Math.Round(avgInterval, 1),
+                recommendedIntervalDays = recommendedInterval,
+                latestScore = latestRun?.OverallScore ?? 0
+            },
+            events = events.Select(e => new
+            {
+                title = e.Title,
+                start = e.Start,
+                durationMinutes = e.Duration.TotalMinutes,
+                description = e.Description,
+                category = e.Category,
+                priority = e.Priority
+            })
+        };
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        var json = JsonSerializer.Serialize(report, jsonOptions);
+        WriteOutput(json, options.OutputFile);
+    }
+    else if (options.CalendarFormat == "ics")
+    {
+        var ics = GenerateIcs(events, now);
+        var outputFile = options.OutputFile ?? "winsentinel-calendar.ics";
+        WriteOutput(ics, outputFile);
+        Console.WriteLine();
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.WriteLine($"  Calendar exported to: {outputFile}");
+        Console.ResetColor();
+        Console.WriteLine($"     {events.Count} events generated for next {options.CalendarForecastDays} days");
+        Console.WriteLine($"     Import into Outlook, Google Calendar, or Apple Calendar");
+        Console.WriteLine();
+    }
+    else
+    {
+        ConsoleFormatter.PrintCalendar(events, ordered.Count, avgInterval, recommendedInterval,
+            latestRun?.OverallScore ?? 0, criticalFindings.Count, options.CalendarForecastDays);
+    }
+
+    return 0;
+}
+
+static string GenerateIcs(List<CalendarEvent> events, DateTimeOffset now)
+{
+    var sb = new System.Text.StringBuilder();
+    sb.AppendLine("BEGIN:VCALENDAR");
+    sb.AppendLine("VERSION:2.0");
+    sb.AppendLine("PRODID:-//WinSentinel//Security Calendar//EN");
+    sb.AppendLine("CALSCALE:GREGORIAN");
+    sb.AppendLine("METHOD:PUBLISH");
+    sb.AppendLine("X-WR-CALNAME:WinSentinel Security");
+
+    foreach (var evt in events)
+    {
+        sb.AppendLine("BEGIN:VEVENT");
+        sb.AppendLine($"UID:{Guid.NewGuid()}@winsentinel");
+        sb.AppendLine($"DTSTAMP:{now.UtcDateTime:yyyyMMdd'T'HHmmss'Z'}");
+        sb.AppendLine($"DTSTART:{evt.Start.UtcDateTime:yyyyMMdd'T'HHmmss'Z'}");
+        sb.AppendLine($"DTEND:{evt.Start.Add(evt.Duration).UtcDateTime:yyyyMMdd'T'HHmmss'Z'}");
+        sb.AppendLine($"SUMMARY:{EscapeIcs(evt.Title)}");
+        sb.AppendLine($"DESCRIPTION:{EscapeIcs(evt.Description)}");
+        sb.AppendLine($"CATEGORIES:{evt.Category}");
+        if (evt.Priority == "High")
+            sb.AppendLine("PRIORITY:1");
+        if (evt.Category is "SLA" or "SLA Reminder")
+        {
+            sb.AppendLine("BEGIN:VALARM");
+            sb.AppendLine("TRIGGER:-PT15M");
+            sb.AppendLine("ACTION:DISPLAY");
+            sb.AppendLine($"DESCRIPTION:Reminder: {EscapeIcs(evt.Title)}");
+            sb.AppendLine("END:VALARM");
+        }
+        sb.AppendLine("END:VEVENT");
+    }
+
+    sb.AppendLine("END:VCALENDAR");
+    return sb.ToString();
+}
+
+static string EscapeIcs(string text) =>
+    text.Replace("\\", "\\\\").Replace("\n", "\\n").Replace(",", "\\,").Replace(";", "\\;");
+
+static string CalTruncate(string text, int maxLength) =>
+    text.Length <= maxLength ? text : text[..(maxLength - 3)] + "...";

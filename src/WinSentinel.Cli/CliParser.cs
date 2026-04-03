@@ -192,6 +192,12 @@ public class CliOptions
     public string PulseFormat { get; set; } = "text";
     public int PulseAlertBelow { get; set; } = 50;
     public bool PulseShowFindings { get; set; }
+    public int CalendarDays { get; set; } = 90;
+    public int CalendarForecastDays { get; set; } = 30;
+    public string CalendarFormat { get; set; } = "text";
+    public bool CalendarIncludeSla { get; set; } = true;
+    public bool CalendarIncludeAudits { get; set; } = true;
+    public bool CalendarIncludeReviews { get; set; } = true;
 }
 
 public enum CliCommand
@@ -250,6 +256,7 @@ public enum CliCommand
     Burndown,
     Changelog,
     Pulse,
+    Calendar,
     Help,
     Version
 }
@@ -1912,6 +1919,43 @@ public static class CliParser
 
                 case "--pulse-findings":
                     options.PulseShowFindings = true;
+                    break;
+
+                case "--calendar":
+                case "calendar":
+                    options.Command = CliCommand.Calendar;
+                    break;
+
+                case "--calendar-days":
+                    if (!TryConsumeArg(args, ref i, "--calendar-days", out var calDays, out var calDaysErr))
+                    { options.Error = calDaysErr; return options; }
+                    if (int.TryParse(calDays, out var calDaysVal))
+                        options.CalendarDays = Math.Max(calDaysVal, 7);
+                    break;
+
+                case "--calendar-forecast":
+                    if (!TryConsumeArg(args, ref i, "--calendar-forecast", out var calFc, out var calFcErr))
+                    { options.Error = calFcErr; return options; }
+                    if (int.TryParse(calFc, out var calFcVal))
+                        options.CalendarForecastDays = Math.Max(calFcVal, 7);
+                    break;
+
+                case "--calendar-format":
+                    if (!TryConsumeArg(args, ref i, "--calendar-format", out var calFmt, out var calFmtErr))
+                    { options.Error = calFmtErr; return options; }
+                    options.CalendarFormat = calFmt.ToLowerInvariant();
+                    break;
+
+                case "--calendar-no-sla":
+                    options.CalendarIncludeSla = false;
+                    break;
+
+                case "--calendar-no-audits":
+                    options.CalendarIncludeAudits = false;
+                    break;
+
+                case "--calendar-no-reviews":
+                    options.CalendarIncludeReviews = false;
                     break;
 
                 default:

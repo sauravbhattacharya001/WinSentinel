@@ -74,6 +74,7 @@ return options.Command switch
     CliCommand.Changelog => HandleChangelog(options),
     CliCommand.Pulse => HandlePulse(options),
     CliCommand.Calendar => HandleCalendar(options),
+    CliCommand.Debt => await HandleDebt(options),
     _ => HandleHelp()
 };
 
@@ -6326,3 +6327,132 @@ static string EscapeIcs(string text) =>
 
 static string CalTruncate(string text, int maxLength) =>
     text.Length <= maxLength ? text : text[..(maxLength - 3)] + "...";
+
+// 💳 Security Debt Calculator
+
+static async Task<int> HandleDebt(CliOptions options)
+{
+    var (report, _, elapsed) = await RunAuditAsync(options, suppressOutput: options.Quiet,
+        bannerMessage: "Running audit for security debt analysis...");
+
+    // Collect all non-pass findings
+    var allFindings = report.Results
+        .SelectMany(r => r.Findings.Where(f => f.Severity != Severity.Pass)
+            .Select(f => (Module: r.ModuleName, Finding: f)))
+        .ToList();
+
+    // Apply severity filter
+    if (!string.IsNullOrEmpty(options.DebtSeverityFilter))
+    {
+        if (Enum.TryParse<Severity>(options.DebtSeverityFilter, true, out var sevFilter))
+        {
+            allFindings = allFindings.Where(f => f.Finding.Severity == sevFilter).ToList();
+        }
+    }
+
+    // Apply module filter
+    if (!string.IsNullOrEmpty(options.DebtModuleFilter))
+    {
+        allFindings = allFindings
+            .Where(f => f.Module.Contains(options.DebtModuleFilter, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+    }
+
+    // Estimate remediation effort per finding
+    var debtItems = allFindings.Select(f =>
+    {
+        // Estimate hours based on severity and whether auto-fixable
+        bool fixable = !string.IsNullOrEmpty(f.Finding.FixCommand);
+        double baseHours = f.Finding.Severity switch
+        {
+            Severity.Critical => fixable ? 0.25 : 4.0,
+            Severity.Warning => fixable ? 0.15 : 2.0,
+            Severity.Info => fixable ? 0.1 : 0.5,
+            _ => 0.25
+        };
+
+        // Boost estimate if remediation text is long (suggests complexity)
+        if (!string.IsNullOrEmpty(f.Finding.Remediation) && f.Finding.Remediation.Length > 200)
+            baseHours *= 1.5;
+
+        // ROI = severity_weight / effort  (higher = better payoff per hour)
+        double sevWeight = f.Finding.Severity switch
+        {
+            Severity.Critical => 10.0,
+            Severity.Warning => 5.0,
+            Severity.Info => 1.0,
+            _ => 0.5
+        };
+        double roi = baseHours > 0 ? sevWeight / baseHours : 0;
+        if (fixable) roi *= 2; // auto-fixable items are higher ROI
+
+        return new DebtItem
+        {
+            Module = f.Module,
+            Title = f.Finding.Title ?? "(untitled)",
+            Severity = f.Finding.Severity.ToString(),
+            EstimatedHours = baseHours,
+            RoiScore = roi,
+            IsFixable = fixable,
+            Remediation = f.Finding.Remediation
+        };
+    }).ToList();
+
+    // Sort
+    debtItems = options.DebtSortBy.ToLowerInvariant() switch
+    {
+        "effort" or "hours" => debtItems.OrderByDescending(d => d.EstimatedHours).ToList(),
+        "severity" => debtItems.OrderByDescending(d => d.Severity == "Critical" ? 3 : d.Severity == "Warning" ? 2 : 1)
+            .ThenByDescending(d => d.RoiScore).ToList(),
+        _ => debtItems.OrderByDescending(d => d.RoiScore).ToList() // default: roi
+    };
+
+    var totalDebt = debtItems.Sum(d => d.EstimatedHours);
+
+    var moduleBreakdown = debtItems
+        .GroupBy(d => d.Module)
+        .Select(g => (Module: g.Key, Hours: g.Sum(d => d.EstimatedHours), Count: g.Count()))
+        .OrderByDescending(m => m.Hours)
+        .ToList();
+
+    var severityBreakdown = debtItems
+        .GroupBy(d => d.Severity)
+        .Select(g => (Severity: g.Key, Hours: g.Sum(d => d.EstimatedHours), Count: g.Count()))
+        .OrderByDescending(s => s.Severity == "Critical" ? 3 : s.Severity == "Warning" ? 2 : 1)
+        .ToList();
+
+    var displayItems = debtItems.Take(options.DebtTop).ToList();
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        var output = new
+        {
+            generatedAt = DateTimeOffset.UtcNow,
+            elapsed = elapsed.TotalSeconds,
+            totalFindings = allFindings.Count,
+            totalDebtHours = totalDebt,
+            debtLevel = totalDebt > 80 ? "CRITICAL" : totalDebt > 40 ? "HIGH" : totalDebt > 10 ? "MODERATE" : "LOW",
+            sortedBy = options.DebtSortBy,
+            severityBreakdown = severityBreakdown.Select(s => new { severity = s.Severity, hours = s.Hours, count = s.Count }),
+            moduleBreakdown = moduleBreakdown.Select(m => new { module = m.Module, hours = m.Hours, count = m.Count }),
+            items = displayItems.Select(d => new
+            {
+                module = d.Module,
+                title = d.Title,
+                severity = d.Severity,
+                estimatedHours = d.EstimatedHours,
+                roiScore = d.RoiScore,
+                isFixable = d.IsFixable,
+                remediation = d.Remediation
+            }),
+            quickWins = debtItems.Where(i => i.EstimatedHours <= 0.5 && i.RoiScore >= 5).Count()
+        };
+        WriteOutput(JsonSerializer.Serialize(output, jsonOptions), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintDebt(displayItems, allFindings.Count, totalDebt,
+        moduleBreakdown, severityBreakdown, options.DebtSortBy, elapsed);
+    return 0;
+}

@@ -169,6 +169,10 @@ public class CliOptions
     public string? TriageSeverityFilter { get; set; }
     public string? TriageModuleFilter { get; set; }
     public bool TriageFixableOnly { get; set; }
+    public string DebtSortBy { get; set; } = "roi";
+    public string? DebtSeverityFilter { get; set; }
+    public string? DebtModuleFilter { get; set; }
+    public int DebtTop { get; set; } = 50;
     public int ClusterTop { get; set; } = 15;
     public double ClusterThreshold { get; set; } = 0.6;
     public string ClusterFormat { get; set; } = "text";
@@ -257,6 +261,7 @@ public enum CliCommand
     Changelog,
     Pulse,
     Calendar,
+    Debt,
     Help,
     Version
 }
@@ -1711,6 +1716,35 @@ public static class CliParser
 
                 case "--triage-fixable":
                     options.TriageFixableOnly = true;
+                    break;
+
+                case "--debt":
+                case "debt":
+                    options.Command = CliCommand.Debt;
+                    break;
+
+                case "--debt-sort":
+                    if (!TryConsumeArg(args, ref i, "--debt-sort", out var debtSort, out var debtSortErr))
+                    { options.Error = debtSortErr; return options; }
+                    options.DebtSortBy = debtSort;
+                    break;
+
+                case "--debt-severity":
+                    if (!TryConsumeArg(args, ref i, "--debt-severity", out var debtSev, out var debtSevErr))
+                    { options.Error = debtSevErr; return options; }
+                    options.DebtSeverityFilter = debtSev;
+                    break;
+
+                case "--debt-module":
+                    if (!TryConsumeArg(args, ref i, "--debt-module", out var debtMod, out var debtModErr))
+                    { options.Error = debtModErr; return options; }
+                    options.DebtModuleFilter = debtMod;
+                    break;
+
+                case "--debt-top":
+                    if (!TryConsumeInt(args, ref i, "--debt-top", 1, 500, out var debtTop, out var debtTopErr))
+                    { options.Error = debtTopErr; return options; }
+                    options.DebtTop = debtTop;
                     break;
 
                 case "--cookbook":

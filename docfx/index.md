@@ -1,6 +1,6 @@
 # WinSentinel Documentation
 
-Welcome to the **WinSentinel** documentation — your always-on Windows security agent.
+Welcome to the **WinSentinel** documentation - your always-on Windows security agent.
 
 ## What is WinSentinel?
 
@@ -16,13 +16,14 @@ WinSentinel is a Windows-native security agent that monitors, audits, and remedi
 
 ## Quick Links
 
-- [Getting Started](articles/getting-started.md) — Install and run your first audit
-- [Configuration](articles/configuration.md) — All settings, environment variables, and service setup
-- [Architecture](articles/architecture.md) — How WinSentinel is built
-- [CLI Reference](articles/cli-reference.md) — Command-line usage
-- [Compliance Profiles](articles/compliance-profiles.md) — Home, Developer, Enterprise, and Server profiles
-- [Extending](articles/extending.md) — Add custom audit modules
-- [API Reference](api/index.md) — Full .NET API documentation
+- [Getting Started](articles/getting-started.md) - Install and run your first audit
+- [Configuration](articles/configuration.md) - All settings, environment variables, and service setup
+- [Architecture](articles/architecture.md) - How WinSentinel is built
+- [CLI Reference](articles/cli-reference.md) - Command-line usage
+- [Compliance Profiles](articles/compliance-profiles.md) - Home, Developer, Enterprise, and Server profiles
+- [Extending](articles/extending.md) - Add custom audit modules
+- [Security Hardening](articles/security-hardening.md) - Production deployment best practices
+- [API Reference](api/index.md) - Full .NET API documentation
 - [GitHub Repository](https://github.com/sauravbhattacharya001/WinSentinel)
 
 ## Project Structure

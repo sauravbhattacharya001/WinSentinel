@@ -52,25 +52,50 @@ public class SecurityPostureService
             };
         }
 
-        // ── Finding summary ──
+        // ── Finding summary (single pass instead of 5 separate iterations) ──
         var allFindings = report.Results.SelectMany(r => r.Findings).ToList();
+        int criticalCount = 0, warningCount = 0, infoCount = 0, passCount = 0, autoFixableCount = 0;
+        foreach (var f in allFindings)
+        {
+            switch (f.Severity)
+            {
+                case Severity.Critical: criticalCount++; break;
+                case Severity.Warning: warningCount++; break;
+                case Severity.Info: infoCount++; break;
+                case Severity.Pass: passCount++; break;
+            }
+            if (!string.IsNullOrWhiteSpace(f.FixCommand)) autoFixableCount++;
+        }
         posture.TotalFindings = allFindings.Count;
-        posture.CriticalCount = allFindings.Count(f => f.Severity == Severity.Critical);
-        posture.WarningCount = allFindings.Count(f => f.Severity == Severity.Warning);
-        posture.InfoCount = allFindings.Count(f => f.Severity == Severity.Info);
-        posture.PassCount = allFindings.Count(f => f.Severity == Severity.Pass);
-        posture.AutoFixableCount = allFindings.Count(f => !string.IsNullOrWhiteSpace(f.FixCommand));
+        posture.CriticalCount = criticalCount;
+        posture.WarningCount = warningCount;
+        posture.InfoCount = infoCount;
+        posture.PassCount = passCount;
+        posture.AutoFixableCount = autoFixableCount;
 
         // ── Module breakdown ──
+        // Pre-build a finding→category lookup so TopRisks/QuickWins avoid
+        // O(findings × results) scans via FirstOrDefault + Contains.
+        var findingToCategory = new Dictionary<Finding, string>(allFindings.Count);
         posture.ModuleBreakdown = report.Results
-            .Select(r => new ModulePosture
+            .Select(r =>
             {
-                ModuleName = r.Category,
-                Score = r.Score,
-                FindingCount = r.Findings.Count,
-                CriticalCount = r.Findings.Count(f => f.Severity == Severity.Critical),
-                WarningCount = r.Findings.Count(f => f.Severity == Severity.Warning),
-                Health = ClassifyModuleHealth(r.Score, r.Findings)
+                int modCritical = 0, modWarning = 0;
+                foreach (var f in r.Findings)
+                {
+                    findingToCategory[f] = r.Category;
+                    if (f.Severity == Severity.Critical) modCritical++;
+                    else if (f.Severity == Severity.Warning) modWarning++;
+                }
+                return new ModulePosture
+                {
+                    ModuleName = r.Category,
+                    Score = r.Score,
+                    FindingCount = r.Findings.Count,
+                    CriticalCount = modCritical,
+                    WarningCount = modWarning,
+                    Health = ClassifyModuleHealth(r.Score, r.Findings)
+                };
             })
             .OrderBy(m => m.Score)
             .ToList();
@@ -85,8 +110,7 @@ public class SecurityPostureService
             {
                 Title = f.Title,
                 Severity = f.Severity,
-                Module = report.Results.FirstOrDefault(r =>
-                    r.Findings.Contains(f))?.Category ?? "Unknown",
+                Module = findingToCategory.GetValueOrDefault(f, "Unknown"),
                 HasAutoFix = !string.IsNullOrWhiteSpace(f.FixCommand),
                 Remediation = f.Remediation ?? ""
             })
@@ -101,8 +125,7 @@ public class SecurityPostureService
                 Title = f.Title,
                 Severity = f.Severity,
                 FixCommand = f.FixCommand!,
-                Module = report.Results.FirstOrDefault(r =>
-                    r.Findings.Contains(f))?.Category ?? "Unknown",
+                Module = findingToCategory.GetValueOrDefault(f, "Unknown"),
                 EstimatedImpact = f.Severity == Severity.Critical ? "High" : "Medium"
             })
             .OrderByDescending(q => q.Severity == Severity.Critical ? 2 : 1)

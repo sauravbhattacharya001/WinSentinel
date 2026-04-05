@@ -333,6 +333,17 @@ public class IpcRequest
 
 public class IpcResponse
 {
+    /// <summary>
+    /// Shared options for deserialization. System.Text.Json caches reflection
+    /// metadata per JsonSerializerOptions instance, so reusing a single instance
+    /// avoids repeated metadata generation on every GetPayload call.
+    /// </summary>
+    private static readonly JsonSerializerOptions s_payloadOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        Converters = { new JsonStringEnumConverter() }
+    };
+
     public string Type { get; set; } = "";
     public string? RequestId { get; set; }
     public JsonElement? Payload { get; set; }
@@ -341,11 +352,7 @@ public class IpcResponse
     public T? GetPayload<T>()
     {
         if (Payload == null) return default;
-        return JsonSerializer.Deserialize<T>(Payload.Value.GetRawText(), new JsonSerializerOptions
-        {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-            Converters = { new JsonStringEnumConverter() }
-        });
+        return JsonSerializer.Deserialize<T>(Payload.Value.GetRawText(), s_payloadOptions);
     }
 }
 

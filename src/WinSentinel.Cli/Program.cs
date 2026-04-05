@@ -75,6 +75,7 @@ return options.Command switch
     CliCommand.Pulse => HandlePulse(options),
     CliCommand.Calendar => HandleCalendar(options),
     CliCommand.Debt => await HandleDebt(options),
+    CliCommand.Watchdog => HandleWatchdog(options),
     _ => HandleHelp()
 };
 
@@ -6454,5 +6455,44 @@ static async Task<int> HandleDebt(CliOptions options)
 
     ConsoleFormatter.PrintDebt(displayItems, allFindings.Count, totalDebt,
         moduleBreakdown, severityBreakdown, options.DebtSortBy, elapsed);
+    return 0;
+}
+
+// ── Anomaly Watchdog ─────────────────────────────────────────────
+
+static int HandleWatchdog(CliOptions options)
+{
+    ConsoleFormatter.PrintBanner();
+
+    using var historyService = new AuditHistoryService();
+    historyService.EnsureDatabase();
+
+    var runs = historyService.GetHistory(options.WatchdogDays);
+
+    if (runs.Count < 2)
+    {
+        if (options.Json)
+        {
+            WriteOutput("{\"error\": \"Need at least 2 audit runs for anomaly detection.\"}", options.OutputFile);
+        }
+        else if (!options.Quiet)
+        {
+            Console.WriteLine();
+            ConsoleFormatter.PrintError("Need at least 2 audit runs for anomaly detection. Run more audits!");
+        }
+        return 1;
+    }
+
+    var service = new AnomalyWatchdogService(options.WatchdogWarnZ, options.WatchdogCritZ);
+    var report = service.Analyze(runs, options.WatchdogDays);
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        Console.WriteLine(JsonSerializer.Serialize(report, jsonOptions));
+        return 0;
+    }
+
+    ConsoleFormatter.PrintWatchdog(report);
     return 0;
 }

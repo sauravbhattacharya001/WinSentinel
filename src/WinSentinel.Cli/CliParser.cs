@@ -173,6 +173,9 @@ public class CliOptions
     public string? DebtSeverityFilter { get; set; }
     public string? DebtModuleFilter { get; set; }
     public int DebtTop { get; set; } = 50;
+    public int WatchdogDays { get; set; } = 30;
+    public double WatchdogWarnZ { get; set; } = 1.5;
+    public double WatchdogCritZ { get; set; } = 2.5;
     public int ClusterTop { get; set; } = 15;
     public double ClusterThreshold { get; set; } = 0.6;
     public string ClusterFormat { get; set; } = "text";
@@ -262,6 +265,7 @@ public enum CliCommand
     Pulse,
     Calendar,
     Debt,
+    Watchdog,
     Help,
     Version
 }
@@ -1745,6 +1749,31 @@ public static class CliParser
                     if (!TryConsumeInt(args, ref i, "--debt-top", 1, 500, out var debtTop, out var debtTopErr))
                     { options.Error = debtTopErr; return options; }
                     options.DebtTop = debtTop;
+                    break;
+
+                case "--watchdog":
+                case "watchdog":
+                    options.Command = CliCommand.Watchdog;
+                    break;
+
+                case "--watchdog-days":
+                    if (!TryConsumeInt(args, ref i, "--watchdog-days", 7, 365, out var wdDays, out var wdDaysErr))
+                    { options.Error = wdDaysErr; return options; }
+                    options.WatchdogDays = wdDays;
+                    break;
+
+                case "--watchdog-warn-z":
+                    if (!TryConsumeArg(args, ref i, "--watchdog-warn-z", out var wdWarn, out var wdWarnErr))
+                    { options.Error = wdWarnErr; return options; }
+                    if (double.TryParse(wdWarn, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var wdWarnVal))
+                        options.WatchdogWarnZ = wdWarnVal;
+                    break;
+
+                case "--watchdog-crit-z":
+                    if (!TryConsumeArg(args, ref i, "--watchdog-crit-z", out var wdCrit, out var wdCritErr))
+                    { options.Error = wdCritErr; return options; }
+                    if (double.TryParse(wdCrit, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var wdCritVal))
+                        options.WatchdogCritZ = wdCritVal;
                     break;
 
                 case "--cookbook":

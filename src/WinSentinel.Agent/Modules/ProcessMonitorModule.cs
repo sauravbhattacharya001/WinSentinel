@@ -510,9 +510,15 @@ public class ProcessMonitorModule : IAgentModule
 
         var cmdLower = proc.CommandLine.ToLowerInvariant();
 
-        // Check for encoded commands
-        if (cmdLower.Contains("-enc") || cmdLower.Contains("-encodedcommand") ||
-            cmdLower.Contains("-e ") || cmdLower.Contains("-ec "))
+        // Check for encoded commands.
+        // Use " -e " / " -ec " (with leading space) to avoid false positives
+        // on legitimate args like -ErrorAction, -ExecutionPolicy, -Encoding.
+        // Also check for these flags at the very start of the command line
+        // (after the executable name) which is unlikely but possible.
+        if (cmdLower.Contains("-encodedcommand") || cmdLower.Contains(" -enc ") ||
+            cmdLower.Contains(" -e ") || cmdLower.Contains(" -ec ") ||
+            cmdLower.EndsWith(" -enc") || cmdLower.EndsWith(" -e") ||
+            cmdLower.EndsWith(" -ec"))
         {
             threats.Add(new ThreatEvent
             {

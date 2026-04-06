@@ -306,41 +306,12 @@ public class DashboardViewModel : INotifyPropertyChanged, IDisposable
         {
             var time = threat.Timestamp.ToLocalTime().ToString("HH:mm");
 
-            // Threat detection entry
-            var icon = threat.Severity switch
-            {
-                "Critical" => "🔴",
-                "High" => "🟠",
-                "Medium" or "Warning" => "⚠️",
-                _ => "🔵"
-            };
-
-            var entryType = threat.Severity switch
-            {
-                "Critical" => TimelineEntryType.Critical,
-                "High" => TimelineEntryType.High,
-                "Medium" or "Warning" => TimelineEntryType.Warning,
-                _ => TimelineEntryType.Info
-            };
-
-            TimelineEntries.Add(new TimelineEntry
-            {
-                Time = time,
-                Icon = icon,
-                Description = $"[{threat.Severity}] {threat.Title}",
-                EntryType = entryType
-            });
+            TimelineEntries.Add(CreateThreatTimelineEntry(time, threat.Severity, threat.Title));
 
             // Auto-fix action entry
             if (threat.ResponseTaken != null)
             {
-                TimelineEntries.Add(new TimelineEntry
-                {
-                    Time = time,
-                    Icon = "🔧",
-                    Description = $"Auto-fix: {threat.ResponseTaken}",
-                    EntryType = TimelineEntryType.Action
-                });
+                TimelineEntries.Add(CreateActionTimelineEntry(time, threat.ResponseTaken));
             }
         }
 
@@ -498,33 +469,12 @@ public class DashboardViewModel : INotifyPropertyChanged, IDisposable
 
             // Add to timeline
             var time = threat.Timestamp.ToLocalTime().ToString("HH:mm");
-            var icon = threat.Severity switch
-            {
-                "Critical" => "🔴",
-                "High" => "🟠",
-                "Medium" or "Warning" => "⚠️",
-                _ => "🔵"
-            };
 
-            TimelineEntries.Add(new TimelineEntry
-            {
-                Time = time,
-                Icon = icon,
-                Description = $"[{threat.Severity}] {threat.Title}",
-                EntryType = threat.Severity == "Critical" ? TimelineEntryType.Critical :
-                           threat.Severity == "High" ? TimelineEntryType.High :
-                           TimelineEntryType.Warning
-            });
+            TimelineEntries.Add(CreateThreatTimelineEntry(time, threat.Severity, threat.Title));
 
             if (threat.ResponseTaken != null)
             {
-                TimelineEntries.Add(new TimelineEntry
-                {
-                    Time = time,
-                    Icon = "🔧",
-                    Description = $"Auto-fix: {threat.ResponseTaken}",
-                    EntryType = TimelineEntryType.Action
-                });
+                TimelineEntries.Add(CreateActionTimelineEntry(time, threat.ResponseTaken));
             }
         });
     }
@@ -579,6 +529,45 @@ public class DashboardViewModel : INotifyPropertyChanged, IDisposable
         _agentConnection.Disconnect();
         await _agentConnection.ConnectAsync();
     }
+
+    // ══════════════════════════════════════════
+    //  Severity helpers (DRY: used by RebuildTimeline,
+    //  OnThreatReceived, and ThreatSummaryItem)
+    // ══════════════════════════════════════════
+
+    internal static string SeverityToIcon(string severity) => severity switch
+    {
+        "Critical" => "🔴",
+        "High" => "🟠",
+        "Medium" or "Warning" => "⚠️",
+        _ => "🔵"
+    };
+
+    internal static TimelineEntryType SeverityToEntryType(string severity) => severity switch
+    {
+        "Critical" => TimelineEntryType.Critical,
+        "High" => TimelineEntryType.High,
+        "Medium" or "Warning" => TimelineEntryType.Warning,
+        _ => TimelineEntryType.Info
+    };
+
+    private static TimelineEntry CreateThreatTimelineEntry(string time, string severity, string title)
+        => new()
+        {
+            Time = time,
+            Icon = SeverityToIcon(severity),
+            Description = $"[{severity}] {title}",
+            EntryType = SeverityToEntryType(severity)
+        };
+
+    private static TimelineEntry CreateActionTimelineEntry(string time, string responseTaken)
+        => new()
+        {
+            Time = time,
+            Icon = "🔧",
+            Description = $"Auto-fix: {responseTaken}",
+            EntryType = TimelineEntryType.Action
+        };
 
     // ══════════════════════════════════════════
     //  Helpers

@@ -194,6 +194,8 @@ public class CliOptions
     public int ChangelogDays { get; set; } = 30;
     public string ChangelogFormat { get; set; } = "text";
     public string ChangelogGroupBy { get; set; } = "week";
+    public int PatrolDays { get; set; } = 30;
+    public string PatrolFormat { get; set; } = "text";
     public int PulseDays { get; set; } = 60;
     public int PulseWidth { get; set; } = 60;
     public string PulseFormat { get; set; } = "text";
@@ -266,6 +268,7 @@ public enum CliCommand
     Calendar,
     Debt,
     Watchdog,
+    Patrol,
     Help,
     Version
 }
@@ -2019,6 +2022,24 @@ public static class CliParser
 
                 case "--calendar-no-reviews":
                     options.CalendarIncludeReviews = false;
+                    break;
+
+                case "--patrol":
+                case "patrol":
+                    options.Command = CliCommand.Patrol;
+                    break;
+
+                case "--patrol-days":
+                    if (!TryConsumeArg(args, ref i, "--patrol-days", out var patDays, out var patDaysErr))
+                    { options.Error = patDaysErr; return options; }
+                    if (int.TryParse(patDays, out var patDaysVal))
+                        options.PatrolDays = Math.Clamp(patDaysVal, 7, 365);
+                    break;
+
+                case "--patrol-format":
+                    if (!TryConsumeArg(args, ref i, "--patrol-format", out var patFmt, out var patFmtErr))
+                    { options.Error = patFmtErr; return options; }
+                    options.PatrolFormat = patFmt.ToLowerInvariant();
                     break;
 
                 default:

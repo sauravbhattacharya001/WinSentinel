@@ -76,6 +76,7 @@ return options.Command switch
     CliCommand.Calendar => HandleCalendar(options),
     CliCommand.Debt => await HandleDebt(options),
     CliCommand.Watchdog => HandleWatchdog(options),
+    CliCommand.Patrol => await HandlePatrol(options),
     _ => HandleHelp()
 };
 
@@ -6495,4 +6496,276 @@ static int HandleWatchdog(CliOptions options)
 
     ConsoleFormatter.PrintWatchdog(report);
     return 0;
+}
+
+// ── Security Patrol ──────────────────────────────────────────────────
+
+static async Task<int> HandlePatrol(CliOptions options)
+{
+    await Task.CompletedTask; // satisfy async signature
+    using var history = new AuditHistoryService();
+    history.EnsureDatabase();
+
+    var runs = history.GetHistory(options.PatrolDays);
+    var ordered = runs.OrderBy(r => r.Timestamp).ToList();
+
+    var report = new PatrolReport
+    {
+        LookbackDays = options.PatrolDays,
+        RunsAnalyzed = ordered.Count
+    };
+
+    if (ordered.Count == 0)
+    {
+        ConsoleFormatter.PrintWarning("No audit history found. Run 'winsentinel --audit' first, then patrol.");
+        return 1;
+    }
+
+    var latest = ordered.Last();
+    var latestFindings = latest.Findings ?? [];
+
+    // ── Checkpoint 1: Score Health ──
+    {
+        var cp = new PatrolCheckpoint { Name = "Score Health" };
+        var score = latest.OverallScore;
+        if (score >= 80)
+        {
+            cp.Status = PatrolStatus.Pass;
+            cp.Summary = $"Current score: {score}/100 — healthy";
+        }
+        else if (score >= 50)
+        {
+            cp.Status = PatrolStatus.Warn;
+            cp.Summary = $"Current score: {score}/100 — below target";
+            report.RecommendedActions.Add(new PatrolAction
+            {
+                Priority = "medium",
+                Description = "Score is below 80. Review findings and remediate high-severity issues.",
+                Command = "winsentinel --audit"
+            });
+        }
+        else
+        {
+            cp.Status = PatrolStatus.Fail;
+            cp.Summary = $"Current score: {score}/100 — critical";
+            report.RecommendedActions.Add(new PatrolAction
+            {
+                Priority = "high",
+                Description = "Score is critically low. Immediate remediation required.",
+                Command = "winsentinel --fixall"
+            });
+        }
+
+        if (ordered.Count >= 2)
+        {
+            var prev = ordered[^2].OverallScore;
+            var delta = score - prev;
+            var trend = delta > 0 ? $"+{delta}" : delta.ToString();
+            cp.Details.Add($"Trend: {trend} since last audit");
+        }
+        report.Checkpoints.Add(cp);
+    }
+
+    // ── Checkpoint 2: Critical & High Findings ──
+    {
+        var cp = new PatrolCheckpoint { Name = "Critical Exposure" };
+        var criticals = latestFindings.Count(f => string.Equals(f.Severity, "Critical", StringComparison.OrdinalIgnoreCase));
+        var highs = latestFindings.Count(f => string.Equals(f.Severity, "High", StringComparison.OrdinalIgnoreCase));
+        var total = criticals + highs;
+
+        if (total == 0)
+        {
+            cp.Status = PatrolStatus.Pass;
+            cp.Summary = "No critical or high severity findings";
+        }
+        else if (criticals == 0)
+        {
+            cp.Status = PatrolStatus.Warn;
+            cp.Summary = $"{highs} high severity finding(s), 0 critical";
+            cp.Details.AddRange(latestFindings
+                .Where(f => string.Equals(f.Severity, "High", StringComparison.OrdinalIgnoreCase))
+                .Take(3)
+                .Select(f => f.Title));
+            report.RecommendedActions.Add(new PatrolAction
+            {
+                Priority = "medium",
+                Description = $"Address {highs} high-severity finding(s)",
+                Command = "winsentinel --triage"
+            });
+        }
+        else
+        {
+            cp.Status = PatrolStatus.Fail;
+            cp.Summary = $"{criticals} critical + {highs} high severity finding(s)";
+            cp.Details.AddRange(latestFindings
+                .Where(f => string.Equals(f.Severity, "Critical", StringComparison.OrdinalIgnoreCase))
+                .Take(3)
+                .Select(f => f.Title));
+            report.RecommendedActions.Add(new PatrolAction
+            {
+                Priority = "high",
+                Description = $"Remediate {criticals} critical finding(s) immediately",
+                Command = "winsentinel --fixall"
+            });
+        }
+        report.Checkpoints.Add(cp);
+    }
+
+    // ── Checkpoint 3: Finding Velocity ──
+    {
+        var cp = new PatrolCheckpoint { Name = "Finding Velocity" };
+        if (ordered.Count >= 3)
+        {
+            var recentCounts = ordered.TakeLast(5).Select(r => (r.Findings ?? []).Count).ToList();
+            var first = recentCounts.First();
+            var last = recentCounts.Last();
+            var avgChange = (double)(last - first) / Math.Max(recentCounts.Count - 1, 1);
+
+            if (avgChange <= 0)
+            {
+                cp.Status = PatrolStatus.Pass;
+                cp.Summary = $"Findings trending down (avg {avgChange:+0.0;-0.0;0} per run)";
+            }
+            else if (avgChange <= 2)
+            {
+                cp.Status = PatrolStatus.Warn;
+                cp.Summary = $"Findings slowly increasing (avg +{avgChange:0.0} per run)";
+            }
+            else
+            {
+                cp.Status = PatrolStatus.Fail;
+                cp.Summary = $"Findings growing fast (avg +{avgChange:0.0} per run)";
+                report.RecommendedActions.Add(new PatrolAction
+                {
+                    Priority = "high",
+                    Description = "Finding count is accelerating. Review recent changes.",
+                    Command = "winsentinel --changelog"
+                });
+            }
+            cp.Details.Add($"Recent counts: {string.Join(" → ", recentCounts)}");
+        }
+        else
+        {
+            cp.Status = PatrolStatus.Skip;
+            cp.Summary = "Not enough history for velocity analysis (need 3+ runs)";
+        }
+        report.Checkpoints.Add(cp);
+    }
+
+    // ── Checkpoint 4: Module Coverage ──
+    {
+        var cp = new PatrolCheckpoint { Name = "Module Coverage" };
+        var modulesHit = latestFindings.Select(f => f.ModuleName).Where(m => !string.IsNullOrEmpty(m)).Distinct().ToList();
+        var knownModules = new[] { "Defender", "Firewall", "Update", "Account", "Network", "Encryption", "Browser", "Privacy" };
+        var missing = knownModules.Where(m => !modulesHit.Any(h => h != null && h.Contains(m, StringComparison.OrdinalIgnoreCase))).ToList();
+
+        // Modules with no findings could mean they're clean OR not scanned
+        cp.Status = PatrolStatus.Pass;
+        cp.Summary = $"{modulesHit.Count} modules reported findings in last audit";
+        if (modulesHit.Count > 0)
+            cp.Details.Add($"Active: {string.Join(", ", modulesHit.Take(6))}");
+        report.Checkpoints.Add(cp);
+    }
+
+    // ── Checkpoint 5: Audit Frequency ──
+    {
+        var cp = new PatrolCheckpoint { Name = "Audit Frequency" };
+        if (ordered.Count >= 2)
+        {
+            var lastAuditAge = (DateTimeOffset.Now - ordered.Last().Timestamp).TotalDays;
+            var intervals = new List<double>();
+            for (int j = 1; j < ordered.Count; j++)
+                intervals.Add((ordered[j].Timestamp - ordered[j - 1].Timestamp).TotalDays);
+            var avgInterval = intervals.Average();
+
+            if (lastAuditAge <= 7)
+            {
+                cp.Status = PatrolStatus.Pass;
+                cp.Summary = $"Last audit: {lastAuditAge:0.0} days ago (avg interval: {avgInterval:0.0} days)";
+            }
+            else if (lastAuditAge <= 14)
+            {
+                cp.Status = PatrolStatus.Warn;
+                cp.Summary = $"Last audit: {lastAuditAge:0.0} days ago — consider running more frequently";
+                report.RecommendedActions.Add(new PatrolAction
+                {
+                    Priority = "low",
+                    Description = "Audit cadence has slowed. Schedule regular scans.",
+                    Command = "winsentinel --schedule-optimize"
+                });
+            }
+            else
+            {
+                cp.Status = PatrolStatus.Fail;
+                cp.Summary = $"Last audit: {lastAuditAge:0.0} days ago — overdue!";
+                report.RecommendedActions.Add(new PatrolAction
+                {
+                    Priority = "high",
+                    Description = "No recent audit. Run one now.",
+                    Command = "winsentinel --audit"
+                });
+            }
+        }
+        else
+        {
+            cp.Status = PatrolStatus.Warn;
+            cp.Summary = "Only 1 audit on record — establish a regular cadence";
+        }
+        report.Checkpoints.Add(cp);
+    }
+
+    // ── Checkpoint 6: Severity Distribution ──
+    {
+        var cp = new PatrolCheckpoint { Name = "Severity Distribution" };
+        var total = latestFindings.Count;
+        if (total > 0)
+        {
+            var critPct = latestFindings.Count(f => string.Equals(f.Severity, "Critical", StringComparison.OrdinalIgnoreCase)) * 100.0 / total;
+            var highPct = latestFindings.Count(f => string.Equals(f.Severity, "High", StringComparison.OrdinalIgnoreCase)) * 100.0 / total;
+            var medPct = latestFindings.Count(f => string.Equals(f.Severity, "Medium", StringComparison.OrdinalIgnoreCase)) * 100.0 / total;
+            var lowPct = latestFindings.Count(f => string.Equals(f.Severity, "Low", StringComparison.OrdinalIgnoreCase)) * 100.0 / total;
+
+            cp.Details.Add($"Critical: {critPct:0}%  High: {highPct:0}%  Medium: {medPct:0}%  Low: {lowPct:0}%");
+
+            if (critPct + highPct > 50)
+            {
+                cp.Status = PatrolStatus.Fail;
+                cp.Summary = $"Severity skews dangerous — {critPct + highPct:0}% are critical/high";
+            }
+            else if (critPct + highPct > 25)
+            {
+                cp.Status = PatrolStatus.Warn;
+                cp.Summary = $"{critPct + highPct:0}% of findings are critical/high";
+            }
+            else
+            {
+                cp.Status = PatrolStatus.Pass;
+                cp.Summary = $"Healthy distribution — only {critPct + highPct:0}% critical/high";
+            }
+        }
+        else
+        {
+            cp.Status = PatrolStatus.Pass;
+            cp.Summary = "No findings — clean slate";
+        }
+        report.Checkpoints.Add(cp);
+    }
+
+    // ── Output ──
+    if (options.Json || options.PatrolFormat == "json")
+    {
+        var jsonOptions = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Converters = { new JsonStringEnumConverter() }
+        };
+        var json = JsonSerializer.Serialize(report, jsonOptions);
+        WriteOutput(json, options.OutputFile);
+    }
+    else
+    {
+        ConsoleFormatter.PrintPatrol(report);
+    }
+
+    return report.OverallVerdict == PatrolVerdict.Alert ? 1 : 0;
 }

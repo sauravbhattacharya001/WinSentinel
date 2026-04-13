@@ -196,6 +196,9 @@ public class CliOptions
     public string ChangelogGroupBy { get; set; } = "week";
     public int PatrolDays { get; set; } = 30;
     public string PatrolFormat { get; set; } = "text";
+    public int RadarDays { get; set; } = 90;
+    public string RadarFormat { get; set; } = "text";
+    public int RadarSize { get; set; } = 14;
     public int PulseDays { get; set; } = 60;
     public int PulseWidth { get; set; } = 60;
     public string PulseFormat { get; set; } = "text";
@@ -269,6 +272,7 @@ public enum CliCommand
     Debt,
     Watchdog,
     Patrol,
+    Radar,
     Help,
     Version
 }
@@ -2027,6 +2031,31 @@ public static class CliParser
                 case "--patrol":
                 case "patrol":
                     options.Command = CliCommand.Patrol;
+                    break;
+
+                case "--radar":
+                case "radar":
+                    options.Command = CliCommand.Radar;
+                    break;
+
+                case "--radar-days":
+                    if (!TryConsumeArg(args, ref i, "--radar-days", out var radarDaysVal, out var radarDaysErr))
+                    { options.Error = radarDaysErr; return options; }
+                    if (int.TryParse(radarDaysVal, out var radarDaysInt))
+                        options.RadarDays = Math.Clamp(radarDaysInt, 7, 365);
+                    break;
+
+                case "--radar-format":
+                    if (!TryConsumeArg(args, ref i, "--radar-format", out var radarFmt, out var radarFmtErr))
+                    { options.Error = radarFmtErr; return options; }
+                    options.RadarFormat = radarFmt.ToLowerInvariant();
+                    break;
+
+                case "--radar-size":
+                    if (!TryConsumeArg(args, ref i, "--radar-size", out var radarSz, out var radarSzErr))
+                    { options.Error = radarSzErr; return options; }
+                    if (int.TryParse(radarSz, out var radarSzInt))
+                        options.RadarSize = Math.Clamp(radarSzInt, 8, 30);
                     break;
 
                 case "--patrol-days":

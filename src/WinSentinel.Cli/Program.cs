@@ -77,6 +77,7 @@ return options.Command switch
     CliCommand.Debt => await HandleDebt(options),
     CliCommand.Watchdog => HandleWatchdog(options),
     CliCommand.Patrol => await HandlePatrol(options),
+    CliCommand.Radar => HandleRadar(options),
     _ => HandleHelp()
 };
 
@@ -6768,4 +6769,71 @@ static async Task<int> HandlePatrol(CliOptions options)
     }
 
     return report.OverallVerdict == PatrolVerdict.Alert ? 1 : 0;
+}
+
+static int HandleRadar(CliOptions options)
+{
+    using var history = new AuditHistoryService();
+    history.EnsureDatabase();
+
+    var runs = history.GetHistory(options.RadarDays);
+
+    if (runs.Count == 0)
+    {
+        ConsoleFormatter.PrintWarning("No audit data found. Run --audit first.");
+        return 1;
+    }
+
+    // Latest run for current scores
+    var latest = runs.OrderByDescending(r => r.Timestamp).First();
+    // Earliest run for comparison
+    var earliest = runs.OrderBy(r => r.Timestamp).First();
+
+    var currentModules = latest.ModuleScores
+        .OrderBy(m => m.ModuleName)
+        .Select(m => (name: m.ModuleName, score: m.Score))
+        .ToList();
+
+    var previousLookup = earliest.ModuleScores.ToDictionary(m => m.ModuleName, m => m.Score);
+    var previousScores = currentModules
+        .Select(m => previousLookup.TryGetValue(m.name, out var s) ? s : (int?)null)
+        .ToList();
+
+    if (options.Json)
+    {
+        var report = new
+        {
+            command = "radar",
+            period = new { days = options.RadarDays, from = earliest.Timestamp, to = latest.Timestamp },
+            modules = currentModules.Select((m, i) => new
+            {
+                name = m.name,
+                currentScore = m.score,
+                previousScore = previousScores[i],
+                delta = previousScores[i].HasValue ? m.score - previousScores[i]!.Value : (int?)null
+            }),
+            overallScore = latest.OverallScore,
+            auditRuns = runs.Count
+        };
+        var jsonOptions = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Converters = { new JsonStringEnumConverter() }
+        };
+        var json = JsonSerializer.Serialize(report, jsonOptions);
+        WriteOutput(json, options.OutputFile);
+    }
+    else
+    {
+        ConsoleFormatter.PrintRadar(
+            currentModules,
+            previousScores,
+            latest.OverallScore,
+            earliest.Timestamp,
+            latest.Timestamp,
+            runs.Count,
+            options.RadarSize);
+    }
+
+    return 0;
 }

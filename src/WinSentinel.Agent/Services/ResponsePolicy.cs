@@ -117,10 +117,36 @@ public class PolicyDecision
 public class ResponsePolicy
 {
     /// <summary>Custom policy rules (evaluated in priority order).</summary>
-    public List<PolicyRule> Rules { get; set; } = new();
+    public List<PolicyRule> Rules
+    {
+        get => _rules;
+        set
+        {
+            _rules = value;
+            InvalidateSortedRules();
+        }
+    }
+    private List<PolicyRule> _rules = new();
 
     /// <summary>User overrides for specific threat types.</summary>
-    public List<UserOverride> UserOverrides { get; set; } = new();
+    public List<UserOverride> UserOverrides
+    {
+        get => _userOverrides;
+        set
+        {
+            _userOverrides = value;
+            RebuildOverrideIndex();
+        }
+    }
+    private List<UserOverride> _userOverrides = new();
+
+    // Pre-sorted rules cache (invalidated when Rules list is replaced).
+    // Avoids re-sorting on every Evaluate() call.
+    private List<PolicyRule>? _sortedRulesCache;
+
+    // Dictionary index for O(1) user override lookup by title (case-insensitive).
+    // Maps lowercase threat title → list of overrides for that title.
+    private Dictionary<string, List<UserOverride>> _overrideIndex = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Global risk tolerance override. When set, adjusts default behavior.</summary>
     public RiskTolerance RiskTolerance { get; set; } = RiskTolerance.Medium;
@@ -165,10 +191,9 @@ public class ResponsePolicy
             };
         }
 
-        // 2. Check custom rules (sorted by priority descending)
-        var matchingRule = Rules
-            .OrderByDescending(r => r.Priority)
-            .FirstOrDefault(r => RuleMatches(r, threat, category));
+        // 2. Check custom rules (pre-sorted by priority descending)
+        var sortedRules = GetSortedRules();
+        var matchingRule = sortedRules.FirstOrDefault(r => RuleMatches(r, threat, category));
 
         if (matchingRule != null)
         {
@@ -190,11 +215,11 @@ public class ResponsePolicy
     public void AddUserOverride(string threatTitle, UserOverrideAction action, string? source = null)
     {
         // Remove any existing override for this title+source
-        UserOverrides.RemoveAll(o =>
+        _userOverrides.RemoveAll(o =>
             o.ThreatTitle.Equals(threatTitle, StringComparison.OrdinalIgnoreCase) &&
             (o.Source == null && source == null || o.Source?.Equals(source, StringComparison.OrdinalIgnoreCase) == true));
 
-        UserOverrides.Add(new UserOverride
+        _userOverrides.Add(new UserOverride
         {
             ThreatTitle = threatTitle,
             Source = source,
@@ -202,6 +227,7 @@ public class ResponsePolicy
             CreatedAt = DateTimeOffset.UtcNow
         });
 
+        RebuildOverrideIndex();
         Save();
     }
 
@@ -210,11 +236,15 @@ public class ResponsePolicy
     /// </summary>
     public bool RemoveUserOverride(string threatTitle, string? source = null)
     {
-        var removed = UserOverrides.RemoveAll(o =>
+        var removed = _userOverrides.RemoveAll(o =>
             o.ThreatTitle.Equals(threatTitle, StringComparison.OrdinalIgnoreCase) &&
             (source == null || o.Source?.Equals(source, StringComparison.OrdinalIgnoreCase) == true));
 
-        if (removed > 0) Save();
+        if (removed > 0)
+        {
+            RebuildOverrideIndex();
+            Save();
+        }
         return removed > 0;
     }
 
@@ -274,9 +304,44 @@ public class ResponsePolicy
 
     private UserOverride? FindUserOverride(ThreatEvent threat)
     {
-        return UserOverrides.FirstOrDefault(o =>
-            o.ThreatTitle.Equals(threat.Title, StringComparison.OrdinalIgnoreCase) &&
-            (o.Source == null || o.Source.Equals(threat.Source, StringComparison.OrdinalIgnoreCase)));
+        if (!_overrideIndex.TryGetValue(threat.Title, out var candidates))
+            return null;
+
+        // Prefer source-specific override, fall back to source-agnostic.
+        UserOverride? agnostic = null;
+        foreach (var o in candidates)
+        {
+            if (o.Source != null && o.Source.Equals(threat.Source, StringComparison.OrdinalIgnoreCase))
+                return o;
+            if (o.Source == null)
+                agnostic = o;
+        }
+        return agnostic;
+    }
+
+    /// <summary>Get rules sorted by priority descending, caching the result.</summary>
+    private List<PolicyRule> GetSortedRules()
+    {
+        return _sortedRulesCache ??= _rules.OrderByDescending(r => r.Priority).ToList();
+    }
+
+    /// <summary>Invalidate the sorted rules cache (call when rules change).</summary>
+    private void InvalidateSortedRules() => _sortedRulesCache = null;
+
+    /// <summary>Rebuild the override lookup index from the current list.</summary>
+    private void RebuildOverrideIndex()
+    {
+        var index = new Dictionary<string, List<UserOverride>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var o in _userOverrides)
+        {
+            if (!index.TryGetValue(o.ThreatTitle, out var list))
+            {
+                list = new List<UserOverride>();
+                index[o.ThreatTitle] = list;
+            }
+            list.Add(o);
+        }
+        _overrideIndex = index;
     }
 
     private static bool RuleMatches(PolicyRule rule, ThreatEvent threat, ThreatCategory category)
@@ -307,9 +372,11 @@ public class ResponsePolicy
                 var loaded = JsonSerializer.Deserialize<ResponsePolicy>(json, JsonOptions);
                 if (loaded != null)
                 {
-                    Rules = loaded.Rules;
-                    UserOverrides = loaded.UserOverrides;
+                    _rules = loaded.Rules;
+                    _userOverrides = loaded.UserOverrides;
                     RiskTolerance = loaded.RiskTolerance;
+                    InvalidateSortedRules();
+                    RebuildOverrideIndex();
                 }
             }
         }

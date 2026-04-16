@@ -17,6 +17,7 @@ public partial class AgentBrain
     private readonly AgentJournal _journal;
     private readonly ThreatLog _threatLog;
     private readonly AgentConfig _config;
+    private readonly IReadOnlyList<IRemediationStrategy> _remediationStrategies;
 
     /// <summary>Event fired when a decision is made (for IPC notification).</summary>
     public event Action<ThreatEvent, PolicyDecision>? DecisionMade;
@@ -43,6 +44,19 @@ public partial class AgentBrain
         _journal = journal;
         _threatLog = threatLog;
         _config = config;
+
+        // Build the remediation strategy chain (order matters — first match wins).
+        // This replaces the former if/else chain in ExecuteAutoFix, making it
+        // easy to add new remediation types without modifying AgentBrain.
+        _remediationStrategies = new IRemediationStrategy[]
+        {
+            new DefenderRemediationStrategy(remediator),
+            new HostsFileRemediationStrategy(remediator),
+            new ProcessKillRemediationStrategy(remediator),
+            new FileQuarantineRemediationStrategy(remediator),
+            new IpBlockRemediationStrategy(remediator),
+            new FixCommandRemediationStrategy(remediator),  // generic fallback — keep last
+        };
 
         // Wire up correlation events
         _correlator.CorrelationDetected += OnCorrelationDetected;
@@ -278,50 +292,34 @@ public partial class AgentBrain
 
     /// <summary>
     /// Execute automatic remediation based on the threat type.
+    /// Walks the strategy chain (<see cref="_remediationStrategies"/>) and
+    /// delegates to the first strategy that claims the threat.  New
+    /// remediation types can be added by implementing
+    /// <see cref="IRemediationStrategy"/> and inserting into the chain —
+    /// no changes to AgentBrain required.
     /// </summary>
     private RemediationRecord ExecuteAutoFix(ThreatEvent threat)
     {
-        RemediationRecord record;
+        RemediationRecord? record = null;
 
-        // Determine the best remediation action based on the threat
-        if (threat.Title.Contains("Defender", StringComparison.OrdinalIgnoreCase) &&
-            threat.Title.Contains("Disabled", StringComparison.OrdinalIgnoreCase))
+        foreach (var strategy in _remediationStrategies)
         {
-            record = _remediator.ReEnableDefender(threat.Id);
-        }
-        else if (threat.Title.Contains("Hosts File", StringComparison.OrdinalIgnoreCase))
-        {
-            record = _remediator.RestoreHostsFile(threat.Id);
-        }
-        else if (threat.Source == "ProcessMonitor" && ExtractPid(threat.Description) is int pid)
-        {
-            var processName = ExtractProcessName(threat.Description) ?? "unknown";
-            record = _remediator.KillProcess(pid, processName, threat.Id);
-        }
-        else if (threat.Source == "FileSystemMonitor" && ExtractFilePath(threat.Description) is string filePath)
-        {
-            record = _remediator.QuarantineFile(filePath, threat.Id);
-        }
-        else if (ExtractIpAddress(threat.Description) is string ip)
-        {
-            record = _remediator.BlockIp(ip, threat.Title, threat.Id);
-        }
-        else if (!string.IsNullOrEmpty(threat.FixCommand))
-        {
-            record = _remediator.ExecuteFixCommand(threat);
-        }
-        else
-        {
-            record = new RemediationRecord
+            if (strategy.CanHandle(threat))
             {
-                ActionType = RemediationAction.Custom,
-                Target = threat.Title,
-                ThreatEventId = threat.Id,
-                Success = false,
-                ErrorMessage = "No suitable remediation strategy found",
-                Description = "Auto-fix was requested but no remediation could be determined"
-            };
+                record = strategy.Execute(threat);
+                break;
+            }
         }
+
+        record ??= new RemediationRecord
+        {
+            ActionType = RemediationAction.Custom,
+            Target = threat.Title,
+            ThreatEventId = threat.Id,
+            Success = false,
+            ErrorMessage = "No suitable remediation strategy found",
+            Description = "Auto-fix was requested but no remediation could be determined"
+        };
 
         _journal.RecordRemediation(record);
         RemediationExecuted?.Invoke(record);

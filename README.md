@@ -13,10 +13,10 @@
 [![.NET 8](https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
 [![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4?logo=windows11)](https://www.microsoft.com/windows)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-1172%20passing-brightgreen)]()
-[![Lines of Code](https://img.shields.io/badge/LOC-38k%2B-blue)]()
+[![Tests](https://img.shields.io/badge/tests-4173%20passing-brightgreen)]()
+[![Lines of Code](https://img.shields.io/badge/LOC-72k%2B-blue)]()
 
-**Not just an auditor — a living agent that monitors, detects, correlates, and responds 24/7.**
+**Not just an auditor - a living agent that monitors, detects, correlates, and responds 24/7.**
 
 *Real-time threat detection • 13 audit modules • Auto-remediation • Chat control plane • AI-powered correlation • Compliance profiles*
 
@@ -30,12 +30,12 @@
 
 Most Windows security tools run once and give you a report. WinSentinel is different:
 
-- **Always on** — runs as a Windows Service, monitoring your system 24/7
-- **Correlates events** — doesn't just flag individual events, it detects multi-stage attack patterns
-- **Takes action** — auto-remediates threats with full undo support
-- **Speaks your language** — chat-based control plane with 25+ commands plus natural language
-- **Compliance-aware** — built-in profiles for Home, Enterprise, HIPAA, PCI-DSS, and CIS L1
-- **Deeply tested** — 1,172 automated tests across 49 test files
+- **Always on** - runs as a Windows Service, monitoring your system 24/7
+- **Correlates events** - doesn't just flag individual events, it detects multi-stage attack patterns
+- **Takes action** - auto-remediates threats with full undo support
+- **Speaks your language** - chat-based control plane with 25+ commands plus natural language
+- **Compliance-aware** - built-in profiles for Home, Enterprise, HIPAA, PCI-DSS, and CIS L1
+- **Deeply tested** - 4,173 automated tests across 128 test files
 
 ---
 
@@ -94,7 +94,7 @@ flowchart LR
     K --> N[Undo Log]
 ```
 
-The agent runs continuously — even with the dashboard closed — watching processes, file changes, event logs, and network activity. When it detects suspicious behavior, it correlates events, classifies threats, and auto-remediates based on configurable policies.
+The agent runs continuously - even with the dashboard closed - watching processes, file changes, event logs, and network activity. When it detects suspicious behavior, it correlates events, classifies threats, and auto-remediates based on configurable policies.
 
 ---
 
@@ -102,15 +102,15 @@ The agent runs continuously — even with the dashboard closed — watching proc
 
 | Category | What You Get |
 |:---|:---|
-| 🔍 **4 Real-Time Monitors** | Process creation/termination, file system changes, Windows Event Log, network connections — always watching |
+| 🔍 **4 Real-Time Monitors** | Process creation/termination, file system changes, Windows Event Log, network connections - always watching |
 | 🧠 **AI-Powered Brain** | Correlates individual events into attack chains. Detects multi-stage attacks that single-event analysis misses |
-| 🔧 **7 Auto-Remediation Actions** | Kill process, quarantine file, block IP, disable account, restore hosts, re-enable Defender, revert registry — **all with undo** |
-| 💬 **Chat Control Plane** | 25+ commands plus natural language. Run audits, query threats, configure policies — from the chat panel |
+| 🔧 **7 Auto-Remediation Actions** | Kill process, quarantine file, block IP, disable account, restore hosts, re-enable Defender, revert registry - **all with undo** |
+| 💬 **Chat Control Plane** | 25+ commands plus natural language. Run audits, query threats, configure policies - from the chat panel |
 | 📊 **13 Audit Modules** | Firewall, Updates, Defender, Accounts, Network, Processes, Startup, System, Privacy, Browser, App Security, Encryption, Event Log |
-| 📋 **Compliance Profiles** | Home, Enterprise, HIPAA, PCI-DSS, CIS L1 — context-aware scoring with per-profile severity adjustments |
+| 📋 **Compliance Profiles** | Home, Enterprise, HIPAA, PCI-DSS, CIS L1 - context-aware scoring with per-profile severity adjustments |
 | 🔕 **Finding Suppression** | Ignore/suppress known-acceptable findings with regex rules, expiration dates, and audit trail |
 | 📈 **Score History** | SQLite-backed audit tracking with trends. See your security posture change over time |
-| 📤 **Export Reports** | HTML, JSON, Text, Markdown — save and share results |
+| 📤 **Export Reports** | HTML, JSON, Text, Markdown - save and share results |
 | 🔔 **Toast Notifications** | Critical finding alerts via Windows notification center |
 | 💻 **CLI Mode** | Full CLI (`winsentinel.exe`) for scripting, automation, and CI/CD gate checks |
 | ⚙️ **System Tray** | Minimize to tray and run silently in the background |
@@ -173,7 +173,7 @@ dotnet build WinSentinel.sln -p:Platform=x64
 # Run the dashboard
 dotnet run --project src/WinSentinel.App -p:Platform=x64
 
-# Run tests (1,172 tests)
+# Run tests (4,173 tests)
 dotnet test -p:Platform=x64
 ```
 
@@ -190,7 +190,7 @@ dotnet test -p:Platform=x64
 ### Option 1: MSIX Installer
 
 ```powershell
-# Downloads cert, installs MSIX — one command
+# Downloads cert, installs MSIX - one command
 .\Install-WinSentinel.ps1
 ```
 
@@ -253,11 +253,11 @@ Built-in profiles adjust severity weights and scoring for different security con
 
 | Profile | Target Environment | Key Adjustments |
 |:---|:---|:---|
-| 🏠 **Home** | Personal/home use | Relaxed — info-level items don't penalize |
-| 🏢 **Enterprise** | Corporate workstations | Moderate — emphasizes patching, network, accounts |
-| 🏥 **HIPAA** | Healthcare environments | Strict — encryption, audit logging, access control weighted heavily |
-| 💳 **PCI-DSS** | Payment card processing | Strict — network segmentation, firewall, patching critical |
-| 🔒 **CIS L1** | CIS Benchmarks Level 1 | Comprehensive — baseline security for all organizations |
+| 🏠 **Home** | Personal/home use | Relaxed - info-level items don't penalize |
+| 🏢 **Enterprise** | Corporate workstations | Moderate - emphasizes patching, network, accounts |
+| 🏥 **HIPAA** | Healthcare environments | Strict - encryption, audit logging, access control weighted heavily |
+| 💳 **PCI-DSS** | Payment card processing | Strict - network segmentation, firewall, patching critical |
+| 🔒 **CIS L1** | CIS Benchmarks Level 1 | Comprehensive - baseline security for all organizations |
 
 Switch profiles via the dashboard or CLI to see how your system scores under different compliance frameworks.
 
@@ -269,12 +269,12 @@ Switch profiles via the dashboard or CLI to see how your system scores under dif
 
 | Action | What It Does | Reversible |
 |:---|:---|:---:|
-| Kill Process | Terminates suspicious process | — |
+| Kill Process | Terminates suspicious process | - |
 | Quarantine File | Moves to quarantine directory | ✅ |
 | Block IP | Creates firewall block rule | ✅ |
 | Disable Account | Disables compromised account | ✅ |
 | Restore Hosts | Reverts hosts file to clean state | ✅ |
-| Re-enable Defender | Turns real-time protection back on | — |
+| Re-enable Defender | Turns real-time protection back on | - |
 | Revert Registry | Undoes malicious registry changes | ✅ |
 
 ---
@@ -367,7 +367,7 @@ Starts at 100, deductions by severity:
 
 **Grades:** A+ (95+) · A (90-94) · B (80-89) · C (70-79) · D (60-69) · F (<60)
 
-Compliance profiles adjust these weights contextually — a finding that's info-level for Home use might be a warning under HIPAA.
+Compliance profiles adjust these weights contextually - a finding that's info-level for Home use might be a warning under HIPAA.
 
 ---
 
@@ -397,7 +397,7 @@ WinSentinel.sln
 │   └── WinSentinel.Installer/     # MSIX packaging
 │
 ├── tests/
-│   └── WinSentinel.Tests/         # 1,172 xUnit tests (49 files)
+│   └── WinSentinel.Tests/         # 4,173 xUnit tests (128 files)
 │
 ├── RunAudit.ps1                   # Quick audit script
 ├── Install-Agent.ps1              # Service installer
@@ -405,7 +405,7 @@ WinSentinel.sln
 └── Fix-Network.ps1                # Network security fix script
 ```
 
-**By the numbers:** 27k+ lines of source code, 11k+ lines of tests, 59 commits, 49 test files.
+**By the numbers:** 72k+ lines of source code, 50k+ lines of tests, 370+ commits, 128 test files.
 
 ---
 
@@ -419,7 +419,7 @@ WinSentinel.sln
 | Agent | Microsoft.Extensions.Hosting + Windows Services |
 | IPC | Named Pipes (System.IO.Pipes) |
 | Database | SQLite (Microsoft.Data.Sqlite) |
-| Testing | xUnit — 1,172 tests |
+| Testing | xUnit — 4,173 tests |
 | Security | CodeQL scanning, input sanitization |
 | Packaging | MSIX with code signing |
 | CI/CD | GitHub Actions (build, test, release, CodeQL) |
@@ -431,8 +431,13 @@ WinSentinel.sln
 
 | Version | Date | Highlights |
 |:---|:---|:---|
-| [**v1.1.0**](https://github.com/sauravbhattacharya001/WinSentinel/releases/tag/v1.1.0) | 2026-02-20 | Compliance profiles (Home/Enterprise/HIPAA/PCI-DSS/CIS L1), finding ignore/suppress rules, remediation checklists, baseline snapshots |
-| [**v1.0.0**](https://github.com/sauravbhattacharya001/WinSentinel/releases/tag/v1.0.0) | 2026-02-17 | Always-on agent, 4 real-time monitors, AI brain + correlator, auto-remediation, chat control plane, 13 audit modules, CLI, MSIX installer |
+| [**v1.4.2**](https://github.com/sauravbhattacharya001/WinSentinel/releases/tag/v1.4.2) | 2026-04-16 | Test coverage improvements |
+| [**v1.4.1**](https://github.com/sauravbhattacharya001/WinSentinel/releases/tag/v1.4.1) | 2026-04-02 | NuGet packaging & CI fixes |
+| [**v1.4.0**](https://github.com/sauravbhattacharya001/WinSentinel/releases/tag/v1.4.0) | 2026-03-29 | Major feature release |
+| [**v1.3.0**](https://github.com/sauravbhattacharya001/WinSentinel/releases/tag/v1.3.0) | 2026-03-20 | CLI power tools & hardened security |
+| [**v1.2.0**](https://github.com/sauravbhattacharya001/WinSentinel/releases/tag/v1.2.0) | 2026-03-16 | Deep system auditing & threat intelligence |
+| [**v1.1.0**](https://github.com/sauravbhattacharya001/WinSentinel/releases/tag/v1.1.0) | 2026-02-20 | Compliance profiles, finding suppression, remediation checklists |
+| [**v1.0.0**](https://github.com/sauravbhattacharya001/WinSentinel/releases/tag/v1.0.0) | 2026-02-17 | Initial release — always-on agent, 4 monitors, AI correlator, 13 audit modules |
 
 ---
 
@@ -444,9 +449,9 @@ WinSentinel follows a defense-in-depth approach:
 |:---|:---|
 | **Input Sanitization** | All user inputs (chat, CLI, config) pass through a centralized `InputSanitizer` that blocks command injection, path traversal, and control characters |
 | **Least Privilege** | The dashboard runs as the current user. Only the agent service and remediation actions require Administrator |
-| **Undo Journal** | Every auto-remediation action is logged with full undo metadata — quarantined files can be restored, blocked IPs unblocked, disabled accounts re-enabled |
+| **Undo Journal** | Every auto-remediation action is logged with full undo metadata - quarantined files can be restored, blocked IPs unblocked, disabled accounts re-enabled |
 | **Named Pipe IPC** | Dashboard↔Agent communication uses local-only named pipes (no network exposure). The pipe is ACL-restricted to the installing user and SYSTEM |
-| **Finding Suppression Audit Trail** | When you suppress a finding, WinSentinel records who, when, why, and expiration — suppressions don't silently hide real threats |
+| **Finding Suppression Audit Trail** | When you suppress a finding, WinSentinel records who, when, why, and expiration - suppressions don't silently hide real threats |
 | **No Outbound Telemetry** | WinSentinel sends zero data home. All analysis is local. AI features use local Ollama models only |
 
 > **Reporting vulnerabilities:** See [SECURITY.md](SECURITY.md) for responsible disclosure guidelines.
@@ -470,7 +475,7 @@ WinSentinel follows a defense-in-depth approach:
 
 1. Verify the agent service is running: `.\Install-Agent.ps1 -Status`
 2. Named pipe connections require both processes to run under the same user (or SYSTEM)
-3. Some antivirus software blocks named pipe creation — add an exclusion for `WinSentinel.Agent.exe`
+3. Some antivirus software blocks named pipe creation - add an exclusion for `WinSentinel.Agent.exe`
 
 </details>
 
@@ -500,7 +505,7 @@ dotnet test -p:Platform=x64
 
 1. Run `.\Fix-Network.ps1` to apply recommended network hardening
 2. Some findings (LLMNR, NetBIOS) require registry changes + reboot
-3. VPN adapters can trigger false "open port" findings — suppress with Finding Rules
+3. VPN adapters can trigger false "open port" findings - suppress with Finding Rules
 
 </details>
 
@@ -519,13 +524,13 @@ dotnet test -p:Platform=x64
 
 ## 📄 License
 
-MIT License — see [LICENSE](LICENSE) for details.
+MIT License - see [LICENSE](LICENSE) for details.
 
 ---
 
 <div align="center">
 
-**Built with C# on .NET 8 · 27k+ LOC · 1,172 tests · Always watching 🛡️**
+**Built with C# on .NET 8 · 72k+ LOC · 4,173 tests · Always watching 🛡️**
 
 [⭐ Star](https://github.com/sauravbhattacharya001/WinSentinel) · [🐛 Report Bug](https://github.com/sauravbhattacharya001/WinSentinel/issues) · [💡 Request Feature](https://github.com/sauravbhattacharya001/WinSentinel/issues)
 

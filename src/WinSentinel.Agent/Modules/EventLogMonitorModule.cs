@@ -252,11 +252,14 @@ public class EventLogMonitorModule : IAgentModule
 
     private void HandleFailedLogon(EventRecord record, DateTime timeCreated)
     {
-        var source = GetEventDataValue(record, "IpAddress") ?? GetEventDataValue(record, "WorkstationName") ?? "unknown";
-        var targetUser = GetEventDataValue(record, "TargetUserName") ?? "unknown";
-        var logonType = GetEventDataValue(record, "LogonType") ?? "";
-        var failureReason = GetEventDataValue(record, "FailureReason") ?? "";
-        var status = GetEventDataValue(record, "Status") ?? "";
+        // Batch-extract all fields from a single ToXml() call instead of
+        // serializing the record 5 separate times (perf: ~5x fewer allocations).
+        var data = GetEventDataValues(record, "IpAddress", "WorkstationName", "TargetUserName", "LogonType", "FailureReason", "Status");
+        var source = data["IpAddress"] ?? data["WorkstationName"] ?? "unknown";
+        var targetUser = data["TargetUserName"] ?? "unknown";
+        var logonType = data["LogonType"] ?? "";
+        var failureReason = data["FailureReason"] ?? "";
+        var status = data["Status"] ?? "";
 
         var now = DateTimeOffset.UtcNow;
 
@@ -316,10 +319,11 @@ public class EventLogMonitorModule : IAgentModule
 
     private void HandleExplicitCredentialLogon(EventRecord record, DateTime timeCreated)
     {
-        var subjectUser = GetEventDataValue(record, "SubjectUserName") ?? "unknown";
-        var targetUser = GetEventDataValue(record, "TargetUserName") ?? "unknown";
-        var targetServer = GetEventDataValue(record, "TargetServerName") ?? "unknown";
-        var processName = GetEventDataValue(record, "ProcessName") ?? "";
+        var data = GetEventDataValues(record, "SubjectUserName", "TargetUserName", "TargetServerName", "ProcessName");
+        var subjectUser = data["SubjectUserName"] ?? "unknown";
+        var targetUser = data["TargetUserName"] ?? "unknown";
+        var targetServer = data["TargetServerName"] ?? "unknown";
+        var processName = data["ProcessName"] ?? "";
 
         // Track as potential successful logon (for kill chain correlation).
         // Check both subjectUser and targetUser against _failedLogons, since
@@ -347,8 +351,9 @@ public class EventLogMonitorModule : IAgentModule
 
     private void HandlePrivilegeAssigned(EventRecord record, DateTime timeCreated)
     {
-        var subjectUser = GetEventDataValue(record, "SubjectUserName") ?? "unknown";
-        var privileges = GetEventDataValue(record, "PrivilegeList") ?? "";
+        var data = GetEventDataValues(record, "SubjectUserName", "PrivilegeList");
+        var subjectUser = data["SubjectUserName"] ?? "unknown";
+        var privileges = data["PrivilegeList"] ?? "";
 
         // Track for kill chain correlation
         _privilegeEscalations.Enqueue((subjectUser, DateTimeOffset.UtcNow));
@@ -380,8 +385,9 @@ public class EventLogMonitorModule : IAgentModule
 
     private void HandleAccountCreated(EventRecord record, DateTime timeCreated)
     {
-        var subjectUser = GetEventDataValue(record, "SubjectUserName") ?? "unknown";
-        var newAccountName = GetEventDataValue(record, "TargetUserName") ?? "unknown";
+        var data = GetEventDataValues(record, "SubjectUserName", "TargetUserName");
+        var subjectUser = data["SubjectUserName"] ?? "unknown";
+        var newAccountName = data["TargetUserName"] ?? "unknown";
 
         EmitThreat(new ThreatEvent
         {
@@ -399,9 +405,10 @@ public class EventLogMonitorModule : IAgentModule
 
     private void HandleGroupMemberAdded(EventRecord record, DateTime timeCreated)
     {
-        var subjectUser = GetEventDataValue(record, "SubjectUserName") ?? "unknown";
-        var memberName = GetEventDataValue(record, "MemberName") ?? GetEventDataValue(record, "MemberSid") ?? "unknown";
-        var groupName = GetEventDataValue(record, "TargetUserName") ?? "unknown";
+        var data = GetEventDataValues(record, "SubjectUserName", "MemberName", "MemberSid", "TargetUserName");
+        var subjectUser = data["SubjectUserName"] ?? "unknown";
+        var memberName = data["MemberName"] ?? data["MemberSid"] ?? "unknown";
+        var groupName = data["TargetUserName"] ?? "unknown";
 
         // Administrators group is especially critical
         var severity = groupName.Contains("Admin", StringComparison.OrdinalIgnoreCase)
@@ -426,8 +433,9 @@ public class EventLogMonitorModule : IAgentModule
 
     private void HandleAccountLockout(EventRecord record, DateTime timeCreated)
     {
-        var targetUser = GetEventDataValue(record, "TargetUserName") ?? "unknown";
-        var callerComputer = GetEventDataValue(record, "SubjectUserName") ?? "unknown";
+        var data = GetEventDataValues(record, "TargetUserName", "SubjectUserName");
+        var targetUser = data["TargetUserName"] ?? "unknown";
+        var callerComputer = data["SubjectUserName"] ?? "unknown";
 
         EmitThreat(new ThreatEvent
         {
@@ -488,11 +496,12 @@ public class EventLogMonitorModule : IAgentModule
 
     private void HandleNewServiceInstalled(EventRecord record, DateTime timeCreated)
     {
-        var serviceName = GetEventDataValue(record, "ServiceName") ?? "unknown";
-        var imagePath = GetEventDataValue(record, "ImagePath") ?? "unknown";
-        var serviceType = GetEventDataValue(record, "ServiceType") ?? "";
-        var startType = GetEventDataValue(record, "StartType") ?? "";
-        var accountName = GetEventDataValue(record, "AccountName") ?? "";
+        var data = GetEventDataValues(record, "ServiceName", "ImagePath", "ServiceType", "StartType", "AccountName");
+        var serviceName = data["ServiceName"] ?? "unknown";
+        var imagePath = data["ImagePath"] ?? "unknown";
+        var serviceType = data["ServiceType"] ?? "";
+        var startType = data["StartType"] ?? "";
+        var accountName = data["AccountName"] ?? "";
 
         // Check Defender bypass correlation
         if (_defenderRtpDisabled && (DateTimeOffset.UtcNow - _defenderRtpDisabledTime) < CorrelationWindow)
@@ -1216,27 +1225,59 @@ public class EventLogMonitorModule : IAgentModule
         try
         {
             var xml = record.ToXml();
-            // Quick XML extraction — avoid full XML parsing for performance
-            var dataTag = $"Name='{name}'>";
-            var idx = xml.IndexOf(dataTag, StringComparison.OrdinalIgnoreCase);
-            if (idx < 0)
-            {
-                dataTag = $"Name=\"{name}\">";
-                idx = xml.IndexOf(dataTag, StringComparison.OrdinalIgnoreCase);
-            }
-            if (idx < 0) return null;
-
-            var start = idx + dataTag.Length;
-            var end = xml.IndexOf("</Data>", start, StringComparison.OrdinalIgnoreCase);
-            if (end < 0) return null;
-
-            var value = xml[start..end].Trim();
-            return string.IsNullOrEmpty(value) ? null : value;
+            return ExtractDataValueFromXml(xml, name);
         }
         catch
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// Extract multiple named data values from a single ToXml() call.
+    /// Avoids re-serializing the EventRecord XML for each field (O(1) serialization
+    /// instead of O(n) where n = number of fields). This is a major perf win for
+    /// handlers like HandleFailedLogon that extract 4+ fields per event.
+    /// </summary>
+    private static Dictionary<string, string?> GetEventDataValues(EventRecord record, params string[] names)
+    {
+        var result = new Dictionary<string, string?>(names.Length, StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var xml = record.ToXml();
+            foreach (var name in names)
+            {
+                result[name] = ExtractDataValueFromXml(xml, name);
+            }
+        }
+        catch
+        {
+            foreach (var name in names)
+                result.TryAdd(name, null);
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Extract a single named value from pre-serialized XML.
+    /// </summary>
+    private static string? ExtractDataValueFromXml(string xml, string name)
+    {
+        var dataTag = $"Name='{name}'>";
+        var idx = xml.IndexOf(dataTag, StringComparison.OrdinalIgnoreCase);
+        if (idx < 0)
+        {
+            dataTag = $"Name=\"{name}\">";
+            idx = xml.IndexOf(dataTag, StringComparison.OrdinalIgnoreCase);
+        }
+        if (idx < 0) return null;
+
+        var start = idx + dataTag.Length;
+        var end = xml.IndexOf("</Data>", start, StringComparison.OrdinalIgnoreCase);
+        if (end < 0) return null;
+
+        var value = xml[start..end].Trim();
+        return string.IsNullOrEmpty(value) ? null : value;
     }
 
     /// <summary>
@@ -1292,18 +1333,18 @@ public class EventLogMonitorModule : IAgentModule
                cmdLower.Contains("vssadmin delete shadows");
     }
 
+    /// <summary>Processes making network connections that are suspicious by nature.</summary>
+    private static readonly HashSet<string> SuspiciousNetworkProcesses = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "powershell.exe", "pwsh.exe", "cmd.exe", "wscript.exe", "cscript.exe",
+        "mshta.exe", "certutil.exe", "bitsadmin.exe", "rundll32.exe", "regsvr32.exe"
+    };
+
     private static bool IsSuspiciousNetworkActivity(string processImage, string destPort)
     {
-        var processName = Path.GetFileName(processImage).ToLowerInvariant();
+        var processName = Path.GetFileName(processImage);
 
-        // Known suspicious: scripts making network connections
-        var suspiciousProcesses = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            "powershell.exe", "pwsh.exe", "cmd.exe", "wscript.exe", "cscript.exe",
-            "mshta.exe", "certutil.exe", "bitsadmin.exe", "rundll32.exe", "regsvr32.exe"
-        };
-
-        if (suspiciousProcesses.Contains(processName))
+        if (SuspiciousNetworkProcesses.Contains(processName))
             return true;
 
         // Uncommon ports

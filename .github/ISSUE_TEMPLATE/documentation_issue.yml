@@ -1,0 +1,81 @@
+name: 📚 Documentation Issue
+description: Report incorrect, outdated, or missing documentation
+title: "[Docs]: "
+labels: ["documentation", "triage"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Help us keep the docs accurate and useful! Report errors, outdated info, or missing topics.
+
+  - type: dropdown
+    id: doc-type
+    attributes:
+      label: Documentation Location
+      description: Where is the issue?
+      options:
+        - README.md
+        - Docs site (sauravbhattacharya001.github.io/WinSentinel)
+        - API reference / code comments
+        - CONTRIBUTING.md
+        - SECURITY.md
+        - Inline help (CLI --help)
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: issue-type
+    attributes:
+      label: Issue Type
+      description: What kind of documentation problem?
+      options:
+        - Incorrect / inaccurate information
+        - Outdated content (no longer matches current behavior)
+        - Missing documentation for existing feature
+        - Unclear or confusing explanation
+        - Broken links or images
+        - Typos or grammar issues
+    validations:
+      required: true
+
+  - type: input
+    id: page-url
+    attributes:
+      label: Page URL or File Path
+      description: Link to the page or path to the file with the issue
+      placeholder: "e.g., https://sauravbhattacharya001.github.io/WinSentinel/modules/ or docs/audit-modules.md"
+    validations:
+      required: false
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Describe what's wrong or missing. Quote the problematic text if applicable.
+      placeholder: |
+        The docs say to use `WinSentinel.Cli audit --module=firewall` but the actual flag is `--module firewall` (no equals sign)...
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested Fix
+      description: If you know what the correct information should be, share it here.
+
+  - type: input
+    id: version
+    attributes:
+      label: WinSentinel Version
+      description: Which version does this apply to? (Leave blank if unsure)
+      placeholder: e.g., 1.0.0
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I have searched existing issues to make sure this isn't a duplicate
+          required: true

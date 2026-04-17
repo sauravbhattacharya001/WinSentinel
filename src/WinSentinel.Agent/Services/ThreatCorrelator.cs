@@ -317,20 +317,29 @@ public class ThreatCorrelator
         if (newEvent.Severity < ThreatSeverity.Medium)
             return;
 
-        var significantEvents = window.Where(e => e.Severity >= ThreatSeverity.Medium).ToList();
-        var distinctSources = significantEvents.Select(e => e.Source).Distinct().ToList();
+        // Single-pass: collect significant events and track distinct sources
+        // with/without the new event simultaneously.  Previously this used 3
+        // separate LINQ passes (Where+ToList, Select+Distinct+ToList,
+        // Where+Select+Distinct+Count) allocating intermediate collections
+        // each time.  On a hot path called for every incoming event, the
+        // reduced allocations and iteration count are meaningful.
+        var significantEvents = new List<ThreatEvent>();
+        var allSources = new HashSet<string>();
+        var sourcesWithoutNew = new HashSet<string>();
 
-        if (distinctSources.Count < 3) return;
+        foreach (var e in window)
+        {
+            if (e.Severity < ThreatSeverity.Medium) continue;
+            significantEvents.Add(e);
+            allSources.Add(e.Source);
+            if (e.Id != newEvent.Id)
+                sourcesWithoutNew.Add(e.Source);
+        }
+
+        if (allSources.Count < 3) return;
 
         // Only fire if newEvent is the one that pushed the distinct source count to 3+.
-        // Check: without newEvent's source, would we still have 3+ distinct sources?
-        var sourcesWithoutNew = significantEvents
-            .Where(e => e.Id != newEvent.Id)
-            .Select(e => e.Source)
-            .Distinct()
-            .Count();
-
-        if (sourcesWithoutNew >= 3) return; // Already had 3+, newEvent didn't push us over
+        if (sourcesWithoutNew.Count >= 3) return; // Already had 3+, newEvent didn't push us over
 
         if (!IsRecentCorrelation("RapidMultiModule", ""))
         {
@@ -340,7 +349,7 @@ public class ThreatCorrelator
                 CombinedSeverity = ThreatSeverity.Critical,
                 RuleName = "RapidMultiModule",
                 ChainDescription = $"Coordinated attack suspected: {significantEvents.Count} significant events " +
-                                   $"detected across {distinctSources.Count} modules ({string.Join(", ", distinctSources)}) " +
+                                   $"detected across {allSources.Count} modules ({string.Join(", ", allSources)}) " +
                                    $"within {CorrelationWindow.TotalMinutes} minutes.",
                 ThreatScore = significantEvents.Sum(e => SeverityScore(e.Severity)) + 20
             });
@@ -359,12 +368,15 @@ public class ThreatCorrelator
             _eventWindow.TryDequeue(out _);
         }
 
-        // Also trim old correlations
+        // Trim expired correlations.  Iterate the ConcurrentDictionary
+        // directly instead of allocating a Keys.ToList() snapshot, reducing
+        // GC pressure on the hot path.  TryRemove is safe during enumeration
+        // of ConcurrentDictionary.
         var corrCutoff = DateTimeOffset.UtcNow - CorrelationCooldown;
-        foreach (var key in _recentCorrelations.Keys.ToList())
+        foreach (var kvp in _recentCorrelations)
         {
-            if (_recentCorrelations.TryGetValue(key, out var ts) && ts < corrCutoff)
-                _recentCorrelations.TryRemove(key, out _);
+            if (kvp.Value < corrCutoff)
+                _recentCorrelations.TryRemove(kvp.Key, out _);
         }
     }
 

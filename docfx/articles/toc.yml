@@ -22,3 +22,7 @@
   href: enterprise-deployment.md
 - name: Troubleshooting
   href: troubleshooting.md
+- name: FAQ
+  href: faq.md
+- name: Upgrade Guide
+  href: upgrade-guide.md

@@ -241,6 +241,70 @@ Instead, use the [Security Report](https://github.com/sauravbhattacharya001/WinS
 
 We take security seriously — this is a security tool, after all.
 
+## Debugging & Troubleshooting
+
+### Common Build Issues
+
+| Problem | Fix |
+|---------|-----|
+| `Platform 'x64' not found` | Ensure you pass `-p:Platform=x64` to all `dotnet` commands |
+| `WPF targets not found` | Install the **.NET Desktop Development** workload in VS Installer |
+| `SQLite native interop` | Run `dotnet restore` again — the native binary may not have been extracted |
+| Tests fail with `Access Denied` | Some audits need **Administrator** — right-click VS/terminal → Run as Admin |
+
+### Debugging Audit Modules
+
+1. Set a breakpoint in your module's `RunChecksAsync`
+2. Use the CLI as the debug target: `dotnet run --project src/WinSentinel.Cli -p:Platform=x64 -- scan --module "My New Audit"`
+3. Attach to the WPF app or Agent process for UI/service debugging
+
+### Logging
+
+WinSentinel uses structured logging. When debugging, set the log level to `Debug` in `appsettings.json` or via environment variable:
+
+```powershell
+$env:LOGGING__LOGLEVEL__DEFAULT = "Debug"
+dotnet run --project src/WinSentinel.Cli -p:Platform=x64 -- scan
+```
+
+## Docker Development
+
+The repo includes a `Dockerfile` for CI and headless scan scenarios (no WPF/GUI). Useful for testing audit logic without a full Windows desktop.
+
+```powershell
+# Build the image
+docker build -t winsentinel:dev .
+
+# Run a scan
+docker run --rm winsentinel:dev scan
+
+# Run tests inside the container
+docker run --rm winsentinel:dev dotnet test tests/WinSentinel.Tests -p:Platform=x64
+```
+
+> **Note**: Some audit modules that query live Windows APIs (firewall rules, registry, services) will produce limited or no findings inside a container. Test those on a real Windows machine.
+
+## Adding a Compliance Profile
+
+Compliance profiles define which checks must pass for a given standard (CIS, HIPAA, PCI-DSS, etc.).
+
+1. Create a JSON profile in `src/WinSentinel.Core/Data/Profiles/`:
+
+```json
+{
+  "name": "MyStandard",
+  "description": "My compliance framework",
+  "requiredModules": ["Firewall", "Encryption", "AccountPolicy"],
+  "thresholds": {
+    "maxCritical": 0,
+    "maxWarning": 5
+  }
+}
+```
+
+2. The `ComplianceEngine` discovers profiles automatically at startup.
+3. Add tests verifying the profile's module list covers all required controls.
+
 ## Getting Help
 
 - **Issues**: Open an issue with the relevant template

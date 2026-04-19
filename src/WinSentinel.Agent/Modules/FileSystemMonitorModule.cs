@@ -2,6 +2,8 @@ using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using Microsoft.Extensions.Logging;
 
+using WinSentinel.Core.Helpers;
+
 namespace WinSentinel.Agent.Modules;
 
 /// <summary>
@@ -26,6 +28,25 @@ public class FileSystemMonitorModule : IAgentModule
     private readonly AgentConfig _config;
     private readonly List<FileSystemWatcher> _watchers = new();
     private CancellationTokenSource? _cts;
+
+    /// <summary>
+    /// Build a safe Remove-Item fix command for a file path.
+    /// Validates the path through InputSanitizer to prevent command injection
+    /// via crafted filenames (e.g., files named with embedded quotes or
+    /// PowerShell metacharacters). Returns null if the path fails validation.
+    /// </summary>
+    private static string? SafeRemoveCommand(string fullPath)
+    {
+        // Validate through the same path sanitizer used by quarantine/remediation.
+        // This rejects paths with shell metacharacters, traversal sequences,
+        // UNC paths, alternate data streams, and protected system files.
+        var validated = InputSanitizer.ValidateFilePath(fullPath);
+        if (validated == null) return null;
+        // Use single-quoted literal string to prevent PowerShell variable
+        // expansion and subexpression evaluation inside the path.
+        var escaped = validated.Replace("'", "''");
+        return $"Remove-Item -LiteralPath '{escaped}' -Force";
+    }
 
     // ── Event buffering & debounce ──
 
@@ -479,8 +500,8 @@ public class FileSystemMonitorModule : IAgentModule
             Description = $"A new file '{evt.FileName}' was dropped in System32. " +
                           $"This could indicate DLL injection, binary replacement, or malware staging. " +
                           $"Path: {evt.FullPath}",
-            AutoFixable = true,
-            FixCommand = $"Remove-Item -Path \"{evt.FullPath}\" -Force"
+            AutoFixable = SafeRemoveCommand(evt.FullPath) != null,
+            FixCommand = SafeRemoveCommand(evt.FullPath)
         });
     }
 
@@ -532,8 +553,8 @@ public class FileSystemMonitorModule : IAgentModule
             Description = $"A new file '{evt.FileName}' was added to a Windows Startup folder. " +
                           $"This is a common persistence mechanism used by malware. " +
                           $"Path: {evt.FullPath}",
-            AutoFixable = true,
-            FixCommand = $"Remove-Item -Path \"{evt.FullPath}\" -Force"
+            AutoFixable = SafeRemoveCommand(evt.FullPath) != null,
+            FixCommand = SafeRemoveCommand(evt.FullPath)
         });
     }
 
@@ -555,8 +576,8 @@ public class FileSystemMonitorModule : IAgentModule
             Description = $"A script file '{evt.FileName}' was created in {evt.Directory.Category}. " +
                           $"Script files in temporary or downloads folders may indicate malware staging. " +
                           $"Path: {evt.FullPath}",
-            AutoFixable = true,
-            FixCommand = $"Remove-Item -Path \"{evt.FullPath}\" -Force"
+            AutoFixable = SafeRemoveCommand(evt.FullPath) != null,
+            FixCommand = SafeRemoveCommand(evt.FullPath)
         });
     }
 
@@ -588,8 +609,8 @@ public class FileSystemMonitorModule : IAgentModule
                 Description = $"File '{fileName}' uses a double extension ({innerExt}{outerExt}) to disguise " +
                               $"an executable as a document. This is a common social engineering technique. " +
                               $"Path: {evt.FullPath}",
-                AutoFixable = true,
-                FixCommand = $"Remove-Item -Path \"{evt.FullPath}\" -Force"
+                AutoFixable = SafeRemoveCommand(evt.FullPath) != null,
+            FixCommand = SafeRemoveCommand(evt.FullPath)
             });
         }
     }
@@ -627,8 +648,8 @@ public class FileSystemMonitorModule : IAgentModule
                     Description = $"A new DLL '{evt.FileName}' appeared in a directory containing executables. " +
                                   $"This may indicate DLL sideloading/hijacking. " +
                                   $"Path: {evt.FullPath}",
-                    AutoFixable = true,
-                    FixCommand = $"Remove-Item -Path \"{evt.FullPath}\" -Force"
+                    AutoFixable = SafeRemoveCommand(evt.FullPath) != null,
+            FixCommand = SafeRemoveCommand(evt.FullPath)
                 });
             }
         }
@@ -674,8 +695,8 @@ public class FileSystemMonitorModule : IAgentModule
                 Description = $"An executable '{evt.FileName}' was dropped in a scheduled tasks directory. " +
                               $"This is a strong indicator of persistence malware. " +
                               $"Path: {evt.FullPath}",
-                AutoFixable = true,
-                FixCommand = $"Remove-Item -Path \"{evt.FullPath}\" -Force"
+                AutoFixable = SafeRemoveCommand(evt.FullPath) != null,
+            FixCommand = SafeRemoveCommand(evt.FullPath)
             });
         }
     }

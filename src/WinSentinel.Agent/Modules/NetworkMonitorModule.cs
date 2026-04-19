@@ -350,15 +350,21 @@ public class NetworkMonitorModule : IAgentModule
                     description += $" — port {listener.Port} is commonly used by malware/RATs";
                 }
 
+                // Sanitize the process name before embedding in a fix command
+                // to prevent command injection via crafted process names.
+                var sanitizedProcessName = processName != null
+                    ? InputSanitizer.SanitizeProcessInput(processName)
+                    : null;
+
                 EmitThreat(new ThreatEvent
                 {
                     Source = "NetworkMonitor",
                     Severity = severity,
                     Title = "New Listening Port Detected",
                     Description = description + ".",
-                    AutoFixable = processName != null,
-                    FixCommand = processName != null
-                        ? $"taskkill /F /IM \"{processName}.exe\""
+                    AutoFixable = sanitizedProcessName != null,
+                    FixCommand = sanitizedProcessName != null
+                        ? $"taskkill /F /IM \"{sanitizedProcessName}.exe\""
                         : null
                 });
 

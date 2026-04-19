@@ -198,6 +198,8 @@ public class CliOptions
     public string PatrolFormat { get; set; } = "text";
     public int RadarDays { get; set; } = 90;
     public string RadarFormat { get; set; } = "text";
+    public int GenomeDays { get; set; } = 90;
+    public string GenomeFormat { get; set; } = "text";
     public int RadarSize { get; set; } = 14;
     public int PulseDays { get; set; } = 60;
     public int PulseWidth { get; set; } = 60;
@@ -273,6 +275,7 @@ public enum CliCommand
     Watchdog,
     Patrol,
     Radar,
+    Genome,
     Help,
     Version
 }
@@ -2056,6 +2059,24 @@ public static class CliParser
                     { options.Error = radarSzErr; return options; }
                     if (int.TryParse(radarSz, out var radarSzInt))
                         options.RadarSize = Math.Clamp(radarSzInt, 8, 30);
+                    break;
+
+                case "--genome":
+                case "genome":
+                    options.Command = CliCommand.Genome;
+                    break;
+
+                case "--genome-days":
+                    if (!TryConsumeArg(args, ref i, "--genome-days", out var genomeDaysVal, out var genomeDaysErr))
+                    { options.Error = genomeDaysErr; return options; }
+                    if (int.TryParse(genomeDaysVal, out var genomeDaysInt))
+                        options.GenomeDays = Math.Clamp(genomeDaysInt, 7, 365);
+                    break;
+
+                case "--genome-format":
+                    if (!TryConsumeArg(args, ref i, "--genome-format", out var genomeFmt, out var genomeFmtErr))
+                    { options.Error = genomeFmtErr; return options; }
+                    options.GenomeFormat = genomeFmt.ToLowerInvariant();
                     break;
 
                 case "--patrol-days":

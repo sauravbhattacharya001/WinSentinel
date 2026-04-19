@@ -78,6 +78,7 @@ return options.Command switch
     CliCommand.Watchdog => HandleWatchdog(options),
     CliCommand.Patrol => await HandlePatrol(options),
     CliCommand.Radar => HandleRadar(options),
+    CliCommand.Genome => HandleGenome(options),
     _ => HandleHelp()
 };
 
@@ -6833,6 +6834,99 @@ static int HandleRadar(CliOptions options)
             latest.Timestamp,
             runs.Count,
             options.RadarSize);
+    }
+
+    return 0;
+}
+
+// 🧬 Security Genome
+
+static int HandleGenome(CliOptions options)
+{
+    using var history = new AuditHistoryService();
+    history.EnsureDatabase();
+
+    var runs = history.GetHistory(options.GenomeDays);
+    var ordered = runs.OrderBy(r => r.Timestamp).ToList();
+
+    if (ordered.Count == 0)
+    {
+        ConsoleFormatter.PrintWarning("No audit history found. Run 'winsentinel --audit' first.");
+        return 1;
+    }
+
+    var latest = ordered.Last();
+    var latestModules = latest.ModuleScores.OrderBy(m => m.ModuleName).ToList();
+
+    // Build previous snapshot for mutation detection
+    var previous = ordered.Count > 1 ? ordered[^2] : null;
+    var prevLookup = previous?.ModuleScores.ToDictionary(m => m.ModuleName, m => m.Score)
+                     ?? new Dictionary<string, int>();
+
+    var modules = latestModules.Select(m => new GenomeModule
+    {
+        Name = m.ModuleName,
+        Score = m.Score,
+        Mutation = prevLookup.TryGetValue(m.ModuleName, out var ps) ? m.Score - ps : 0
+    }).ToList();
+
+    var mutationCount = modules.Count(m => m.Mutation != 0);
+    var stabilityPercent = modules.Count > 0
+        ? (int)Math.Round(100.0 * (modules.Count - mutationCount) / modules.Count)
+        : 100;
+
+    // Build history
+    var historySnapshots = ordered.Select(r => new GenomeSnapshot
+    {
+        Date = r.Timestamp,
+        Genes = r.ModuleScores.OrderBy(m => m.ModuleName).Select(m => m.Score).ToList(),
+        OverallScore = r.OverallScore
+    }).ToList();
+
+    // Recommendations
+    var recommendations = new List<string>();
+    var declining = modules.Where(m => m.Mutation < -10).ToList();
+    if (declining.Count > 0)
+        recommendations.Add($"Sharp decline in {string.Join(", ", declining.Select(m => m.Name))} \u2014 investigate recent changes");
+    var weak = modules.Where(m => m.Score < 40).ToList();
+    if (weak.Count > 0)
+        recommendations.Add($"Critical genes: {string.Join(", ", weak.Select(m => m.Name))} \u2014 prioritize remediation");
+    if (stabilityPercent < 50)
+        recommendations.Add("High genome instability \u2014 security posture is volatile, consider more frequent audits");
+    if (historySnapshots.Count >= 3)
+    {
+        var recentScores = historySnapshots.TakeLast(3).Select(h => h.OverallScore).ToList();
+        if (recentScores[0] > recentScores[1] && recentScores[1] > recentScores[2])
+            recommendations.Add("Declining trend detected across recent audits \u2014 posture is degrading");
+    }
+    if (recommendations.Count == 0 && stabilityPercent >= 80)
+        recommendations.Add("Genome is stable \u2014 maintain current security practices");
+
+    var report = new GenomeReport
+    {
+        Modules = modules,
+        OverallScore = latest.OverallScore,
+        StabilityPercent = stabilityPercent,
+        MutationCount = mutationCount,
+        History = historySnapshots,
+        Recommendations = recommendations,
+        LookbackDays = options.GenomeDays,
+        RunsAnalyzed = ordered.Count
+    };
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Converters = { new JsonStringEnumConverter() }
+        };
+        var json = JsonSerializer.Serialize(report, jsonOptions);
+        WriteOutput(json, options.OutputFile);
+    }
+    else
+    {
+        ConsoleFormatter.PrintGenome(report);
     }
 
     return 0;

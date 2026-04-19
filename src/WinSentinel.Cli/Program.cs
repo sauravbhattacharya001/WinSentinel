@@ -79,6 +79,7 @@ return options.Command switch
     CliCommand.Patrol => await HandlePatrol(options),
     CliCommand.Radar => HandleRadar(options),
     CliCommand.Genome => HandleGenome(options),
+    CliCommand.Correlate => await HandleCorrelate(options),
     _ => HandleHelp()
 };
 
@@ -6931,3 +6932,221 @@ static int HandleGenome(CliOptions options)
 
     return 0;
 }
+
+// 🔗 Security Correlation Engine
+
+static async Task<int> HandleCorrelate(CliOptions options)
+{
+    var (report, engine, elapsed) = await RunAuditAsync(options, suppressOutput: options.Quiet,
+        bannerMessage: "Running audit to correlate cross-module findings...");
+
+    var allFindings = report.Results
+        .SelectMany(r => r.Findings.Select(f => (Module: r.ModuleName, Finding: f)))
+        .ToList();
+
+    // Apply severity filter
+    if (!string.IsNullOrEmpty(options.CorrelateSeverityFilter))
+    {
+        if (Enum.TryParse<Severity>(options.CorrelateSeverityFilter, true, out var sevFilter))
+            allFindings = allFindings.Where(f => f.Finding.Severity == sevFilter).ToList();
+    }
+
+    if (allFindings.Count == 0)
+    {
+        if (options.Json)
+            WriteOutput("{\"correlations\": [], \"totalFindings\": 0}", options.OutputFile);
+        else if (!options.Quiet)
+        {
+            Console.WriteLine();
+            ConsoleFormatter.PrintError("No findings to correlate.");
+        }
+        return 0;
+    }
+
+    var modules = allFindings.Select(f => f.Module).Distinct().ToList();
+
+    // Correlation rules
+    var rules = GetCorrelationRules();
+    var correlations = new List<CorrelationResult>();
+
+    foreach (var rule in rules)
+    {
+        var matchedModules = new List<string>();
+        var matchedFindings = new List<Finding>();
+
+        foreach (var modulePattern in rule.ModulePatterns)
+        {
+            var modFindings = allFindings
+                .Where(f => f.Module.Contains(modulePattern, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            if (modFindings.Count == 0) continue;
+
+            // Check finding keyword patterns
+            var keywordMatches = modFindings
+                .Where(f => rule.FindingKeywords.Any(kw =>
+                    f.Finding.Title.Contains(kw, StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+
+            if (keywordMatches.Count > 0)
+            {
+                matchedModules.AddRange(keywordMatches.Select(f => f.Module).Distinct());
+                matchedFindings.AddRange(keywordMatches.Select(f => f.Finding));
+            }
+        }
+
+        matchedModules = matchedModules.Distinct().ToList();
+
+        if (matchedModules.Count >= options.CorrelateMinModules)
+        {
+            correlations.Add(new CorrelationResult
+            {
+                Name = rule.Name,
+                CompoundRisk = rule.CompoundRisk,
+                ModulesInvolved = matchedModules,
+                ContributingFindings = matchedFindings.DistinctBy(f => f.Title).ToList(),
+                Narrative = rule.Narrative,
+                RecommendedAction = rule.Action
+            });
+        }
+    }
+
+    // Also detect generic multi-module repeated findings
+    var findingsByTitle = allFindings
+        .GroupBy(f => f.Finding.Title)
+        .Where(g => g.Select(x => x.Module).Distinct().Count() >= options.CorrelateMinModules)
+        .ToList();
+
+    foreach (var group in findingsByTitle.Take(3))
+    {
+        var mods = group.Select(x => x.Module).Distinct().ToList();
+        if (!correlations.Any(c => c.ContributingFindings.Any(f => f.Title == group.Key)))
+        {
+            correlations.Add(new CorrelationResult
+            {
+                Name = $"Repeated: {(group.Key.Length > 40 ? group.Key[..37] + "..." : group.Key)}",
+                CompoundRisk = "Elevated",
+                ModulesInvolved = mods,
+                ContributingFindings = group.Select(x => x.Finding).Take(5).ToList(),
+                Narrative = $"Same finding appears across {mods.Count} modules, indicating a systemic issue.",
+                RecommendedAction = "Address the root cause centrally rather than per-module."
+            });
+        }
+    }
+
+    correlations = correlations
+        .OrderByDescending(c => c.CompoundRisk == "Critical" ? 3 : c.CompoundRisk == "High" ? 2 : 1)
+        .Take(options.CorrelateTop)
+        .ToList();
+
+    if (options.Json)
+    {
+        var jsonCorrelations = correlations.Select(c => new
+        {
+            name = c.Name,
+            compoundRisk = c.CompoundRisk,
+            modulesInvolved = c.ModulesInvolved,
+            contributingFindings = c.ContributingFindings.Select(f => new { title = f.Title, severity = f.Severity.ToString() }),
+            narrative = c.Narrative,
+            recommendedAction = c.RecommendedAction
+        });
+        var json = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            correlations = jsonCorrelations,
+            totalFindings = allFindings.Count,
+            modulesAnalyzed = modules.Count,
+            elapsed = elapsed.TotalSeconds
+        }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+        WriteOutput(json, options.OutputFile);
+    }
+    else
+    {
+        ConsoleFormatter.PrintCorrelate(correlations, allFindings.Count, modules.Count, elapsed);
+    }
+
+    return 0;
+}
+
+static List<CorrelationRule> GetCorrelationRules() => new()
+{
+    new("Weak Authentication + Network Exposure",
+        new[] { "Auth", "Firewall", "Network" },
+        new[] { "password", "credential", "auth", "login", "port", "firewall", "open", "exposed" },
+        "Critical",
+        "Weak authentication combined with network exposure creates direct remote compromise paths.",
+        "Enforce MFA and restrict network access to critical services immediately."),
+    new("Missing Updates + Disabled Antivirus",
+        new[] { "Update", "Antivirus", "Defender" },
+        new[] { "update", "patch", "outdated", "antivirus", "defender", "disabled", "expired" },
+        "Critical",
+        "Unpatched systems without antivirus protection are defenseless against known exploits.",
+        "Enable real-time AV protection and apply pending security updates."),
+    new("Excessive Permissions + Audit Gaps",
+        new[] { "Permission", "Audit", "Log" },
+        new[] { "admin", "privilege", "permission", "audit", "log", "monitor", "disabled" },
+        "High",
+        "Overprivileged accounts with no audit trail enable undetectable malicious activity.",
+        "Implement least-privilege and enable comprehensive audit logging."),
+    new("Encryption Weakness + Data Exposure",
+        new[] { "Encrypt", "TLS", "Share", "Data" },
+        new[] { "encrypt", "tls", "ssl", "certificate", "share", "exposed", "plaintext" },
+        "Critical",
+        "Weak encryption with exposed data shares enables data exfiltration at rest and in transit.",
+        "Enforce TLS 1.2+ and encrypt all shared data with proper access controls."),
+    new("Service Misconfiguration + Missing Patches",
+        new[] { "Service", "Update", "Patch" },
+        new[] { "service", "misconfigur", "unquoted", "update", "patch", "outdated" },
+        "High",
+        "Misconfigured services on unpatched systems provide privilege escalation vectors.",
+        "Patch systems and audit service configurations for security weaknesses."),
+    new("Weak Passwords + Remote Access",
+        new[] { "Password", "Remote", "RDP" },
+        new[] { "password", "weak", "policy", "rdp", "remote", "ssh", "access" },
+        "Critical",
+        "Weak password policies with open remote access are the #1 initial access vector.",
+        "Enforce strong passwords, enable NLA for RDP, and restrict remote access."),
+    new("Firewall Gaps + Running Services",
+        new[] { "Firewall", "Service" },
+        new[] { "firewall", "rule", "allow", "service", "listen", "port", "open" },
+        "High",
+        "Services exposed through firewall gaps increase the attack surface significantly.",
+        "Review firewall rules and disable unnecessary services."),
+    new("Missing Backups + Ransomware Risk",
+        new[] { "Backup", "Update", "Antivirus" },
+        new[] { "backup", "recovery", "restore", "update", "antivirus", "ransomware" },
+        "High",
+        "No backup strategy combined with weak defenses makes ransomware attacks devastating.",
+        "Implement 3-2-1 backup strategy and test restore procedures."),
+    new("Privilege Escalation Path",
+        new[] { "UAC", "Service", "Permission" },
+        new[] { "uac", "admin", "elevat", "service", "permission", "unquoted", "writable" },
+        "Critical",
+        "Multiple privilege escalation vectors combine into reliable local-to-admin paths.",
+        "Fix unquoted service paths, restrict writable directories, and enforce UAC."),
+    new("Supply Chain Risk",
+        new[] { "Signature", "Autorun", "Startup" },
+        new[] { "unsigned", "unverified", "autorun", "startup", "scheduled", "unknown" },
+        "High",
+        "Unsigned executables in auto-start locations enable persistent supply chain compromise.",
+        "Enforce code signing and audit all auto-start entries."),
+    new("Lateral Movement Enablers",
+        new[] { "Share", "SMB", "Auth", "Network" },
+        new[] { "share", "smb", "netbios", "credential", "pass", "hash", "lateral" },
+        "Critical",
+        "Open shares with reusable credentials enable rapid lateral movement across the network.",
+        "Disable unnecessary shares, implement credential guard, and segment the network."),
+    new("Compliance Gap Cluster",
+        new[] { "Policy", "Audit", "Encrypt", "Password" },
+        new[] { "policy", "compliance", "requirement", "standard", "regulation", "missing" },
+        "Elevated",
+        "Multiple compliance failures across modules indicate systemic governance issues.",
+        "Conduct a comprehensive compliance review and establish a remediation roadmap.")
+};
+
+record CorrelationRule(
+    string Name,
+    string[] ModulePatterns,
+    string[] FindingKeywords,
+    string CompoundRisk,
+    string Narrative,
+    string Action);

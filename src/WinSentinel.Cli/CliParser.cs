@@ -200,6 +200,9 @@ public class CliOptions
     public string RadarFormat { get; set; } = "text";
     public int GenomeDays { get; set; } = 90;
     public string GenomeFormat { get; set; } = "text";
+    public int CorrelateMinModules { get; set; } = 2;
+    public string? CorrelateSeverityFilter { get; set; }
+    public int CorrelateTop { get; set; } = 15;
     public int RadarSize { get; set; } = 14;
     public int PulseDays { get; set; } = 60;
     public int PulseWidth { get; set; } = 60;
@@ -276,6 +279,7 @@ public enum CliCommand
     Patrol,
     Radar,
     Genome,
+    Correlate,
     Help,
     Version
 }
@@ -2077,6 +2081,31 @@ public static class CliParser
                     if (!TryConsumeArg(args, ref i, "--genome-format", out var genomeFmt, out var genomeFmtErr))
                     { options.Error = genomeFmtErr; return options; }
                     options.GenomeFormat = genomeFmt.ToLowerInvariant();
+                    break;
+
+                case "--correlate":
+                case "correlate":
+                    options.Command = CliCommand.Correlate;
+                    break;
+
+                case "--correlate-min-modules":
+                    if (!TryConsumeArg(args, ref i, "--correlate-min-modules", out var corrMinVal, out var corrMinErr))
+                    { options.Error = corrMinErr; return options; }
+                    if (int.TryParse(corrMinVal, out var corrMinInt))
+                        options.CorrelateMinModules = Math.Clamp(corrMinInt, 2, 10);
+                    break;
+
+                case "--correlate-severity":
+                    if (!TryConsumeArg(args, ref i, "--correlate-severity", out var corrSevVal, out var corrSevErr))
+                    { options.Error = corrSevErr; return options; }
+                    options.CorrelateSeverityFilter = corrSevVal;
+                    break;
+
+                case "--correlate-top":
+                    if (!TryConsumeArg(args, ref i, "--correlate-top", out var corrTopVal, out var corrTopErr))
+                    { options.Error = corrTopErr; return options; }
+                    if (int.TryParse(corrTopVal, out var corrTopInt))
+                        options.CorrelateTop = Math.Clamp(corrTopInt, 1, 50);
                     break;
 
                 case "--patrol-days":

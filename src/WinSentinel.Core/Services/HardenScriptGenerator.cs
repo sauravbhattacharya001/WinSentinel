@@ -171,9 +171,15 @@ public class HardenScriptGenerator
                 sb.AppendLine($"# {finding.Severity}: {finding.Title}");
                 if (!string.IsNullOrWhiteSpace(finding.Remediation))
                     sb.AppendLine($"# Remediation: {finding.Remediation}");
-                sb.AppendLine($"Invoke-Fix -Title '{title}' -Severity '{finding.Severity}' -Description '{desc}' -Fix {{");
-                sb.AppendLine($"    {fixCmd}");
-                sb.AppendLine("}");
+
+                // CWE-94 fix: encode the fix command as Base64 and reconstruct
+                // the scriptblock via [scriptblock]::Create() instead of embedding
+                // raw command text inside { }.  A raw FixCommand containing '}'
+                // would close the scriptblock early, allowing arbitrary code to
+                // execute outside the Invoke-Fix wrapper — bypassing dry-run,
+                // interactive prompts, and the try/catch safety net.
+                var encodedFix = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(fixCmd));
+                sb.AppendLine($"Invoke-Fix -Title '{title}' -Severity '{finding.Severity}' -Description '{desc}' -Fix ([scriptblock]::Create([System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encodedFix}'))))");
                 sb.AppendLine();
             }
         }

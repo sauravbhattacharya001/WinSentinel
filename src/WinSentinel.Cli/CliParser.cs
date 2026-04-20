@@ -203,6 +203,13 @@ public class CliOptions
     public int CorrelateMinModules { get; set; } = 2;
     public string? CorrelateSeverityFilter { get; set; }
     public int CorrelateTop { get; set; } = 15;
+    public int DriftDays { get; set; } = 30;
+    public string DriftFormat { get; set; } = "text";
+    public string? DriftSeverityFilter { get; set; }
+    public string? DriftModuleFilter { get; set; }
+    public int DriftTop { get; set; } = 20;
+    public bool DriftNewOnly { get; set; }
+    public bool DriftResolvedOnly { get; set; }
     public int RadarSize { get; set; } = 14;
     public int PulseDays { get; set; } = 60;
     public int PulseWidth { get; set; } = 60;
@@ -280,6 +287,7 @@ public enum CliCommand
     Radar,
     Genome,
     Correlate,
+    Drift,
     Help,
     Version
 }
@@ -2119,6 +2127,51 @@ public static class CliParser
                     if (!TryConsumeArg(args, ref i, "--patrol-format", out var patFmt, out var patFmtErr))
                     { options.Error = patFmtErr; return options; }
                     options.PatrolFormat = patFmt.ToLowerInvariant();
+                    break;
+
+                case "--drift":
+                case "drift":
+                    options.Command = CliCommand.Drift;
+                    break;
+
+                case "--drift-days":
+                    if (!TryConsumeArg(args, ref i, "--drift-days", out var driftDaysVal, out var driftDaysErr))
+                    { options.Error = driftDaysErr; return options; }
+                    if (int.TryParse(driftDaysVal, out var driftDaysInt))
+                        options.DriftDays = Math.Clamp(driftDaysInt, 1, 365);
+                    break;
+
+                case "--drift-severity":
+                    if (!TryConsumeArg(args, ref i, "--drift-severity", out var driftSevVal, out var driftSevErr))
+                    { options.Error = driftSevErr; return options; }
+                    options.DriftSeverityFilter = driftSevVal;
+                    break;
+
+                case "--drift-module":
+                    if (!TryConsumeArg(args, ref i, "--drift-module", out var driftModVal, out var driftModErr))
+                    { options.Error = driftModErr; return options; }
+                    options.DriftModuleFilter = driftModVal;
+                    break;
+
+                case "--drift-top":
+                    if (!TryConsumeArg(args, ref i, "--drift-top", out var driftTopVal, out var driftTopErr))
+                    { options.Error = driftTopErr; return options; }
+                    if (int.TryParse(driftTopVal, out var driftTopInt))
+                        options.DriftTop = Math.Clamp(driftTopInt, 1, 100);
+                    break;
+
+                case "--drift-new-only":
+                    options.DriftNewOnly = true;
+                    break;
+
+                case "--drift-resolved-only":
+                    options.DriftResolvedOnly = true;
+                    break;
+
+                case "--drift-format":
+                    if (!TryConsumeArg(args, ref i, "--drift-format", out var driftFmtVal, out var driftFmtErr))
+                    { options.Error = driftFmtErr; return options; }
+                    options.DriftFormat = driftFmtVal.ToLowerInvariant();
                     break;
 
                 default:

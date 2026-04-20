@@ -80,6 +80,7 @@ return options.Command switch
     CliCommand.Radar => HandleRadar(options),
     CliCommand.Genome => HandleGenome(options),
     CliCommand.Correlate => await HandleCorrelate(options),
+    CliCommand.Drift => await HandleDrift(options),
     _ => HandleHelp()
 };
 
@@ -7143,6 +7144,221 @@ static List<CorrelationRule> GetCorrelationRules() => new()
         "Conduct a comprehensive compliance review and establish a remediation roadmap.")
 };
 
+// ── Drift Monitor ────────────────────────────────────────────────────
+
+static async Task<int> HandleDrift(CliOptions options)
+{
+    var (report, engine, elapsed) = await RunAuditAsync(options, suppressOutput: options.Quiet,
+        bannerMessage: "Running audit to detect configuration drift...");
+
+    using var historyService = new AuditHistoryService();
+    historyService.EnsureDatabase();
+    var runs = historyService.GetHistory(options.DriftDays);
+
+    // Current findings from fresh audit
+    var currentFindings = report.Results
+        .SelectMany(r => r.Findings.Select(f => (Module: r.ModuleName, Finding: f)))
+        .ToList();
+
+    if (!string.IsNullOrEmpty(options.DriftSeverityFilter))
+    {
+        if (Enum.TryParse<Severity>(options.DriftSeverityFilter, true, out var sevFilter))
+            currentFindings = currentFindings.Where(f => f.Finding.Severity == sevFilter).ToList();
+    }
+    if (!string.IsNullOrEmpty(options.DriftModuleFilter))
+    {
+        var modFilter = options.DriftModuleFilter.ToLowerInvariant();
+        currentFindings = currentFindings.Where(f => f.Module.ToLowerInvariant().Contains(modFilter)).ToList();
+    }
+
+    var driftEntries = new List<DriftEntry>();
+
+    if (runs.Count >= 1)
+    {
+        // Get previous run details
+        var previousRun = historyService.GetRunDetails(runs[0].Id);
+        var previousFindings = new HashSet<string>();
+        var previousSeverities = new Dictionary<string, string>();
+
+        if (previousRun != null)
+        {
+            foreach (var finding in previousRun.Findings)
+            {
+                var key = $"{finding.ModuleName}::{finding.Title}";
+                previousFindings.Add(key);
+                previousSeverities[key] = finding.Severity;
+            }
+        }
+
+        var currentKeys = new HashSet<string>();
+
+        foreach (var (module, finding) in currentFindings)
+        {
+            var key = $"{module}::{finding.Title}";
+            currentKeys.Add(key);
+
+            if (!previousFindings.Contains(key))
+            {
+                // Check if recurring in older history
+                var appearedBefore = false;
+                foreach (var olderRun in runs.Skip(1).Take(5))
+                {
+                    var details = historyService.GetRunDetails(olderRun.Id);
+                    if (details != null && details.Findings.Any(f => f.ModuleName == module && f.Title == finding.Title))
+                    {
+                        appearedBefore = true;
+                        break;
+                    }
+                }
+
+                driftEntries.Add(new DriftEntry
+                {
+                    Title = finding.Title,
+                    Module = module,
+                    Type = appearedBefore ? DriftType.Recurring : DriftType.New,
+                    NewSeverity = finding.Severity,
+                    Category = finding.Category,
+                    DetectedAt = DateTime.Now,
+                    FixCommand = finding.FixCommand,
+                    Recommendation = appearedBefore
+                        ? "Recurring issue - investigate root cause to prevent drift"
+                        : "New finding detected - review and remediate"
+                });
+            }
+            else if (previousSeverities.TryGetValue(key, out var oldSevStr))
+            {
+                if (Enum.TryParse<Severity>(oldSevStr, true, out var oldSev) && oldSev != finding.Severity)
+                {
+                    driftEntries.Add(new DriftEntry
+                    {
+                        Title = finding.Title,
+                        Module = module,
+                        Type = finding.Severity > oldSev ? DriftType.Escalated : DriftType.Deescalated,
+                        OldSeverity = oldSev,
+                        NewSeverity = finding.Severity,
+                        Category = finding.Category,
+                        DetectedAt = DateTime.Now,
+                        FixCommand = finding.FixCommand,
+                        Recommendation = finding.Severity > oldSev
+                            ? $"Severity escalated from {oldSev} to {finding.Severity} - prioritize remediation"
+                            : $"Severity reduced from {oldSev} to {finding.Severity} - partial progress"
+                    });
+                }
+            }
+        }
+
+        foreach (var prevKey in previousFindings)
+        {
+            if (!currentKeys.Contains(prevKey))
+            {
+                var parts = prevKey.Split("::", 2);
+                var module = parts[0];
+                var title = parts.Length > 1 ? parts[1] : prevKey;
+
+                if (!string.IsNullOrEmpty(options.DriftModuleFilter))
+                {
+                    var modFilter = options.DriftModuleFilter.ToLowerInvariant();
+                    if (!module.ToLowerInvariant().Contains(modFilter)) continue;
+                }
+
+                Severity? oldSev = null;
+                if (previousSeverities.TryGetValue(prevKey, out var sevStr))
+                    if (Enum.TryParse<Severity>(sevStr, true, out var parsed))
+                        oldSev = parsed;
+
+                driftEntries.Add(new DriftEntry
+                {
+                    Title = title,
+                    Module = module,
+                    Type = DriftType.Resolved,
+                    OldSeverity = oldSev,
+                    Category = "",
+                    DetectedAt = DateTime.Now,
+                    Recommendation = "Finding resolved - verify intentional fix"
+                });
+            }
+        }
+    }
+    else
+    {
+        foreach (var (module, finding) in currentFindings)
+        {
+            driftEntries.Add(new DriftEntry
+            {
+                Title = finding.Title,
+                Module = module,
+                Type = DriftType.New,
+                NewSeverity = finding.Severity,
+                Category = finding.Category,
+                DetectedAt = DateTime.Now,
+                FixCommand = finding.FixCommand,
+                Recommendation = "First scan - establishing baseline"
+            });
+        }
+    }
+
+    if (options.DriftNewOnly)
+        driftEntries = driftEntries.Where(d => d.Type == DriftType.New).ToList();
+    if (options.DriftResolvedOnly)
+        driftEntries = driftEntries.Where(d => d.Type == DriftType.Resolved).ToList();
+
+    driftEntries = driftEntries
+        .OrderBy(d => d.Type switch
+        {
+            DriftType.Escalated => 0,
+            DriftType.New => 1,
+            DriftType.Recurring => 2,
+            DriftType.Deescalated => 3,
+            DriftType.Resolved => 4,
+            _ => 5
+        })
+        .ThenByDescending(d => d.NewSeverity ?? d.OldSeverity ?? Severity.Info)
+        .Take(options.DriftTop)
+        .ToList();
+
+    if (options.Json)
+    {
+        var jsonObj = new
+        {
+            drift = driftEntries.Select(d => new
+            {
+                title = d.Title,
+                module = d.Module,
+                type = d.Type.ToString(),
+                oldSeverity = d.OldSeverity?.ToString(),
+                newSeverity = d.NewSeverity?.ToString(),
+                category = d.Category,
+                detectedAt = d.DetectedAt.ToString("o"),
+                fixCommand = d.FixCommand,
+                recommendation = d.Recommendation
+            }),
+            summary = new
+            {
+                totalDrift = driftEntries.Count,
+                newFindings = driftEntries.Count(d => d.Type == DriftType.New),
+                resolved = driftEntries.Count(d => d.Type == DriftType.Resolved),
+                escalated = driftEntries.Count(d => d.Type == DriftType.Escalated),
+                deescalated = driftEntries.Count(d => d.Type == DriftType.Deescalated),
+                recurring = driftEntries.Count(d => d.Type == DriftType.Recurring),
+                historyDays = options.DriftDays,
+                historyRuns = runs.Count
+            }
+        };
+        var json = JsonSerializer.Serialize(jsonObj, new JsonSerializerOptions { WriteIndented = true });
+        WriteOutput(json, options.OutputFile);
+    }
+    else if (!options.Quiet)
+    {
+        ConsoleFormatter.PrintDrift(driftEntries, runs.Count, options.DriftDays, elapsed);
+    }
+
+    var hasCriticalDrift = driftEntries.Any(d =>
+        (d.Type == DriftType.Escalated && d.NewSeverity == Severity.Critical) ||
+        (d.Type == DriftType.New && d.NewSeverity == Severity.Critical));
+
+    return hasCriticalDrift ? 1 : 0;
+}
+
 record CorrelationRule(
     string Name,
     string[] ModulePatterns,
@@ -7150,3 +7366,4 @@ record CorrelationRule(
     string CompoundRisk,
     string Narrative,
     string Action);
+

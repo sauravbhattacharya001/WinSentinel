@@ -433,6 +433,26 @@ public static class CliParser
     }
 
     /// <summary>
+    /// Consume the next argument as a double within [<paramref name="min"/>, <paramref name="max"/>].
+    /// Returns true and advances <paramref name="i"/> if successful;
+    /// sets <paramref name="error"/> on failure.
+    /// </summary>
+    private static bool TryConsumeDouble(string[] args, ref int i, string flag, double min, double max, out double value, out string? error)
+    {
+        error = null;
+        value = 0;
+        if (i + 1 < args.Length)
+        {
+            if (double.TryParse(args[++i], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value) && value >= min && value <= max)
+                return true;
+            error = $"Invalid {flag.TrimStart('-')} value. Must be {min}-{max}.";
+            return false;
+        }
+        error = $"Missing value for {flag}.";
+        return false;
+    }
+
+    /// <summary>
     /// Consume the next argument as an integer within [<paramref name="min"/>, <paramref name="max"/>].
     /// Returns true and advances <paramref name="i"/> if successful;
     /// sets <paramref name="error"/> on failure.
@@ -656,10 +676,9 @@ public static class CliParser
                     break;
 
                 case "--cost-sprint-hours":
-                    if (i + 1 < args.Length && double.TryParse(args[++i], out var cSprint) && cSprint >= 0.5 && cSprint <= 40)
-                        options.CostSprintHours = cSprint;
-                    else
-                    { options.Error = "Invalid --cost-sprint-hours value. Must be 0.5-40."; return options; }
+                    if (!TryConsumeDouble(args, ref i, "--cost-sprint-hours", 0.5, 40, out var cSprint, out var cSprintErr))
+                    { options.Error = cSprintErr; return options; }
+                    options.CostSprintHours = cSprint;
                     break;
 
                 case "--cost-format":
@@ -1791,17 +1810,15 @@ public static class CliParser
                     break;
 
                 case "--watchdog-warn-z":
-                    if (!TryConsumeArg(args, ref i, "--watchdog-warn-z", out var wdWarn, out var wdWarnErr))
-                    { options.Error = wdWarnErr; return options; }
-                    if (double.TryParse(wdWarn, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var wdWarnVal))
-                        options.WatchdogWarnZ = wdWarnVal;
+                    if (!TryConsumeDouble(args, ref i, "--watchdog-warn-z", 0.1, 10.0, out var wdWarnVal, out var wdWarnZErr))
+                    { options.Error = wdWarnZErr; return options; }
+                    options.WatchdogWarnZ = wdWarnVal;
                     break;
 
                 case "--watchdog-crit-z":
-                    if (!TryConsumeArg(args, ref i, "--watchdog-crit-z", out var wdCrit, out var wdCritErr))
-                    { options.Error = wdCritErr; return options; }
-                    if (double.TryParse(wdCrit, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var wdCritVal))
-                        options.WatchdogCritZ = wdCritVal;
+                    if (!TryConsumeDouble(args, ref i, "--watchdog-crit-z", 0.1, 10.0, out var wdCritVal, out var wdCritZErr))
+                    { options.Error = wdCritZErr; return options; }
+                    options.WatchdogCritZ = wdCritVal;
                     break;
 
                 case "--cookbook":
@@ -1850,10 +1867,9 @@ public static class CliParser
                     break;
 
                 case "--cluster-threshold":
-                    if (!TryConsumeArg(args, ref i, "--cluster-threshold", out var clThresh, out var clThreshErr))
-                    { options.Error = clThreshErr; return options; }
-                    if (double.TryParse(clThresh, System.Globalization.CultureInfo.InvariantCulture, out var clThreshVal))
-                        options.ClusterThreshold = Math.Clamp(clThreshVal, 0.1, 1.0);
+                    if (!TryConsumeDouble(args, ref i, "--cluster-threshold", 0.1, 1.0, out var clThreshVal, out var clThreshZErr))
+                    { options.Error = clThreshZErr; return options; }
+                    options.ClusterThreshold = clThreshVal;
                     break;
 
                 case "--cluster-format":

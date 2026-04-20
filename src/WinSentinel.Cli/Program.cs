@@ -82,6 +82,7 @@ return options.Command switch
     CliCommand.Correlate => await HandleCorrelate(options),
     CliCommand.Drift => await HandleDrift(options),
     CliCommand.Mission => await HandleMission(options),
+    CliCommand.Immune => HandleImmune(options),
     _ => HandleHelp()
 };
 
@@ -7586,6 +7587,36 @@ static List<string> GenerateMissionRecommendations(List<(string Name, int Score,
     recs.Add("Use --correlate to identify compound risks across improving modules");
 
     return recs;
+}
+
+// ── Immune System ────────────────────────────────────────────────────
+
+static int HandleImmune(CliOptions options)
+{
+    using var history = new AuditHistoryService();
+    history.EnsureDatabase();
+
+    var runs = history.GetHistory(options.ImmuneDays);
+
+    if (runs.Count == 0)
+    {
+        ConsoleFormatter.PrintWarning("No audit data found. Run --audit first to build immunity.");
+        return 1;
+    }
+
+    var immune = new SecurityImmuneSystem();
+    var report = immune.BuildImmuneProfile(runs, options.ImmuneShowExpired);
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        var json = JsonSerializer.Serialize(report, jsonOptions);
+        WriteOutput(json, options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintImmuneReport(report, options);
+    return 0;
 }
 
 record CorrelationRule(

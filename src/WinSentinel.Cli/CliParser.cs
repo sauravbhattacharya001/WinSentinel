@@ -227,6 +227,11 @@ public class CliOptions
     public int MissionDays { get; set; } = 90;
     public int MissionTarget { get; set; } = 0;
     public int MissionPhases { get; set; } = 3;
+
+    // Immune options
+    public int ImmuneDays { get; set; } = 90;
+    public string ImmuneFormat { get; set; } = "text";
+    public bool ImmuneShowExpired { get; set; }
 }
 
 public enum CliCommand
@@ -294,6 +299,7 @@ public enum CliCommand
     Correlate,
     Drift,
     Mission,
+    Immune,
     Help,
     Version
 }
@@ -2220,6 +2226,22 @@ public static class CliParser
                     { options.Error = missionPhasesErr; return options; }
                     if (int.TryParse(missionPhasesVal, out var missionPhasesInt))
                         options.MissionPhases = Math.Clamp(missionPhasesInt, 1, 5);
+                    break;
+
+                case "--immune":
+                case "immune":
+                    options.Command = CliCommand.Immune;
+                    break;
+
+                case "--immune-days":
+                    if (!TryConsumeArg(args, ref i, "--immune-days", out var immuneDaysVal, out var immuneDaysErr))
+                    { options.Error = immuneDaysErr; return options; }
+                    if (int.TryParse(immuneDaysVal, out var immuneDaysInt))
+                        options.ImmuneDays = Math.Clamp(immuneDaysInt, 7, 365);
+                    break;
+
+                case "--immune-show-expired":
+                    options.ImmuneShowExpired = true;
                     break;
 
                 default:

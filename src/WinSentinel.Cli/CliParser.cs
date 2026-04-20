@@ -222,6 +222,11 @@ public class CliOptions
     public bool CalendarIncludeSla { get; set; } = true;
     public bool CalendarIncludeAudits { get; set; } = true;
     public bool CalendarIncludeReviews { get; set; } = true;
+
+    // Mission options
+    public int MissionDays { get; set; } = 90;
+    public int MissionTarget { get; set; } = 0;
+    public int MissionPhases { get; set; } = 3;
 }
 
 public enum CliCommand
@@ -288,6 +293,7 @@ public enum CliCommand
     Genome,
     Correlate,
     Drift,
+    Mission,
     Help,
     Version
 }
@@ -2172,6 +2178,32 @@ public static class CliParser
                     if (!TryConsumeArg(args, ref i, "--drift-format", out var driftFmtVal, out var driftFmtErr))
                     { options.Error = driftFmtErr; return options; }
                     options.DriftFormat = driftFmtVal.ToLowerInvariant();
+                    break;
+
+                case "--mission":
+                case "mission":
+                    options.Command = CliCommand.Mission;
+                    break;
+
+                case "--mission-days":
+                    if (!TryConsumeArg(args, ref i, "--mission-days", out var missionDaysVal, out var missionDaysErr))
+                    { options.Error = missionDaysErr; return options; }
+                    if (int.TryParse(missionDaysVal, out var missionDaysInt))
+                        options.MissionDays = Math.Clamp(missionDaysInt, 7, 365);
+                    break;
+
+                case "--mission-target":
+                    if (!TryConsumeArg(args, ref i, "--mission-target", out var missionTargetVal, out var missionTargetErr))
+                    { options.Error = missionTargetErr; return options; }
+                    if (int.TryParse(missionTargetVal, out var missionTargetInt))
+                        options.MissionTarget = Math.Clamp(missionTargetInt, 0, 100);
+                    break;
+
+                case "--mission-phases":
+                    if (!TryConsumeArg(args, ref i, "--mission-phases", out var missionPhasesVal, out var missionPhasesErr))
+                    { options.Error = missionPhasesErr; return options; }
+                    if (int.TryParse(missionPhasesVal, out var missionPhasesInt))
+                        options.MissionPhases = Math.Clamp(missionPhasesInt, 1, 5);
                     break;
 
                 default:

@@ -441,6 +441,14 @@ public static partial class ConsoleFormatter
         WriteLineColored("    winsentinel --heatmap --heatmap-weeks 52            # Full year heatmap", ConsoleColor.DarkGray);
         WriteLineColored("    winsentinel --heatmap --json                        # Heatmap data as JSON", ConsoleColor.DarkGray);
         Console.WriteLine();
+        WriteHelpEntry("    --mission                   ", "Generate goal-oriented security improvement plan");
+        WriteHelpEntry("    --mission-days <n>          ", "Analysis period in days (default: 90)");
+        WriteHelpEntry("    --mission-target <n>        ", "Target score 0-100 (0 = auto-calculate)");
+        WriteHelpEntry("    --mission-phases <n>        ", "Number of plan phases 1-5 (default: 3)");
+        WriteLineColored("    winsentinel --mission                               # Auto-target mission plan", ConsoleColor.DarkGray);
+        WriteLineColored("    winsentinel --mission --mission-target 90            # Aim for score 90", ConsoleColor.DarkGray);
+        WriteLineColored("    winsentinel --mission --json                         # Mission plan as JSON", ConsoleColor.DarkGray);
+        Console.WriteLine();
         Console.WriteLine("  EXIT CODES:");
         Console.WriteLine("    0  All checks pass (or score >= threshold)");
         Console.WriteLine("    1  Warnings found (or score < threshold)");

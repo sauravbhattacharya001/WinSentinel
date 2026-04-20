@@ -81,6 +81,7 @@ return options.Command switch
     CliCommand.Genome => HandleGenome(options),
     CliCommand.Correlate => await HandleCorrelate(options),
     CliCommand.Drift => await HandleDrift(options),
+    CliCommand.Mission => await HandleMission(options),
     _ => HandleHelp()
 };
 
@@ -7357,6 +7358,234 @@ static async Task<int> HandleDrift(CliOptions options)
         (d.Type == DriftType.New && d.NewSeverity == Severity.Critical));
 
     return hasCriticalDrift ? 1 : 0;
+}
+
+// 🎯 Security Mission Planner
+
+static async Task<int> HandleMission(CliOptions options)
+{
+    using var history = new AuditHistoryService();
+    history.EnsureDatabase();
+    var runs = history.GetHistory(options.MissionDays);
+
+    if (runs.Count == 0)
+    {
+        ConsoleFormatter.PrintWarning("No audit data found. Run --audit first to establish baseline.");
+        return 1;
+    }
+
+    var ordered = runs.OrderBy(r => r.Timestamp).ToList();
+    var latest = ordered.Last();
+    var earliest = ordered.First();
+    var currentScore = latest.OverallScore;
+
+    // Auto-calculate target if not specified
+    var targetScore = options.MissionTarget > 0
+        ? options.MissionTarget
+        : Math.Min(100, currentScore + Math.Max(10, (100 - currentScore) / 2));
+
+    // Mission codename
+    var codenames = new[] { "IRON_SHIELD", "STEEL_GATE", "DARK_FORTRESS", "SILENT_GUARDIAN",
+        "FROST_WALL", "THUNDER_LOCK", "SHADOW_VAULT", "EAGLE_EYE", "WOLF_PACK", "STORM_BREAK" };
+    var codename = codenames[DateTime.Now.DayOfYear % codenames.Length];
+
+    // Analyze modules
+    var moduleAnalysis = latest.ModuleScores
+        .OrderBy(m => m.Score)
+        .Select(m =>
+        {
+            var prevScore = earliest.ModuleScores
+                .FirstOrDefault(e => e.ModuleName == m.ModuleName)?.Score;
+            var trend = prevScore.HasValue
+                ? (m.Score > prevScore.Value ? "improving" : m.Score < prevScore.Value ? "declining" : "stable")
+                : "new";
+            var gap = 100 - m.Score;
+            var priority = gap >= 50 ? "CRITICAL" : gap >= 30 ? "HIGH" : gap >= 15 ? "MEDIUM" : "LOW";
+            return new
+            {
+                Name = m.ModuleName,
+                Score = m.Score,
+                PrevScore = prevScore,
+                Trend = trend,
+                Gap = gap,
+                Priority = priority
+            };
+        })
+        .ToList();
+
+    // Build phased objectives
+    var phases = options.MissionPhases;
+    var pointsNeeded = targetScore - currentScore;
+    var modulesPerPhase = (int)Math.Ceiling((double)moduleAnalysis.Count / phases);
+
+    var phaseList = new List<(string name, string description, List<(string module, int targetGain, string action)> objectives)>();
+    var phaseNames = new[] { "Quick Wins", "Core Hardening", "Excellence Push", "Deep Defense", "Final Sweep" };
+    var phaseDescs = new[] {
+        "Low-effort, high-impact improvements to build momentum",
+        "Address critical gaps in weakest modules",
+        "Push remaining modules toward target excellence",
+        "Fortify edge cases and advanced configurations",
+        "Final polish to reach mission target"
+    };
+
+    // Sort: declining+critical first (quick wins = modules close to next threshold)
+    var sortedForPhasing = moduleAnalysis
+        .OrderByDescending(m => m.Gap)
+        .ThenBy(m => m.Trend == "declining" ? 0 : m.Trend == "stable" ? 1 : 2)
+        .ToList();
+
+    for (int p = 0; p < phases; p++)
+    {
+        var phaseModules = sortedForPhasing.Skip(p * modulesPerPhase).Take(modulesPerPhase).ToList();
+        var objectives = phaseModules.Select(m =>
+        {
+            var gain = Math.Min(m.Gap, (int)Math.Ceiling((double)pointsNeeded / moduleAnalysis.Count) + 5);
+            var action = m.Priority switch
+            {
+                "CRITICAL" => $"Remediate critical findings, establish baseline controls",
+                "HIGH" => $"Fix high-severity issues, add monitoring",
+                "MEDIUM" => $"Optimize configuration, address warnings",
+                _ => $"Fine-tune settings, harden edge cases"
+            };
+            return (module: m.Name, targetGain: gain, action: action);
+        }).ToList();
+        phaseList.Add((phaseNames[p], phaseDescs[p], objectives));
+    }
+
+    // Estimated timeline
+    var weeksPerPhase = Math.Max(1, options.MissionDays / (phases * 7));
+
+    if (options.Json)
+    {
+        var report = new
+        {
+            command = "mission",
+            codename,
+            generated = DateTime.Now,
+            currentScore,
+            targetScore,
+            pointsNeeded,
+            analysisPeriod = new { days = options.MissionDays, from = earliest.Timestamp, to = latest.Timestamp },
+            auditRuns = runs.Count,
+            modules = moduleAnalysis.Select(m => new
+            {
+                name = m.Name,
+                score = m.Score,
+                previousScore = m.PrevScore,
+                trend = m.Trend,
+                gap = m.Gap,
+                priority = m.Priority
+            }),
+            phases = phaseList.Select((ph, i) => new
+            {
+                phase = i + 1,
+                name = ph.name,
+                description = ph.description,
+                weeksEstimate = weeksPerPhase,
+                objectives = ph.objectives.Select(o => new
+                {
+                    module = o.module,
+                    targetGain = o.targetGain,
+                    action = o.action
+                })
+            }),
+            recommendations = GenerateMissionRecommendations(moduleAnalysis.Select(m => (m.Name, m.Score, m.Trend, m.Priority)).ToList())
+        };
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        WriteOutput(JsonSerializer.Serialize(report, jsonOptions), options.OutputFile);
+    }
+    else
+    {
+        // Header
+        Console.WriteLine();
+        Console.WriteLine("\x1b[1;36m╔══════════════════════════════════════════════════════════════╗\x1b[0m");
+        Console.WriteLine($"\x1b[1;36m║\x1b[0m  \x1b[1;33m🎯 MISSION: {codename,-44}\x1b[0m  \x1b[1;36m║\x1b[0m");
+        Console.WriteLine($"\x1b[1;36m║\x1b[0m  \x1b[90mSecurity Improvement Plan — Generated {DateTime.Now:yyyy-MM-dd}\x1b[0m   \x1b[1;36m║\x1b[0m");
+        Console.WriteLine("\x1b[1;36m╚══════════════════════════════════════════════════════════════╝\x1b[0m");
+        Console.WriteLine();
+
+        // Score progress bar
+        var barWidth = 40;
+        var filled = (int)(currentScore / 100.0 * barWidth);
+        var targetMark = (int)(targetScore / 100.0 * barWidth);
+        var bar = new string('█', filled) + new string('░', barWidth - filled);
+        var scoreColor = currentScore >= 80 ? "32" : currentScore >= 60 ? "33" : "31";
+        Console.WriteLine($"  Current: \x1b[1;{scoreColor}m{currentScore}\x1b[0m / Target: \x1b[1;36m{targetScore}\x1b[0m  (+{pointsNeeded} points needed)");
+        Console.WriteLine($"  [\x1b[{scoreColor}m{bar}\x1b[0m]");
+        Console.WriteLine();
+
+        // Module ranking table
+        Console.WriteLine("\x1b[1m  MODULE ASSESSMENT\x1b[0m");
+        Console.WriteLine("\x1b[90m  ─────────────────────────────────────────────────────────\x1b[0m");
+        Console.WriteLine($"  {"Module",-22} {"Score",5}  {"Trend",-10} {"Gap",4}  Priority");
+        Console.WriteLine($"  {new string('─', 22)} {new string('─', 5)}  {new string('─', 10)} {new string('─', 4)}  {new string('─', 8)}");
+        foreach (var m in moduleAnalysis)
+        {
+            var trendIcon = m.Trend switch { "improving" => "\x1b[32m▲\x1b[0m", "declining" => "\x1b[31m▼\x1b[0m", _ => "\x1b[90m─\x1b[0m" };
+            var prioColor = m.Priority switch { "CRITICAL" => "31", "HIGH" => "33", "MEDIUM" => "36", _ => "90" };
+            Console.WriteLine($"  {m.Name,-22} {m.Score,5}  {trendIcon} {m.Trend,-8} {m.Gap,4}  \x1b[{prioColor}m{m.Priority}\x1b[0m");
+        }
+        Console.WriteLine();
+
+        // Phased plan
+        Console.WriteLine("\x1b[1m  MISSION PHASES\x1b[0m");
+        Console.WriteLine("\x1b[90m  ─────────────────────────────────────────────────────────\x1b[0m");
+        for (int i = 0; i < phaseList.Count; i++)
+        {
+            var ph = phaseList[i];
+            var startWeek = i * weeksPerPhase + 1;
+            var endWeek = (i + 1) * weeksPerPhase;
+            Console.WriteLine($"\n  \x1b[1;33mPhase {i + 1}: {ph.name}\x1b[0m  \x1b[90m(Weeks {startWeek}-{endWeek})\x1b[0m");
+            Console.WriteLine($"  \x1b[90m{ph.description}\x1b[0m");
+            foreach (var obj in ph.objectives)
+            {
+                Console.WriteLine($"    • \x1b[1m{obj.module}\x1b[0m: {obj.action} \x1b[90m(+{obj.targetGain} pts)\x1b[0m");
+            }
+        }
+        Console.WriteLine();
+
+        // Recommendations
+        var recs = GenerateMissionRecommendations(moduleAnalysis.Select(m => (m.Name, m.Score, m.Trend, m.Priority)).ToList());
+        Console.WriteLine("\x1b[1m  PROACTIVE RECOMMENDATIONS\x1b[0m");
+        Console.WriteLine("\x1b[90m  ─────────────────────────────────────────────────────────\x1b[0m");
+        foreach (var rec in recs)
+        {
+            Console.WriteLine($"  💡 {rec}");
+        }
+        Console.WriteLine();
+
+        // Summary
+        Console.WriteLine($"  \x1b[90mEstimated timeline: {phases * weeksPerPhase} weeks | Audit runs analyzed: {runs.Count} | Period: {earliest.Timestamp:MMM dd} → {latest.Timestamp:MMM dd}\x1b[0m");
+        Console.WriteLine();
+    }
+
+    return 0;
+}
+
+static List<string> GenerateMissionRecommendations(List<(string Name, int Score, string Trend, string Priority)> modules)
+{
+    var recs = new List<string>();
+
+    var declining = modules.Where(m => m.Trend == "declining").ToList();
+    if (declining.Any())
+        recs.Add($"Urgent: {string.Join(", ", declining.Select(m => m.Name))} are declining — investigate root cause before further degradation");
+
+    var critical = modules.Where(m => m.Priority == "CRITICAL").ToList();
+    if (critical.Any())
+        recs.Add($"Schedule dedicated remediation sprint for: {string.Join(", ", critical.Select(m => m.Name))}");
+
+    if (modules.All(m => m.Score >= 70))
+        recs.Add("All modules above 70 — focus on consistency and preventing regression");
+    else
+        recs.Add("Set up automated --watchdog alerts for modules below 70 to catch regressions early");
+
+    if (modules.Count(m => m.Trend == "improving") > modules.Count / 2)
+        recs.Add("Positive momentum detected — maintain current cadence and expand coverage");
+
+    recs.Add("Run --patrol weekly to ensure autonomous checkpoint validation");
+    recs.Add("Use --correlate to identify compound risks across improving modules");
+
+    return recs;
 }
 
 record CorrelationRule(

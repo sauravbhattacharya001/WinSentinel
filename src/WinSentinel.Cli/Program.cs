@@ -83,6 +83,7 @@ return options.Command switch
     CliCommand.Drift => await HandleDrift(options),
     CliCommand.Mission => await HandleMission(options),
     CliCommand.Immune => HandleImmune(options),
+    CliCommand.Swarm => await HandleSwarm(options),
     _ => HandleHelp()
 };
 
@@ -7616,6 +7617,28 @@ static int HandleImmune(CliOptions options)
     }
 
     ConsoleFormatter.PrintImmuneReport(report, options);
+    return 0;
+}
+
+static async Task<int> HandleSwarm(CliOptions options)
+{
+    var (report, engine, elapsed) = await RunAuditAsync(options, suppressOutput: options.Quiet,
+        bannerMessage: "Running audit for swarm analysis...");
+
+    using var history = new AuditHistoryService();
+    history.EnsureDatabase();
+    var swarm = new SecuritySwarmIntelligence(history);
+    var swarmReport = swarm.Analyze(report, options.SwarmDays);
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        var json = JsonSerializer.Serialize(swarmReport, jsonOptions);
+        WriteOutput(json, options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintSwarmReport(swarmReport, options);
     return 0;
 }
 

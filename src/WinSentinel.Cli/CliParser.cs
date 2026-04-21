@@ -232,6 +232,9 @@ public class CliOptions
     public int ImmuneDays { get; set; } = 90;
     public string ImmuneFormat { get; set; } = "text";
     public bool ImmuneShowExpired { get; set; }
+    public int SwarmDays { get; set; } = 30;
+    public string SwarmFormat { get; set; } = "text";
+    public bool SwarmVerbose { get; set; }
 }
 
 public enum CliCommand
@@ -300,6 +303,7 @@ public enum CliCommand
     Drift,
     Mission,
     Immune,
+    Swarm,
     Help,
     Version
 }
@@ -2242,6 +2246,22 @@ public static class CliParser
 
                 case "--immune-show-expired":
                     options.ImmuneShowExpired = true;
+                    break;
+
+                case "--swarm":
+                case "swarm":
+                    options.Command = CliCommand.Swarm;
+                    break;
+
+                case "--swarm-days":
+                    if (!TryConsumeArg(args, ref i, "--swarm-days", out var swarmDaysVal, out var swarmDaysErr))
+                    { options.Error = swarmDaysErr; return options; }
+                    if (int.TryParse(swarmDaysVal, out var swarmDaysInt))
+                        options.SwarmDays = Math.Clamp(swarmDaysInt, 7, 365);
+                    break;
+
+                case "--swarm-verbose":
+                    options.SwarmVerbose = true;
                     break;
 
                 default:

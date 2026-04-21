@@ -84,6 +84,7 @@ return options.Command switch
     CliCommand.Mission => await HandleMission(options),
     CliCommand.Immune => HandleImmune(options),
     CliCommand.Swarm => await HandleSwarm(options),
+    CliCommand.Nerve => await HandleNerve(options),
     _ => HandleHelp()
 };
 
@@ -7639,6 +7640,30 @@ static async Task<int> HandleSwarm(CliOptions options)
     }
 
     ConsoleFormatter.PrintSwarmReport(swarmReport, options);
+    return 0;
+}
+
+// ── Nerve Center ──────────────────────────────────────────────────
+
+static async Task<int> HandleNerve(CliOptions options)
+{
+    var (report, engine, elapsed) = await RunAuditAsync(options, suppressOutput: options.Quiet,
+        bannerMessage: "Running audit for nerve center analysis...");
+
+    using var history = new AuditHistoryService();
+    history.EnsureDatabase();
+    var nerve = new SecurityNerveCenter(history);
+    var nerveReport = nerve.Analyze(report, options.NerveDays);
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        var json = JsonSerializer.Serialize(nerveReport, jsonOptions);
+        WriteOutput(json, options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintNerveCenter(nerveReport, options);
     return 0;
 }
 

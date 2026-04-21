@@ -283,6 +283,7 @@ public static partial class ConsoleFormatter
         WriteHelpEntry("    --attack-paths       ", "Kill chain attack path analysis with chokepoints");
         WriteHelpEntry("    --summary            ", "Executive security summary (plain-English brief)");
         WriteHelpEntry("    --help, -h           ", "Show this help message");
+        WriteHelpEntry("    --nerve              ", "Unified situational awareness nerve center");
         WriteHelpEntry("    --version, -v        ", "Show version information");
         Console.WriteLine();
         Console.WriteLine("  OPTIONS:");

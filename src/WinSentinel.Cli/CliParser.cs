@@ -233,6 +233,7 @@ public class CliOptions
     public string ImmuneFormat { get; set; } = "text";
     public bool ImmuneShowExpired { get; set; }
     public int SwarmDays { get; set; } = 30;
+    public int NerveDays { get; set; } = 30;
     public string SwarmFormat { get; set; } = "text";
     public bool SwarmVerbose { get; set; }
 }
@@ -304,6 +305,7 @@ public enum CliCommand
     Mission,
     Immune,
     Swarm,
+    Nerve,
     Help,
     Version
 }
@@ -2262,6 +2264,18 @@ public static class CliParser
 
                 case "--swarm-verbose":
                     options.SwarmVerbose = true;
+                    break;
+
+                case "--nerve":
+                case "nerve":
+                    options.Command = CliCommand.Nerve;
+                    break;
+
+                case "--nerve-days":
+                    if (!TryConsumeArg(args, ref i, "--nerve-days", out var nerveDaysVal, out var nerveDaysErr))
+                    { options.Error = nerveDaysErr; return options; }
+                    if (int.TryParse(nerveDaysVal, out var nerveDaysInt))
+                        options.NerveDays = Math.Clamp(nerveDaysInt, 7, 365);
                     break;
 
                 default:

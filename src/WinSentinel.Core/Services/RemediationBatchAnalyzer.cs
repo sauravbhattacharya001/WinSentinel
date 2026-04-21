@@ -323,11 +323,5 @@ public class RemediationBatchAnalyzer
         return System.Text.RegularExpressions.Regex.Replace(text.Trim().ToLowerInvariant(), @"\s+", " ");
     }
 
-    public static int SeverityWeight(Severity severity) => severity switch
-    {
-        Severity.Critical => 10,
-        Severity.Warning => 5,
-        Severity.Info => 1,
-        _ => 0
-    };
+    public static int SeverityWeight(Severity severity) => severity.RiskWeight();
 }

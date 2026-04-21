@@ -178,22 +178,33 @@ public class RemediationPlanner
         return score;
     }
 
+    // ── Pre-compiled pattern lists (avoid per-call allocation) ────────
+
+    private static readonly string[] QuickWinPatterns =
+    [
+        "enable", "disable", "turn on", "turn off",
+        "set-", "get-", "set ", "toggle",
+        "settings >", "check the",
+        "open settings", "group policy", "gpedit",
+        "registry", "regedit", "reg add",
+        "right-click", "properties"
+    ];
+
+    private static readonly string[] MajorPatterns =
+    [
+        "install ", "deploy", "migrate", "upgrade",
+        "third-party", "3rd party", "purchase",
+        "enterprise", "infrastructure", "architecture",
+        "redesign", "replace", "overhaul",
+        "contact your administrator", "it department"
+    ];
+
     /// <summary>
     /// Check if remediation text suggests a quick win (settings toggle, simple command).
     /// </summary>
     private static bool IsQuickWinRemediation(string remediation)
     {
-        var quickPatterns = new[]
-        {
-            "enable", "disable", "turn on", "turn off",
-            "set-", "get-", "set ", "toggle",
-            "settings >", "settings >", "check the",
-            "open settings", "group policy", "gpedit",
-            "registry", "regedit", "reg add",
-            "right-click", "properties"
-        };
-
-        return quickPatterns.Any(p => remediation.Contains(p, StringComparison.OrdinalIgnoreCase));
+        return QuickWinPatterns.Any(p => remediation.Contains(p, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>
@@ -201,15 +212,6 @@ public class RemediationPlanner
     /// </summary>
     private static bool IsMajorRemediation(string remediation)
     {
-        var majorPatterns = new[]
-        {
-            "install ", "deploy", "migrate", "upgrade",
-            "third-party", "3rd party", "purchase",
-            "enterprise", "infrastructure", "architecture",
-            "redesign", "replace", "overhaul",
-            "contact your administrator", "it department"
-        };
-
-        return majorPatterns.Any(p => remediation.Contains(p, StringComparison.OrdinalIgnoreCase));
+        return MajorPatterns.Any(p => remediation.Contains(p, StringComparison.OrdinalIgnoreCase));
     }
 }

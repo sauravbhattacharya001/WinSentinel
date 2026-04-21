@@ -310,29 +310,72 @@ public class AgentJournal
 
     private JournalSummary BuildSummary(List<JournalEntry> entries, string period)
     {
+        // Single-pass aggregation instead of 10+ separate LINQ iterations.
+        // Each Count()/GroupBy() previously walked the full list independently,
+        // resulting in ~11×N iterations and intermediate allocations.  This
+        // single foreach reduces it to 1×N with O(sources) dictionary overhead.
+        int threats = 0, actions = 0, correlations = 0;
+        int critical = 0, high = 0, medium = 0, low = 0;
+        int successRem = 0, failedRem = 0;
+        var sourceCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+
+        foreach (var e in entries)
+        {
+            switch (e.EntryType)
+            {
+                case JournalEntryType.ThreatDetected:
+                    threats++;
+                    break;
+                case JournalEntryType.ActionTaken:
+                    actions++;
+                    if (e.Tags.Contains("success", StringComparer.OrdinalIgnoreCase))
+                        successRem++;
+                    if (e.Tags.Contains("failed", StringComparer.OrdinalIgnoreCase))
+                        failedRem++;
+                    break;
+                case JournalEntryType.CorrelationDetected:
+                    correlations++;
+                    break;
+            }
+
+            switch (e.Severity)
+            {
+                case ThreatSeverity.Critical: critical++; break;
+                case ThreatSeverity.High:     high++;     break;
+                case ThreatSeverity.Medium:   medium++;   break;
+                case ThreatSeverity.Low:
+                case ThreatSeverity.Info:     low++;      break;
+            }
+
+            if (!string.IsNullOrEmpty(e.Source))
+            {
+                if (sourceCounts.TryGetValue(e.Source, out var c))
+                    sourceCounts[e.Source] = c + 1;
+                else
+                    sourceCounts[e.Source] = 1;
+            }
+        }
+
+        // Top 5 sources by count — partial sort avoids full OrderBy overhead
+        var topSources = sourceCounts
+            .OrderByDescending(kv => kv.Value)
+            .Take(5)
+            .ToDictionary(kv => kv.Key, kv => kv.Value);
+
         return new JournalSummary
         {
             Period = period,
             TotalEvents = entries.Count,
-            ThreatsDetected = entries.Count(e => e.EntryType == JournalEntryType.ThreatDetected),
-            ActionsTaken = entries.Count(e => e.EntryType == JournalEntryType.ActionTaken),
-            CorrelationsDetected = entries.Count(e => e.EntryType == JournalEntryType.CorrelationDetected),
-            CriticalCount = entries.Count(e => e.Severity == ThreatSeverity.Critical),
-            HighCount = entries.Count(e => e.Severity == ThreatSeverity.High),
-            MediumCount = entries.Count(e => e.Severity == ThreatSeverity.Medium),
-            LowCount = entries.Count(e => e.Severity == ThreatSeverity.Low || e.Severity == ThreatSeverity.Info),
-            TopSources = entries
-                .Where(e => !string.IsNullOrEmpty(e.Source))
-                .GroupBy(e => e.Source)
-                .OrderByDescending(g => g.Count())
-                .Take(5)
-                .ToDictionary(g => g.Key, g => g.Count()),
-            SuccessfulRemediations = entries.Count(e =>
-                e.EntryType == JournalEntryType.ActionTaken &&
-                e.Tags.Contains("success", StringComparer.OrdinalIgnoreCase)),
-            FailedRemediations = entries.Count(e =>
-                e.EntryType == JournalEntryType.ActionTaken &&
-                e.Tags.Contains("failed", StringComparer.OrdinalIgnoreCase))
+            ThreatsDetected = threats,
+            ActionsTaken = actions,
+            CorrelationsDetected = correlations,
+            CriticalCount = critical,
+            HighCount = high,
+            MediumCount = medium,
+            LowCount = low,
+            TopSources = topSources,
+            SuccessfulRemediations = successRem,
+            FailedRemediations = failedRem
         };
     }
 

@@ -60,7 +60,7 @@ public class NotificationService
         if (args.Report.TotalWarnings > 0)
             return $"🟡 {args.Report.TotalWarnings} Warning(s) Found";
 
-        return $"✅ Scan Complete — Score: {args.Report.SecurityScore}/100";
+        return $"✅ Scan Complete - Score: {args.Report.SecurityScore}/100";
     }
 
     public static string BuildBody(ScanCompletedEventArgs args)
@@ -131,15 +131,13 @@ public class WindowsToastSender : IToastSender
         }
         catch
         {
-            // Toast notification is best-effort — don't crash the app
+            // Toast notification is best-effort - don't crash the app
         }
     }
 
     private static void SendToastViaPowerShell(string title, string body)
     {
-        // XML-escape only — single-quote escaping for PowerShell is handled later
-        // by xml.Replace("'", "''") on the full XML string. Escaping here AND there
-        // causes double-escaping: it's → it''s → it''''s in the PS string.
+        // XML-escape to prevent injection into the toast XML template.
         var escapedTitle = title.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\"", "&quot;");
         var escapedBody = body.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\"", "&quot;").Replace("\n", "&#10;");
 
@@ -154,20 +152,35 @@ public class WindowsToastSender : IToastSender
   <audio silent=""false"" />
 </toast>";
 
-        var script = $@"
-[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
-[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
-$xml = New-Object Windows.Data.Xml.Dom.XmlDocument
-$xml.LoadXml('{xml.Replace("'", "''")}')
-$toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
-$notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('WinSentinel')
-$notifier.Show($toast)
-";
+        // Encode the XML as a Base64 string literal inside the script so that
+        // no user-controlled characters (quotes, backticks, $, newlines) can
+        // escape the PowerShell string boundary and execute arbitrary code.
+        // Previous code embedded the XML directly in a single-quoted PS string
+        // and passed the whole script via -Command "...", which is fragile:
+        // -Command uses double-quoted argument parsing where $() subexpressions,
+        // backtick escapes, and unmatched quotes from attacker-controlled
+        // finding titles (file names, registry values) could inject commands.
+        var xmlBase64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(xml));
+
+        var script =
+            "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null\n" +
+            "[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null\n" +
+            $"$xmlStr = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{xmlBase64}'))\n" +
+            "$xml = New-Object Windows.Data.Xml.Dom.XmlDocument\n" +
+            "$xml.LoadXml($xmlStr)\n" +
+            "$toast = [Windows.UI.Notifications.ToastNotification]::new($xml)\n" +
+            "$notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('WinSentinel')\n" +
+            "$notifier.Show($toast)";
+
+        // Use -EncodedCommand (Base64 UTF-16LE) to pass the script, consistent
+        // with ShellHelper, FixEngine, and AutoRemediator. This prevents all
+        // argument-boundary injection regardless of script content.
+        var encodedCmd = Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes(script));
 
         var psi = new System.Diagnostics.ProcessStartInfo
         {
             FileName = "powershell.exe",
-            Arguments = $"-NoProfile -ExecutionPolicy Bypass -Command \"{script.Replace("\"", "\\\"")}\"",
+            Arguments = $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {encodedCmd}",
             CreateNoWindow = true,
             UseShellExecute = false,
             RedirectStandardOutput = true,

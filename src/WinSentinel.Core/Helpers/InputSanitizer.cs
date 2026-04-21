@@ -22,6 +22,21 @@ public static partial class InputSanitizer
     };
 
     /// <summary>
+    /// Windows reserved device names that must be rejected in file paths.
+    /// Operations on these names (e.g. File.Move to NUL) silently discard data
+    /// or hang indefinitely (CON, PRN), regardless of directory or extension.
+    /// See: https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file
+    /// </summary>
+    private static readonly HashSet<string> ReservedDeviceNames = new(
+        StringComparer.OrdinalIgnoreCase)
+    {
+        "CON", "PRN", "AUX", "NUL",
+        "COM0", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT0", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+        "CONIN$", "CONOUT$",
+    };
+
+    /// <summary>
     /// Critical system files that must never be quarantined regardless of location.
     /// </summary>
     private static readonly string[] ProtectedFileNames =
@@ -210,6 +225,19 @@ public static partial class InputSanitizer
                 resolvedFileName.Equals(protectedFile, StringComparison.OrdinalIgnoreCase))
                 return null;
         }
+
+        // Reject Windows reserved device names (CON, NUL, PRN, AUX, COM1-9, LPT1-9).
+        // These are special at the kernel level: File.Move to "NUL" silently discards
+        // data, operations on "CON" or "PRN" can hang, and an attacker could craft a
+        // threat path like "C:\Users\foo\NUL" to make quarantine lose forensic evidence.
+        // Windows treats "NUL.txt" the same as "NUL", so strip the extension.
+        var fileNameNoExt = Path.GetFileNameWithoutExtension(fullPath);
+        var resolvedFileNameNoExt = Path.GetFileNameWithoutExtension(resolvedPath);
+        if (ReservedDeviceNames.Contains(fileNameNoExt) ||
+            ReservedDeviceNames.Contains(resolvedFileNameNoExt) ||
+            ReservedDeviceNames.Contains(fileName) ||
+            ReservedDeviceNames.Contains(resolvedFileName))
+            return null;
 
         return fullPath;
     }

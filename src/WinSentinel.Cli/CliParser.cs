@@ -234,6 +234,8 @@ public class CliOptions
     public bool ImmuneShowExpired { get; set; }
     public int SwarmDays { get; set; } = 30;
     public int NerveDays { get; set; } = 30;
+    public int AutopsyDays { get; set; } = 90;
+    public string? AutopsyModule { get; set; }
     public string SwarmFormat { get; set; } = "text";
     public bool SwarmVerbose { get; set; }
 }
@@ -306,6 +308,7 @@ public enum CliCommand
     Immune,
     Swarm,
     Nerve,
+    Autopsy,
     Help,
     Version
 }
@@ -2276,6 +2279,22 @@ public static class CliParser
                     { options.Error = nerveDaysErr; return options; }
                     if (int.TryParse(nerveDaysVal, out var nerveDaysInt))
                         options.NerveDays = Math.Clamp(nerveDaysInt, 7, 365);
+                    break;
+
+                case "--autopsy":
+                case "autopsy":
+                    options.Command = CliCommand.Autopsy;
+                    break;
+                case "--autopsy-days":
+                    if (!TryConsumeArg(args, ref i, "--autopsy-days", out var autopsyDaysVal, out var autopsyDaysErr))
+                    { options.Error = autopsyDaysErr; return options; }
+                    if (int.TryParse(autopsyDaysVal, out var autopsyDaysInt))
+                        options.AutopsyDays = Math.Clamp(autopsyDaysInt, 7, 365);
+                    break;
+                case "--autopsy-module":
+                    if (!TryConsumeArg(args, ref i, "--autopsy-module", out var autopsyModVal, out var autopsyModErr))
+                    { options.Error = autopsyModErr; return options; }
+                    options.AutopsyModule = autopsyModVal;
                     break;
 
                 default:

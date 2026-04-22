@@ -85,6 +85,7 @@ return options.Command switch
     CliCommand.Immune => HandleImmune(options),
     CliCommand.Swarm => await HandleSwarm(options),
     CliCommand.Nerve => await HandleNerve(options),
+    CliCommand.Autopsy => await HandleAutopsy(options),
     _ => HandleHelp()
 };
 
@@ -7664,6 +7665,30 @@ static async Task<int> HandleNerve(CliOptions options)
     }
 
     ConsoleFormatter.PrintNerveCenter(nerveReport, options);
+    return 0;
+}
+
+// ── Autopsy ──────────────────────────────────────────────────
+
+static async Task<int> HandleAutopsy(CliOptions options)
+{
+    var (report, engine, elapsed) = await RunAuditAsync(options, suppressOutput: options.Quiet,
+        bannerMessage: "Running audit for forensic autopsy...");
+
+    using var history = new AuditHistoryService();
+    history.EnsureDatabase();
+    var autopsy = new SecurityAutopsyService(history);
+    var autopsyReport = autopsy.Analyze(report, options.AutopsyDays, options.AutopsyModule);
+
+    if (options.Json)
+    {
+        var jsonOptions = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        var json = JsonSerializer.Serialize(autopsyReport, jsonOptions);
+        WriteOutput(json, options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintAutopsy(autopsyReport, options);
     return 0;
 }
 

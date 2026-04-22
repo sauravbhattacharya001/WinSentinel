@@ -236,6 +236,12 @@ public class CliOptions
     public int NerveDays { get; set; } = 30;
     public int AutopsyDays { get; set; } = 90;
     public string? AutopsyModule { get; set; }
+
+    // Weather options
+    public int WeatherDays { get; set; } = 30;
+    public string WeatherFormat { get; set; } = "text";
+    public bool WeatherExtended { get; set; }
+
     public string SwarmFormat { get; set; } = "text";
     public bool SwarmVerbose { get; set; }
 }
@@ -309,6 +315,7 @@ public enum CliCommand
     Swarm,
     Nerve,
     Autopsy,
+    Weather,
     Help,
     Version
 }
@@ -2281,6 +2288,19 @@ public static class CliParser
                         options.NerveDays = Math.Clamp(nerveDaysInt, 7, 365);
                     break;
 
+                case "--weather":
+                case "weather":
+                    options.Command = CliCommand.Weather;
+                    break;
+                case "--weather-days":
+                    if (!TryConsumeArg(args, ref i, "--weather-days", out var weatherDaysVal, out var weatherDaysErr))
+                    { options.Error = weatherDaysErr; return options; }
+                    if (int.TryParse(weatherDaysVal, out var weatherDaysInt))
+                        options.WeatherDays = Math.Clamp(weatherDaysInt, 7, 365);
+                    break;
+                case "--weather-extended":
+                    options.WeatherExtended = true;
+                    break;
                 case "--autopsy":
                 case "autopsy":
                     options.Command = CliCommand.Autopsy;

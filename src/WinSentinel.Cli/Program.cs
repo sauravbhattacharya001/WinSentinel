@@ -86,6 +86,7 @@ return options.Command switch
     CliCommand.Swarm => await HandleSwarm(options),
     CliCommand.Nerve => await HandleNerve(options),
     CliCommand.Autopsy => await HandleAutopsy(options),
+    CliCommand.Weather => HandleWeather(options),
     _ => HandleHelp()
 };
 
@@ -7689,6 +7690,75 @@ static async Task<int> HandleAutopsy(CliOptions options)
     }
 
     ConsoleFormatter.PrintAutopsy(autopsyReport, options);
+    return 0;
+}
+
+static int HandleWeather(CliOptions options)
+{
+    using var history = new AuditHistoryService();
+    history.EnsureDatabase();
+
+    var runs = history.GetHistory(options.WeatherDays);
+
+    if (runs.Count < 2)
+    {
+        ConsoleFormatter.PrintWarning("Need at least 2 audit runs for weather report. Run --score or --audit first.");
+        return 1;
+    }
+
+    var dataPoints = runs
+        .OrderBy(r => r.Timestamp)
+        .Select(r =>
+        {
+            var findings = r.Findings ?? [];
+            var critical = findings.Count(f => string.Equals(f.Severity, "Critical", StringComparison.OrdinalIgnoreCase));
+            var high = findings.Count(f => string.Equals(f.Severity, "High", StringComparison.OrdinalIgnoreCase));
+            var medium = findings.Count(f => string.Equals(f.Severity, "Medium", StringComparison.OrdinalIgnoreCase));
+            var low = findings.Count(f => string.Equals(f.Severity, "Low", StringComparison.OrdinalIgnoreCase));
+            return (date: r.Timestamp, score: r.OverallScore, total: findings.Count, critical, high, medium, low);
+        })
+        .ToList();
+
+    // Compute modules scanned for coverage
+    var latestRun = runs.OrderByDescending(r => r.Timestamp).First();
+    var modulesScanned = latestRun.ModuleScores?.Count ?? 0;
+    var totalModules = 25; // approximate total audit modules
+    var coveragePct = totalModules > 0 ? Math.Clamp((int)(100.0 * modulesScanned / totalModules), 0, 100) : 0;
+
+    // Recurring findings (appear in > 50% of runs)
+    var findingCounts = new Dictionary<string, int>();
+    foreach (var r in runs)
+        foreach (var f in r.Findings ?? [])
+        {
+            var key = f.Title ?? f.Description ?? "";
+            findingCounts[key] = findingCounts.GetValueOrDefault(key) + 1;
+        }
+    var recurringCount = findingCounts.Count(kv => kv.Value > runs.Count / 2);
+    var totalUniqueFindings = findingCounts.Count;
+    var humidityPct = totalUniqueFindings > 0 ? Math.Clamp((int)(100.0 * recurringCount / totalUniqueFindings), 0, 100) : 0;
+
+    if (options.Json)
+    {
+        var current = dataPoints[^1];
+        var daySpan = (dataPoints[^1].date - dataPoints[0].date).TotalDays;
+        var findingsPerDay = daySpan > 0 ? dataPoints.Sum(p => p.total) / daySpan : 0;
+        var json = JsonSerializer.Serialize(new
+        {
+            command = "weather",
+            period = new { days = options.WeatherDays, from = dataPoints[0].date, to = dataPoints[^1].date },
+            current = new { score = current.score, findings = current.total, critical = current.critical, high = current.high, medium = current.medium, low = current.low },
+            conditions = ConsoleFormatter.GetWeatherCondition(current.score),
+            temperature = current.score,
+            windSpeed = Math.Round(findingsPerDay, 1),
+            humidity = humidityPct,
+            coverage = coveragePct,
+            uvIndex = current.critical
+        }, new JsonSerializerOptions { WriteIndented = true, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull });
+        WriteOutput(json, options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintWeather(dataPoints, coveragePct, humidityPct, options.WeatherExtended);
     return 0;
 }
 

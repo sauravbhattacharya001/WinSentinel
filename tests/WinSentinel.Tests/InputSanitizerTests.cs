@@ -954,4 +954,16 @@ public class IpcDtoTests
     {
         Assert.NotNull(InputSanitizer.CheckDangerousCommand(input));
     }
+
+    // — PowerShell dot-source operator bypass ————————————————————————
+
+    [Theory]
+    [InlineData(". { Invoke-Expression 'malicious' }")]
+    [InlineData(". \"C:\\temp\\evil.ps1\"")]
+    [InlineData(". 'C:\\temp\\evil.ps1'")]
+    [InlineData("safe-cmd; . { whoami }")]
+    public void CheckDangerousCommand_DotSourceBypass_Blocks(string input)
+    {
+        Assert.NotNull(InputSanitizer.CheckDangerousCommand(input));
+    }
 }

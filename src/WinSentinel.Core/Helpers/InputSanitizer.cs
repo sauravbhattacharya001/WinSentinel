@@ -453,6 +453,12 @@ public static partial class InputSanitizer
         if (CallOperatorPattern().IsMatch(command))
             return "Contains PowerShell call operator (arbitrary execution)";
 
+        // PowerShell dot-sourcing operator — `. { ... }` or `. "path"` executes script
+        // blocks or scripts in the caller's scope, equivalent to the call operator (&)
+        // for arbitrary code execution but bypasses & detection.
+        if (DotSourcePattern().IsMatch(command))
+            return "Contains PowerShell dot-source operator (arbitrary execution)";
+
         // Base64 smuggling — manual Base64 decode + execute patterns (our own
         // -EncodedCommand usage is safe because we control it; blocked here
         // are user-supplied commands that decode + pipe to IEX/Invoke-Expression)
@@ -586,6 +592,11 @@ public static partial class InputSanitizer
     /// <summary>Matches PowerShell call operator patterns: &amp; { ... } or &amp; "path".</summary>
     [GeneratedRegex(@"&\s*(\{|""|'|[a-zA-Z])")]
     private static partial Regex CallOperatorPattern();
+
+    /// <summary>Matches PowerShell dot-sourcing operator patterns: . { ... } or . "path" or . 'path'.
+    /// Requires whitespace after the dot to avoid matching file paths like .\script.ps1 or version numbers.</summary>
+    [GeneratedRegex(@"(?:^|[\s;|])\. +(\{|""|')")]
+    private static partial Regex DotSourcePattern();
 
     /// <summary>Matches string concatenation patterns used to bypass keyword detection (e.g. 'I'+'EX').</summary>
     [GeneratedRegex(@"['""][a-zA-Z]{1,10}['""]\s*\+\s*['""][a-zA-Z]{1,20}['""]", RegexOptions.IgnoreCase)]

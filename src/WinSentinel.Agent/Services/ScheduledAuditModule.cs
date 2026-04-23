@@ -11,7 +11,10 @@ namespace WinSentinel.Agent.Services;
 /// </summary>
 public class ScheduledAuditModule : IAgentModule
 {
+    /// <summary>Gets the module identifier used for logging and IPC routing.</summary>
     public string Name => "ScheduledAudit";
+
+    /// <summary>Indicates whether the audit schedule loop is currently running.</summary>
     public bool IsActive { get; private set; }
 
     private readonly ILogger<ScheduledAuditModule> _logger;
@@ -39,6 +42,11 @@ public class ScheduledAuditModule : IAgentModule
         _ipcServer.AuditRequested += RunAuditNowAsync;
     }
 
+    /// <summary>
+    /// Activates the scheduled audit loop. The first audit fires after a 30-second
+    /// warm-up delay, then repeats at <see cref="AgentConfig.ScanIntervalHours"/>.
+    /// </summary>
+    /// <param name="cancellationToken">Token that signals agent shutdown.</param>
     public Task StartAsync(CancellationToken cancellationToken)
     {
         IsActive = true;
@@ -47,6 +55,10 @@ public class ScheduledAuditModule : IAgentModule
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Cancels the schedule loop and waits for any in-flight audit to drain.
+    /// </summary>
+    /// <param name="cancellationToken">Token that can force an immediate stop.</param>
     public async Task StopAsync(CancellationToken cancellationToken)
     {
         IsActive = false;
@@ -103,6 +115,12 @@ public class ScheduledAuditModule : IAgentModule
     /// <summary>Run an audit immediately (called from IPC).</summary>
     private Task RunAuditNowAsync() => RunAuditAsync(isScheduled: false, CancellationToken.None);
 
+    /// <summary>
+    /// Executes a full security audit, converts critical/warning findings into
+    /// <see cref="ThreatEvent"/> entries, and broadcasts completion via IPC.
+    /// </summary>
+    /// <param name="isScheduled"><c>true</c> when triggered by the timer; <c>false</c> for on-demand IPC requests.</param>
+    /// <param name="ct">Cancellation token forwarded to the audit engine.</param>
     private async Task RunAuditAsync(bool isScheduled, CancellationToken ct)
     {
         if (!_state.TryStartScan())

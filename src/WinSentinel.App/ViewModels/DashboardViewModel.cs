@@ -26,101 +26,154 @@ public class DashboardViewModel : INotifyPropertyChanged, IDisposable
     //  Agent Vitals
     // ══════════════════════════════════════════
 
+    /// <summary>Human-readable text describing the current agent connection state (e.g. "Running", "Stopped").</summary>
     private string _agentStatusText = "Unknown";
+    /// <inheritdoc cref="_agentStatusText"/>
     public string AgentStatusText { get => _agentStatusText; set { _agentStatusText = value; Notify(); } }
 
+    /// <summary>Emoji icon reflecting the agent connection state (🟢 / 🟡 / 🔴).</summary>
     private string _agentStatusIcon = "⚪";
+    /// <inheritdoc cref="_agentStatusIcon"/>
     public string AgentStatusIcon { get => _agentStatusIcon; set { _agentStatusIcon = value; Notify(); } }
 
+    /// <summary>Hex colour bound to the agent status indicator.</summary>
     private string _agentStatusColor = "#666666";
+    /// <inheritdoc cref="_agentStatusColor"/>
     public string AgentStatusColor { get => _agentStatusColor; set { _agentStatusColor = value; Notify(); } }
 
+    /// <summary>Formatted uptime string (e.g. "Running for 2h 14m").</summary>
     private string _uptimeText = "—";
+    /// <inheritdoc cref="_uptimeText"/>
     public string UptimeText { get => _uptimeText; set { _uptimeText = value; Notify(); } }
 
+    /// <summary>Latest audit security score (0–100, or -1 when no audit has run).</summary>
     private int _securityScore = -1;
+    /// <inheritdoc cref="_securityScore"/>
     public int SecurityScore { get => _securityScore; set { _securityScore = value; Notify(); Notify(nameof(SecurityScoreDisplay)); Notify(nameof(HasScore)); } }
 
+    /// <summary>Display-ready score string, falling back to "—" when unavailable.</summary>
     public string SecurityScoreDisplay => SecurityScore >= 0 ? SecurityScore.ToString() : "—";
+    /// <summary>Returns <c>true</c> once at least one audit score has been recorded.</summary>
     public bool HasScore => SecurityScore >= 0;
 
+    /// <summary>Letter grade derived from the security score (A+ / A / B / C / D / F).</summary>
     private string _securityGrade = "—";
+    /// <inheritdoc cref="_securityGrade"/>
     public string SecurityGrade { get => _securityGrade; set { _securityGrade = value; Notify(); } }
 
+    /// <summary>Hex colour mapped to the current score range (green → red).</summary>
     private string _scoreColor = "#666666";
+    /// <inheritdoc cref="_scoreColor"/>
     public string ScoreColor { get => _scoreColor; set { _scoreColor = value; Notify(); } }
 
+    /// <summary>Arrow character indicating score direction over the last 30 days (↑ / → / ↓).</summary>
     private string _scoreTrendArrow = "";
+    /// <inheritdoc cref="_scoreTrendArrow"/>
     public string ScoreTrendArrow { get => _scoreTrendArrow; set { _scoreTrendArrow = value; Notify(); } }
 
+    /// <summary>Short label describing the trend (e.g. "+4 improving", "stable").</summary>
     private string _scoreTrendText = "";
+    /// <inheritdoc cref="_scoreTrendText"/>
     public string ScoreTrendText { get => _scoreTrendText; set { _scoreTrendText = value; Notify(); } }
 
+    /// <summary>Hex colour for the trend label (green when improving, red when declining).</summary>
     private string _scoreTrendColor = "#888888";
+    /// <inheritdoc cref="_scoreTrendColor"/>
     public string ScoreTrendColor { get => _scoreTrendColor; set { _scoreTrendColor = value; Notify(); } }
 
+    /// <summary>Whether the IPC pipe to the agent process is currently established.</summary>
     private bool _isConnected;
+    /// <inheritdoc cref="_isConnected"/>
     public bool IsConnected { get => _isConnected; set { _isConnected = value; Notify(); Notify(nameof(IsDisconnected)); } }
 
+    /// <summary>Inverse of <see cref="IsConnected"/> for XAML visibility binding.</summary>
     public bool IsDisconnected => !IsConnected;
 
+    /// <summary>Indicates an audit scan is currently in progress.</summary>
     private bool _isScanRunning;
+    /// <inheritdoc cref="_isScanRunning"/>
     public bool IsScanRunning { get => _isScanRunning; set { _isScanRunning = value; Notify(); Notify(nameof(CanRunAudit)); } }
 
+    /// <summary>Guard property for the Run Audit button — disabled while a scan is active.</summary>
     public bool CanRunAudit => !IsScanRunning;
 
+    /// <summary>True when every agent monitor module has been paused by the user.</summary>
     private bool _allMonitorsPaused;
+    /// <inheritdoc cref="_allMonitorsPaused"/>
     public bool AllMonitorsPaused { get => _allMonitorsPaused; set { _allMonitorsPaused = value; Notify(); Notify(nameof(PauseResumeText)); } }
 
+    /// <summary>Button label that toggles between "Pause All" and "Resume All".</summary>
     public string PauseResumeText => AllMonitorsPaused ? "▶ Resume All" : "⏸ Pause All";
 
+    /// <summary>Semantic version string reported by the running agent process.</summary>
     private string _agentVersion = "";
+    /// <inheritdoc cref="_agentVersion"/>
     public string AgentVersion { get => _agentVersion; set { _agentVersion = value; Notify(); } }
 
     // ══════════════════════════════════════════
     //  Monitor Status Cards
     // ══════════════════════════════════════════
 
+    /// <summary>Live collection of per-module status cards displayed in the monitor grid.</summary>
     public ObservableCollection<MonitorCardViewModel> MonitorCards { get; } = new();
 
     // ══════════════════════════════════════════
     //  Threat Summary (last 24h)
     // ══════════════════════════════════════════
 
+    /// <summary>Number of Critical-severity threats detected in the last 24 hours.</summary>
     private int _criticalCount;
+    /// <inheritdoc cref="_criticalCount"/>
     public int CriticalCount { get => _criticalCount; set { _criticalCount = value; Notify(); } }
 
+    /// <summary>Number of High-severity threats in the last 24 hours.</summary>
     private int _highCount;
+    /// <inheritdoc cref="_highCount"/>
     public int HighCount { get => _highCount; set { _highCount = value; Notify(); } }
 
+    /// <summary>Number of Medium/Warning-severity threats in the last 24 hours.</summary>
     private int _mediumCount;
+    /// <inheritdoc cref="_mediumCount"/>
     public int MediumCount { get => _mediumCount; set { _mediumCount = value; Notify(); } }
 
+    /// <summary>Number of Low/Info-severity threats in the last 24 hours.</summary>
     private int _lowCount;
+    /// <inheritdoc cref="_lowCount"/>
     public int LowCount { get => _lowCount; set { _lowCount = value; Notify(); } }
 
+    /// <summary>Rolling list of the 10 most recent threats for the summary panel.</summary>
     public ObservableCollection<ThreatSummaryItem> RecentThreats { get; } = new();
 
     // ══════════════════════════════════════════
     //  Actions Taken
     // ══════════════════════════════════════════
 
+    /// <summary>Count of automated remediation actions taken in the last 24 hours.</summary>
     private int _autoFixesToday;
+    /// <inheritdoc cref="_autoFixesToday"/>
     public int AutoFixesToday { get => _autoFixesToday; set { _autoFixesToday = value; Notify(); } }
 
+    /// <summary>Human-readable description of the most recent auto-fix action.</summary>
     private string _lastActionText = "No actions taken yet";
+    /// <inheritdoc cref="_lastActionText"/>
     public string LastActionText { get => _lastActionText; set { _lastActionText = value; Notify(); } }
 
     // ══════════════════════════════════════════
     //  Agent Timeline
     // ══════════════════════════════════════════
 
+    /// <summary>Chronological activity log entries displayed in the dashboard timeline.</summary>
     public ObservableCollection<TimelineEntry> TimelineEntries { get; } = new();
 
     // ══════════════════════════════════════════
     //  Setup & Lifecycle
     // ══════════════════════════════════════════
 
+    /// <summary>
+    /// Binds the dashboard to a live agent connection, wiring event handlers
+    /// for status updates, threat notifications, and audit completions.
+    /// </summary>
+    /// <param name="connection">The IPC connection service to observe.</param>
     public void SetAgentConnection(AgentConnectionService connection)
     {
         // Unwire previous
@@ -504,6 +557,10 @@ public class DashboardViewModel : INotifyPropertyChanged, IDisposable
     //  Commands
     // ══════════════════════════════════════════
 
+    /// <summary>
+    /// Triggers an on-demand full security audit via the connected agent.
+    /// No-ops when disconnected or when a scan is already in progress.
+    /// </summary>
     public async Task RunFullAuditAsync()
     {
         if (_agentConnection == null || !IsConnected || IsScanRunning) return;
@@ -523,6 +580,7 @@ public class DashboardViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    /// <summary>Disconnects and re-establishes the IPC connection to the agent.</summary>
     public async Task ReconnectAsync()
     {
         if (_agentConnection == null) return;
@@ -594,6 +652,7 @@ public class DashboardViewModel : INotifyPropertyChanged, IDisposable
     //  IDisposable
     // ══════════════════════════════════════════
 
+    /// <summary>Stops the vitals polling timer and unwires all agent connection event handlers.</summary>
     public void Dispose()
     {
         if (_disposed) return;

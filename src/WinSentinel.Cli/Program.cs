@@ -87,6 +87,7 @@ return options.Command switch
     CliCommand.Nerve => await HandleNerve(options),
     CliCommand.Autopsy => await HandleAutopsy(options),
     CliCommand.Weather => HandleWeather(options),
+    CliCommand.Mentor => HandleMentor(options),
     _ => HandleHelp()
 };
 
@@ -7762,6 +7763,38 @@ static int HandleWeather(CliOptions options)
     return 0;
 }
 
+// 🎓 Mentor ─────────────────────────────────────────
+
+static int HandleMentor(CliOptions options)
+{
+    using var history = new AuditHistoryService();
+    history.EnsureDatabase();
+
+    var runs = history.GetHistory(options.HistoryDays);
+    if (runs.Count == 0)
+    {
+        ConsoleFormatter.PrintWarning("No audit history found. Run --audit or --score first to build history.");
+        return 1;
+    }
+
+    // We need a current report — run a fresh audit
+    var (report, engine, elapsed) = RunAuditAsync(options, suppressOutput: options.Quiet,
+        bannerMessage: "Running audit for mentor analysis...").GetAwaiter().GetResult();
+
+    var mentor = new SecurityMentorService(history);
+    var mentorReport = mentor.Analyze(report, options.HistoryDays);
+
+    if (options.Json)
+    {
+        var jsonOpts = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        var json = JsonSerializer.Serialize(mentorReport, jsonOpts);
+        OutputHelper.WriteOutput(json, options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintMentor(mentorReport, options);
+    return 0;
+}
 record CorrelationRule(
     string Name,
     string[] ModulePatterns,
@@ -7769,4 +7802,6 @@ record CorrelationRule(
     string CompoundRisk,
     string Narrative,
     string Action);
+
+
 

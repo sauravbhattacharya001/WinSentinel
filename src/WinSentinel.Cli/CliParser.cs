@@ -316,6 +316,7 @@ public enum CliCommand
     Nerve,
     Autopsy,
     Weather,
+    Mentor,
     Help,
     Version
 }
@@ -2291,6 +2292,10 @@ public static class CliParser
                 case "--weather":
                 case "weather":
                     options.Command = CliCommand.Weather;
+                    break;
+                case "--mentor":
+                case "mentor":
+                    options.Command = CliCommand.Mentor;
                     break;
                 case "--weather-days":
                     if (!TryConsumeArg(args, ref i, "--weather-days", out var weatherDaysVal, out var weatherDaysErr))

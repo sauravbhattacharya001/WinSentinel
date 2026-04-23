@@ -8,7 +8,6 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>WinSentinel.Core</PackageId>
-    <Version>1.0.0</Version>
     <Authors>sauravbhattacharya001</Authors>
     <Company>WinSentinel</Company>
     <Description>Core library for WinSentinel — a comprehensive Windows security auditing framework. Provides audit modules for firewall, Defender, encryption, network, processes, startup items, browser security, privacy settings, and more. Includes remediation planning, security scoring, baseline comparison, and report generation.</Description>

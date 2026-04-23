@@ -5,10 +5,6 @@ on:
     types: [published]
   workflow_dispatch:
     inputs:
-      version:
-        description: 'Package version override (leave empty to use csproj version)'
-        required: false
-        type: string
       push_to_nuget:
         description: 'Push to NuGet.org (requires NUGET_API_KEY secret)'
         required: false
@@ -24,7 +20,7 @@ jobs:
     runs-on: windows-latest
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v4
       with:
         fetch-depth: 0
 
@@ -33,28 +29,6 @@ jobs:
       with:
         dotnet-version: '8.0.x'
 
-    - name: Determine version
-      id: version
-      shell: pwsh
-      run: |
-        $version = "${{ inputs.version }}"
-
-        if (-not $version -and "${{ github.event_name }}" -eq "release") {
-          # Extract version from tag (strip leading 'v')
-          $tag = "${{ github.event.release.tag_name }}"
-          $version = $tag -replace '^v', ''
-        }
-
-        if (-not $version) {
-          # Fall back to csproj version
-          [xml]$csproj = Get-Content src/WinSentinel.Core/WinSentinel.Core.csproj
-          $version = $csproj.Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
-          if (-not $version) { $version = "1.0.0" }
-        }
-
-        Write-Host "Package version: $version"
-        "version=$version" >> $env:GITHUB_OUTPUT
-
     - name: Restore dependencies
       run: |
         dotnet restore src/WinSentinel.Core/WinSentinel.Core.csproj
@@ -62,8 +36,8 @@ jobs:
 
     - name: Build
       run: |
-        dotnet build src/WinSentinel.Core/WinSentinel.Core.csproj --no-restore -c Release -p:Version=${{ steps.version.outputs.version }}
-        dotnet build src/WinSentinel.Cli/WinSentinel.Cli.csproj --no-restore -c Release -p:Version=${{ steps.version.outputs.version }}
+        dotnet build src/WinSentinel.Core/WinSentinel.Core.csproj --no-restore -c Release
+        dotnet build src/WinSentinel.Cli/WinSentinel.Cli.csproj --no-restore -c Release
 
     - name: Run tests
       run: dotnet test tests/WinSentinel.Tests/WinSentinel.Tests.csproj -c Release --verbosity normal
@@ -73,11 +47,9 @@ jobs:
       run: |
         dotnet pack src/WinSentinel.Core/WinSentinel.Core.csproj `
           --no-build -c Release `
-          -p:Version=${{ steps.version.outputs.version }} `
           -o ./nupkg
         dotnet pack src/WinSentinel.Cli/WinSentinel.Cli.csproj `
           --no-build -c Release `
-          -p:Version=${{ steps.version.outputs.version }} `
           -o ./nupkg
 
     - name: List packages
@@ -89,7 +61,7 @@ jobs:
         }
 
     - name: Upload NuGet artifacts
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@v4
       with:
         name: nuget-packages
         path: ./nupkg/*
@@ -121,7 +93,9 @@ jobs:
     - name: Package summary
       shell: pwsh
       run: |
-        $version = "${{ steps.version.outputs.version }}"
+        # Extract version from the first .nupkg filename
+        $pkg = Get-ChildItem ./nupkg -Filter *.nupkg | Select-Object -First 1
+        $version = if ($pkg.Name -match '\.(\d+\.\d+\.\d+[^.]*)\.' ) { $Matches[1] } else { 'unknown' }
 
         "## 📦 NuGet Packages Published" >> $env:GITHUB_STEP_SUMMARY
         "" >> $env:GITHUB_STEP_SUMMARY

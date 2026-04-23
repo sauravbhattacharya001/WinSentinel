@@ -261,20 +261,39 @@ public class DashboardViewModel : INotifyPropertyChanged, IDisposable
                     RecentThreats.Add(new ThreatSummaryItem(threat));
                 }
 
-                // Update severity counts
+                // Single-pass severity counting + action tracking (O(N) instead of 5×O(N))
                 var all24h = threats.Where(t => t.Timestamp > DateTimeOffset.UtcNow.AddHours(-24)).ToList();
-                CriticalCount = all24h.Count(t => t.Severity == "Critical");
-                HighCount = all24h.Count(t => t.Severity == "High");
-                MediumCount = all24h.Count(t => t.Severity == "Medium" || t.Severity == "Warning");
-                LowCount = all24h.Count(t => t.Severity == "Low" || t.Severity == "Info");
+                int critical = 0, high = 0, medium = 0, low = 0, fixes = 0;
+                IpcThreatEvent? lastAction = null;
+
+                foreach (var t in all24h)
+                {
+                    switch (t.Severity)
+                    {
+                        case "Critical": critical++; break;
+                        case "High": high++; break;
+                        case "Medium": case "Warning": medium++; break;
+                        default: low++; break;
+                    }
+
+                    if (t.ResponseTaken != null)
+                    {
+                        if (t.ResponseTaken.Contains("Fix", StringComparison.OrdinalIgnoreCase) ||
+                            t.ResponseTaken.Contains("Kill", StringComparison.OrdinalIgnoreCase) ||
+                            t.ResponseTaken.Contains("Block", StringComparison.OrdinalIgnoreCase))
+                            fixes++;
+                        lastAction ??= t; // first in list = most recent (already desc-sorted)
+                    }
+                }
+
+                CriticalCount = critical;
+                HighCount = high;
+                MediumCount = medium;
+                LowCount = low;
 
                 // Actions taken
-                AutoFixesToday = all24h.Count(t =>
-                    t.ResponseTaken?.Contains("Fix", StringComparison.OrdinalIgnoreCase) == true ||
-                    t.ResponseTaken?.Contains("Kill", StringComparison.OrdinalIgnoreCase) == true ||
-                    t.ResponseTaken?.Contains("Block", StringComparison.OrdinalIgnoreCase) == true);
+                AutoFixesToday = fixes;
 
-                var lastAction = all24h.FirstOrDefault(t => t.ResponseTaken != null);
                 if (lastAction != null)
                 {
                     var ago = FormatTimeAgo(lastAction.Timestamp);

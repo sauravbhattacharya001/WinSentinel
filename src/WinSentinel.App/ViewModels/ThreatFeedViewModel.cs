@@ -144,19 +144,38 @@ public class ThreatFeedViewModel : INotifyPropertyChanged
         OnPropertyChanged(nameof(DismissedCount));
     }
 
-    /// <summary>Recalculate stats from all threats.</summary>
+    /// <summary>Recalculate stats from all threats in a single pass (O(N) instead of 7×O(N)).</summary>
     public void UpdateStats()
     {
         var today = DateTimeOffset.Now.Date;
-        var todayThreats = AllThreats.Where(t => t.Timestamp.Date == today).ToList();
+        int critical = 0, high = 0, medium = 0, low = 0, autoFixed = 0, dismissed = 0, total = 0;
 
-        CriticalCount = todayThreats.Count(t => t.SeverityLevel == "Critical");
-        HighCount = todayThreats.Count(t => t.SeverityLevel == "High");
-        MediumCount = todayThreats.Count(t => t.SeverityLevel == "Medium" || t.SeverityLevel == "Warning");
-        LowCount = todayThreats.Count(t => t.SeverityLevel == "Low" || t.SeverityLevel == "Info");
-        AutoFixedCount = todayThreats.Count(t => t.ResponseTaken?.Contains("Fix", StringComparison.OrdinalIgnoreCase) == true);
-        DismissedCount = todayThreats.Count(t => t.IsDismissed);
-        TotalToday = todayThreats.Count;
+        foreach (var t in AllThreats)
+        {
+            if (t.Timestamp.Date != today) continue;
+            total++;
+
+            switch (t.SeverityLevel)
+            {
+                case "Critical": critical++; break;
+                case "High": high++; break;
+                case "Medium": case "Warning": medium++; break;
+                case "Low": case "Info": low++; break;
+            }
+
+            if (t.ResponseTaken?.Contains("Fix", StringComparison.OrdinalIgnoreCase) == true)
+                autoFixed++;
+            if (t.IsDismissed)
+                dismissed++;
+        }
+
+        CriticalCount = critical;
+        HighCount = high;
+        MediumCount = medium;
+        LowCount = low;
+        AutoFixedCount = autoFixed;
+        DismissedCount = dismissed;
+        TotalToday = total;
     }
 
     /// <summary>Re-apply filters to the full collection.</summary>

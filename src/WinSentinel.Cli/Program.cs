@@ -91,6 +91,7 @@ return options.Command switch
     CliCommand.Prophecy => HandleProphecy(options),
     CliCommand.Rhythm => HandleRhythm(options),
     CliCommand.Negotiate => HandleNegotiate(options),
+    CliCommand.Compass => HandleCompass(options),
     _ => HandleHelp()
 };
 
@@ -7879,6 +7880,32 @@ static int HandleNegotiate(CliOptions options)
     }
 
     ConsoleFormatter.PrintNegotiation(result, options);
+    return 0;
+}
+
+static int HandleCompass(CliOptions options)
+{
+    using var history = new AuditHistoryService();
+    history.EnsureDatabase();
+
+    var runs = history.GetHistory(options.CompassDays);
+    if (runs.Count < 2)
+    {
+        ConsoleFormatter.PrintWarning("Need at least 2 audit runs for compass analysis. Run --audit or --score first.");
+        return 1;
+    }
+
+    var svc = new SecurityCompassService(history);
+    var result = svc.Analyze(options.CompassDays);
+
+    if (options.Json)
+    {
+        var jsonOpts = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        OutputHelper.WriteOutput(JsonSerializer.Serialize(result, jsonOpts), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintCompass(result, options);
     return 0;
 }
 

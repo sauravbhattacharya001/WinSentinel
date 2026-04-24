@@ -453,6 +453,12 @@ public static partial class InputSanitizer
         if (CallOperatorPattern().IsMatch(command))
             return "Contains PowerShell call operator (arbitrary execution)";
 
+        // Variable-based command reconstruction — `$x = 'Invoke-Expression'; &$x 'code'`
+        // or `$x = 'iex'; . $x 'code'` bypasses keyword detection since the dangerous
+        // string is never adjacent to its execution context in the raw command text.
+        if (command.Contains('$') && !command.Contains("$env:") && VariableExecPattern().IsMatch(command))
+            return "Contains variable-based command construction (potential keyword bypass)";
+
         // PowerShell dot-sourcing operator — `. { ... }` or `. "path"` executes script
         // blocks or scripts in the caller's scope, equivalent to the call operator (&)
         // for arbitrary code execution but bypasses & detection.
@@ -589,8 +595,8 @@ public static partial class InputSanitizer
     [GeneratedRegex(@"\r\n|\r|\n|[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]")]
     private static partial Regex LogInjectionPattern();
 
-    /// <summary>Matches PowerShell call operator patterns: &amp; { ... } or &amp; "path".</summary>
-    [GeneratedRegex(@"&\s*(\{|""|'|[a-zA-Z])")]
+    /// <summary>Matches PowerShell call operator patterns: &amp; { ... }, &amp; "path", &amp; (expr), or &amp; $var.</summary>
+    [GeneratedRegex(@"&\s*(\{|""|'|[a-zA-Z]|\(|\$)")]
     private static partial Regex CallOperatorPattern();
 
     /// <summary>Matches PowerShell dot-sourcing operator patterns: . { ... } or . "path" or . 'path'.
@@ -609,4 +615,9 @@ public static partial class InputSanitizer
     /// <summary>Matches cmd.exe /c or /k invocation patterns (e.g., "cmd /c", "cmd.exe /c").</summary>
     [GeneratedRegex(@"\bcmd(?:\.exe)?\s+/[ck]\b", RegexOptions.IgnoreCase)]
     private static partial Regex CmdExePattern();
+
+    /// <summary>Matches variable assignment followed by call/dot-source of that variable,
+    /// e.g. <c>$x='iex'; &amp;$x</c> or <c>$cmd='...'; . $cmd</c>.</summary>
+    [GeneratedRegex(@"\$\w+\s*=\s*['""'].*['""'].*[&.]\s*\$\w+", RegexOptions.IgnoreCase)]
+    private static partial Regex VariableExecPattern();
 }

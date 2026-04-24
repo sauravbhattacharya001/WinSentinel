@@ -250,6 +250,8 @@ public class CliOptions
     public int ProphecyForecastDays { get; set; } = 30;
     public string ProphecyFormat { get; set; } = "text";
     public int ProphecyTop { get; set; } = 10;
+    public int RhythmDays { get; set; } = 90;
+    public string RhythmGranularity { get; set; } = "hourly";
 }
 
 public enum CliCommand
@@ -324,6 +326,7 @@ public enum CliCommand
     Weather,
     Mentor,
     Prophecy,
+    Rhythm,
     Help,
     Version
 }
@@ -2334,6 +2337,21 @@ public static class CliParser
                     { options.Error = prophecyTopErr; return options; }
                     if (int.TryParse(prophecyTopVal, out var prophecyTopInt))
                         options.ProphecyTop = Math.Clamp(prophecyTopInt, 1, 50);
+                    break;
+                case "--rhythm":
+                case "rhythm":
+                    options.Command = CliCommand.Rhythm;
+                    break;
+                case "--rhythm-days":
+                    if (!TryConsumeArg(args, ref i, "--rhythm-days", out var rhythmDaysVal, out var rhythmDaysErr))
+                    { options.Error = rhythmDaysErr; return options; }
+                    if (int.TryParse(rhythmDaysVal, out var rhythmDaysInt))
+                        options.RhythmDays = Math.Clamp(rhythmDaysInt, 7, 365);
+                    break;
+                case "--rhythm-granularity":
+                    if (!TryConsumeArg(args, ref i, "--rhythm-granularity", out var rhythmGranVal, out var rhythmGranErr))
+                    { options.Error = rhythmGranErr; return options; }
+                    options.RhythmGranularity = rhythmGranVal;
                     break;
                 case "--autopsy":
                 case "autopsy":

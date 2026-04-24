@@ -89,6 +89,7 @@ return options.Command switch
     CliCommand.Weather => HandleWeather(options),
     CliCommand.Mentor => HandleMentor(options),
     CliCommand.Prophecy => HandleProphecy(options),
+    CliCommand.Rhythm => HandleRhythm(options),
     _ => HandleHelp()
 };
 
@@ -7825,6 +7826,33 @@ static int HandleProphecy(CliOptions options)
     ConsoleFormatter.PrintProphecy(prophecy, options);
     return 0;
 }
+
+static int HandleRhythm(CliOptions options)
+{
+    using var history = new AuditHistoryService();
+    history.EnsureDatabase();
+
+    var runs = history.GetHistory(options.RhythmDays);
+    if (runs.Count < 3)
+    {
+        ConsoleFormatter.PrintWarning("Need at least 3 audit runs for rhythm analysis. Run --audit or --score first to build history.");
+        return 1;
+    }
+
+    var svc = new SecurityRhythmService(history);
+    var rhythm = svc.Analyze(options.RhythmDays, options.RhythmGranularity);
+
+    if (options.Json)
+    {
+        var jsonOpts = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        OutputHelper.WriteOutput(JsonSerializer.Serialize(rhythm, jsonOpts), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintRhythm(rhythm, options);
+    return 0;
+}
+
 record CorrelationRule(
     string Name,
     string[] ModulePatterns,

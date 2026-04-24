@@ -285,6 +285,7 @@ public static partial class ConsoleFormatter
         WriteHelpEntry("    --help, -h           ", "Show this help message");
         WriteHelpEntry("    --nerve              ", "Unified situational awareness nerve center");
         WriteHelpEntry("    --weather            ", "Security weather report (posture as weather metaphors)");
+        WriteHelpEntry("    --rhythm             ", "Security rhythm analysis (temporal patterns, cycles, scan windows)");
         WriteHelpEntry("    --version, -v        ", "Show version information");
         Console.WriteLine();
         Console.WriteLine("  OPTIONS:");

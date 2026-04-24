@@ -252,6 +252,9 @@ public class CliOptions
     public int ProphecyTop { get; set; } = 10;
     public int RhythmDays { get; set; } = 90;
     public string RhythmGranularity { get; set; } = "hourly";
+    public int NegotiateDays { get; set; } = 30;
+    public string? NegotiateStrategy { get; set; }
+    public int NegotiatePhases { get; set; } = 3;
 }
 
 public enum CliCommand
@@ -327,6 +330,7 @@ public enum CliCommand
     Mentor,
     Prophecy,
     Rhythm,
+    Negotiate,
     Help,
     Version
 }
@@ -2352,6 +2356,27 @@ public static class CliParser
                     if (!TryConsumeArg(args, ref i, "--rhythm-granularity", out var rhythmGranVal, out var rhythmGranErr))
                     { options.Error = rhythmGranErr; return options; }
                     options.RhythmGranularity = rhythmGranVal;
+                    break;
+                case "--negotiate":
+                case "negotiate":
+                    options.Command = CliCommand.Negotiate;
+                    break;
+                case "--negotiate-days":
+                    if (!TryConsumeArg(args, ref i, "--negotiate-days", out var negDaysVal, out var negDaysErr))
+                    { options.Error = negDaysErr; return options; }
+                    if (int.TryParse(negDaysVal, out var negDaysInt))
+                        options.NegotiateDays = Math.Clamp(negDaysInt, 7, 365);
+                    break;
+                case "--negotiate-strategy":
+                    if (!TryConsumeArg(args, ref i, "--negotiate-strategy", out var negStratVal, out var negStratErr))
+                    { options.Error = negStratErr; return options; }
+                    options.NegotiateStrategy = negStratVal;
+                    break;
+                case "--negotiate-phases":
+                    if (!TryConsumeArg(args, ref i, "--negotiate-phases", out var negPhasesVal, out var negPhasesErr))
+                    { options.Error = negPhasesErr; return options; }
+                    if (int.TryParse(negPhasesVal, out var negPhasesInt))
+                        options.NegotiatePhases = Math.Clamp(negPhasesInt, 2, 6);
                     break;
                 case "--autopsy":
                 case "autopsy":

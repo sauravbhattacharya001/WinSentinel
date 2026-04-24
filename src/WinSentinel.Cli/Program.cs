@@ -90,6 +90,7 @@ return options.Command switch
     CliCommand.Mentor => HandleMentor(options),
     CliCommand.Prophecy => HandleProphecy(options),
     CliCommand.Rhythm => HandleRhythm(options),
+    CliCommand.Negotiate => HandleNegotiate(options),
     _ => HandleHelp()
 };
 
@@ -7853,6 +7854,34 @@ static int HandleRhythm(CliOptions options)
     return 0;
 }
 
+// ── Security Negotiator ──────────────────────────────────────────────
+
+static int HandleNegotiate(CliOptions options)
+{
+    using var history = new AuditHistoryService();
+    history.EnsureDatabase();
+
+    var runs = history.GetHistory(options.NegotiateDays);
+    if (runs.Count < 2)
+    {
+        ConsoleFormatter.PrintWarning("Need at least 2 audit runs for negotiation analysis. Run --audit or --score first.");
+        return 1;
+    }
+
+    var svc = new SecurityNegotiatorService(history);
+    var result = svc.Negotiate(options.NegotiateDays, options.NegotiateStrategy ?? "balanced", options.NegotiatePhases);
+
+    if (options.Json)
+    {
+        var jsonOpts = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        OutputHelper.WriteOutput(JsonSerializer.Serialize(result, jsonOpts), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintNegotiation(result, options);
+    return 0;
+}
+
 record CorrelationRule(
     string Name,
     string[] ModulePatterns,
@@ -7860,6 +7889,3 @@ record CorrelationRule(
     string CompoundRisk,
     string Narrative,
     string Action);
-
-
-

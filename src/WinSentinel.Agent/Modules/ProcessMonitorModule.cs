@@ -716,49 +716,57 @@ public class ProcessMonitorModule : IAgentModule
         return false;
     }
 
-    /// <summary>Known legitimate apps that live in AppData.</summary>
+    /// <summary>
+    /// Known legitimate apps that live in AppData.
+    /// Uses OrdinalIgnoreCase comparisons instead of allocating a lowered
+    /// copy of the path string on every call — this method sits on the hot
+    /// path (called for every non-system process start from CheckSuspiciousPath
+    /// and CheckUnsignedExecutable).
+    /// </summary>
     private static bool IsKnownAppDataApp(string path)
     {
-        var pathLower = path.ToLowerInvariant();
-        return pathLower.Contains(@"\discord\") ||
-               pathLower.Contains(@"\slack\") ||
-               pathLower.Contains(@"\spotify\") ||
-               pathLower.Contains(@"\teams\") ||
-               pathLower.Contains(@"\vscode\") ||
-               pathLower.Contains(@"\code\") ||
-               pathLower.Contains(@"\programs\python") ||
-               pathLower.Contains(@"\microsoft\windowsapps\") ||
-               pathLower.Contains(@"\1password\") ||
-               pathLower.Contains(@"\zoom\") ||
-               pathLower.Contains(@"\steam\") ||
-               pathLower.Contains(@"\epic games\") ||
-               pathLower.Contains(@"\gitkraken\") ||
-               pathLower.Contains(@"\postman\") ||
-               pathLower.Contains(@"\notion\") ||
-               pathLower.Contains(@"\obsidian\") ||
-               pathLower.Contains(@"\signal\") ||
-               pathLower.Contains(@"\telegram") ||
-               pathLower.Contains(@"\whatsapp\") ||
-               pathLower.Contains(@"\brave") ||
-               pathLower.Contains(@"\google\chrome\") ||
-               pathLower.Contains(@"\microsoft\edge\") ||
-               pathLower.Contains(@"\mozilla firefox\");
+        return path.Contains(@"\discord\", StringComparison.OrdinalIgnoreCase) ||
+               path.Contains(@"\slack\", StringComparison.OrdinalIgnoreCase) ||
+               path.Contains(@"\spotify\", StringComparison.OrdinalIgnoreCase) ||
+               path.Contains(@"\teams\", StringComparison.OrdinalIgnoreCase) ||
+               path.Contains(@"\vscode\", StringComparison.OrdinalIgnoreCase) ||
+               path.Contains(@"\code\", StringComparison.OrdinalIgnoreCase) ||
+               path.Contains(@"\programs\python", StringComparison.OrdinalIgnoreCase) ||
+               path.Contains(@"\microsoft\windowsapps\", StringComparison.OrdinalIgnoreCase) ||
+               path.Contains(@"\1password\", StringComparison.OrdinalIgnoreCase) ||
+               path.Contains(@"\zoom\", StringComparison.OrdinalIgnoreCase) ||
+               path.Contains(@"\steam\", StringComparison.OrdinalIgnoreCase) ||
+               path.Contains(@"\epic games\", StringComparison.OrdinalIgnoreCase) ||
+               path.Contains(@"\gitkraken\", StringComparison.OrdinalIgnoreCase) ||
+               path.Contains(@"\postman\", StringComparison.OrdinalIgnoreCase) ||
+               path.Contains(@"\notion\", StringComparison.OrdinalIgnoreCase) ||
+               path.Contains(@"\obsidian\", StringComparison.OrdinalIgnoreCase) ||
+               path.Contains(@"\signal\", StringComparison.OrdinalIgnoreCase) ||
+               path.Contains(@"\telegram", StringComparison.OrdinalIgnoreCase) ||
+               path.Contains(@"\whatsapp\", StringComparison.OrdinalIgnoreCase) ||
+               path.Contains(@"\brave", StringComparison.OrdinalIgnoreCase) ||
+               path.Contains(@"\google\chrome\", StringComparison.OrdinalIgnoreCase) ||
+               path.Contains(@"\microsoft\edge\", StringComparison.OrdinalIgnoreCase) ||
+               path.Contains(@"\mozilla firefox\", StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>Processes that are expected to run as SYSTEM.</summary>
+    /// <summary>
+    /// Processes that are expected to run as SYSTEM.
+    /// Uses OrdinalIgnoreCase comparisons to avoid allocating a lowered
+    /// copy of the process name on every privilege-escalation check.
+    /// </summary>
     private static bool IsExpectedSystemProcess(string processName)
     {
-        var name = processName.ToLowerInvariant();
         return SafeProcesses.Contains(processName) ||
-               name.StartsWith("windows") ||
-               name.Contains("update") ||
-               name.Contains("defender") ||
-               name.Contains("antimalware") ||
-               name.Contains("security") ||
-               name == "trustedinstaller.exe" ||
-               name == "tiworker.exe" ||
-               name == "msiexec.exe" ||
-               name == "wuauclt.exe";
+               processName.StartsWith("windows", StringComparison.OrdinalIgnoreCase) ||
+               processName.Contains("update", StringComparison.OrdinalIgnoreCase) ||
+               processName.Contains("defender", StringComparison.OrdinalIgnoreCase) ||
+               processName.Contains("antimalware", StringComparison.OrdinalIgnoreCase) ||
+               processName.Contains("security", StringComparison.OrdinalIgnoreCase) ||
+               processName.Equals("trustedinstaller.exe", StringComparison.OrdinalIgnoreCase) ||
+               processName.Equals("tiworker.exe", StringComparison.OrdinalIgnoreCase) ||
+               processName.Equals("msiexec.exe", StringComparison.OrdinalIgnoreCase) ||
+               processName.Equals("wuauclt.exe", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string TruncateCommandLine(string? cmdLine)

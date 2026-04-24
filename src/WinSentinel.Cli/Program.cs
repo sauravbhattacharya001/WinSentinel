@@ -88,6 +88,7 @@ return options.Command switch
     CliCommand.Autopsy => await HandleAutopsy(options),
     CliCommand.Weather => HandleWeather(options),
     CliCommand.Mentor => HandleMentor(options),
+    CliCommand.Prophecy => HandleProphecy(options),
     _ => HandleHelp()
 };
 
@@ -7793,6 +7794,35 @@ static int HandleMentor(CliOptions options)
     }
 
     ConsoleFormatter.PrintMentor(mentorReport, options);
+    return 0;
+}
+
+static int HandleProphecy(CliOptions options)
+{
+    using var history = new AuditHistoryService();
+    history.EnsureDatabase();
+
+    var runs = history.GetHistory(options.ProphecyDays);
+    if (runs.Count < 3)
+    {
+        ConsoleFormatter.PrintWarning("Need at least 3 audit runs for prophecy. Run --audit or --score first to build history.");
+        return 1;
+    }
+
+    var (report, engine, elapsed) = RunAuditAsync(options, suppressOutput: options.Quiet,
+        bannerMessage: "Running audit for prophecy analysis...").GetAwaiter().GetResult();
+
+    var svc = new SecurityProphecyService(history);
+    var prophecy = svc.Predict(report, options.ProphecyDays, options.ProphecyForecastDays);
+
+    if (options.Json)
+    {
+        var jsonOpts = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        OutputHelper.WriteOutput(JsonSerializer.Serialize(prophecy, jsonOpts), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintProphecy(prophecy, options);
     return 0;
 }
 record CorrelationRule(

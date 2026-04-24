@@ -244,6 +244,12 @@ public class CliOptions
 
     public string SwarmFormat { get; set; } = "text";
     public bool SwarmVerbose { get; set; }
+
+    // Prophecy options
+    public int ProphecyDays { get; set; } = 90;
+    public int ProphecyForecastDays { get; set; } = 30;
+    public string ProphecyFormat { get; set; } = "text";
+    public int ProphecyTop { get; set; } = 10;
 }
 
 public enum CliCommand
@@ -317,6 +323,7 @@ public enum CliCommand
     Autopsy,
     Weather,
     Mentor,
+    Prophecy,
     Help,
     Version
 }
@@ -2297,6 +2304,10 @@ public static class CliParser
                 case "mentor":
                     options.Command = CliCommand.Mentor;
                     break;
+                case "--prophecy":
+                case "prophecy":
+                    options.Command = CliCommand.Prophecy;
+                    break;
                 case "--weather-days":
                     if (!TryConsumeArg(args, ref i, "--weather-days", out var weatherDaysVal, out var weatherDaysErr))
                     { options.Error = weatherDaysErr; return options; }
@@ -2305,6 +2316,24 @@ public static class CliParser
                     break;
                 case "--weather-extended":
                     options.WeatherExtended = true;
+                    break;
+                case "--prophecy-days":
+                    if (!TryConsumeArg(args, ref i, "--prophecy-days", out var prophecyDaysVal, out var prophecyDaysErr))
+                    { options.Error = prophecyDaysErr; return options; }
+                    if (int.TryParse(prophecyDaysVal, out var prophecyDaysInt))
+                        options.ProphecyDays = Math.Clamp(prophecyDaysInt, 7, 365);
+                    break;
+                case "--prophecy-forecast":
+                    if (!TryConsumeArg(args, ref i, "--prophecy-forecast", out var prophecyFcVal, out var prophecyFcErr))
+                    { options.Error = prophecyFcErr; return options; }
+                    if (int.TryParse(prophecyFcVal, out var prophecyFcInt))
+                        options.ProphecyForecastDays = Math.Clamp(prophecyFcInt, 7, 180);
+                    break;
+                case "--prophecy-top":
+                    if (!TryConsumeArg(args, ref i, "--prophecy-top", out var prophecyTopVal, out var prophecyTopErr))
+                    { options.Error = prophecyTopErr; return options; }
+                    if (int.TryParse(prophecyTopVal, out var prophecyTopInt))
+                        options.ProphecyTop = Math.Clamp(prophecyTopInt, 1, 50);
                     break;
                 case "--autopsy":
                 case "autopsy":

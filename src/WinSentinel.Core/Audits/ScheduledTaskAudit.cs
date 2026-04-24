@@ -267,6 +267,32 @@ public class ScheduledTaskAudit : IAuditModule
         return fields;
     }
 
+    // ── Helpers ─────────────────────────────────────────────────
+
+    /// <summary>
+    /// Build a safe schtasks /query command by escaping the task identifier.
+    /// Task names are attacker-controlled (any local user can create scheduled
+    /// tasks with arbitrary names), so embedding them raw inside a FixCommand
+    /// string that later runs through FixEngine → PowerShell -EncodedCommand
+    /// is CWE-78 command injection.  Single-quote the path (prevents $() expansion)
+    /// and double any embedded single-quotes so they become literal characters.
+    /// </summary>
+    private static string SafeSchtasksQuery(string taskPath, string taskName)
+    {
+        var escaped = $"{taskPath}{taskName}".Replace("'", "''");
+        return $"schtasks /query /tn '{escaped}' /v";
+    }
+
+    /// <summary>
+    /// Build a safe schtasks /delete command.  Same escaping rationale as
+    /// <see cref="SafeSchtasksQuery"/>.
+    /// </summary>
+    private static string SafeSchtasksDelete(string taskPath, string taskName)
+    {
+        var escaped = $"{taskPath}{taskName}".Replace("'", "''");
+        return $"schtasks /delete /tn '{escaped}' /f";
+    }
+
     // ── Analysis (pure logic, testable) ─────────────────────────
 
     /// <summary>
@@ -341,7 +367,7 @@ public class ScheduledTaskAudit : IAuditModule
                         "Malware commonly places executables in temp/user directories for persistence.",
                         Category,
                         $"Investigate task '{task.TaskName}' and verify the executable is legitimate.",
-                        $"schtasks /query /tn \"{task.TaskPath}{task.TaskName}\" /v"));
+                        SafeSchtasksQuery(task.TaskPath, task.TaskName)));
                     break;
                 }
             }
@@ -372,7 +398,7 @@ public class ScheduledTaskAudit : IAuditModule
                     "This combination is a strong indicator of malicious activity.",
                     Category,
                     $"Immediately investigate task '{task.TaskName}'. Remove if unauthorized.",
-                    $"schtasks /delete /tn \"{task.TaskPath}{task.TaskName}\" /f"));
+                    SafeSchtasksDelete(task.TaskPath, task.TaskName)));
                 return;
             }
         }
@@ -407,7 +433,7 @@ public class ScheduledTaskAudit : IAuditModule
                             "Encoded commands are commonly used to obfuscate malicious payloads.",
                             Category,
                             "Decode and review the command. Remove the task if unauthorized.",
-                            $"schtasks /query /tn \"{task.TaskPath}{task.TaskName}\" /v"));
+                            SafeSchtasksQuery(task.TaskPath, task.TaskName)));
                     }
                     else
                     {
@@ -436,7 +462,7 @@ public class ScheduledTaskAudit : IAuditModule
             "commonly used by malware to evade detection.",
             Category,
             "Review hidden task and verify it is legitimate.",
-            $"schtasks /query /tn \"{task.TaskPath}{task.TaskName}\" /v"));
+            SafeSchtasksQuery(task.TaskPath, task.TaskName)));
     }
 
     private void CheckPersistenceTriggers(TaskEntry task, AuditResult result)
@@ -466,7 +492,7 @@ public class ScheduledTaskAudit : IAuditModule
                 "(MITRE ATT&CK T1053.005).",
                 Category,
                 "Investigate immediately. This may be a malware persistence mechanism.",
-                $"schtasks /delete /tn \"{task.TaskPath}{task.TaskName}\" /f"));
+                SafeSchtasksDelete(task.TaskPath, task.TaskName)));
         }
         else
         {
@@ -492,7 +518,7 @@ public class ScheduledTaskAudit : IAuditModule
             "or a broken uninstall.",
             Category,
             "Remove the orphaned task or reinstall the associated software.",
-            $"schtasks /delete /tn \"{task.TaskPath}{task.TaskName}\" /f"));
+            SafeSchtasksDelete(task.TaskPath, task.TaskName)));
     }
 
     private void CheckThirdPartyTaskSummary(ScheduledTaskState state, AuditResult result)

@@ -256,6 +256,7 @@ public class CliOptions
     public string? NegotiateStrategy { get; set; }
     public int NegotiatePhases { get; set; } = 3;
     public int CompassDays { get; set; } = 30;
+    public int TopologyDays { get; set; } = 30;
 }
 
 public enum CliCommand
@@ -333,6 +334,7 @@ public enum CliCommand
     Rhythm,
     Negotiate,
     Compass,
+    Topology,
     Help,
     Version
 }
@@ -2389,6 +2391,16 @@ public static class CliParser
                     { options.Error = compassDaysErr; return options; }
                     if (int.TryParse(compassDaysVal, out var compassDaysInt))
                         options.CompassDays = Math.Clamp(compassDaysInt, 7, 365);
+                    break;
+                case "--topology":
+                case "topology":
+                    options.Command = CliCommand.Topology;
+                    break;
+                case "--topology-days":
+                    if (!TryConsumeArg(args, ref i, "--topology-days", out var topologyDaysVal, out var topologyDaysErr))
+                    { options.Error = topologyDaysErr; return options; }
+                    if (int.TryParse(topologyDaysVal, out var topologyDaysInt))
+                        options.TopologyDays = Math.Clamp(topologyDaysInt, 7, 365);
                     break;
                 case "--autopsy":
                 case "autopsy":

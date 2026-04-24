@@ -92,6 +92,7 @@ return options.Command switch
     CliCommand.Rhythm => HandleRhythm(options),
     CliCommand.Negotiate => HandleNegotiate(options),
     CliCommand.Compass => HandleCompass(options),
+    CliCommand.Topology => HandleTopology(options),
     _ => HandleHelp()
 };
 
@@ -7906,6 +7907,32 @@ static int HandleCompass(CliOptions options)
     }
 
     ConsoleFormatter.PrintCompass(result, options);
+    return 0;
+}
+
+static int HandleTopology(CliOptions options)
+{
+    using var history = new AuditHistoryService();
+    history.EnsureDatabase();
+
+    var runs = history.GetHistory(options.TopologyDays);
+    if (runs.Count < 3)
+    {
+        ConsoleFormatter.PrintWarning("Need at least 3 audit runs for topology analysis. Run --audit or --score first.");
+        return 1;
+    }
+
+    var svc = new SecurityTopologyService(history);
+    var result = svc.Analyze(options.TopologyDays);
+
+    if (options.Json)
+    {
+        var jsonOpts = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        OutputHelper.WriteOutput(JsonSerializer.Serialize(result, jsonOpts), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintTopology(result, options);
     return 0;
 }
 

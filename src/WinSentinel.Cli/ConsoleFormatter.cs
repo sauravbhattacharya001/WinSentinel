@@ -286,6 +286,7 @@ public static partial class ConsoleFormatter
         WriteHelpEntry("    --nerve              ", "Unified situational awareness nerve center");
         WriteHelpEntry("    --weather            ", "Security weather report (posture as weather metaphors)");
         WriteHelpEntry("    --rhythm             ", "Security rhythm analysis (temporal patterns, cycles, scan windows)");
+        WriteHelpEntry("    --topology           ", "Module interconnection map with keystone detection & cascade analysis");
         WriteHelpEntry("    --version, -v        ", "Show version information");
         Console.WriteLine();
         Console.WriteLine("  OPTIONS:");

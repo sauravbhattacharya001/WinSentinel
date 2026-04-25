@@ -353,6 +353,7 @@ public enum CliCommand
     Topology,
     Replay,
     FlightRecorder,
+    Shadow,
     Help,
     Version
 }
@@ -2513,6 +2514,11 @@ public static class CliParser
                     break;
                 case "--flightrecorder-critical":
                     options.FlightRecorderCriticalOnly = true;
+                    break;
+
+                case "--shadow":
+                case "shadow":
+                    options.Command = CliCommand.Shadow;
                     break;
 
                 default:

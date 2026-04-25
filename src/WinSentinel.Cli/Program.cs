@@ -95,6 +95,7 @@ return options.Command switch
     CliCommand.Topology => HandleTopology(options),
     CliCommand.Replay => HandleReplay(options),
     CliCommand.FlightRecorder => HandleFlightRecorder(options),
+    CliCommand.Shadow => HandleShadow(options),
     _ => HandleHelp()
 };
 
@@ -7988,6 +7989,22 @@ static int HandleFlightRecorder(CliOptions options)
     }
 
     ConsoleFormatter.PrintFlightRecorder(result, options);
+    return 0;
+}
+
+static int HandleShadow(CliOptions options)
+{
+    var svc = new ShadowItDetectorService();
+    var result = svc.Detect();
+
+    if (options.Json)
+    {
+        var jsonOpts = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        OutputHelper.WriteOutput(JsonSerializer.Serialize(result, jsonOpts), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintShadowIt(result, options);
     return 0;
 }
 

@@ -93,6 +93,7 @@ return options.Command switch
     CliCommand.Negotiate => HandleNegotiate(options),
     CliCommand.Compass => HandleCompass(options),
     CliCommand.Topology => HandleTopology(options),
+    CliCommand.Replay => HandleReplay(options),
     _ => HandleHelp()
 };
 
@@ -7933,6 +7934,38 @@ static int HandleTopology(CliOptions options)
     }
 
     ConsoleFormatter.PrintTopology(result, options);
+    return 0;
+}
+
+static int HandleReplay(CliOptions options)
+{
+    using var history = new AuditHistoryService();
+    history.EnsureDatabase();
+
+    var svc = new SecurityReplayService(history);
+    ReplayResult result;
+
+    if (options.ReplayBisect)
+    {
+        result = svc.Bisect(options.ReplayDays, options.ReplayBisectPattern, options.ReplayBisectThreshold);
+    }
+    else if (options.ReplayDiff)
+    {
+        result = svc.Diff(options.ReplayDays, options.ReplayDiffFrom, options.ReplayDiffTo);
+    }
+    else
+    {
+        result = svc.Snapshot(options.ReplayDays, options.ReplayTarget);
+    }
+
+    if (options.Json)
+    {
+        var jsonOpts = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        OutputHelper.WriteOutput(JsonSerializer.Serialize(result, jsonOpts), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintReplay(result, options);
     return 0;
 }
 

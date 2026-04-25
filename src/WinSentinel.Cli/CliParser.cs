@@ -257,6 +257,14 @@ public class CliOptions
     public int NegotiatePhases { get; set; } = 3;
     public int CompassDays { get; set; } = 30;
     public int TopologyDays { get; set; } = 30;
+    public int ReplayDays { get; set; } = 90;
+    public string? ReplayTarget { get; set; }
+    public bool ReplayBisect { get; set; }
+    public string? ReplayBisectPattern { get; set; }
+    public int? ReplayBisectThreshold { get; set; }
+    public bool ReplayDiff { get; set; }
+    public string? ReplayDiffFrom { get; set; }
+    public string? ReplayDiffTo { get; set; }
 }
 
 public enum CliCommand
@@ -335,6 +343,7 @@ public enum CliCommand
     Negotiate,
     Compass,
     Topology,
+    Replay,
     Help,
     Version
 }
@@ -2401,6 +2410,50 @@ public static class CliParser
                     { options.Error = topologyDaysErr; return options; }
                     if (int.TryParse(topologyDaysVal, out var topologyDaysInt))
                         options.TopologyDays = Math.Clamp(topologyDaysInt, 7, 365);
+                    break;
+                case "--replay":
+                case "replay":
+                    options.Command = CliCommand.Replay;
+                    break;
+                case "--replay-days":
+                    if (!TryConsumeArg(args, ref i, "--replay-days", out var replayDaysVal, out var replayDaysErr))
+                    { options.Error = replayDaysErr; return options; }
+                    if (int.TryParse(replayDaysVal, out var replayDaysInt))
+                        options.ReplayDays = Math.Clamp(replayDaysInt, 7, 365);
+                    break;
+                case "--replay-target":
+                    if (!TryConsumeArg(args, ref i, "--replay-target", out var replayTargetVal, out var replayTargetErr))
+                    { options.Error = replayTargetErr; return options; }
+                    options.ReplayTarget = replayTargetVal;
+                    break;
+                case "--bisect":
+                    options.ReplayBisect = true;
+                    if (options.Command == CliCommand.None) options.Command = CliCommand.Replay;
+                    break;
+                case "--bisect-pattern":
+                    if (!TryConsumeArg(args, ref i, "--bisect-pattern", out var bisectPatVal, out var bisectPatErr))
+                    { options.Error = bisectPatErr; return options; }
+                    options.ReplayBisectPattern = bisectPatVal;
+                    break;
+                case "--bisect-threshold":
+                    if (!TryConsumeArg(args, ref i, "--bisect-threshold", out var bisectThreshVal, out var bisectThreshErr))
+                    { options.Error = bisectThreshErr; return options; }
+                    if (int.TryParse(bisectThreshVal, out var bisectThreshInt))
+                        options.ReplayBisectThreshold = bisectThreshInt;
+                    break;
+                case "--replay-diff":
+                    options.ReplayDiff = true;
+                    if (options.Command == CliCommand.None) options.Command = CliCommand.Replay;
+                    break;
+                case "--diff-from":
+                    if (!TryConsumeArg(args, ref i, "--diff-from", out var diffFromVal, out var diffFromErr))
+                    { options.Error = diffFromErr; return options; }
+                    options.ReplayDiffFrom = diffFromVal;
+                    break;
+                case "--diff-to":
+                    if (!TryConsumeArg(args, ref i, "--diff-to", out var diffToVal, out var diffToErr))
+                    { options.Error = diffToErr; return options; }
+                    options.ReplayDiffTo = diffToVal;
                     break;
                 case "--autopsy":
                 case "autopsy":

@@ -105,10 +105,24 @@ public class FindingPersistenceAnalyzer
             }
         }
 
+        // Precompute per-run finding key sets once, avoiding O(F_latest × R × F_per_run)
+        // re-normalization.  Previously CountConsecutiveFromEnd called NormalizeKey
+        // (which allocates via ToLowerInvariant) on every finding in every run for
+        // each finding present in the latest run — effectively cubic cost.
+        // With precomputed sets the consecutive scan is O(R) per finding.
+        var perRunKeySets = new List<HashSet<string>>(sorted.Count);
+        for (int ri = 0; ri < sorted.Count; ri++)
+        {
+            var keySet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var f in sorted[ri].Findings)
+                keySet.Add(NormalizeKey(f));
+            perRunKeySets.Add(keySet);
+        }
+
         // Compute consecutive run count (from latest backwards)
         foreach (var info in findingTracker.Values.Where(i => i.PresentInLatest))
         {
-            info.ConsecutiveFromLatest = CountConsecutiveFromEnd(sorted, info.Key);
+            info.ConsecutiveFromLatest = CountConsecutiveFromEnd(perRunKeySets, info.Key);
         }
 
         // Classify findings
@@ -269,16 +283,15 @@ public class FindingPersistenceAnalyzer
 
     /// <summary>
     /// Count how many consecutive runs (from the latest backwards) contain this finding.
+    /// Uses precomputed per-run key sets for O(R) lookups instead of O(R × F) per call.
     /// </summary>
     private static int CountConsecutiveFromEnd(
-        List<AuditRunRecord> sortedRuns, string findingKey)
+        List<HashSet<string>> perRunKeySets, string findingKey)
     {
         int count = 0;
-        for (int i = sortedRuns.Count - 1; i >= 0; i--)
+        for (int i = perRunKeySets.Count - 1; i >= 0; i--)
         {
-            var hasIt = sortedRuns[i].Findings
-                .Any(f => NormalizeKey(f).Equals(findingKey, StringComparison.OrdinalIgnoreCase));
-            if (hasIt)
+            if (perRunKeySets[i].Contains(findingKey))
                 count++;
             else
                 break;

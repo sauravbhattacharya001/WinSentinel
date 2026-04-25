@@ -94,6 +94,7 @@ return options.Command switch
     CliCommand.Compass => HandleCompass(options),
     CliCommand.Topology => HandleTopology(options),
     CliCommand.Replay => HandleReplay(options),
+    CliCommand.FlightRecorder => HandleFlightRecorder(options),
     _ => HandleHelp()
 };
 
@@ -7966,6 +7967,27 @@ static int HandleReplay(CliOptions options)
     }
 
     ConsoleFormatter.PrintReplay(result, options);
+    return 0;
+}
+
+static int HandleFlightRecorder(CliOptions options)
+{
+    using var history = new AuditHistoryService();
+    history.EnsureDatabase();
+
+    var svc = new SecurityFlightRecorderService(history);
+    var result = svc.Record(options.FlightRecorderDays, options.FlightRecorderCapacity,
+        options.FlightRecorderSeverityFilter, options.FlightRecorderModuleFilter,
+        options.FlightRecorderCriticalOnly);
+
+    if (options.Json)
+    {
+        var jsonOpts = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        OutputHelper.WriteOutput(JsonSerializer.Serialize(result, jsonOpts), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintFlightRecorder(result, options);
     return 0;
 }
 

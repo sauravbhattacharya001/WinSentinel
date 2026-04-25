@@ -265,6 +265,14 @@ public class CliOptions
     public bool ReplayDiff { get; set; }
     public string? ReplayDiffFrom { get; set; }
     public string? ReplayDiffTo { get; set; }
+
+    // Flight Recorder options
+    public int FlightRecorderDays { get; set; } = 90;
+    public int FlightRecorderCapacity { get; set; } = 100;
+    public string FlightRecorderFormat { get; set; } = "text";
+    public string? FlightRecorderSeverityFilter { get; set; }
+    public string? FlightRecorderModuleFilter { get; set; }
+    public bool FlightRecorderCriticalOnly { get; set; }
 }
 
 public enum CliCommand
@@ -344,6 +352,7 @@ public enum CliCommand
     Compass,
     Topology,
     Replay,
+    FlightRecorder,
     Help,
     Version
 }
@@ -2469,6 +2478,41 @@ public static class CliParser
                     if (!TryConsumeArg(args, ref i, "--autopsy-module", out var autopsyModVal, out var autopsyModErr))
                     { options.Error = autopsyModErr; return options; }
                     options.AutopsyModule = autopsyModVal;
+                    break;
+
+                case "--flightrecorder":
+                case "flightrecorder":
+                    options.Command = CliCommand.FlightRecorder;
+                    break;
+                case "--flightrecorder-days":
+                    if (!TryConsumeArg(args, ref i, "--flightrecorder-days", out var frDaysVal, out var frDaysErr))
+                    { options.Error = frDaysErr; return options; }
+                    if (int.TryParse(frDaysVal, out var frDaysInt))
+                        options.FlightRecorderDays = Math.Clamp(frDaysInt, 7, 365);
+                    break;
+                case "--flightrecorder-capacity":
+                    if (!TryConsumeArg(args, ref i, "--flightrecorder-capacity", out var frCapVal, out var frCapErr))
+                    { options.Error = frCapErr; return options; }
+                    if (int.TryParse(frCapVal, out var frCapInt))
+                        options.FlightRecorderCapacity = Math.Clamp(frCapInt, 10, 1000);
+                    break;
+                case "--flightrecorder-format":
+                    if (!TryConsumeArg(args, ref i, "--flightrecorder-format", out var frFmtVal, out var frFmtErr))
+                    { options.Error = frFmtErr; return options; }
+                    options.FlightRecorderFormat = frFmtVal?.ToLowerInvariant() ?? "text";
+                    break;
+                case "--flightrecorder-severity":
+                    if (!TryConsumeArg(args, ref i, "--flightrecorder-severity", out var frSevVal, out var frSevErr))
+                    { options.Error = frSevErr; return options; }
+                    options.FlightRecorderSeverityFilter = frSevVal;
+                    break;
+                case "--flightrecorder-module":
+                    if (!TryConsumeArg(args, ref i, "--flightrecorder-module", out var frModVal, out var frModErr))
+                    { options.Error = frModErr; return options; }
+                    options.FlightRecorderModuleFilter = frModVal;
+                    break;
+                case "--flightrecorder-critical":
+                    options.FlightRecorderCriticalOnly = true;
                     break;
 
                 default:

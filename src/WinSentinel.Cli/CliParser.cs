@@ -354,6 +354,7 @@ public enum CliCommand
     Replay,
     FlightRecorder,
     Shadow,
+    Vitals,
     Help,
     Version
 }
@@ -2519,6 +2520,11 @@ public static class CliParser
                 case "--shadow":
                 case "shadow":
                     options.Command = CliCommand.Shadow;
+                    break;
+
+                case "--vitals":
+                case "vitals":
+                    options.Command = CliCommand.Vitals;
                     break;
 
                 default:

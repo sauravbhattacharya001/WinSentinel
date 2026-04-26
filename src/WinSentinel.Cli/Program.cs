@@ -96,6 +96,7 @@ return options.Command switch
     CliCommand.Replay => HandleReplay(options),
     CliCommand.FlightRecorder => HandleFlightRecorder(options),
     CliCommand.Shadow => HandleShadow(options),
+    CliCommand.Vitals => HandleVitals(options),
     _ => HandleHelp()
 };
 
@@ -8005,6 +8006,22 @@ static int HandleShadow(CliOptions options)
     }
 
     ConsoleFormatter.PrintShadowIt(result, options);
+    return 0;
+}
+
+static int HandleVitals(CliOptions options)
+{
+    using var svc = new VitalSignsService();
+    var result = svc.Assess(options.HistoryDays);
+
+    if (options.Json)
+    {
+        var jsonOpts = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        OutputHelper.WriteOutput(JsonSerializer.Serialize(result, jsonOpts), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintVitals(result);
     return 0;
 }
 

@@ -97,6 +97,7 @@ return options.Command switch
     CliCommand.FlightRecorder => HandleFlightRecorder(options),
     CliCommand.Shadow => HandleShadow(options),
     CliCommand.Vitals => HandleVitals(options),
+    CliCommand.WarGame => HandleWarGame(options),
     _ => HandleHelp()
 };
 
@@ -8022,6 +8023,38 @@ static int HandleVitals(CliOptions options)
     }
 
     ConsoleFormatter.PrintVitals(result);
+    return 0;
+}
+
+static int HandleWarGame(CliOptions options)
+{
+    using var svc = new SecurityWarGameService();
+
+    if (options.WarGameListScenarios)
+    {
+        var scenarios = svc.ListScenarios();
+        if (options.Json)
+        {
+            var jsonOpts = new JsonSerializerOptions { WriteIndented = true };
+            OutputHelper.WriteOutput(JsonSerializer.Serialize(scenarios, jsonOpts), options.OutputFile);
+        }
+        else
+        {
+            ConsoleFormatter.PrintWarGameScenarios(scenarios);
+        }
+        return 0;
+    }
+
+    var result = svc.Simulate(options.HistoryDays, options.WarGameRounds, options.WarGameScenario);
+
+    if (options.Json)
+    {
+        var jsonOpts = new JsonSerializerOptions { WriteIndented = true };
+        OutputHelper.WriteOutput(JsonSerializer.Serialize(result, jsonOpts), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintWarGame(result);
     return 0;
 }
 

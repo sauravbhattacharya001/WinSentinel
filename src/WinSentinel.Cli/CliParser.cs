@@ -273,6 +273,9 @@ public class CliOptions
     public string? FlightRecorderSeverityFilter { get; set; }
     public string? FlightRecorderModuleFilter { get; set; }
     public bool FlightRecorderCriticalOnly { get; set; }
+    public int WarGameRounds { get; set; } = 5;
+    public string? WarGameScenario { get; set; }
+    public bool WarGameListScenarios { get; set; }
 }
 
 public enum CliCommand
@@ -355,6 +358,7 @@ public enum CliCommand
     FlightRecorder,
     Shadow,
     Vitals,
+    WarGame,
     Help,
     Version
 }
@@ -2525,6 +2529,24 @@ public static class CliParser
                 case "--vitals":
                 case "vitals":
                     options.Command = CliCommand.Vitals;
+                    break;
+
+                case "--wargame":
+                case "wargame":
+                    options.Command = CliCommand.WarGame;
+                    break;
+                case "--wargame-rounds":
+                    if (!TryConsumeArg(args, ref i, "--wargame-rounds", out var wgRoundsVal, out var wgRoundsErr))
+                    { options.Error = wgRoundsErr; return options; }
+                    if (int.TryParse(wgRoundsVal, out var wgr)) options.WarGameRounds = wgr;
+                    break;
+                case "--wargame-scenario":
+                    if (!TryConsumeArg(args, ref i, "--wargame-scenario", out var wgScenVal, out var wgScenErr))
+                    { options.Error = wgScenErr; return options; }
+                    options.WarGameScenario = wgScenVal;
+                    break;
+                case "--wargame-list":
+                    options.WarGameListScenarios = true;
                     break;
 
                 default:

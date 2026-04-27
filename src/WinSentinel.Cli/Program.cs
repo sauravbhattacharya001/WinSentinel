@@ -98,6 +98,7 @@ return options.Command switch
     CliCommand.Shadow => HandleShadow(options),
     CliCommand.Vitals => HandleVitals(options),
     CliCommand.WarGame => HandleWarGame(options),
+    CliCommand.Canary => HandleCanary(options),
     _ => HandleHelp()
 };
 
@@ -8055,6 +8056,22 @@ static int HandleWarGame(CliOptions options)
     }
 
     ConsoleFormatter.PrintWarGame(result);
+    return 0;
+}
+
+static int HandleCanary(CliOptions options)
+{
+    var svc = new SecurityCanaryService();
+    var result = svc.Analyze();
+
+    if (options.Json)
+    {
+        var jsonOpts = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        OutputHelper.WriteOutput(JsonSerializer.Serialize(result, jsonOpts), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintCanary(result, options);
     return 0;
 }
 

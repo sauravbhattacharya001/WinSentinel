@@ -276,6 +276,8 @@ public class CliOptions
     public int WarGameRounds { get; set; } = 5;
     public string? WarGameScenario { get; set; }
     public bool WarGameListScenarios { get; set; }
+    public string CanaryFormat { get; set; } = "text";
+    public bool CanaryTripsOnly { get; set; }
 }
 
 public enum CliCommand
@@ -359,6 +361,7 @@ public enum CliCommand
     Shadow,
     Vitals,
     WarGame,
+    Canary,
     Help,
     Version
 }
@@ -2547,6 +2550,14 @@ public static class CliParser
                     break;
                 case "--wargame-list":
                     options.WarGameListScenarios = true;
+                    break;
+
+                case "--canary":
+                case "canary":
+                    options.Command = CliCommand.Canary;
+                    break;
+                case "--canary-trips-only":
+                    options.CanaryTripsOnly = true;
                     break;
 
                 default:

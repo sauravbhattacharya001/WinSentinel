@@ -99,6 +99,7 @@ return options.Command switch
     CliCommand.Vitals => HandleVitals(options),
     CliCommand.WarGame => HandleWarGame(options),
     CliCommand.Canary => HandleCanary(options),
+    CliCommand.Hunt => await HandleHunt(options),
     _ => HandleHelp()
 };
 
@@ -8073,6 +8074,29 @@ static int HandleCanary(CliOptions options)
 
     ConsoleFormatter.PrintCanary(result, options);
     return 0;
+}
+
+static async Task<int> HandleHunt(CliOptions options)
+{
+    var engine = new AuditEngine();
+    var progress = options.Quiet || options.Json
+        ? null
+        : new Progress<(string module, int current, int total)>(p =>
+            ConsoleFormatter.PrintProgress(p.module, p.current, p.total));
+    var report = await engine.RunFullAuditAsync(progress);
+    var history = new AuditHistoryService();
+    var huntService = new ThreatHuntService(history);
+    var huntReport = huntService.Hunt(report, options.HuntDays);
+
+    if (options.Json)
+    {
+        var jsonOpts = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        OutputHelper.WriteOutput(JsonSerializer.Serialize(huntReport, jsonOpts), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintHunt(huntReport, options);
+    return huntReport.ConfirmedThreats > 0 ? 1 : 0;
 }
 
 record CorrelationRule(

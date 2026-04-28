@@ -278,6 +278,10 @@ public class CliOptions
     public bool WarGameListScenarios { get; set; }
     public string CanaryFormat { get; set; } = "text";
     public bool CanaryTripsOnly { get; set; }
+
+    // Hunt options
+    public int HuntDays { get; set; } = 90;
+    public int HuntTop { get; set; } = 10;
 }
 
 public enum CliCommand
@@ -362,6 +366,7 @@ public enum CliCommand
     Vitals,
     WarGame,
     Canary,
+    Hunt,
     Help,
     Version
 }
@@ -2558,6 +2563,23 @@ public static class CliParser
                     break;
                 case "--canary-trips-only":
                     options.CanaryTripsOnly = true;
+                    break;
+
+                case "--hunt":
+                case "hunt":
+                    options.Command = CliCommand.Hunt;
+                    break;
+                case "--hunt-days":
+                    if (!TryConsumeArg(args, ref i, "--hunt-days", out var huntDaysVal, out var huntDaysErr))
+                    { options.Error = huntDaysErr; return options; }
+                    if (int.TryParse(huntDaysVal, out var huntDaysInt))
+                        options.HuntDays = Math.Clamp(huntDaysInt, 7, 365);
+                    break;
+                case "--hunt-top":
+                    if (!TryConsumeArg(args, ref i, "--hunt-top", out var huntTopVal, out var huntTopErr))
+                    { options.Error = huntTopErr; return options; }
+                    if (int.TryParse(huntTopVal, out var huntTopInt))
+                        options.HuntTop = Math.Clamp(huntTopInt, 1, 50);
                     break;
 
                 default:

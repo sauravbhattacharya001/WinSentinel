@@ -101,6 +101,7 @@ return options.Command switch
     CliCommand.Canary => HandleCanary(options),
     CliCommand.Hunt => await HandleHunt(options),
     CliCommand.Lineage => await HandleLineage(options),
+    CliCommand.Beacon => HandleBeacon(options),
     _ => HandleHelp()
 };
 
@@ -8130,6 +8131,24 @@ static async Task<int> HandleLineage(CliOptions options)
 
     ConsoleFormatter.PrintLineage(result, options);
     return result.Findings.Any(f => f.Severity == WinSentinel.Core.Models.Severity.Critical) ? 1 : 0;
+}
+
+// ── Beacon Detection ────────────────────────────────────────────────
+
+static int HandleBeacon(CliOptions options)
+{
+    var service = new BeaconDetectionService();
+    var report = service.AnalyzeCurrentConnections();
+
+    if (options.Json)
+    {
+        var jsonOpts = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        OutputHelper.WriteOutput(JsonSerializer.Serialize(report, jsonOpts), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintBeacon(report, options);
+    return report.HighConfidenceBeacons > 0 ? 1 : 0;
 }
 
 record CorrelationRule(

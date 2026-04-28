@@ -282,6 +282,9 @@ public class CliOptions
     // Hunt options
     public int HuntDays { get; set; } = 90;
     public int HuntTop { get; set; } = 10;
+    public int BeaconWindowMinutes { get; set; } = 60;
+    public int BeaconTop { get; set; } = 20;
+    public string BeaconFormat { get; set; } = "text";
 }
 
 public enum CliCommand
@@ -368,6 +371,7 @@ public enum CliCommand
     Canary,
     Hunt,
     Lineage,
+    Beacon,
     Help,
     Version
 }
@@ -2538,6 +2542,10 @@ public static class CliParser
                 case "--vitals":
                 case "vitals":
                     options.Command = CliCommand.Vitals;
+                    break;
+                case "--beacon":
+                case "beacon":
+                    options.Command = CliCommand.Beacon;
                     break;
 
                 case "--wargame":

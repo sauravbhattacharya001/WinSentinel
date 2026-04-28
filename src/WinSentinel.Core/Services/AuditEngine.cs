@@ -39,6 +39,7 @@ public class AuditEngine
             new SmbShareAudit(),
             new EnvironmentAudit(),
             new DriverAudit(),
+            new ProcessLineageAudit(),
         };
     }
 

@@ -367,6 +367,7 @@ public enum CliCommand
     WarGame,
     Canary,
     Hunt,
+    Lineage,
     Help,
     Version
 }
@@ -2568,6 +2569,10 @@ public static class CliParser
                 case "--hunt":
                 case "hunt":
                     options.Command = CliCommand.Hunt;
+                    break;
+                case "--lineage":
+                case "lineage":
+                    options.Command = CliCommand.Lineage;
                     break;
                 case "--hunt-days":
                     if (!TryConsumeArg(args, ref i, "--hunt-days", out var huntDaysVal, out var huntDaysErr))

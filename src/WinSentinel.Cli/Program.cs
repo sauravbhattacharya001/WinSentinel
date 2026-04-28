@@ -100,6 +100,7 @@ return options.Command switch
     CliCommand.WarGame => HandleWarGame(options),
     CliCommand.Canary => HandleCanary(options),
     CliCommand.Hunt => await HandleHunt(options),
+    CliCommand.Lineage => await HandleLineage(options),
     _ => HandleHelp()
 };
 
@@ -8097,6 +8098,38 @@ static async Task<int> HandleHunt(CliOptions options)
 
     ConsoleFormatter.PrintHunt(huntReport, options);
     return huntReport.ConfirmedThreats > 0 ? 1 : 0;
+}
+
+// ── Lineage ────────────────────────────────────────────────────────
+
+static async Task<int> HandleLineage(CliOptions options)
+{
+    var module = new WinSentinel.Core.Audits.ProcessLineageAudit();
+
+    if (!options.Quiet && !options.Json)
+    {
+        Console.ForegroundColor = ConsoleColor.Cyan;
+        Console.WriteLine();
+        Console.WriteLine("  ╔══════════════════════════════════════════════════════╗");
+        Console.WriteLine("  ║       🧬 WinSentinel — Process Lineage Audit        ║");
+        Console.WriteLine("  ╚══════════════════════════════════════════════════════╝");
+        Console.ResetColor();
+        Console.WriteLine();
+        Console.WriteLine("  Analyzing parent-child process relationships...");
+        Console.WriteLine();
+    }
+
+    var result = await module.RunAuditAsync();
+
+    if (options.Json)
+    {
+        var jsonOpts = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        OutputHelper.WriteOutput(JsonSerializer.Serialize(result, jsonOpts), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintLineage(result, options);
+    return result.Findings.Any(f => f.Severity == WinSentinel.Core.Models.Severity.Critical) ? 1 : 0;
 }
 
 record CorrelationRule(

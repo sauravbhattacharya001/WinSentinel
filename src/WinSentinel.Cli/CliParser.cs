@@ -291,6 +291,8 @@ public class CliOptions
     public int RegressionTop { get; set; } = 15;
     public string RegressionFormat { get; set; } = "text";
     public string? RegressionModuleFilter { get; set; }
+    public int ThreatDnaDays { get; set; } = 90;
+    public int ThreatDnaTop { get; set; } = 15;
 }
 
 public enum CliCommand
@@ -379,6 +381,7 @@ public enum CliCommand
     Lineage,
     Beacon,
     Regression,
+    ThreatDna,
     Help,
     Version
 }
@@ -2622,6 +2625,23 @@ public static class CliParser
                     if (!TryConsumeArg(args, ref i, "--regression-module", out var regModVal, out var regModErr))
                     { options.Error = regModErr; return options; }
                     options.RegressionModuleFilter = regModVal;
+                    break;
+
+                case "--threat-dna":
+                case "threat-dna":
+                    options.Command = CliCommand.ThreatDna;
+                    break;
+                case "--threat-dna-days":
+                    if (!TryConsumeArg(args, ref i, "--threat-dna-days", out var tdDaysVal, out var tdDaysErr))
+                    { options.Error = tdDaysErr; return options; }
+                    if (int.TryParse(tdDaysVal, out var tdDaysInt))
+                        options.ThreatDnaDays = Math.Clamp(tdDaysInt, 7, 365);
+                    break;
+                case "--threat-dna-top":
+                    if (!TryConsumeArg(args, ref i, "--threat-dna-top", out var tdTopVal, out var tdTopErr))
+                    { options.Error = tdTopErr; return options; }
+                    if (int.TryParse(tdTopVal, out var tdTopInt))
+                        options.ThreatDnaTop = Math.Clamp(tdTopInt, 1, 50);
                     break;
 
                 default:

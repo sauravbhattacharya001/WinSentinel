@@ -103,6 +103,7 @@ return options.Command switch
     CliCommand.Lineage => await HandleLineage(options),
     CliCommand.Beacon => HandleBeacon(options),
     CliCommand.Regression => HandleRegression(options),
+    CliCommand.ThreatDna => HandleThreatDna(options),
     _ => HandleHelp()
 };
 
@@ -8176,6 +8177,34 @@ static int HandleRegression(CliOptions options)
 
     ConsoleFormatter.PrintRegression(report, options);
     return report.RegressionScore >= 75 ? 2 : report.RegressionScore >= 50 ? 1 : 0;
+}
+
+// 🧬 Threat DNA Profiler
+
+static int HandleThreatDna(CliOptions options)
+{
+    using var history = new AuditHistoryService();
+    history.EnsureDatabase();
+
+    var runs = history.GetHistory(options.ThreatDnaDays);
+    if (runs.Count < 1)
+    {
+        ConsoleFormatter.PrintWarning("No audit history found. Run --audit or --score first to build history.");
+        return 1;
+    }
+
+    var svc = new ThreatDnaProfilerService(history);
+    var report = svc.GenerateProfile(options.ThreatDnaDays, options.ThreatDnaTop);
+
+    if (options.Json)
+    {
+        var jsonOpts = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        OutputHelper.WriteOutput(JsonSerializer.Serialize(report, jsonOpts), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintThreatDna(report, options);
+    return report.OverallResilienceScore < 40 ? 2 : report.OverallResilienceScore < 70 ? 1 : 0;
 }
 
 record CorrelationRule(

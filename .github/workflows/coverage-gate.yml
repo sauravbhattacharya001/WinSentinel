@@ -1,0 +1,154 @@
+name: Coverage Gate
+
+on:
+  pull_request:
+    branches: [ main ]
+
+concurrency:
+  group: coverage-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  coverage-gate:
+    name: Coverage Enforcement
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v5
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Cache NuGet packages
+      uses: actions/cache@v5
+      with:
+        path: ~/.nuget/packages
+        key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
+        restore-keys: nuget-${{ runner.os }}-
+
+    - name: Restore
+      run: dotnet restore
+
+    - name: Build
+      run: dotnet build --no-restore --configuration Release -p:Platform=x64
+
+    - name: Run tests with coverage
+      run: >-
+        dotnet test --no-build
+        --configuration Release
+        -p:Platform=x64
+        --collect:"XPlat Code Coverage"
+        --results-directory TestResults
+        -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura
+           DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.IncludeTestAssembly=false
+      continue-on-error: true
+
+    - name: Install ReportGenerator
+      run: dotnet tool install --global dotnet-reportgenerator-globaltool
+
+    - name: Generate per-assembly report
+      shell: pwsh
+      run: |
+        $coverageFiles = Get-ChildItem -Recurse -Filter "coverage.cobertura.xml" -Path TestResults
+        if ($coverageFiles.Count -eq 0) {
+          Write-Error "No coverage files found"
+          exit 1
+        }
+        $files = ($coverageFiles | ForEach-Object { $_.FullName }) -join ";"
+        reportgenerator `
+          -reports:"$files" `
+          -targetdir:"CoverageGate" `
+          -reporttypes:"JsonSummary" `
+          -assemblyfilters:"-WinSentinel.Tests;-WinSentinel.Installer;-WinSentinel.App"
+
+    - name: Enforce per-component coverage thresholds
+      shell: pwsh
+      run: |
+        # Per-component minimum line coverage thresholds
+        $thresholds = @{
+          "WinSentinel.Core"    = 50
+          "WinSentinel.Cli"     = 35
+          "WinSentinel.Agent"   = 30
+          "WinSentinel.Service" = 25
+        }
+
+        $report = Get-Content "CoverageGate/Summary.json" | ConvertFrom-Json
+        $failures = @()
+        $results = @()
+
+        foreach ($assembly in $report.coverage.assemblies) {
+          $name = $assembly.name
+          $lineCoverage = [math]::Round($assembly.coverage, 1)
+
+          if ($thresholds.ContainsKey($name)) {
+            $min = $thresholds[$name]
+            $status = if ($lineCoverage -ge $min) { "✅" } else { "❌" }
+            $results += [PSCustomObject]@{
+              Assembly = $name
+              Coverage = "$lineCoverage%"
+              Threshold = "$min%"
+              Status = $status
+            }
+            if ($lineCoverage -lt $min) {
+              $failures += "$name: $lineCoverage% < $min% minimum"
+            }
+          } else {
+            $results += [PSCustomObject]@{
+              Assembly = $name
+              Coverage = "$lineCoverage%"
+              Threshold = "—"
+              Status = "ℹ️"
+            }
+          }
+        }
+
+        # Output summary table
+        Write-Output "## 🛡️ Coverage Gate Results" >> $env:GITHUB_STEP_SUMMARY
+        Write-Output "" >> $env:GITHUB_STEP_SUMMARY
+        Write-Output "| Assembly | Coverage | Threshold | Status |" >> $env:GITHUB_STEP_SUMMARY
+        Write-Output "|----------|----------|-----------|--------|" >> $env:GITHUB_STEP_SUMMARY
+        foreach ($r in $results) {
+          Write-Output "| $($r.Assembly) | $($r.Coverage) | $($r.Threshold) | $($r.Status) |" >> $env:GITHUB_STEP_SUMMARY
+        }
+
+        # Overall stats
+        $totalLine = [math]::Round($report.coverage.lineCoverage, 1)
+        $totalBranch = [math]::Round($report.coverage.branchCoverage, 1)
+        Write-Output "" >> $env:GITHUB_STEP_SUMMARY
+        Write-Output "**Overall:** $totalLine% line · $totalBranch% branch" >> $env:GITHUB_STEP_SUMMARY
+
+        if ($failures.Count -gt 0) {
+          Write-Output "" >> $env:GITHUB_STEP_SUMMARY
+          Write-Output "### ❌ Coverage gate FAILED" >> $env:GITHUB_STEP_SUMMARY
+          foreach ($f in $failures) { Write-Output "- $f" >> $env:GITHUB_STEP_SUMMARY }
+          Write-Error "Coverage gate failed:`n$($failures -join "`n")"
+          exit 1
+        }
+
+        Write-Output "" >> $env:GITHUB_STEP_SUMMARY
+        Write-Output "### ✅ All components meet coverage thresholds" >> $env:GITHUB_STEP_SUMMARY
+
+    - name: Post coverage comment on PR
+      if: always() && github.event_name == 'pull_request'
+      uses: marocchino/sticky-pull-request-comment@v2
+      with:
+        header: coverage-gate
+        path: ${{ github.workspace }}/CoverageGate/Summary.json
+        recreate: true
+        message: |
+          ## 🛡️ Coverage Report
+
+          See the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for detailed per-component coverage results.
+
+          **Minimum thresholds:** Core ≥50% · CLI ≥35% · Agent ≥30% · Service ≥25%

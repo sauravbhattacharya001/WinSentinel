@@ -47,16 +47,37 @@ component_management:
     statuses:
       - type: project
         target: auto
+        threshold: 3%
   individual_components:
     - component_id: core
       name: Core Library
       paths:
         - src/WinSentinel.Core/**
+      statuses:
+        - type: project
+          target: 50%
+          threshold: 2%
     - component_id: cli
       name: CLI
       paths:
         - src/WinSentinel.Cli/**
+      statuses:
+        - type: project
+          target: 35%
+          threshold: 3%
     - component_id: agent
       name: Agent
       paths:
         - src/WinSentinel.Agent/**
+      statuses:
+        - type: project
+          target: 30%
+          threshold: 3%
+    - component_id: service
+      name: Service
+      paths:
+        - src/WinSentinel.Service/**
+      statuses:
+        - type: project
+          target: 25%
+          threshold: 5%

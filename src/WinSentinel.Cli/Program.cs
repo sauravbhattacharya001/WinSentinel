@@ -104,6 +104,7 @@ return options.Command switch
     CliCommand.Beacon => HandleBeacon(options),
     CliCommand.Regression => HandleRegression(options),
     CliCommand.ThreatDna => HandleThreatDna(options),
+    CliCommand.KillChain => await HandleKillChain(options),
     _ => HandleHelp()
 };
 
@@ -8205,6 +8206,39 @@ static int HandleThreatDna(CliOptions options)
 
     ConsoleFormatter.PrintThreatDna(report, options);
     return report.OverallResilienceScore < 40 ? 2 : report.OverallResilienceScore < 70 ? 1 : 0;
+}
+
+static async Task<int> HandleKillChain(CliOptions options)
+{
+    var (report, engine, elapsed) = await RunAuditAsync(options, suppressOutput: options.Quiet,
+        bannerMessage: "Running audit for kill chain reconstruction...");
+
+    var findings = report.Results.SelectMany(r => r.Findings).ToList();
+    if (findings.Count == 0)
+    {
+        ConsoleFormatter.PrintWarning("No findings to analyze. System appears clean.");
+        return 0;
+    }
+
+    var svc = new KillChainReconstructorService();
+    var killChainReport = svc.Reconstruct(findings);
+
+    if (options.Json)
+    {
+        var jsonOpts = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        OutputHelper.WriteOutput(JsonSerializer.Serialize(killChainReport, jsonOpts), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintKillChain(killChainReport);
+
+    return killChainReport.ThreatLevel switch
+    {
+        "Critical" => 3,
+        "High" => 2,
+        "Moderate" => 1,
+        _ => 0
+    };
 }
 
 record CorrelationRule(

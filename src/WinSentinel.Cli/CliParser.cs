@@ -382,6 +382,7 @@ public enum CliCommand
     Beacon,
     Regression,
     ThreatDna,
+    KillChain,
     Help,
     Version
 }
@@ -2630,6 +2631,10 @@ public static class CliParser
                 case "--threat-dna":
                 case "threat-dna":
                     options.Command = CliCommand.ThreatDna;
+                    break;
+                case "--kill-chain":
+                case "kill-chain":
+                    options.Command = CliCommand.KillChain;
                     break;
                 case "--threat-dna-days":
                     if (!TryConsumeArg(args, ref i, "--threat-dna-days", out var tdDaysVal, out var tdDaysErr))

@@ -111,6 +111,22 @@ jobs:
           }
         }
 
+    - name: Capture image digest
+      if: github.event_name != 'pull_request'
+      id: digest
+      shell: pwsh
+      run: |
+        $primary = "${{ steps.meta.outputs.primary }}"
+        $inspect = docker inspect --format='{{index .RepoDigests 0}}' $primary 2>$null
+        if ($inspect -match '@(sha256:[a-f0-9]{64})') {
+          $digest = $Matches[1]
+        } else {
+          # Fallback: get digest from manifest
+          $digest = (docker manifest inspect $primary 2>$null | ConvertFrom-Json).config.digest
+        }
+        "digest=$digest" >> $env:GITHUB_OUTPUT
+        Write-Host "Digest: $digest"
+
     - name: Image summary
       if: github.event_name != 'pull_request'
       shell: pwsh
@@ -176,10 +192,10 @@ jobs:
       continue-on-error: true
 
     - name: Attest build provenance
-      if: github.event_name != 'pull_request'
+      if: github.event_name != 'pull_request' && steps.digest.outputs.digest != ''
       uses: actions/attest-build-provenance@v4
       with:
         subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-        subject-digest: ${{ steps.meta.outputs.primary }}
+        subject-digest: ${{ steps.digest.outputs.digest }}
         push-to-registry: true
       continue-on-error: true

@@ -1,0 +1,63 @@
+name: Docker Image Vulnerability Rescan
+
+on:
+  schedule:
+    - cron: '0 8 * * 1'  # Every Monday at 08:00 UTC
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+permissions:
+  contents: read
+  packages: read
+  security-events: write
+
+jobs:
+  rescan:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        target: [cli, service]
+
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Determine image name
+      id: image
+      shell: pwsh
+      run: |
+        $repo = "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}".ToLower()
+        $target = "${{ matrix.target }}"
+        $imageName = if ($target -eq "cli") { $repo } else { "${repo}-${target}" }
+        "name=${imageName}:latest" >> $env:GITHUB_OUTPUT
+
+    - name: Pull latest image
+      run: docker pull ${{ steps.image.outputs.name }}
+      continue-on-error: true
+
+    - name: Scan for new vulnerabilities
+      uses: aquasecurity/trivy-action@v0.36.0
+      with:
+        image-ref: ${{ steps.image.outputs.name }}
+        format: 'table'
+        exit-code: '1'
+        severity: 'CRITICAL,HIGH'
+      continue-on-error: true
+
+    - name: Upload SARIF results
+      uses: aquasecurity/trivy-action@v0.36.0
+      with:
+        image-ref: ${{ steps.image.outputs.name }}
+        format: 'sarif'
+        output: 'rescan-${{ matrix.target }}.sarif'
+        severity: 'CRITICAL,HIGH,MEDIUM'
+      continue-on-error: true
+
+    - name: Upload to GitHub Security
+      uses: github/codeql-action/upload-sarif@v4
+      with:
+        sarif_file: 'rescan-${{ matrix.target }}.sarif'
+        category: 'rescan-${{ matrix.target }}'
+      continue-on-error: true

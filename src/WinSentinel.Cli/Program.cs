@@ -102,6 +102,7 @@ return options.Command switch
     CliCommand.Hunt => await HandleHunt(options),
     CliCommand.Lineage => await HandleLineage(options),
     CliCommand.Beacon => HandleBeacon(options),
+    CliCommand.Regression => HandleRegression(options),
     _ => HandleHelp()
 };
 
@@ -8149,6 +8150,32 @@ static int HandleBeacon(CliOptions options)
 
     ConsoleFormatter.PrintBeacon(report, options);
     return report.HighConfidenceBeacons > 0 ? 1 : 0;
+}
+
+static int HandleRegression(CliOptions options)
+{
+    using var history = new AuditHistoryService();
+    history.EnsureDatabase();
+
+    var runs = history.GetHistory(options.RegressionDays);
+    if (runs.Count < 3)
+    {
+        ConsoleFormatter.PrintWarning("Need at least 3 audit runs for regression analysis. Run --audit or --score first to build history.");
+        return 1;
+    }
+
+    var svc = new RegressionPredictorService(history);
+    var report = svc.Analyze(options.RegressionDays, options.RegressionModuleFilter, options.RegressionTop);
+
+    if (options.Json)
+    {
+        var jsonOpts = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        OutputHelper.WriteOutput(JsonSerializer.Serialize(report, jsonOpts), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintRegression(report, options);
+    return report.RegressionScore >= 75 ? 2 : report.RegressionScore >= 50 ? 1 : 0;
 }
 
 record CorrelationRule(

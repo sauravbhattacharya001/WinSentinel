@@ -285,6 +285,12 @@ public class CliOptions
     public int BeaconWindowMinutes { get; set; } = 60;
     public int BeaconTop { get; set; } = 20;
     public string BeaconFormat { get; set; } = "text";
+
+    // Regression options
+    public int RegressionDays { get; set; } = 90;
+    public int RegressionTop { get; set; } = 15;
+    public string RegressionFormat { get; set; } = "text";
+    public string? RegressionModuleFilter { get; set; }
 }
 
 public enum CliCommand
@@ -372,6 +378,7 @@ public enum CliCommand
     Hunt,
     Lineage,
     Beacon,
+    Regression,
     Help,
     Version
 }
@@ -2593,6 +2600,28 @@ public static class CliParser
                     { options.Error = huntTopErr; return options; }
                     if (int.TryParse(huntTopVal, out var huntTopInt))
                         options.HuntTop = Math.Clamp(huntTopInt, 1, 50);
+                    break;
+
+                case "--regression":
+                case "regression":
+                    options.Command = CliCommand.Regression;
+                    break;
+                case "--regression-days":
+                    if (!TryConsumeArg(args, ref i, "--regression-days", out var regDaysVal, out var regDaysErr))
+                    { options.Error = regDaysErr; return options; }
+                    if (int.TryParse(regDaysVal, out var regDaysInt))
+                        options.RegressionDays = Math.Clamp(regDaysInt, 7, 365);
+                    break;
+                case "--regression-top":
+                    if (!TryConsumeArg(args, ref i, "--regression-top", out var regTopVal, out var regTopErr))
+                    { options.Error = regTopErr; return options; }
+                    if (int.TryParse(regTopVal, out var regTopInt))
+                        options.RegressionTop = Math.Clamp(regTopInt, 1, 50);
+                    break;
+                case "--regression-module":
+                    if (!TryConsumeArg(args, ref i, "--regression-module", out var regModVal, out var regModErr))
+                    { options.Error = regModErr; return options; }
+                    options.RegressionModuleFilter = regModVal;
                     break;
 
                 default:

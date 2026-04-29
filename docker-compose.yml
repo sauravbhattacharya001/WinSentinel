@@ -1,0 +1,82 @@
+# WinSentinel Docker Compose
+# Orchestrates the CLI (one-shot audit) and Service (continuous monitoring) containers.
+#
+# Usage:
+#   docker compose up service          # Start background monitoring
+#   docker compose run --rm cli audit  # Run a one-shot audit
+#   docker compose up                  # Start service + run CLI audit
+#
+# Requirements:
+#   - Docker Desktop with Windows containers enabled, OR
+#   - Windows Server with Docker EE
+#   - Minimum 4GB RAM allocated to Docker
+
+services:
+  # One-shot CLI audits — run interactively
+  cli:
+    build:
+      context: .
+      target: cli
+      args:
+        VERSION: ${WINSENTINEL_VERSION:-latest}
+        BUILD_DATE: ${BUILD_DATE:-unknown}
+    image: ghcr.io/sauravbhattacharya001/winsentinel-cli:${WINSENTINEL_VERSION:-latest}
+    container_name: winsentinel-cli
+    volumes:
+      - audit-reports:C:/reports
+    environment:
+      - WINSENTINEL_OUTPUT_DIR=C:/reports
+      - WINSENTINEL_LOG_LEVEL=${LOG_LEVEL:-Information}
+    # Override entrypoint args via: docker compose run cli audit --full --output json
+    profiles:
+      - cli
+
+  # Continuous background monitoring service
+  service:
+    build:
+      context: .
+      target: service
+      args:
+        VERSION: ${WINSENTINEL_VERSION:-latest}
+        BUILD_DATE: ${BUILD_DATE:-unknown}
+    image: ghcr.io/sauravbhattacharya001/winsentinel-service:${WINSENTINEL_VERSION:-latest}
+    container_name: winsentinel-service
+    restart: unless-stopped
+    volumes:
+      - service-data:C:/ProgramData/WinSentinel
+      - audit-reports:C:/reports
+    environment:
+      - WINSENTINEL_SCAN_INTERVAL=${SCAN_INTERVAL:-300}
+      - WINSENTINEL_LOG_LEVEL=${LOG_LEVEL:-Information}
+      - WINSENTINEL_ALERT_WEBHOOK=${ALERT_WEBHOOK:-}
+    healthcheck:
+      test: ["CMD", "powershell", "-Command", "if (Get-Process -Name WinSentinel.Service -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
+
+  # Scheduled audit runner — executes full audit on a cron schedule
+  scheduled-audit:
+    build:
+      context: .
+      target: cli
+      args:
+        VERSION: ${WINSENTINEL_VERSION:-latest}
+    image: ghcr.io/sauravbhattacharya001/winsentinel-cli:${WINSENTINEL_VERSION:-latest}
+    container_name: winsentinel-scheduled
+    volumes:
+      - audit-reports:C:/reports
+    environment:
+      - WINSENTINEL_OUTPUT_DIR=C:/reports
+      - WINSENTINEL_LOG_LEVEL=${LOG_LEVEL:-Information}
+    entrypoint: ["powershell", "-Command"]
+    command: ["while ($true) { & C:/app/winsentinel.exe audit --full --output json; Start-Sleep -Seconds ${env:AUDIT_INTERVAL} }"]
+    profiles:
+      - scheduled
+
+volumes:
+  audit-reports:
+    driver: local
+  service-data:
+    driver: local

@@ -1,4 +1,4 @@
-# Docker ignore file — exclude build artifacts and dev files
+# Docker ignore file - exclude build artifacts and dev files
 .git
 .github
 .gitignore
@@ -15,3 +15,7 @@ dist/
 *.suo
 *.msix
 *.pfx
+.env
+.env.*
+docker-compose*.yml
+**/test-results/

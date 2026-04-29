@@ -11,44 +11,79 @@ namespace WinSentinel.Core.Audits;
 /// </summary>
 public class GroupPolicyAudit : IAuditModule
 {
+    /// <inheritdoc />
     public string Name => "Group Policy Security Audit";
+    /// <inheritdoc />
     public string Category => "GroupPolicy";
+    /// <inheritdoc />
     public string Description =>
         "Checks security-relevant Group Policy settings including account lockout, " +
         "NTLM restrictions, audit policy, credential protection, SMB signing, " +
         "and application whitelisting configuration.";
 
+    /// <summary>
+    /// Snapshot of security-relevant Group Policy registry values and system state
+    /// gathered during a single audit run.
+    /// </summary>
     public sealed class GpoState
     {
+        /// <summary>Number of failed logon attempts before account lockout (0 = disabled).</summary>
         public int? LockoutThreshold { get; set; }
+        /// <summary>Duration in minutes that an account remains locked out.</summary>
         public int? LockoutDuration { get; set; }
+        /// <summary>Minutes after which the failed-attempt counter resets.</summary>
         public int? LockoutObservationWindow { get; set; }
+        /// <summary>LAN Manager compatibility level (0-5); higher restricts weaker auth protocols.</summary>
         public int? LmCompatibilityLevel { get; set; }
+        /// <summary>Whether outbound NTLM traffic is restricted (MSV1_0\RestrictSendingNTLMTraffic).</summary>
         public int? RestrictNtlmOutgoing { get; set; }
+        /// <summary>Whether anonymous enumeration of SAM accounts is restricted.</summary>
         public int? RestrictAnonymousSam { get; set; }
+        /// <summary>General anonymous access restriction level.</summary>
         public int? RestrictAnonymous { get; set; }
+        /// <summary>Whether the Everyone SID includes anonymous logon tokens (1 = includes).</summary>
         public int? EveryoneIncludesAnonymous { get; set; }
+        /// <summary>Whether the SMB server requires packet signing (1 = required).</summary>
         public int? SmbServerRequireSigning { get; set; }
+        /// <summary>Whether the SMB client requires packet signing (1 = required).</summary>
         public int? SmbClientRequireSigning { get; set; }
+        /// <summary>Credential Guard configuration: 0=off, 1=UEFI lock, 2=no UEFI lock.</summary>
         public int? CredentialGuardConfig { get; set; }
+        /// <summary>Whether Virtualization-Based Security is enabled in the firmware/policy.</summary>
         public bool? VbsEnabled { get; set; }
+        /// <summary>Whether VBS is actively running (status == 2 from Win32_DeviceGuard).</summary>
         public bool? VbsRunning { get; set; }
+        /// <summary>Whether command-line arguments are included in process-creation audit events.</summary>
         public int? AuditProcessCommandLine { get; set; }
+        /// <summary>Process Creation subcategory audit setting (bitmask: 1=success, 2=failure).</summary>
         public int? AuditProcessCreation { get; set; }
+        /// <summary>Logon subcategory audit setting (bitmask: 1=success, 2=failure).</summary>
         public int? AuditLogonEvents { get; set; }
+        /// <summary>Sensitive Privilege Use subcategory audit setting.</summary>
         public int? AuditPrivilegeUse { get; set; }
+        /// <summary>Whether Restricted Admin mode for RDP is disabled (0 = available).</summary>
         public int? RestrictedAdminMode { get; set; }
+        /// <summary>CredSSP encryption oracle remediation level (0=vulnerable, 1=mitigated, 2=forced).</summary>
         public int? AllowEncryptionOracle { get; set; }
+        /// <summary>Whether Network Level Authentication is required for RDP (1 = required).</summary>
         public int? NlaRequired { get; set; }
+        /// <summary>RDP minimum encryption level (1=Low, 2=Client Compatible, 3=High, 4=FIPS).</summary>
         public int? RdpEncryptionLevel { get; set; }
+        /// <summary>Automatic Update option (2=notify, 3=download, 4=install, 5=local admin chooses).</summary>
         public int? AuEnabled { get; set; }
+        /// <summary>Whether Windows Update is managed by WSUS or WUfB policy.</summary>
         public bool WuManaged { get; set; }
+        /// <summary>Whether AppLocker rules are configured in the effective policy.</summary>
         public bool AppLockerConfigured { get; set; }
+        /// <summary>Number of AppLocker executable (Exe) rules in effect.</summary>
         public int AppLockerExeRuleCount { get; set; }
+        /// <summary>Whether Software Restriction Policies are configured.</summary>
         public bool SrpConfigured { get; set; }
+        /// <summary>SRP default security level (0=Disallowed/whitelist, 262144=Unrestricted).</summary>
         public int? SrpDefaultLevel { get; set; }
     }
 
+    /// <inheritdoc />
     public async Task<AuditResult> RunAuditAsync(CancellationToken cancellationToken = default)
     {
         var result = new AuditResult
@@ -73,6 +108,12 @@ public class GroupPolicyAudit : IAuditModule
         return result;
     }
 
+    /// <summary>
+    /// Collects current Group Policy state from the local registry, WMI,
+    /// net accounts, and auditpol commands.
+    /// </summary>
+    /// <param name="ct">Cancellation token for async shell operations.</param>
+    /// <returns>A populated <see cref="GpoState"/> snapshot.</returns>
     internal async Task<GpoState> GatherStateAsync(CancellationToken ct)
     {
         var state = new GpoState();
@@ -186,6 +227,12 @@ public class GroupPolicyAudit : IAuditModule
         return state;
     }
 
+    /// <summary>
+    /// Evaluates the gathered GPO state against security best practices and
+    /// populates <paramref name="result"/> with categorized findings.
+    /// </summary>
+    /// <param name="state">The GPO state snapshot to analyze.</param>
+    /// <param name="result">The audit result to populate with findings.</param>
     public void AnalyzeState(GpoState state, AuditResult result)
     {
         CheckAccountLockout(state, result);
@@ -527,6 +574,12 @@ public class GroupPolicyAudit : IAuditModule
         }
     }
 
+    /// <summary>
+    /// Reads a DWORD value from the Windows registry.
+    /// </summary>
+    /// <param name="keyPath">Full registry key path (e.g. HKEY_LOCAL_MACHINE\...).</param>
+    /// <param name="valueName">Name of the registry value to read.</param>
+    /// <returns>The integer value, or <c>null</c> if not found or not a DWORD.</returns>
     private static int? ReadRegistryDword(string keyPath, string valueName)
     {
         var val = Registry.GetValue(keyPath, valueName, null);
@@ -534,6 +587,12 @@ public class GroupPolicyAudit : IAuditModule
         return null;
     }
 
+    /// <summary>
+    /// Parses a specific field from the output of <c>net accounts</c>.
+    /// </summary>
+    /// <param name="field">Case-insensitive field name to search for (e.g. "lockout threshold").</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>The parsed integer value, 0 for "Never", or <c>null</c> if not found.</returns>
     private static async Task<int?> ReadNetAccountsValueAsync(string field, CancellationToken ct)
     {
         try
@@ -553,6 +612,14 @@ public class GroupPolicyAudit : IAuditModule
         return null;
     }
 
+    /// <summary>
+    /// Converts an auditpol inclusion-setting string to a bitmask.
+    /// </summary>
+    /// <param name="text">Raw text from auditpol CSV output (e.g. "Success and Failure").</param>
+    /// <returns>
+    /// Bitmask: 1 = success auditing, 2 = failure auditing, 3 = both, 0 = no auditing,
+    /// or <c>null</c> if the text is empty or unrecognized.
+    /// </returns>
     public static int? ParseAuditSetting(string text)
     {
         if (string.IsNullOrWhiteSpace(text)) return null;

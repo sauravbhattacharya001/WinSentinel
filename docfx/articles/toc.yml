@@ -18,6 +18,8 @@
   href: extending.md
 - name: Security Hardening
   href: security-hardening.md
+- name: Operations Runbook
+  href: operations-runbook.md
 - name: Enterprise Deployment
   href: enterprise-deployment.md
 - name: Troubleshooting

@@ -20,6 +20,23 @@ env:
 
 jobs:
   # ─────────────────────────────────────────────
+  # Dependency review (PRs only)
+  # ─────────────────────────────────────────────
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+    - uses: actions/checkout@v6
+    - uses: actions/dependency-review-action@v4
+      with:
+        fail-on-severity: high
+        comment-summary-in-pr: always
+
+  # ─────────────────────────────────────────────
   # Code quality: format & style checks
   # ─────────────────────────────────────────────
   lint:
@@ -244,3 +261,23 @@ jobs:
         name: winsentinel-agent
         path: ./artifacts/agent/
         retention-days: 30
+
+    - name: Generate SBOM
+      run: >
+        dotnet tool install --global Microsoft.Sbom.DotNetTool &&
+        sbom-tool generate
+        -b ./artifacts
+        -bc ./src
+        -pn WinSentinel
+        -pv 1.0.0
+        -ps sauravbhattacharya001
+        -nsb https://github.com/sauravbhattacharya001/WinSentinel
+      continue-on-error: true
+
+    - name: Upload SBOM
+      uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: sbom
+        path: ./artifacts/_manifest/
+        retention-days: 90

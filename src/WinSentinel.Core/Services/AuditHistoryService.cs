@@ -246,6 +246,124 @@ public class AuditHistoryService : IDisposable
     }
 
     /// <summary>
+    /// Get audit run history with findings and module scores loaded.
+    /// Use this when you need finding-level detail (e.g., detecting new/resolved findings).
+    /// For summary-only consumers (scores, counts), prefer GetHistory() which is lighter.
+    /// </summary>
+    public List<AuditRunRecord> GetHistoryWithFindings(int days = 30)
+    {
+        EnsureDatabase();
+
+        var cutoff = DateTimeOffset.UtcNow.AddDays(-days);
+
+        using var conn = new SqliteConnection(_connectionString);
+        conn.Open();
+
+        // 1. Load runs
+        var runs = new List<AuditRunRecord>();
+        var runIds = new List<long>();
+
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = @"
+                SELECT Id, Timestamp, OverallScore, Grade, TotalFindings, CriticalCount, WarningCount, InfoCount, PassCount, IsScheduled
+                FROM AuditRuns
+                WHERE Timestamp >= @cutoff
+                ORDER BY Timestamp DESC;
+            ";
+            cmd.Parameters.AddWithValue("@cutoff", cutoff.ToString("o"));
+
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                var run = new AuditRunRecord
+                {
+                    Id = reader.GetInt64(0),
+                    Timestamp = DateTimeOffset.Parse(reader.GetString(1), CultureInfo.InvariantCulture),
+                    OverallScore = reader.GetInt32(2),
+                    Grade = reader.GetString(3),
+                    TotalFindings = reader.GetInt32(4),
+                    CriticalCount = reader.GetInt32(5),
+                    WarningCount = reader.GetInt32(6),
+                    InfoCount = reader.GetInt32(7),
+                    PassCount = reader.GetInt32(8),
+                    IsScheduled = reader.GetInt32(9) == 1
+                };
+                runs.Add(run);
+                runIds.Add(run.Id);
+            }
+        }
+
+        if (runIds.Count == 0) return runs;
+
+        // 2. Batch-load findings for all run IDs
+        var runMap = runs.ToDictionary(r => r.Id);
+        var idList = string.Join(",", runIds);
+
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = $@"
+                SELECT Id, RunId, ModuleName, Title, Severity, Description, Remediation
+                FROM Findings
+                WHERE RunId IN ({idList})
+                ORDER BY RunId;
+            ";
+
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                var runId = reader.GetInt64(1);
+                if (runMap.TryGetValue(runId, out var run))
+                {
+                    run.Findings.Add(new FindingRecord
+                    {
+                        Id = reader.GetInt64(0),
+                        RunId = runId,
+                        ModuleName = reader.GetString(2),
+                        Title = reader.GetString(3),
+                        Severity = reader.GetString(4),
+                        Description = reader.GetString(5),
+                        Remediation = reader.IsDBNull(6) ? null : reader.GetString(6)
+                    });
+                }
+            }
+        }
+
+        // 3. Batch-load module scores for all run IDs
+        using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = $@"
+                SELECT Id, RunId, ModuleName, Category, Score, FindingCount, CriticalCount, WarningCount
+                FROM ModuleScores
+                WHERE RunId IN ({idList})
+                ORDER BY RunId;
+            ";
+
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                var runId = reader.GetInt64(1);
+                if (runMap.TryGetValue(runId, out var run))
+                {
+                    run.ModuleScores.Add(new ModuleScoreRecord
+                    {
+                        Id = reader.GetInt64(0),
+                        RunId = runId,
+                        ModuleName = reader.GetString(2),
+                        Category = reader.GetString(3),
+                        Score = reader.GetInt32(4),
+                        FindingCount = reader.GetInt32(5),
+                        CriticalCount = reader.GetInt32(6),
+                        WarningCount = reader.GetInt32(7)
+                    });
+                }
+            }
+        }
+
+        return runs;
+    }
+
+    /// <summary>
     /// Get the last N audit runs (lightweight, no findings loaded).
     /// </summary>
     public List<AuditRunRecord> GetRecentRuns(int count = 10)

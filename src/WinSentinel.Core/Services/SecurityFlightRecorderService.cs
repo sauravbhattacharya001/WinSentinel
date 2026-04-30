@@ -17,7 +17,7 @@ public class SecurityFlightRecorderService
         string? moduleFilter, bool criticalOnly)
     {
         var result = new FlightRecorderResult { Capacity = capacity, DaysAnalyzed = days };
-        var runs = _history.GetHistory(days);
+        var runs = _history.GetHistoryWithFindings(days);
         if (runs.Count < 2) return result;
 
         // Runs come newest-first from GetHistory; reverse for chronological processing

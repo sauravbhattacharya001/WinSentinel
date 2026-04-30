@@ -17,7 +17,7 @@ public sealed class SecurityNerveCenter
 
     public NerveCenterReport Analyze(SecurityReport report, int days = 30)
     {
-        var runs = _history.GetHistory(days);
+        var runs = _history.GetHistoryWithFindings(days);
         var moduleTrends = _history.GetModuleHistory(maxRuns: 5);
 
         var threatLevel = ComputeThreatLevel(report, runs);

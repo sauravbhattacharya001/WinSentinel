@@ -305,6 +305,12 @@ public class CliOptions
     public string? PrivEscSeverityFilter { get; set; }
     public int DecayTop { get; set; } = 20;
     public string DecayFormat { get; set; } = "text";
+
+    // Persistence Scanner options
+    public int PersistDays { get; set; } = 90;
+    public int PersistTop { get; set; } = 20;
+    public string PersistFormat { get; set; } = "text";
+    public string? PersistSeverityFilter { get; set; }
 }
 
 public enum CliCommand
@@ -400,6 +406,7 @@ public enum CliCommand
     LateralMovement,
     PrivEsc,
     Decay,
+    Persist,
     Help,
     Version
 }
@@ -2716,6 +2723,33 @@ public static class CliParser
                     if (!TryConsumeArg(args, ref i, "--decay-format", out var decayFmtVal, out var decayFmtErr))
                     { options.Error = decayFmtErr; return options; }
                     options.DecayFormat = decayFmtVal;
+                    break;
+                case "--persist":
+                case "persist":
+                case "persistence":
+                    options.Command = CliCommand.Persist;
+                    break;
+                case "--persist-days":
+                    if (!TryConsumeArg(args, ref i, "--persist-days", out var persistDaysVal, out var persistDaysErr))
+                    { options.Error = persistDaysErr; return options; }
+                    if (int.TryParse(persistDaysVal, out var persistDaysInt))
+                        options.PersistDays = Math.Clamp(persistDaysInt, 7, 365);
+                    break;
+                case "--persist-top":
+                    if (!TryConsumeArg(args, ref i, "--persist-top", out var persistTopVal, out var persistTopErr))
+                    { options.Error = persistTopErr; return options; }
+                    if (int.TryParse(persistTopVal, out var persistTopInt))
+                        options.PersistTop = Math.Clamp(persistTopInt, 1, 50);
+                    break;
+                case "--persist-format":
+                    if (!TryConsumeArg(args, ref i, "--persist-format", out var persistFmtVal, out var persistFmtErr))
+                    { options.Error = persistFmtErr; return options; }
+                    options.PersistFormat = persistFmtVal;
+                    break;
+                case "--persist-severity":
+                    if (!TryConsumeArg(args, ref i, "--persist-severity", out var persistSevVal, out var persistSevErr))
+                    { options.Error = persistSevErr; return options; }
+                    options.PersistSeverityFilter = persistSevVal;
                     break;
                 case "--threat-dna-days":
                     if (!TryConsumeArg(args, ref i, "--threat-dna-days", out var tdDaysVal, out var tdDaysErr))

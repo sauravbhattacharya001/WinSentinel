@@ -110,6 +110,7 @@ return options.Command switch
     CliCommand.LateralMovement => await HandleLateralMovement(options),
     CliCommand.PrivEsc => await HandlePrivEsc(options),
     CliCommand.Decay => await HandleDecay(options),
+    CliCommand.Persist => await HandlePersist(options),
     _ => HandleHelp()
 };
 
@@ -8377,6 +8378,32 @@ static async Task<int> HandleDecay(CliOptions options)
     {
         <= 30 => 2,
         <= 60 => 1,
+        _ => 0
+    };
+}
+
+static async Task<int> HandlePersist(CliOptions options)
+{
+    var (report, engine, elapsed) = await RunAuditAsync(options, suppressOutput: options.Quiet,
+        bannerMessage: "Running audit for persistence mechanism scanning...");
+
+    var history = new AuditHistoryService();
+    var scanner = new PersistenceMechScanner(history);
+    var persistReport = scanner.Scan(report, options.PersistDays);
+
+    if (options.Json)
+    {
+        var jsonOpts = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        OutputHelper.WriteOutput(JsonSerializer.Serialize(persistReport, jsonOpts), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintPersistMechReport(persistReport, options.PersistFormat);
+
+    return persistReport.ThreatScore switch
+    {
+        >= 70 => 2,
+        >= 40 => 1,
         _ => 0
     };
 }

@@ -303,6 +303,8 @@ public class CliOptions
     public int PrivEscTop { get; set; } = 20;
     public string PrivEscFormat { get; set; } = "text";
     public string? PrivEscSeverityFilter { get; set; }
+    public int DecayTop { get; set; } = 20;
+    public string DecayFormat { get; set; } = "text";
 }
 
 public enum CliCommand
@@ -397,6 +399,7 @@ public enum CliCommand
     Momentum,
     LateralMovement,
     PrivEsc,
+    Decay,
     Help,
     Version
 }
@@ -2697,6 +2700,22 @@ public static class CliParser
                     if (!TryConsumeArg(args, ref i, "--privesc-severity", out var pescSevVal, out var pescSevErr))
                     { options.Error = pescSevErr; return options; }
                     options.PrivEscSeverityFilter = pescSevVal;
+                    break;
+                case "--decay":
+                case "decay":
+                case "security-decay":
+                    options.Command = CliCommand.Decay;
+                    break;
+                case "--decay-top":
+                    if (!TryConsumeArg(args, ref i, "--decay-top", out var decayTopVal, out var decayTopErr))
+                    { options.Error = decayTopErr; return options; }
+                    if (int.TryParse(decayTopVal, out var decayTopInt))
+                        options.DecayTop = Math.Clamp(decayTopInt, 1, 50);
+                    break;
+                case "--decay-format":
+                    if (!TryConsumeArg(args, ref i, "--decay-format", out var decayFmtVal, out var decayFmtErr))
+                    { options.Error = decayFmtErr; return options; }
+                    options.DecayFormat = decayFmtVal;
                     break;
                 case "--threat-dna-days":
                     if (!TryConsumeArg(args, ref i, "--threat-dna-days", out var tdDaysVal, out var tdDaysErr))

@@ -109,6 +109,7 @@ return options.Command switch
     CliCommand.Momentum => await HandleMomentum(options),
     CliCommand.LateralMovement => await HandleLateralMovement(options),
     CliCommand.PrivEsc => await HandlePrivEsc(options),
+    CliCommand.Decay => await HandleDecay(options),
     _ => HandleHelp()
 };
 
@@ -8351,6 +8352,31 @@ static async Task<int> HandlePrivEsc(CliOptions options)
     {
         >= 70 => 2,
         >= 40 => 1,
+        _ => 0
+    };
+}
+
+static async Task<int> HandleDecay(CliOptions options)
+{
+    var (report, engine, elapsed) = await RunAuditAsync(options, suppressOutput: options.Quiet,
+        bannerMessage: "Running audit for security decay prediction...");
+
+    var predictor = new SecurityDecayPredictor();
+    var decayReport = predictor.Predict(report);
+
+    if (options.Json)
+    {
+        var jsonOpts = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        OutputHelper.WriteOutput(JsonSerializer.Serialize(decayReport, jsonOpts), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintDecay(decayReport);
+
+    return decayReport.HealthScore switch
+    {
+        <= 30 => 2,
+        <= 60 => 1,
         _ => 0
     };
 }

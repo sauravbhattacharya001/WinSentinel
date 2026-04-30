@@ -384,6 +384,7 @@ public enum CliCommand
     ThreatDna,
     KillChain,
     InsiderThreat,
+    Momentum,
     Help,
     Version
 }
@@ -2641,6 +2642,10 @@ public static class CliParser
                 case "insider-threat":
                 case "insider":
                     options.Command = CliCommand.InsiderThreat;
+                    break;
+                case "--momentum":
+                case "momentum":
+                    options.Command = CliCommand.Momentum;
                     break;
                 case "--threat-dna-days":
                     if (!TryConsumeArg(args, ref i, "--threat-dna-days", out var tdDaysVal, out var tdDaysErr))

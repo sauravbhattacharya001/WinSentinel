@@ -106,6 +106,7 @@ return options.Command switch
     CliCommand.ThreatDna => HandleThreatDna(options),
     CliCommand.KillChain => await HandleKillChain(options),
     CliCommand.InsiderThreat => await HandleInsiderThreat(options),
+    CliCommand.Momentum => await HandleMomentum(options),
     _ => HandleHelp()
 };
 
@@ -8267,6 +8268,33 @@ static async Task<int> HandleInsiderThreat(CliOptions options)
         "Critical" => 3,
         "High" => 2,
         "Elevated" => 1,
+        _ => 0
+    };
+}
+
+static async Task<int> HandleMomentum(CliOptions options)
+{
+    var (report, engine, elapsed) = await RunAuditAsync(options, suppressOutput: options.Quiet,
+        bannerMessage: "Running audit for posture momentum analysis...");
+
+    var history = new AuditHistoryService();
+    var analyzer = new PostureMomentumAnalyzer(history);
+    var momentumReport = analyzer.Analyze(report, options.HistoryDays);
+
+    if (options.Json)
+    {
+        var jsonOpts = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        OutputHelper.WriteOutput(JsonSerializer.Serialize(momentumReport, jsonOpts), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintMomentum(momentumReport);
+
+    return momentumReport.Phase switch
+    {
+        MomentumPhase.FreeFall => 3,
+        MomentumPhase.Regressing => 2,
+        MomentumPhase.FalsePlateau => 1,
         _ => 0
     };
 }

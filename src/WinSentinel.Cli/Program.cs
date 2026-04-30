@@ -105,6 +105,7 @@ return options.Command switch
     CliCommand.Regression => HandleRegression(options),
     CliCommand.ThreatDna => HandleThreatDna(options),
     CliCommand.KillChain => await HandleKillChain(options),
+    CliCommand.InsiderThreat => await HandleInsiderThreat(options),
     _ => HandleHelp()
 };
 
@@ -8237,6 +8238,35 @@ static async Task<int> HandleKillChain(CliOptions options)
         "Critical" => 3,
         "High" => 2,
         "Moderate" => 1,
+        _ => 0
+    };
+}
+
+// ── Insider Threat ───────────────────────────────────────────────────
+
+static async Task<int> HandleInsiderThreat(CliOptions options)
+{
+    var (report, engine, elapsed) = await RunAuditAsync(options, suppressOutput: options.Quiet,
+        bannerMessage: "Running audit for insider threat behavioral profiling...");
+
+    var history = new AuditHistoryService();
+    var profiler = new InsiderThreatProfiler(history);
+    var insiderReport = profiler.Profile(report, options.HistoryDays);
+
+    if (options.Json)
+    {
+        var jsonOpts = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        OutputHelper.WriteOutput(JsonSerializer.Serialize(insiderReport, jsonOpts), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintInsiderThreat(insiderReport);
+
+    return insiderReport.RiskTier switch
+    {
+        "Critical" => 3,
+        "High" => 2,
+        "Elevated" => 1,
         _ => 0
     };
 }

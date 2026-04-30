@@ -107,6 +107,7 @@ return options.Command switch
     CliCommand.KillChain => await HandleKillChain(options),
     CliCommand.InsiderThreat => await HandleInsiderThreat(options),
     CliCommand.Momentum => await HandleMomentum(options),
+    CliCommand.LateralMovement => await HandleLateralMovement(options),
     _ => HandleHelp()
 };
 
@@ -8295,6 +8296,32 @@ static async Task<int> HandleMomentum(CliOptions options)
         MomentumPhase.FreeFall => 3,
         MomentumPhase.Regressing => 2,
         MomentumPhase.FalsePlateau => 1,
+        _ => 0
+    };
+}
+
+static async Task<int> HandleLateralMovement(CliOptions options)
+{
+    var (report, engine, elapsed) = await RunAuditAsync(options, suppressOutput: options.Quiet,
+        bannerMessage: "Running audit for lateral movement detection...");
+
+    var history = new AuditHistoryService();
+    var detector = new LateralMovementDetector(history);
+    var lmReport = detector.Detect(report, options.LateralMovementDays);
+
+    if (options.Json)
+    {
+        var jsonOpts = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        OutputHelper.WriteOutput(JsonSerializer.Serialize(lmReport, jsonOpts), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintLateralMovement(lmReport, options);
+
+    return lmReport.ThreatScore switch
+    {
+        >= 70 => 2,
+        >= 40 => 1,
         _ => 0
     };
 }

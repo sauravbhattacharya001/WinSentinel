@@ -293,6 +293,12 @@ public class CliOptions
     public string? RegressionModuleFilter { get; set; }
     public int ThreatDnaDays { get; set; } = 90;
     public int ThreatDnaTop { get; set; } = 15;
+
+    // Lateral Movement options
+    public int LateralMovementDays { get; set; } = 90;
+    public int LateralMovementTop { get; set; } = 20;
+    public string LateralMovementFormat { get; set; } = "text";
+    public string? LateralMovementSeverityFilter { get; set; }
 }
 
 public enum CliCommand
@@ -385,6 +391,7 @@ public enum CliCommand
     KillChain,
     InsiderThreat,
     Momentum,
+    LateralMovement,
     Help,
     Version
 }
@@ -2646,6 +2653,28 @@ public static class CliParser
                 case "--momentum":
                 case "momentum":
                     options.Command = CliCommand.Momentum;
+                    break;
+                case "--lateral-movement":
+                case "lateral-movement":
+                case "lateral":
+                    options.Command = CliCommand.LateralMovement;
+                    break;
+                case "--lateral-days":
+                    if (!TryConsumeArg(args, ref i, "--lateral-days", out var latDaysVal, out var latDaysErr))
+                    { options.Error = latDaysErr; return options; }
+                    if (int.TryParse(latDaysVal, out var latDaysInt))
+                        options.LateralMovementDays = Math.Clamp(latDaysInt, 7, 365);
+                    break;
+                case "--lateral-top":
+                    if (!TryConsumeArg(args, ref i, "--lateral-top", out var latTopVal, out var latTopErr))
+                    { options.Error = latTopErr; return options; }
+                    if (int.TryParse(latTopVal, out var latTopInt))
+                        options.LateralMovementTop = Math.Clamp(latTopInt, 1, 100);
+                    break;
+                case "--lateral-severity":
+                    if (!TryConsumeArg(args, ref i, "--lateral-severity", out var latSevVal, out var latSevErr))
+                    { options.Error = latSevErr; return options; }
+                    options.LateralMovementSeverityFilter = latSevVal;
                     break;
                 case "--threat-dna-days":
                     if (!TryConsumeArg(args, ref i, "--threat-dna-days", out var tdDaysVal, out var tdDaysErr))

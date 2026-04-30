@@ -108,6 +108,7 @@ return options.Command switch
     CliCommand.InsiderThreat => await HandleInsiderThreat(options),
     CliCommand.Momentum => await HandleMomentum(options),
     CliCommand.LateralMovement => await HandleLateralMovement(options),
+    CliCommand.PrivEsc => await HandlePrivEsc(options),
     _ => HandleHelp()
 };
 
@@ -8319,6 +8320,34 @@ static async Task<int> HandleLateralMovement(CliOptions options)
     ConsoleFormatter.PrintLateralMovement(lmReport, options);
 
     return lmReport.ThreatScore switch
+    {
+        >= 70 => 2,
+        >= 40 => 1,
+        _ => 0
+    };
+}
+
+// ── Privilege Escalation ─────────────────────────────────────────────
+
+static async Task<int> HandlePrivEsc(CliOptions options)
+{
+    var (report, engine, elapsed) = await RunAuditAsync(options, suppressOutput: options.Quiet,
+        bannerMessage: "Running audit for privilege escalation detection...");
+
+    var history = new AuditHistoryService();
+    var detector = new PrivilegeEscalationDetector(history);
+    var pescReport = detector.Detect(report, options.PrivEscDays);
+
+    if (options.Json)
+    {
+        var jsonOpts = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        OutputHelper.WriteOutput(JsonSerializer.Serialize(pescReport, jsonOpts), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintPrivEscReport(pescReport, options.PrivEscFormat);
+
+    return pescReport.ThreatScore switch
     {
         >= 70 => 2,
         >= 40 => 1,

@@ -299,6 +299,10 @@ public class CliOptions
     public int LateralMovementTop { get; set; } = 20;
     public string LateralMovementFormat { get; set; } = "text";
     public string? LateralMovementSeverityFilter { get; set; }
+    public int PrivEscDays { get; set; } = 90;
+    public int PrivEscTop { get; set; } = 20;
+    public string PrivEscFormat { get; set; } = "text";
+    public string? PrivEscSeverityFilter { get; set; }
 }
 
 public enum CliCommand
@@ -392,6 +396,7 @@ public enum CliCommand
     InsiderThreat,
     Momentum,
     LateralMovement,
+    PrivEsc,
     Help,
     Version
 }
@@ -2675,6 +2680,23 @@ public static class CliParser
                     if (!TryConsumeArg(args, ref i, "--lateral-severity", out var latSevVal, out var latSevErr))
                     { options.Error = latSevErr; return options; }
                     options.LateralMovementSeverityFilter = latSevVal;
+                    break;
+                case "--privesc":
+                case "privesc":
+                case "priv-esc":
+                case "privilege-escalation":
+                    options.Command = CliCommand.PrivEsc;
+                    break;
+                case "--privesc-days":
+                    if (!TryConsumeArg(args, ref i, "--privesc-days", out var pescDaysVal, out var pescDaysErr))
+                    { options.Error = pescDaysErr; return options; }
+                    if (int.TryParse(pescDaysVal, out var pescDaysInt))
+                        options.PrivEscDays = Math.Clamp(pescDaysInt, 7, 365);
+                    break;
+                case "--privesc-severity":
+                    if (!TryConsumeArg(args, ref i, "--privesc-severity", out var pescSevVal, out var pescSevErr))
+                    { options.Error = pescSevErr; return options; }
+                    options.PrivEscSeverityFilter = pescSevVal;
                     break;
                 case "--threat-dna-days":
                     if (!TryConsumeArg(args, ref i, "--threat-dna-days", out var tdDaysVal, out var tdDaysErr))

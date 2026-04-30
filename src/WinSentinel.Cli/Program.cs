@@ -111,6 +111,7 @@ return options.Command switch
     CliCommand.PrivEsc => await HandlePrivEsc(options),
     CliCommand.Decay => await HandleDecay(options),
     CliCommand.Persist => await HandlePersist(options),
+    CliCommand.Evasion => await HandleEvasion(options),
     _ => HandleHelp()
 };
 
@@ -8401,6 +8402,32 @@ static async Task<int> HandlePersist(CliOptions options)
     ConsoleFormatter.PrintPersistMechReport(persistReport, options.PersistFormat);
 
     return persistReport.ThreatScore switch
+    {
+        >= 70 => 2,
+        >= 40 => 1,
+        _ => 0
+    };
+}
+
+static async Task<int> HandleEvasion(CliOptions options)
+{
+    var (report, engine, elapsed) = await RunAuditAsync(options, suppressOutput: options.Quiet,
+        bannerMessage: "Running audit for defense evasion detection...");
+
+    var history = new AuditHistoryService();
+    var detector = new DefenseEvasionDetector(history);
+    var evasionReport = detector.Detect(report, options.EvasionDays);
+
+    if (options.Json)
+    {
+        var jsonOpts = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        OutputHelper.WriteOutput(JsonSerializer.Serialize(evasionReport, jsonOpts), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintEvasionReport(evasionReport, options.EvasionFormat);
+
+    return evasionReport.ThreatScore switch
     {
         >= 70 => 2,
         >= 40 => 1,

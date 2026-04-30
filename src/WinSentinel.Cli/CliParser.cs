@@ -311,6 +311,12 @@ public class CliOptions
     public int PersistTop { get; set; } = 20;
     public string PersistFormat { get; set; } = "text";
     public string? PersistSeverityFilter { get; set; }
+
+    // Defense Evasion options
+    public int EvasionDays { get; set; } = 90;
+    public int EvasionTop { get; set; } = 20;
+    public string EvasionFormat { get; set; } = "text";
+    public string? EvasionSeverityFilter { get; set; }
 }
 
 public enum CliCommand
@@ -407,6 +413,7 @@ public enum CliCommand
     PrivEsc,
     Decay,
     Persist,
+    Evasion,
     Help,
     Version
 }
@@ -2750,6 +2757,33 @@ public static class CliParser
                     if (!TryConsumeArg(args, ref i, "--persist-severity", out var persistSevVal, out var persistSevErr))
                     { options.Error = persistSevErr; return options; }
                     options.PersistSeverityFilter = persistSevVal;
+                    break;
+                case "--evasion":
+                case "evasion":
+                case "defense-evasion":
+                    options.Command = CliCommand.Evasion;
+                    break;
+                case "--evasion-days":
+                    if (!TryConsumeArg(args, ref i, "--evasion-days", out var evasionDaysVal, out var evasionDaysErr))
+                    { options.Error = evasionDaysErr; return options; }
+                    if (int.TryParse(evasionDaysVal, out var evasionDaysInt))
+                        options.EvasionDays = Math.Clamp(evasionDaysInt, 7, 365);
+                    break;
+                case "--evasion-top":
+                    if (!TryConsumeArg(args, ref i, "--evasion-top", out var evasionTopVal, out var evasionTopErr))
+                    { options.Error = evasionTopErr; return options; }
+                    if (int.TryParse(evasionTopVal, out var evasionTopInt))
+                        options.EvasionTop = Math.Clamp(evasionTopInt, 1, 50);
+                    break;
+                case "--evasion-format":
+                    if (!TryConsumeArg(args, ref i, "--evasion-format", out var evasionFmtVal, out var evasionFmtErr))
+                    { options.Error = evasionFmtErr; return options; }
+                    options.EvasionFormat = evasionFmtVal;
+                    break;
+                case "--evasion-severity":
+                    if (!TryConsumeArg(args, ref i, "--evasion-severity", out var evasionSevVal, out var evasionSevErr))
+                    { options.Error = evasionSevErr; return options; }
+                    options.EvasionSeverityFilter = evasionSevVal;
                     break;
                 case "--threat-dna-days":
                     if (!TryConsumeArg(args, ref i, "--threat-dna-days", out var tdDaysVal, out var tdDaysErr))

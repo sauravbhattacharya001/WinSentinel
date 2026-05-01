@@ -1,6 +1,6 @@
 # Contributing to WinSentinel
 
-Thank you for your interest in improving WinSentinel! Whether you're fixing a bug, adding an audit module, improving documentation, or suggesting ideas — contributions are welcome.
+Thank you for your interest in improving WinSentinel! Whether you're fixing a bug, adding an audit module, improving documentation, or suggesting ideas - contributions are welcome.
 
 ## Table of Contents
 
@@ -36,13 +36,14 @@ WinSentinel is structured as six projects that form a layered architecture:
 │  │  AgentBrain → ThreatCorrelator → AutoRemediator   │  │
 │  │  CommandRouter → IChatCommand pipeline             │  │
 │  │  ScheduledAuditModule → Monitors                   │  │
+│  │  IRemediationStrategy chain (6 built-in strategies) │  │
 │  └──────────────────────┬────────────────────────────┘  │
 │                         │                               │
 │  ┌──────────────────────┴────────────────────────────┐  │
 │  │                    Core                            │  │
 │  │  AuditEngine → IAuditModule[] → Finding[]          │  │
-│  │  85+ Services (scoring, compliance, reporting...)  │  │
-│  │  Helpers: InputSanitizer, RegistryHelper, WmiHelper│  │
+│  │  98 Services (scoring, compliance, reporting...)    │  │
+│  │  Helpers: InputSanitizer, RegistryHelper, WmiHelper │  │
 │  └────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -55,7 +56,7 @@ WinSentinel is structured as six projects that form a layered architecture:
 
 ### Service Categories (Core)
 
-The 85+ services in `WinSentinel.Core/Services/` group into functional areas:
+The 98 services in `WinSentinel.Core/Services/` group into functional areas:
 
 | Area | Key Services | Purpose |
 |------|-------------|----------|
@@ -72,7 +73,7 @@ The 85+ services in `WinSentinel.Core/Services/` group into functional areas:
 | **Gamification** | `GamificationService`, `SecurityQuizService`, `SecurityMentorService`, `SecurityHabitTracker` | User engagement and education |
 | **Advanced** | `WhatIfSimulator`, `SecurityWarGameService`, `SecuritySwarmIntelligence`, `SecurityProphecyService` | Simulation and predictive analysis |
 
-When adding a new service, identify which area it belongs to — this helps reviewers understand scope and suggests which existing services your code should integrate with.
+The service count (98) is based on files in `src/WinSentinel.Core/Services/`. When adding a new service, identify which area it belongs to — this helps reviewers understand scope and suggests which existing services your code should integrate with.
 
 ## Getting Started
 
@@ -87,9 +88,9 @@ When adding a new service, identify which area it belongs to — this helps revi
 ### Prerequisites
 
 - **Windows 10/11** (WinSentinel is Windows-native)
-- **.NET 8 SDK** — [download](https://dotnet.microsoft.com/download/dotnet/8.0)
+- **.NET 8 SDK** - [download](https://dotnet.microsoft.com/download/dotnet/8.0)
 - **Visual Studio 2022** (recommended) or **VS Code** with the C# Dev Kit
-- **Git** — [download](https://git-scm.com/)
+- **Git** - [download](https://git-scm.com/)
 
 ### Build
 
@@ -151,11 +152,11 @@ WinSentinel/
 
 ### Branch Naming
 
-- `feat/description` — new features or audit modules
-- `fix/description` — bug fixes
-- `security/description` — security-related changes
-- `docs/description` — documentation only
-- `refactor/description` — code improvements without behavior change
+- `feat/description` - new features or audit modules
+- `fix/description` - bug fixes
+- `security/description` - security-related changes
+- `docs/description` - documentation only
+- `refactor/description` - code improvements without behavior change
 
 ### Commit Messages
 
@@ -244,23 +245,90 @@ public async Task MyNewAudit_ReturnsFindings()
 }
 ```
 
-### 4. Register It in AuditEngine
-
-Add your module to the default constructor in `src/WinSentinel.Core/Services/AuditEngine.cs`:
-
-```csharp
-_modules = new List<IAuditModule>
-{
-    // ... existing 23 modules ...
-    new MyNewAudit(),
-};
-```
-
 > **Note**: The DI constructor `AuditEngine(IEnumerable<IAuditModule>)` is used in tests and by the Agent — no changes needed there.
 
-### 5. Document It
+### 4. Document It
 
 Update the README's module table with your new audit.
+
+## Adding a Remediation Strategy
+
+The Agent auto-remediates threats using a strategy chain (`IRemediationStrategy` in `RemediationStrategies.cs`). The `AutoRemediator` evaluates each strategy in order; the first one that claims a threat handles it.
+
+### Built-in Strategies (6)
+
+| Strategy | Trigger | Action |
+|----------|---------|--------|
+| `DefenderRemediationStrategy` | "Defender" + "Disabled" in title | Re-enables Windows Defender |
+| `HostsFileRemediationStrategy` | "Hosts File" in title | Restores hosts file to clean state |
+| `ProcessKillRemediationStrategy` | Source is `ProcessMonitor` with PID | Kills the suspicious process |
+| `FileQuarantineRemediationStrategy` | Source is `FileSystemMonitor` with path | Moves file to quarantine |
+| `IpBlockRemediationStrategy` | IP address in description | Creates firewall block rule |
+| `FixCommandRemediationStrategy` | Threat has a `FixCommand` | Executes the fix command (catch-all fallback) |
+
+### Creating a New Strategy
+
+Create a new class implementing `IRemediationStrategy` in `src/WinSentinel.Agent/Services/RemediationStrategies.cs`:
+
+```csharp
+namespace WinSentinel.Agent.Services;
+
+/// <summary>
+/// Disables a suspicious scheduled task when a TaskSchedulerMonitor threat is detected.
+/// </summary>
+public class TaskDisableRemediationStrategy : IRemediationStrategy
+{
+    private readonly AutoRemediator _remediator;
+
+    public TaskDisableRemediationStrategy(AutoRemediator remediator)
+        => _remediator = remediator;
+
+    public bool CanHandle(ThreatEvent threat) =>
+        threat.Source == "TaskSchedulerMonitor" &&
+        !string.IsNullOrEmpty(threat.Description);
+
+    public RemediationRecord Execute(ThreatEvent threat)
+    {
+        var taskName = ExtractTaskName(threat.Description);
+        return _remediator.ExecuteFixCommand(threat with
+        {
+            FixCommand = $"schtasks /Change /TN \"{taskName}\" /Disable"
+        });
+    }
+
+    private static string ExtractTaskName(string desc) { /* parse from description */ }
+}
+```
+
+### Register the Strategy
+
+Add it to the strategy chain in `AgentBrain`'s constructor. **Order matters** — more specific strategies should come before generic ones (`FixCommandRemediationStrategy` is always last as the catch-all):
+
+```csharp
+new TaskDisableRemediationStrategy(remediator),
+// ... existing strategies ...
+new FixCommandRemediationStrategy(remediator), // always last
+```
+
+### Test Both Paths
+
+```csharp
+[Fact]
+public void TaskDisable_CanHandle_TaskSchedulerSource()
+{
+    var strategy = new TaskDisableRemediationStrategy(remediator);
+    var threat = new ThreatEvent { Source = "TaskSchedulerMonitor", Description = "..." };
+    Assert.True(strategy.CanHandle(threat));
+}
+
+[Fact]
+public void TaskDisable_IgnoresUnrelatedSource()
+{
+    var strategy = new TaskDisableRemediationStrategy(remediator);
+    var threat = new ThreatEvent { Source = "FileSystemMonitor", Description = "..." };
+    Assert.False(strategy.CanHandle(threat));
+}
+```
 
 ## Adding a Chat Command
 
@@ -300,7 +368,7 @@ public sealed class MyCommand : IChatCommand
 
 ### 2. Register the Command
 
-Add it to the command list in `AgentBrain`'s constructor (order matters — earlier commands have priority):
+Add it to the command list in `AgentBrain`'s constructor (order matters - earlier commands have priority):
 
 ```csharp
 // In AgentBrain constructor or DI registration
@@ -350,7 +418,7 @@ Review these for patterns before writing your own:
 
 - **All new code must have tests.** Aim for meaningful coverage of the logic, not just line count.
 - **Tests must pass on x64 platform**: `dotnet test -p:Platform=x64`
-- **Don't depend on specific machine state**: Mock or abstract OS-dependent calls where feasible. Some audit modules inherently test the current machine — that's fine, but test the logic paths, not just "it ran."
+- **Don't depend on specific machine state**: Mock or abstract OS-dependent calls where feasible. Some audit modules inherently test the current machine - that's fine, but test the logic paths, not just "it ran."
 - **Sanitize inputs**: Any user-provided or external input must go through `InputSanitizer` before use in file paths, registry keys, or commands.
 
 ### Test Categories
@@ -367,8 +435,8 @@ Review these for patterns before writing your own:
 
 1. **Ensure the build passes**: `dotnet build WinSentinel.sln -p:Platform=x64`
 2. **Ensure tests pass**: `dotnet test tests/WinSentinel.Tests -p:Platform=x64`
-3. **Fill out the PR template** — it covers type of change, components affected, testing, and security considerations
-4. **Keep PRs focused** — one feature or fix per PR
+3. **Fill out the PR template** - it covers type of change, components affected, testing, and security considerations
+4. **Keep PRs focused** - one feature or fix per PR
 5. **Update documentation** if your change affects usage or architecture
 
 ### What We Look For in Reviews
@@ -385,7 +453,7 @@ The `WinSentinel.Core/Helpers/` directory contains shared utilities that **must*
 
 | Helper | Purpose | When to Use |
 |--------|---------|-------------|
-| `InputSanitizer` | Validates and sanitizes external input | **Always** — file paths, registry keys, user text, command arguments |
+| `InputSanitizer` | Validates and sanitizes external input | **Always** - file paths, registry keys, user text, command arguments |
 | `RegistryHelper` | Safe registry reads with error handling | Reading any registry key/value |
 | `WmiHelper` | WMI/CIM query abstraction | Querying Win32_* classes |
 | `ShellHelper` | Safe process execution with timeout | Running external commands (PowerShell, cmd, etc.) |
@@ -395,14 +463,14 @@ The `WinSentinel.Core/Helpers/` directory contains shared utilities that **must*
 
 ## Coding Conventions
 
-- **C# 12 / .NET 8** — use modern language features (file-scoped namespaces, primary constructors, etc.)
-- **Nullable reference types** — enabled project-wide; don't suppress warnings without good reason
-- **`InputSanitizer`** — all external input (file paths, registry keys, user text) must be sanitized before use
-- **Async all the way** — audit modules use `async Task`; don't block on async code
-- **XML doc comments** — on all public types and methods
+- **C# 12 / .NET 8** - use modern language features (file-scoped namespaces, primary constructors, etc.)
+- **Nullable reference types** - enabled project-wide; don't suppress warnings without good reason
+- **`InputSanitizer`** - all external input (file paths, registry keys, user text) must be sanitized before use
+- **Async all the way** - audit modules use `async Task`; don't block on async code
+- **XML doc comments** - on all public types and methods
 - **No `#pragma warning disable`** without a comment explaining why
 - **Constants over magic numbers**
-- **`CancellationToken`** — accept and respect cancellation in long-running operations
+- **`CancellationToken`** - accept and respect cancellation in long-running operations
 
 ## Security Vulnerabilities
 
@@ -415,7 +483,7 @@ Instead, use the [Security Report](https://github.com/sauravbhattacharya001/WinS
 - Potential impact
 - Suggested fix (if you have one)
 
-We take security seriously — this is a security tool, after all.
+We take security seriously - this is a security tool, after all.
 
 ## Debugging & Troubleshooting
 
@@ -425,8 +493,8 @@ We take security seriously — this is a security tool, after all.
 |---------|-----|
 | `Platform 'x64' not found` | Ensure you pass `-p:Platform=x64` to all `dotnet` commands |
 | `WPF targets not found` | Install the **.NET Desktop Development** workload in VS Installer |
-| `SQLite native interop` | Run `dotnet restore` again — the native binary may not have been extracted |
-| Tests fail with `Access Denied` | Some audits need **Administrator** — right-click VS/terminal → Run as Admin |
+| `SQLite native interop` | Run `dotnet restore` again - the native binary may not have been extracted |
+| Tests fail with `Access Denied` | Some audits need **Administrator** - right-click VS/terminal → Run as Admin |
 
 ### Debugging Audit Modules
 

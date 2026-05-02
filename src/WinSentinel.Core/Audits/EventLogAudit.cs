@@ -34,7 +34,7 @@ public class EventLogAudit : IAuditModule
     {
         lock (_findingsLock)
         {
-            AddFinding(result, finding);
+            result.Findings.Add(finding);
         }
     }
 
@@ -43,7 +43,10 @@ public class EventLogAudit : IAuditModule
     {
         lock (_findingsLock)
         {
-            AddFindings(result, findings);
+            foreach (var finding in findings)
+            {
+                result.Findings.Add(finding);
+            }
         }
     }
 

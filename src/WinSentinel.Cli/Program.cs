@@ -112,6 +112,7 @@ return options.Command switch
     CliCommand.Decay => await HandleDecay(options),
     CliCommand.Persist => await HandlePersist(options),
     CliCommand.Evasion => await HandleEvasion(options),
+    CliCommand.Exfil => await HandleExfil(options),
     _ => HandleHelp()
 };
 
@@ -8428,6 +8429,34 @@ static async Task<int> HandleEvasion(CliOptions options)
     ConsoleFormatter.PrintEvasionReport(evasionReport, options.EvasionFormat);
 
     return evasionReport.ThreatScore switch
+    {
+        >= 70 => 2,
+        >= 40 => 1,
+        _ => 0
+    };
+}
+
+// 📤 Data Exfiltration ════════════════════════════════════════════════════════
+
+static async Task<int> HandleExfil(CliOptions options)
+{
+    var (report, engine, elapsed) = await RunAuditAsync(options, suppressOutput: options.Quiet,
+        bannerMessage: "Running audit for data exfiltration detection...");
+
+    var history = new AuditHistoryService();
+    var detector = new DataExfiltrationDetector(history);
+    var exfilReport = detector.Detect(report, options.ExfilDays);
+
+    if (options.Json)
+    {
+        var jsonOpts = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        OutputHelper.WriteOutput(JsonSerializer.Serialize(exfilReport, jsonOpts), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintExfiltration(exfilReport, options);
+
+    return exfilReport.ThreatScore switch
     {
         >= 70 => 2,
         >= 40 => 1,

@@ -317,6 +317,12 @@ public class CliOptions
     public int EvasionTop { get; set; } = 20;
     public string EvasionFormat { get; set; } = "text";
     public string? EvasionSeverityFilter { get; set; }
+
+    // Data Exfiltration options
+    public int ExfilDays { get; set; } = 90;
+    public int ExfilTop { get; set; } = 20;
+    public string ExfilFormat { get; set; } = "text";
+    public string? ExfilSeverityFilter { get; set; }
 }
 
 public enum CliCommand
@@ -414,6 +420,7 @@ public enum CliCommand
     Decay,
     Persist,
     Evasion,
+    Exfil,
     Help,
     Version
 }
@@ -2784,6 +2791,34 @@ public static class CliParser
                     if (!TryConsumeArg(args, ref i, "--evasion-severity", out var evasionSevVal, out var evasionSevErr))
                     { options.Error = evasionSevErr; return options; }
                     options.EvasionSeverityFilter = evasionSevVal;
+                    break;
+                case "--exfil":
+                case "exfil":
+                case "exfiltration":
+                case "data-exfil":
+                    options.Command = CliCommand.Exfil;
+                    break;
+                case "--exfil-days":
+                    if (!TryConsumeArg(args, ref i, "--exfil-days", out var exfilDaysVal, out var exfilDaysErr))
+                    { options.Error = exfilDaysErr; return options; }
+                    if (int.TryParse(exfilDaysVal, out var exfilDaysInt))
+                        options.ExfilDays = Math.Clamp(exfilDaysInt, 7, 365);
+                    break;
+                case "--exfil-top":
+                    if (!TryConsumeArg(args, ref i, "--exfil-top", out var exfilTopVal, out var exfilTopErr))
+                    { options.Error = exfilTopErr; return options; }
+                    if (int.TryParse(exfilTopVal, out var exfilTopInt))
+                        options.ExfilTop = Math.Clamp(exfilTopInt, 1, 50);
+                    break;
+                case "--exfil-format":
+                    if (!TryConsumeArg(args, ref i, "--exfil-format", out var exfilFmtVal, out var exfilFmtErr))
+                    { options.Error = exfilFmtErr; return options; }
+                    options.ExfilFormat = exfilFmtVal;
+                    break;
+                case "--exfil-severity":
+                    if (!TryConsumeArg(args, ref i, "--exfil-severity", out var exfilSevVal, out var exfilSevErr))
+                    { options.Error = exfilSevErr; return options; }
+                    options.ExfilSeverityFilter = exfilSevVal;
                     break;
                 case "--threat-dna-days":
                     if (!TryConsumeArg(args, ref i, "--threat-dna-days", out var tdDaysVal, out var tdDaysErr))

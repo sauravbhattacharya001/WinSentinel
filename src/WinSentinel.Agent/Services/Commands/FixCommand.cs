@@ -44,9 +44,18 @@ public sealed class FixCommand : ChatCommandBase
         sb.AppendLine($"🔧 **Fixing {fixable.Count} issues...**");
         sb.AppendLine();
 
-        int succeeded = 0, failed = 0;
+        int succeeded = 0, failed = 0, blocked = 0;
         foreach (var finding in fixable)
         {
+            // Safety check: block dangerous commands (matches AutoRemediator & IpcServer)
+            var dangerReason = Core.Helpers.InputSanitizer.CheckDangerousCommand(finding.FixCommand!);
+            if (dangerReason != null)
+            {
+                sb.AppendLine($"  🚫 {finding.Title}: blocked by safety check ({dangerReason})");
+                blocked++;
+                continue;
+            }
+
             var result = await fixEngine.ExecuteFixAsync(finding);
             if (result.Success)
             {
@@ -61,7 +70,8 @@ public sealed class FixCommand : ChatCommandBase
         }
 
         sb.AppendLine();
-        sb.AppendLine($"**Results:** {succeeded} fixed, {failed} failed");
+        sb.AppendLine($"**Results:** {succeeded} fixed, {failed} failed" +
+            (blocked > 0 ? $", {blocked} blocked by safety check" : ""));
 
         return new ChatResponsePayload
         {
@@ -109,6 +119,15 @@ public sealed class FixCommand : ChatCommandBase
                 $"⚠️ \"{match.Title}\" doesn't have an automated fix.\n" +
                 (match.Remediation != null ? $"💡 Manual fix: {match.Remediation}" : ""),
                 ChatResponseCategory.General);
+        }
+
+        // Safety check: block dangerous commands (matches AutoRemediator & IpcServer)
+        var dangerReason = Core.Helpers.InputSanitizer.CheckDangerousCommand(match.FixCommand);
+        if (dangerReason != null)
+        {
+            return SimpleResponse(
+                $"🚫 **Blocked: {match.Title}**\nFix command rejected by safety check: {dangerReason}",
+                ChatResponseCategory.Error);
         }
 
         var fixEngine = new FixEngine();

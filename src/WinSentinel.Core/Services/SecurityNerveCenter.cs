@@ -20,12 +20,16 @@ public sealed class SecurityNerveCenter
         var runs = _history.GetHistoryWithFindings(days);
         var moduleTrends = _history.GetModuleHistory(maxRuns: 5);
 
-        var threatLevel = ComputeThreatLevel(report, runs);
+        // Sort runs once — previously sorted independently in ComputeThreatLevel,
+        // BuildSignals, and BuildAlerts (4× redundant O(n log n) sorts).
+        var sortedRuns = runs.OrderByDescending(r => r.Timestamp).ToList();
+
+        var threatLevel = ComputeThreatLevel(report, sortedRuns);
         var incidents = BuildIncidents(report);
         var vitals = BuildVitals(report, moduleTrends);
-        var signals = BuildSignals(report, runs);
+        var signals = BuildSignals(report, sortedRuns);
         var actions = BuildActions(report, vitals, incidents);
-        var alerts = BuildAlerts(report, runs, vitals);
+        var alerts = BuildAlerts(report, sortedRuns, vitals);
 
         return new NerveCenterReport(
             threatLevel.Level, threatLevel.Label, threatLevel.Rationale,
@@ -35,19 +39,19 @@ public sealed class SecurityNerveCenter
 
     // ── Threat Level ─────────────────────────────────────────────────
 
+    /// <param name="sortedRuns">Runs pre-sorted by Timestamp descending.</param>
     private static (int Level, string Label, string Rationale) ComputeThreatLevel(
-        SecurityReport report, List<AuditRunRecord> runs)
+        SecurityReport report, List<AuditRunRecord> sortedRuns)
     {
         var score = report.SecurityScore;
         var criticals = report.TotalCritical;
 
         // Check for declining trend (last 3+ scans)
         bool declining = false;
-        if (runs.Count >= 3)
+        if (sortedRuns.Count >= 3)
         {
-            var recent = runs.OrderByDescending(r => r.Timestamp).Take(3).ToList();
-            declining = recent[0].OverallScore < recent[1].OverallScore &&
-                        recent[1].OverallScore < recent[2].OverallScore;
+            declining = sortedRuns[0].OverallScore < sortedRuns[1].OverallScore &&
+                        sortedRuns[1].OverallScore < sortedRuns[2].OverallScore;
         }
 
         if (score < 40 || criticals >= 5)
@@ -120,16 +124,16 @@ public sealed class SecurityNerveCenter
 
     // ── Signal Feed ──────────────────────────────────────────────────
 
-    private static List<SignalEntry> BuildSignals(SecurityReport report, List<AuditRunRecord> runs)
+    /// <param name="sortedRuns">Runs pre-sorted by Timestamp descending.</param>
+    private static List<SignalEntry> BuildSignals(SecurityReport report, List<AuditRunRecord> sortedRuns)
     {
         var signals = new List<SignalEntry>();
         var now = DateTime.UtcNow;
 
-        if (runs.Count >= 2)
+        if (sortedRuns.Count >= 2)
         {
-            var sorted = runs.OrderByDescending(r => r.Timestamp).ToList();
-            var latest = sorted[0];
-            var previous = sorted[1];
+            var latest = sortedRuns[0];
+            var previous = sortedRuns[1];
 
             var scoreDelta = latest.OverallScore - previous.OverallScore;
             if (Math.Abs(scoreDelta) >= 5)
@@ -180,8 +184,8 @@ public sealed class SecurityNerveCenter
 
     private static List<ProactiveAction> BuildActions(
         SecurityReport report,
-        List<ModuleVital> vitals,
-        List<ActiveIncident> incidents)
+        IReadOnlyList<ModuleVital> vitals,
+        IReadOnlyList<ActiveIncident> incidents)
     {
         var actions = new List<ProactiveAction>();
         int priority = 0;
@@ -225,25 +229,26 @@ public sealed class SecurityNerveCenter
 
     // ── Autonomous Alerts ────────────────────────────────────────────
 
+    /// <param name="sortedRuns">Runs pre-sorted by Timestamp descending.</param>
     private static List<AutonomousAlert> BuildAlerts(
         SecurityReport report,
-        List<AuditRunRecord> runs,
-        List<ModuleVital> vitals)
+        List<AuditRunRecord> sortedRuns,
+        IReadOnlyList<ModuleVital> vitals)
     {
         var alerts = new List<AutonomousAlert>();
 
         // Declining score trend (3+ consecutive drops)
-        if (runs.Count >= 3)
+        if (sortedRuns.Count >= 3)
         {
-            var recent = runs.OrderByDescending(r => r.Timestamp).Take(4).ToList();
-            if (recent.Count >= 3 &&
-                recent[0].OverallScore < recent[1].OverallScore &&
-                recent[1].OverallScore < recent[2].OverallScore)
+            // sortedRuns is already descending by Timestamp — take first 4 (or fewer)
+            var recentCount = Math.Min(sortedRuns.Count, 4);
+            if (sortedRuns[0].OverallScore < sortedRuns[1].OverallScore &&
+                sortedRuns[1].OverallScore < sortedRuns[2].OverallScore)
             {
-                var drop = recent[2].OverallScore - recent[0].OverallScore;
+                var drop = sortedRuns[2].OverallScore - sortedRuns[0].OverallScore;
                 alerts.Add(new AutonomousAlert("TREND",
                     "Sustained Score Decline Detected",
-                    $"Score has dropped {drop} points over last {recent.Count} scans ({recent.Last().OverallScore}→{recent.First().OverallScore}).",
+                    $"Score has dropped {drop} points over last {recentCount} scans ({sortedRuns[recentCount - 1].OverallScore}→{sortedRuns[0].OverallScore}).",
                     "Run --mission to plan targeted improvements. Run --correlate to find root causes."));
             }
         }
@@ -259,12 +264,11 @@ public sealed class SecurityNerveCenter
         }
 
         // Critical count spike
-        if (runs.Count >= 2)
+        if (sortedRuns.Count >= 2)
         {
-            var sorted = runs.OrderByDescending(r => r.Timestamp).Take(2).ToList();
-            if (sorted[0].CriticalCount > sorted[1].CriticalCount + 2)
+            if (sortedRuns[0].CriticalCount > sortedRuns[1].CriticalCount + 2)
             {
-                var spike = sorted[0].CriticalCount - sorted[1].CriticalCount;
+                var spike = sortedRuns[0].CriticalCount - sortedRuns[1].CriticalCount;
                 alerts.Add(new AutonomousAlert("SPIKE",
                     "Critical Finding Spike",
                     $"{spike} new critical findings since last scan.",

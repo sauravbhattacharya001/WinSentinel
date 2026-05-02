@@ -549,6 +549,125 @@ Compliance profiles define which checks must pass for a given standard (CIS, HIP
 2. The `ComplianceEngine` discovers profiles automatically at startup.
 3. Add tests verifying the profile's module list covers all required controls.
 
+## Audit Module Catalog
+
+WinSentinel ships 32 audit modules across 8 security domains. Refer to this catalog to understand coverage, avoid duplication, and identify integration points when adding new modules.
+
+### System & OS Hardening
+| Module | What It Checks |
+|--------|---------------|
+| `AccountAudit` | User accounts, password policies, guest/admin state |
+| `GroupPolicyAudit` | Applied GPOs, security-relevant policy settings |
+| `EnvironmentAudit` | PATH hijack risks, environment variable hygiene |
+| `UpdateAudit` | Windows Update status, pending patches, WSUS config |
+| `VirtualizationAudit` | Hyper-V, VBS, Credential Guard, hypervisor state |
+
+### Network & Connectivity
+| Module | What It Checks |
+|--------|---------------|
+| `FirewallAudit` | Windows Firewall profiles, inbound/outbound rules |
+| `NetworkAudit` | Open ports, listening services, network adapters |
+| `DnsAudit` | DNS client config, DNSSEC, DNS-over-HTTPS, cache poisoning risk |
+| `WifiAudit` | Wireless profiles, encryption strength, open network exposure |
+| `BluetoothAudit` | Bluetooth discoverability, paired devices, service state |
+| `RemoteAccessAudit` | RDP, SSH, WinRM, remote desktop configuration |
+| `SmbShareAudit` | SMB shares, permissions, guest access, SMBv1 status |
+
+### Endpoint Protection
+| Module | What It Checks |
+|--------|---------------|
+| `DefenderAudit` | Windows Defender status, real-time protection, definitions |
+| `EncryptionAudit` | BitLocker, EFS, TLS settings, certificate strength |
+| `CertificateAudit` | Certificate store health, expiry, revocation, weak algorithms |
+| `DriverAudit` | Unsigned drivers, vulnerable driver blocklist, kernel integrity |
+
+### Application Security
+| Module | What It Checks |
+|--------|---------------|
+| `AppSecurityAudit` | App execution policies, SmartScreen, ASLR, DEP |
+| `BrowserAudit` | Browser security settings, extensions, autofill exposure |
+| `PowerShellAudit` | Execution policy, constrained language mode, logging |
+| `SoftwareInventoryAudit` | Installed software, EOL products, known-vulnerable versions |
+
+### Process & Service Integrity
+| Module | What It Checks |
+|--------|---------------|
+| `ProcessAudit` | Running processes, unsigned executables, parent-child anomalies |
+| `ProcessLineageAudit` | Process tree analysis, injection detection, LOLBin usage |
+| `ServiceAudit` | Windows services, unquoted paths, writable service binaries |
+| `StartupAudit` | Startup programs, Run/RunOnce keys, scheduled auto-start |
+| `ScheduledTaskAudit` | Scheduled tasks, suspicious triggers, non-system task owners |
+
+### Data & Privacy
+| Module | What It Checks |
+|--------|---------------|
+| `PrivacyAudit` | Telemetry settings, location, camera/mic access, advertising ID |
+| `CredentialExposureAudit` | Cached credentials, credential manager entries, plaintext secrets |
+| `BackupAudit` | Backup configuration, recovery options, shadow copies |
+
+### Monitoring & Logging
+| Module | What It Checks |
+|--------|---------------|
+| `EventLogAudit` | Event log configuration, retention, cleared log detection |
+| `RegistryAudit` | Critical registry key permissions, modification detection |
+| `SystemAudit` | Secure boot, UEFI, TPM, kernel DMA protection |
+
+> When creating a new module, check this catalog first. If your check overlaps with an existing module, consider extending it rather than creating a new one.
+
+## Service Integration Patterns
+
+WinSentinel's 99 services in `Core/Services/` follow consistent patterns. Understanding these helps you integrate new code correctly.
+
+### Cross-Service Dependencies
+
+Services reference each other through constructor injection. Common dependency chains:
+
+```
+AuditEngine → SecurityScorer → ComplianceProfileService
+                             → TrendAnalyzer → AuditHistoryService
+
+SecurityAdvisor → AuditEngine → IAuditModule[]
+                → SecurityScorer
+                → SecurityKnowledgeBase
+
+FixEngine → RemediationPlanner → RemediationCostEstimator
+                               → FindingDependencyAnalyzer
+```
+
+When adding a new service, identify which existing services it needs and which services should consume it. Draw the dependency chain before writing code — circular dependencies will break DI resolution.
+
+### Threat Detection Services
+
+The advanced threat detection services (`DataExfiltrationDetector`, `LateralMovementDetector`, `PrivilegeEscalationDetector`, `DefenseEvasionDetector`, `PersistenceScanner`, `InsiderThreatProfiler`) share a common pattern:
+
+1. Consume findings from multiple audit modules
+2. Correlate across finding categories to detect multi-stage attack patterns
+3. Produce enriched `Finding` objects with MITRE ATT&CK technique IDs
+4. Feed into `KillChainReconstructorService` for attack narrative generation
+
+If adding a new detector, implement the same pattern and register it with the kill chain reconstructor.
+
+### Predictive & Analytics Services
+
+Services like `ScoreForecaster`, `SecurityDecayPredictor`, `RegressionPredictorService`, and `PostureMomentumAnalyzer` depend on `AuditHistoryService` for historical data. They expect at least 3 historical scans to produce meaningful predictions. When testing, seed history with representative scan data.
+
+### Report Pipeline
+
+Reports flow through a chain:
+
+```
+AuditEngine.RunAsync()
+  → SecurityReport
+    → ReportGenerator (text/JSON)
+    → HtmlDashboardGenerator (interactive HTML)
+    → ExecutiveSummaryGenerator (management-level)
+    → SarifExporter (SARIF for IDE integration)
+    → SecurityDigestGenerator (email digest)
+    → CalendarHeatmapService (temporal visualization)
+```
+
+If adding a new output format, implement it as a new generator service and wire it into the CLI's `--format` switch and the Agent's `/export` command.
+
 ## Getting Help
 
 - **Issues**: Open an issue with the relevant template

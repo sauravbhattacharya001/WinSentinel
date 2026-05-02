@@ -20,6 +20,18 @@ public sealed class InsiderThreatProfiler
     private const int HighRiskThreshold = 70;
     private const int MediumRiskThreshold = 40;
 
+    // Pre-compiled regex patterns for username extraction
+    // (avoids per-call Regex interpretation — O(1) amortised vs O(pattern) per invocation)
+    private static readonly System.Text.RegularExpressions.Regex[] UsernamePatterns =
+    [
+        new(@"user[:\s]+(\w+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled),
+        new(@"account[:\s]+(\w+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled),
+        new(@"logon.*?(\w+\\[\w.]+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled),
+        new(@"(\w+)\\(\w+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled),
+        new(@"'([^']+)' account", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled),
+        new(@"user '([^']+)'", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled),
+    ];
+
     public InsiderThreatProfiler(AuditHistoryService history) => _history = history;
 
     /// <summary>Run a full insider threat behavioral profiling analysis.</summary>
@@ -140,21 +152,10 @@ public sealed class InsiderThreatProfiler
         var users = new List<string>();
         var text = $"{finding.Title} {finding.Description}";
 
-        // Look for common user patterns in finding text
-        var patterns = new[]
+        // Use pre-compiled static regex patterns (avoid per-call interpretation overhead)
+        foreach (var regex in UsernamePatterns)
         {
-            @"user[:\s]+(\w+)",
-            @"account[:\s]+(\w+)",
-            @"logon.*?(\w+\\[\w.]+)",
-            @"(\w+)\\(\w+)",  // DOMAIN\User
-            @"'([^']+)' account",
-            @"user '([^']+)'",
-        };
-
-        foreach (var pattern in patterns)
-        {
-            var matches = System.Text.RegularExpressions.Regex.Matches(
-                text, pattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            var matches = regex.Matches(text);
             foreach (System.Text.RegularExpressions.Match match in matches)
             {
                 var user = match.Groups[match.Groups.Count > 2 ? 2 : 1].Value;
@@ -302,9 +303,10 @@ public sealed class InsiderThreatProfiler
 
         if (dailyLogons.Count > 0)
         {
-            baseline.AvgDailyLogons = dailyLogons.Average();
+            var avgLogons = dailyLogons.Average();
+            baseline.AvgDailyLogons = avgLogons;
             baseline.StdDevDailyLogons = dailyLogons.Count > 1
-                ? Math.Sqrt(dailyLogons.Sum(x => Math.Pow(x - dailyLogons.Average(), 2)) / (dailyLogons.Count - 1))
+                ? Math.Sqrt(dailyLogons.Sum(x => Math.Pow(x - avgLogons, 2)) / (dailyLogons.Count - 1))
                 : 0;
         }
 
@@ -341,9 +343,37 @@ public sealed class InsiderThreatProfiler
         var recentWindow = now.AddDays(-7);
         var recentActivities = activities.Where(a => a.Timestamp >= recentWindow).ToList();
 
+        // Single-pass event-type bucketing: count all event types and off-hours in one scan
+        // instead of 6+ separate .Count()/. Where() passes over recentActivities
+        int offHoursCount = 0;
+        int authCount = 0, fileCount = 0, privCount = 0, logTamperCount = 0, removableCount = 0;
+        int weekendCount = 0;
+        var authByDay = new Dictionary<DateTime, int>();
+        var fileByDay = new Dictionary<DateTime, int>();
+        foreach (var a in recentActivities)
+        {
+            var hour = a.Timestamp.Hour;
+            if (hour >= OffHoursStart || hour < OffHoursEnd) offHoursCount++;
+            var dow = a.Timestamp.DayOfWeek;
+            if (dow == DayOfWeek.Saturday || dow == DayOfWeek.Sunday) weekendCount++;
+            var day = a.Timestamp.Date;
+            switch (a.EventType)
+            {
+                case ActivityEventType.Authentication:
+                    authCount++;
+                    authByDay[day] = authByDay.TryGetValue(day, out var ac) ? ac + 1 : 1;
+                    break;
+                case ActivityEventType.FileAccess:
+                    fileCount++;
+                    fileByDay[day] = fileByDay.TryGetValue(day, out var fc) ? fc + 1 : 1;
+                    break;
+                case ActivityEventType.PrivilegeUse: privCount++; break;
+                case ActivityEventType.LogTampering: logTamperCount++; break;
+                case ActivityEventType.RemovableMedia: removableCount++; break;
+            }
+        }
+
         // Check off-hours activity
-        var offHoursCount = recentActivities.Count(a =>
-            a.Timestamp.Hour >= OffHoursStart || a.Timestamp.Hour < OffHoursEnd);
         if (offHoursCount > 0 && baseline.TypicalHours.Count > 0)
         {
             var typicalOffHours = baseline.TypicalHours.Count(h => h >= OffHoursStart || h < OffHoursEnd);
@@ -361,12 +391,8 @@ public sealed class InsiderThreatProfiler
             }
         }
 
-        // Check excessive logons
-        var recentDailyLogons = recentActivities
-            .Where(a => a.EventType == ActivityEventType.Authentication)
-            .GroupBy(a => a.Timestamp.Date)
-            .Select(g => (double)g.Count())
-            .ToList();
+        // Check excessive logons (use pre-bucketed authByDay)
+        var recentDailyLogons = authByDay.Values.Select(c => (double)c).ToList();
 
         if (recentDailyLogons.Count > 0 && baseline.StdDevDailyLogons > 0)
         {
@@ -386,12 +412,8 @@ public sealed class InsiderThreatProfiler
             }
         }
 
-        // Check bulk data operations
-        var recentFileOps = recentActivities
-            .Where(a => a.EventType == ActivityEventType.FileAccess)
-            .GroupBy(a => a.Timestamp.Date)
-            .Select(g => (double)g.Count())
-            .ToList();
+        // Check bulk data operations (use pre-bucketed fileByDay)
+        var recentFileOps = fileByDay.Values.Select(c => (double)c).ToList();
 
         if (recentFileOps.Count > 0 && baseline.AvgDailyFileOps > 0)
         {
@@ -411,67 +433,61 @@ public sealed class InsiderThreatProfiler
             }
         }
 
-        // Check weekend activity
-        var weekendEvents = recentActivities.Count(a =>
-            a.Timestamp.DayOfWeek == DayOfWeek.Saturday ||
-            a.Timestamp.DayOfWeek == DayOfWeek.Sunday);
-        if (weekendEvents > 0 && baseline.WorkingDays.Count > 0 &&
+        // Check weekend activity (use pre-bucketed weekendCount)
+        if (weekendCount > 0 && baseline.WorkingDays.Count > 0 &&
             !baseline.WorkingDays.Contains(0) && !baseline.WorkingDays.Contains(6))
         {
             deviations.Add(new BehavioralDeviation
             {
                 Type = DeviationType.WeekendActivity,
-                Description = $"{weekendEvents} events on non-working days (weekends)",
-                ZScore = weekendEvents > 5 ? 3.0 : 2.0,
-                Severity = weekendEvents > 10 ? Severity.Critical : Severity.Warning,
+                Description = $"{weekendCount} events on non-working days (weekends)",
+                ZScore = weekendCount > 5 ? 3.0 : 2.0,
+                Severity = weekendCount > 10 ? Severity.Critical : Severity.Warning,
                 Expected = "No weekend activity",
-                Actual = $"{weekendEvents} weekend events"
+                Actual = $"{weekendCount} weekend events"
             });
         }
 
-        // Check privilege escalation spike
-        var recentPriv = recentActivities.Count(a => a.EventType == ActivityEventType.PrivilegeUse);
+        // Check privilege escalation spike (use pre-bucketed privCount)
         var expectedWeeklyPriv = baseline.AvgWeeklyPrivEsc;
-        if (recentPriv > expectedWeeklyPriv * 2 && recentPriv > 2)
+        if (privCount > expectedWeeklyPriv * 2 && privCount > 2)
         {
             deviations.Add(new BehavioralDeviation
             {
                 Type = DeviationType.PrivilegeEscalation,
-                Description = $"{recentPriv} privilege events this week vs {expectedWeeklyPriv:F1} typical",
-                ZScore = expectedWeeklyPriv > 0 ? recentPriv / expectedWeeklyPriv : recentPriv,
-                Severity = recentPriv > expectedWeeklyPriv * 4 ? Severity.Critical : Severity.Warning,
+                Description = $"{privCount} privilege events this week vs {expectedWeeklyPriv:F1} typical",
+                ZScore = expectedWeeklyPriv > 0 ? privCount / expectedWeeklyPriv : privCount,
+                Severity = privCount > expectedWeeklyPriv * 4 ? Severity.Critical : Severity.Warning,
                 Expected = $"{expectedWeeklyPriv:F1} privilege events/week",
-                Actual = $"{recentPriv} privilege events this week"
+                Actual = $"{privCount} privilege events this week"
             });
         }
 
-        // Check log tampering
-        var logTamperEvents = recentActivities.Count(a => a.EventType == ActivityEventType.LogTampering);
-        if (logTamperEvents > 0)
+        // Check log tampering (use pre-bucketed logTamperCount)
+        if (logTamperCount > 0)
         {
             deviations.Add(new BehavioralDeviation
             {
                 Type = DeviationType.LogTampering,
-                Description = $"{logTamperEvents} log tampering events detected",
+                Description = $"{logTamperCount} log tampering events detected",
                 ZScore = 4.0, // Always highly anomalous
                 Severity = Severity.Critical,
                 Expected = "0 log tampering events",
-                Actual = $"{logTamperEvents} events"
+                Actual = $"{logTamperCount} events"
             });
         }
 
-        // Check removable media / data staging
-        var dataStaging = recentActivities.Count(a => a.EventType == ActivityEventType.RemovableMedia);
-        if (dataStaging > 2)
+        // Check removable media / data staging (use pre-bucketed removableCount)
+        if (removableCount > 2)
         {
             deviations.Add(new BehavioralDeviation
             {
                 Type = DeviationType.DataStagingActivity,
-                Description = $"{dataStaging} removable media / data staging events",
+                Description = $"{removableCount} removable media / data staging events",
                 ZScore = 2.5,
-                Severity = dataStaging > 5 ? Severity.Critical : Severity.Warning,
+                Severity = removableCount > 5 ? Severity.Critical : Severity.Warning,
                 Expected = "Minimal removable media use",
-                Actual = $"{dataStaging} events"
+                Actual = $"{removableCount} events"
             });
         }
 

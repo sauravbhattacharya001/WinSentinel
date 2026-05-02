@@ -60,6 +60,22 @@ jobs:
           Write-Host "$($_.Name) — ${sizeMB} KB"
         }
 
+    - name: Validate NuGet packages
+      shell: pwsh
+      run: |
+        dotnet tool install --global dotnet-validate --version 0.*
+        $failed = $false
+        Get-ChildItem ./nupkg -Filter *.nupkg | ForEach-Object {
+          Write-Host "::group::Validating $($_.Name)"
+          dotnet-validate package local $_.FullName
+          if ($LASTEXITCODE -ne 0) { $failed = $true }
+          Write-Host "::endgroup::"
+        }
+        if ($failed) {
+          Write-Host "::warning::One or more packages failed validation"
+        }
+      continue-on-error: true
+
     - name: Upload NuGet artifacts
       uses: actions/upload-artifact@v7
       with:

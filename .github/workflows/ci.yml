@@ -215,16 +215,21 @@ jobs:
       continue-on-error: true
 
   # ─────────────────────────────────────────────
-  # Publish artifacts (Release only)
+  # Publish artifacts & preview NuGet packages
   # ─────────────────────────────────────────────
   publish:
     name: Publish Artifacts
     runs-on: windows-latest
     needs: [ build-and-test, lint ]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    permissions:
+      contents: read
+      packages: write
 
     steps:
     - uses: actions/checkout@v6
+      with:
+        fetch-depth: 0   # MinVer needs full history for preview versions
 
     - name: Setup .NET
       uses: actions/setup-dotnet@v5
@@ -261,6 +266,62 @@ jobs:
         name: winsentinel-agent
         path: ./artifacts/agent/
         retention-days: 30
+
+    # ── Preview NuGet packages → GitHub Packages ──
+    - name: Pack preview NuGet packages
+      shell: pwsh
+      run: |
+        dotnet pack src/WinSentinel.Core/WinSentinel.Core.csproj `
+          -c Release --no-build -o ./nupkg
+        dotnet pack src/WinSentinel.Cli/WinSentinel.Cli.csproj `
+          -c Release --no-build -o ./nupkg
+
+    - name: Validate NuGet packages
+      shell: pwsh
+      run: |
+        dotnet tool install --global dotnet-validate --version 0.*
+        Get-ChildItem ./nupkg -Filter *.nupkg | ForEach-Object {
+          Write-Host "Validating $($_.Name)..."
+          dotnet-validate package local $_.FullName
+        }
+      continue-on-error: true
+
+    - name: Push preview packages to GitHub Packages
+      shell: pwsh
+      run: |
+        Get-ChildItem ./nupkg -Filter *.nupkg | ForEach-Object {
+          dotnet nuget push $_.FullName `
+            --source "https://nuget.pkg.github.com/sauravbhattacharya001/index.json" `
+            --api-key ${{ secrets.GITHUB_TOKEN }} `
+            --skip-duplicate
+        }
+        Get-ChildItem ./nupkg -Filter *.snupkg | ForEach-Object {
+          dotnet nuget push $_.FullName `
+            --source "https://nuget.pkg.github.com/sauravbhattacharya001/index.json" `
+            --api-key ${{ secrets.GITHUB_TOKEN }} `
+            --skip-duplicate
+        }
+
+    - name: Preview package summary
+      shell: pwsh
+      run: |
+        "## 📦 Preview NuGet Packages" >> $env:GITHUB_STEP_SUMMARY
+        "" >> $env:GITHUB_STEP_SUMMARY
+        "| Package | Size |" >> $env:GITHUB_STEP_SUMMARY
+        "|---------|------|" >> $env:GITHUB_STEP_SUMMARY
+        Get-ChildItem ./nupkg -Filter *.nupkg | ForEach-Object {
+          $sizeKB = [math]::Round($_.Length / 1KB, 1)
+          "| ``$($_.Name)`` | ${sizeKB} KB |" >> $env:GITHUB_STEP_SUMMARY
+        }
+        "" >> $env:GITHUB_STEP_SUMMARY
+        "Install preview: ``dotnet nuget add source https://nuget.pkg.github.com/sauravbhattacharya001/index.json``" >> $env:GITHUB_STEP_SUMMARY
+
+    - name: Upload NuGet artifacts
+      uses: actions/upload-artifact@v7
+      with:
+        name: nuget-preview-packages
+        path: ./nupkg/*
+        retention-days: 14
 
     - name: Generate SBOM
       run: >

@@ -113,6 +113,7 @@ return options.Command switch
     CliCommand.Persist => await HandlePersist(options),
     CliCommand.Evasion => await HandleEvasion(options),
     CliCommand.Exfil => await HandleExfil(options),
+    CliCommand.CredAccess => await HandleCredAccess(options),
     _ => HandleHelp()
 };
 
@@ -8457,6 +8458,32 @@ static async Task<int> HandleExfil(CliOptions options)
     ConsoleFormatter.PrintExfiltration(exfilReport, options);
 
     return exfilReport.ThreatScore switch
+    {
+        >= 70 => 2,
+        >= 40 => 1,
+        _ => 0
+    };
+}
+
+static async Task<int> HandleCredAccess(CliOptions options)
+{
+    var (report, engine, elapsed) = await RunAuditAsync(options, suppressOutput: options.Quiet,
+        bannerMessage: "Running audit for credential access detection...");
+
+    var history = new AuditHistoryService();
+    var detector = new CredentialAccessDetector(history);
+    var caReport = detector.Detect(report, options.CredAccessDays);
+
+    if (options.Json)
+    {
+        var jsonOpts = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        OutputHelper.WriteOutput(JsonSerializer.Serialize(caReport, jsonOpts), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintCredentialAccessReport(caReport, options.CredAccessFormat);
+
+    return caReport.ThreatScore switch
     {
         >= 70 => 2,
         >= 40 => 1,

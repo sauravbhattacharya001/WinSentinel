@@ -323,6 +323,12 @@ public class CliOptions
     public int ExfilTop { get; set; } = 20;
     public string ExfilFormat { get; set; } = "text";
     public string? ExfilSeverityFilter { get; set; }
+
+    // Credential Access options
+    public int CredAccessDays { get; set; } = 90;
+    public int CredAccessTop { get; set; } = 20;
+    public string CredAccessFormat { get; set; } = "text";
+    public string? CredAccessSeverityFilter { get; set; }
 }
 
 public enum CliCommand
@@ -421,6 +427,7 @@ public enum CliCommand
     Persist,
     Evasion,
     Exfil,
+    CredAccess,
     Help,
     Version
 }
@@ -2819,6 +2826,34 @@ public static class CliParser
                     if (!TryConsumeArg(args, ref i, "--exfil-severity", out var exfilSevVal, out var exfilSevErr))
                     { options.Error = exfilSevErr; return options; }
                     options.ExfilSeverityFilter = exfilSevVal;
+                    break;
+                case "--credaccess":
+                case "credaccess":
+                case "cred-access":
+                case "credential-access":
+                    options.Command = CliCommand.CredAccess;
+                    break;
+                case "--credaccess-days":
+                    if (!TryConsumeArg(args, ref i, "--credaccess-days", out var caDaysVal, out var caDaysErr))
+                    { options.Error = caDaysErr; return options; }
+                    if (int.TryParse(caDaysVal, out var caDaysInt))
+                        options.CredAccessDays = Math.Clamp(caDaysInt, 7, 365);
+                    break;
+                case "--credaccess-top":
+                    if (!TryConsumeArg(args, ref i, "--credaccess-top", out var caTopVal, out var caTopErr))
+                    { options.Error = caTopErr; return options; }
+                    if (int.TryParse(caTopVal, out var caTopInt))
+                        options.CredAccessTop = Math.Clamp(caTopInt, 1, 50);
+                    break;
+                case "--credaccess-format":
+                    if (!TryConsumeArg(args, ref i, "--credaccess-format", out var caFmtVal, out var caFmtErr))
+                    { options.Error = caFmtErr; return options; }
+                    options.CredAccessFormat = caFmtVal;
+                    break;
+                case "--credaccess-severity":
+                    if (!TryConsumeArg(args, ref i, "--credaccess-severity", out var caSevVal, out var caSevErr))
+                    { options.Error = caSevErr; return options; }
+                    options.CredAccessSeverityFilter = caSevVal;
                     break;
                 case "--threat-dna-days":
                     if (!TryConsumeArg(args, ref i, "--threat-dna-days", out var tdDaysVal, out var tdDaysErr))

@@ -335,6 +335,12 @@ public class CliOptions
     public int InitialAccessTop { get; set; } = 20;
     public string InitialAccessFormat { get; set; } = "text";
     public string? InitialAccessSeverityFilter { get; set; }
+
+    // Discovery options
+    public int DiscoveryDays { get; set; } = 90;
+    public int DiscoveryTop { get; set; } = 20;
+    public string DiscoveryFormat { get; set; } = "text";
+    public string? DiscoverySeverityFilter { get; set; }
 }
 
 public enum CliCommand
@@ -435,6 +441,7 @@ public enum CliCommand
     Exfil,
     CredAccess,
     InitialAccess,
+    Discovery,
     Help,
     Version
 }
@@ -2888,6 +2895,32 @@ public static class CliParser
                     if (!TryConsumeArg(args, ref i, "--initialaccess-severity", out var iaSevVal, out var iaSevErr))
                     { options.Error = iaSevErr; return options; }
                     options.InitialAccessSeverityFilter = iaSevVal;
+                    break;
+                case "--discovery":
+                case "discovery":
+                    options.Command = CliCommand.Discovery;
+                    break;
+                case "--discovery-days":
+                    if (!TryConsumeArg(args, ref i, "--discovery-days", out var discDaysVal, out var discDaysErr))
+                    { options.Error = discDaysErr; return options; }
+                    if (int.TryParse(discDaysVal, out var discDaysInt))
+                        options.DiscoveryDays = Math.Clamp(discDaysInt, 7, 365);
+                    break;
+                case "--discovery-top":
+                    if (!TryConsumeArg(args, ref i, "--discovery-top", out var discTopVal, out var discTopErr))
+                    { options.Error = discTopErr; return options; }
+                    if (int.TryParse(discTopVal, out var discTopInt))
+                        options.DiscoveryTop = Math.Clamp(discTopInt, 1, 50);
+                    break;
+                case "--discovery-format":
+                    if (!TryConsumeArg(args, ref i, "--discovery-format", out var discFmtVal, out var discFmtErr))
+                    { options.Error = discFmtErr; return options; }
+                    options.DiscoveryFormat = discFmtVal;
+                    break;
+                case "--discovery-severity":
+                    if (!TryConsumeArg(args, ref i, "--discovery-severity", out var discSevVal, out var discSevErr))
+                    { options.Error = discSevErr; return options; }
+                    options.DiscoverySeverityFilter = discSevVal;
                     break;
                 case "--threat-dna-days":
                     if (!TryConsumeArg(args, ref i, "--threat-dna-days", out var tdDaysVal, out var tdDaysErr))

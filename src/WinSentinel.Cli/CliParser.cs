@@ -329,6 +329,12 @@ public class CliOptions
     public int CredAccessTop { get; set; } = 20;
     public string CredAccessFormat { get; set; } = "text";
     public string? CredAccessSeverityFilter { get; set; }
+
+    // Initial Access options
+    public int InitialAccessDays { get; set; } = 90;
+    public int InitialAccessTop { get; set; } = 20;
+    public string InitialAccessFormat { get; set; } = "text";
+    public string? InitialAccessSeverityFilter { get; set; }
 }
 
 public enum CliCommand
@@ -428,6 +434,7 @@ public enum CliCommand
     Evasion,
     Exfil,
     CredAccess,
+    InitialAccess,
     Help,
     Version
 }
@@ -2854,6 +2861,33 @@ public static class CliParser
                     if (!TryConsumeArg(args, ref i, "--credaccess-severity", out var caSevVal, out var caSevErr))
                     { options.Error = caSevErr; return options; }
                     options.CredAccessSeverityFilter = caSevVal;
+                    break;
+                case "--initialaccess":
+                case "initialaccess":
+                case "initial-access":
+                    options.Command = CliCommand.InitialAccess;
+                    break;
+                case "--initialaccess-days":
+                    if (!TryConsumeArg(args, ref i, "--initialaccess-days", out var iaDaysVal, out var iaDaysErr))
+                    { options.Error = iaDaysErr; return options; }
+                    if (int.TryParse(iaDaysVal, out var iaDaysInt))
+                        options.InitialAccessDays = Math.Clamp(iaDaysInt, 7, 365);
+                    break;
+                case "--initialaccess-top":
+                    if (!TryConsumeArg(args, ref i, "--initialaccess-top", out var iaTopVal, out var iaTopErr))
+                    { options.Error = iaTopErr; return options; }
+                    if (int.TryParse(iaTopVal, out var iaTopInt))
+                        options.InitialAccessTop = Math.Clamp(iaTopInt, 1, 50);
+                    break;
+                case "--initialaccess-format":
+                    if (!TryConsumeArg(args, ref i, "--initialaccess-format", out var iaFmtVal, out var iaFmtErr))
+                    { options.Error = iaFmtErr; return options; }
+                    options.InitialAccessFormat = iaFmtVal;
+                    break;
+                case "--initialaccess-severity":
+                    if (!TryConsumeArg(args, ref i, "--initialaccess-severity", out var iaSevVal, out var iaSevErr))
+                    { options.Error = iaSevErr; return options; }
+                    options.InitialAccessSeverityFilter = iaSevVal;
                     break;
                 case "--threat-dna-days":
                     if (!TryConsumeArg(args, ref i, "--threat-dna-days", out var tdDaysVal, out var tdDaysErr))

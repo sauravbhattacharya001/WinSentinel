@@ -116,6 +116,7 @@ return options.Command switch
     CliCommand.CredAccess => await HandleCredAccess(options),
     CliCommand.InitialAccess => await HandleInitialAccess(options),
     CliCommand.Discovery => await HandleDiscovery(options),
+    CliCommand.Execution => await HandleExecution(options),
     _ => HandleHelp()
 };
 
@@ -8538,6 +8539,32 @@ static async Task<int> HandleDiscovery(CliOptions options)
     ConsoleFormatter.PrintDiscoveryReport(discReport, options.DiscoveryFormat);
 
     return discReport.ThreatScore switch
+    {
+        >= 70 => 2,
+        >= 40 => 1,
+        _ => 0
+    };
+}
+
+static async Task<int> HandleExecution(CliOptions options)
+{
+    var (report, engine, elapsed) = await RunAuditAsync(options, suppressOutput: options.Quiet,
+        bannerMessage: "Running audit for execution detection...");
+
+    var history = new AuditHistoryService();
+    var detector = new ExecutionDetector(history);
+    var execReport = detector.Detect(report, options.ExecutionDays);
+
+    if (options.Json)
+    {
+        var jsonOpts = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        OutputHelper.WriteOutput(JsonSerializer.Serialize(execReport, jsonOpts), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintExecutionReport(execReport, options.ExecutionFormat);
+
+    return execReport.ThreatScore switch
     {
         >= 70 => 2,
         >= 40 => 1,

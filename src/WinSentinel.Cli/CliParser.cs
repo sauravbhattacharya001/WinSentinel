@@ -341,6 +341,12 @@ public class CliOptions
     public int DiscoveryTop { get; set; } = 20;
     public string DiscoveryFormat { get; set; } = "text";
     public string? DiscoverySeverityFilter { get; set; }
+
+    // Execution options
+    public int ExecutionDays { get; set; } = 90;
+    public int ExecutionTop { get; set; } = 20;
+    public string ExecutionFormat { get; set; } = "text";
+    public string? ExecutionSeverityFilter { get; set; }
 }
 
 public enum CliCommand
@@ -442,6 +448,7 @@ public enum CliCommand
     CredAccess,
     InitialAccess,
     Discovery,
+    Execution,
     Help,
     Version
 }
@@ -2921,6 +2928,32 @@ public static class CliParser
                     if (!TryConsumeArg(args, ref i, "--discovery-severity", out var discSevVal, out var discSevErr))
                     { options.Error = discSevErr; return options; }
                     options.DiscoverySeverityFilter = discSevVal;
+                    break;
+                case "--execution":
+                case "execution":
+                    options.Command = CliCommand.Execution;
+                    break;
+                case "--execution-days":
+                    if (!TryConsumeArg(args, ref i, "--execution-days", out var execDaysVal, out var execDaysErr))
+                    { options.Error = execDaysErr; return options; }
+                    if (int.TryParse(execDaysVal, out var execDaysInt))
+                        options.ExecutionDays = Math.Clamp(execDaysInt, 7, 365);
+                    break;
+                case "--execution-top":
+                    if (!TryConsumeArg(args, ref i, "--execution-top", out var execTopVal, out var execTopErr))
+                    { options.Error = execTopErr; return options; }
+                    if (int.TryParse(execTopVal, out var execTopInt))
+                        options.ExecutionTop = Math.Clamp(execTopInt, 1, 50);
+                    break;
+                case "--execution-format":
+                    if (!TryConsumeArg(args, ref i, "--execution-format", out var execFmtVal, out var execFmtErr))
+                    { options.Error = execFmtErr; return options; }
+                    options.ExecutionFormat = execFmtVal;
+                    break;
+                case "--execution-severity":
+                    if (!TryConsumeArg(args, ref i, "--execution-severity", out var execSevVal, out var execSevErr))
+                    { options.Error = execSevErr; return options; }
+                    options.ExecutionSeverityFilter = execSevVal;
                     break;
                 case "--threat-dna-days":
                     if (!TryConsumeArg(args, ref i, "--threat-dna-days", out var tdDaysVal, out var tdDaysErr))

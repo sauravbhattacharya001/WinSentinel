@@ -80,13 +80,18 @@ public sealed class ThreatRateLimiter
     /// Purge stale entries older than 2× the rate-limit window.
     /// Call periodically from the module's cache cleanup loop.
     /// </summary>
+    /// <remarks>
+    /// Iterates the ConcurrentDictionary directly instead of snapshotting
+    /// Keys.ToList(), avoiding an O(n) allocation on the hot-path cleanup.
+    /// TryRemove is safe during ConcurrentDictionary enumeration.
+    /// </remarks>
     public void PurgeStale()
     {
         var cutoff = DateTimeOffset.UtcNow.AddSeconds(-_rateLimitSeconds * 2);
-        foreach (var key in _recentAlerts.Keys.ToList())
+        foreach (var kvp in _recentAlerts)
         {
-            if (_recentAlerts.TryGetValue(key, out var ts) && ts < cutoff)
-                _recentAlerts.TryRemove(key, out _);
+            if (kvp.Value < cutoff)
+                _recentAlerts.TryRemove(kvp.Key, out _);
         }
     }
 

@@ -117,6 +117,7 @@ return options.Command switch
     CliCommand.InitialAccess => await HandleInitialAccess(options),
     CliCommand.Discovery => await HandleDiscovery(options),
     CliCommand.Execution => await HandleExecution(options),
+    CliCommand.C2 => await HandleC2(options),
     _ => HandleHelp()
 };
 
@@ -8565,6 +8566,32 @@ static async Task<int> HandleExecution(CliOptions options)
     ConsoleFormatter.PrintExecutionReport(execReport, options.ExecutionFormat);
 
     return execReport.ThreatScore switch
+    {
+        >= 70 => 2,
+        >= 40 => 1,
+        _ => 0
+    };
+}
+
+static async Task<int> HandleC2(CliOptions options)
+{
+    var (report, engine, elapsed) = await RunAuditAsync(options, suppressOutput: options.Quiet,
+        bannerMessage: "Running audit for C2 detection...");
+
+    var history = new AuditHistoryService();
+    var detector = new CommandControlDetector(history);
+    var c2Report = detector.Detect(report, options.C2Days);
+
+    if (options.Json)
+    {
+        var jsonOpts = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        OutputHelper.WriteOutput(JsonSerializer.Serialize(c2Report, jsonOpts), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintC2Report(c2Report, options.C2Format);
+
+    return c2Report.ThreatScore switch
     {
         >= 70 => 2,
         >= 40 => 1,

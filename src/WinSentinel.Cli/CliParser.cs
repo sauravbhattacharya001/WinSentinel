@@ -353,6 +353,12 @@ public class CliOptions
     public int C2Top { get; set; } = 20;
     public string C2Format { get; set; } = "text";
     public string? C2SeverityFilter { get; set; }
+
+    // Impact options
+    public int ImpactDays { get; set; } = 90;
+    public int ImpactTop { get; set; } = 20;
+    public string ImpactFormat { get; set; } = "text";
+    public string? ImpactSeverityFilter { get; set; }
 }
 
 public enum CliCommand
@@ -456,6 +462,7 @@ public enum CliCommand
     Discovery,
     Execution,
     C2,
+    Impact,
     Help,
     Version
 }
@@ -2986,6 +2993,31 @@ public static class CliParser
                     if (!TryConsumeArg(args, ref i, "--c2-severity", out var c2SevVal, out var c2SevErr))
                     { options.Error = c2SevErr; return options; }
                     options.C2SeverityFilter = c2SevVal;
+                    break;
+                case "impact":
+                    options.Command = CliCommand.Impact;
+                    break;
+                case "--impact-days":
+                    if (!TryConsumeArg(args, ref i, "--impact-days", out var impDaysVal, out var impDaysErr))
+                    { options.Error = impDaysErr; return options; }
+                    if (int.TryParse(impDaysVal, out var impDaysInt))
+                        options.ImpactDays = Math.Clamp(impDaysInt, 7, 365);
+                    break;
+                case "--impact-top":
+                    if (!TryConsumeArg(args, ref i, "--impact-top", out var impTopVal, out var impTopErr))
+                    { options.Error = impTopErr; return options; }
+                    if (int.TryParse(impTopVal, out var impTopInt))
+                        options.ImpactTop = Math.Clamp(impTopInt, 1, 50);
+                    break;
+                case "--impact-format":
+                    if (!TryConsumeArg(args, ref i, "--impact-format", out var impFmtVal, out var impFmtErr))
+                    { options.Error = impFmtErr; return options; }
+                    options.ImpactFormat = impFmtVal;
+                    break;
+                case "--impact-severity":
+                    if (!TryConsumeArg(args, ref i, "--impact-severity", out var impSevVal, out var impSevErr))
+                    { options.Error = impSevErr; return options; }
+                    options.ImpactSeverityFilter = impSevVal;
                     break;
                 case "--threat-dna-days":
                     if (!TryConsumeArg(args, ref i, "--threat-dna-days", out var tdDaysVal, out var tdDaysErr))

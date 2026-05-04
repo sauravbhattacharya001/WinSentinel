@@ -312,18 +312,18 @@ public class AttackPathAnalyzer
     {
         var result = new Dictionary<AttackStage, List<AttackStep>>();
 
-        // Build a lookup from finding title → technique for MITRE-mapped findings
-        var mitreLookup = new Dictionary<string, (string Id, string Name, AttackTactic Tactic)>(
-            StringComparer.OrdinalIgnoreCase);
-
+        // Precompute flattened technique list with pre-resolved stages.
+        // Avoids O(TE × T) dictionary lookups per finding — resolved once up front.
+        var flatTechniques = new List<(AttackStage Stage, TechniqueSummary Tech)>();
         if (attackReport != null)
         {
             foreach (var tactic in attackReport.TacticExposures)
-            foreach (var tech in tactic.Techniques)
             {
-                // The technique summary doesn't carry individual finding titles,
-                // so we rely on tactic-level mapping as a hint.
-                // We'll match by tactic when a finding's category matches.
+                if (TacticToStage.TryGetValue(tactic.Tactic, out var mappedStage))
+                {
+                    foreach (var tech in tactic.Techniques)
+                        flatTechniques.Add((mappedStage, tech));
+                }
             }
         }
 
@@ -337,26 +337,18 @@ public class AttackPathAnalyzer
             string? techId = null;
             string? techName = null;
 
-            // Try MITRE tactic → stage mapping if attack report is available
-            if (attackReport != null)
+            // Try MITRE tactic → stage mapping via precomputed flat list
+            if (flatTechniques.Count > 0)
             {
-                foreach (var tacticExposure in attackReport.TacticExposures)
+                foreach (var (mappedStage, tech) in flatTechniques)
                 {
-                    if (TacticToStage.TryGetValue(tacticExposure.Tactic, out var mappedStage))
+                    if (CategoryMatchesTechnique(auditResult.Category, finding, tech))
                     {
-                        // Check if this finding's category matches any technique in this tactic
-                        foreach (var tech in tacticExposure.Techniques)
-                        {
-                            if (CategoryMatchesTechnique(auditResult.Category, finding, tech))
-                            {
-                                stage = mappedStage;
-                                techId = tech.TechniqueId;
-                                techName = tech.TechniqueName;
-                                break;
-                            }
-                        }
+                        stage = mappedStage;
+                        techId = tech.TechniqueId;
+                        techName = tech.TechniqueName;
+                        break;
                     }
-                    if (stage.HasValue) break;
                 }
             }
 
@@ -394,17 +386,26 @@ public class AttackPathAnalyzer
     private static bool CategoryMatchesTechnique(string category, Finding finding, TechniqueSummary tech)
     {
         // Match by category or finding title containing part of technique name
-        var techLower = tech.TechniqueName.ToLowerInvariant();
+        var techLower = tech.TechniqueName.AsSpan();
         var catLower = category.ToLowerInvariant();
         var titleLower = finding.Title.ToLowerInvariant();
 
-        // Direct substring matches
-        if (techLower.Contains(catLower) || catLower.Contains(techLower)) return true;
+        // Direct substring matches (case-insensitive)
+        if (category.Contains(tech.TechniqueName, StringComparison.OrdinalIgnoreCase) ||
+            tech.TechniqueName.Contains(category, StringComparison.OrdinalIgnoreCase)) return true;
 
         // Split technique name into words and check if any appear in the title
-        var techWords = techLower.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        int matches = techWords.Count(w => w.Length > 3 && titleLower.Contains(w));
-        return matches >= 2; // At least 2 significant words match
+        var techNameLower = tech.TechniqueName.ToLowerInvariant();
+        int matches = 0;
+        foreach (var word in techNameLower.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (word.Length > 3 && titleLower.Contains(word))
+            {
+                matches++;
+                if (matches >= 2) return true; // Early exit once threshold met
+            }
+        }
+        return false;
     }
 
     // ── Path building ────────────────────────────────────────────
@@ -434,25 +435,39 @@ public class AttackPathAnalyzer
 
         var entrySteps = stageFindings[stages[startIdx]];
 
-        // For each entry point, try to build the longest path
+        // Precompute best candidate per subsequent stage (same for all entries).
+        // Avoids O(E × S × C log C) repeated sorting — now O(S × C) total.
+        var bestPerStage = new Dictionary<AttackStage, AttackStep>();
+        for (int i = startIdx + 1; i < stages.Length; i++)
+        {
+            if (!stageFindings.TryGetValue(stages[i], out var candidates) ||
+                candidates.Count == 0)
+                continue;
+
+            AttackStep? best = null;
+            foreach (var step in candidates)
+            {
+                if (best == null ||
+                    step.Finding.Severity > best.Finding.Severity ||
+                    (step.Finding.Severity == best.Finding.Severity &&
+                     step.TechniqueId != null && best.TechniqueId == null))
+                {
+                    best = step;
+                }
+            }
+            if (best != null) bestPerStage[stages[i]] = best;
+        }
+
+        // For each entry point, build path using precomputed best steps
         foreach (var entry in entrySteps)
         {
             var pathSteps = new List<AttackStep> { entry };
 
-            // Greedily extend to subsequent stages
+            // Extend with precomputed best candidate per subsequent stage
             for (int i = startIdx + 1; i < stages.Length; i++)
             {
-                if (!stageFindings.TryGetValue(stages[i], out var candidates) ||
-                    candidates.Count == 0)
-                    continue;
-
-                // Pick the highest-severity finding at this stage
-                var best = candidates
-                    .OrderByDescending(s => s.Finding.Severity)
-                    .ThenByDescending(s => s.TechniqueId != null ? 1 : 0)
-                    .First();
-
-                pathSteps.Add(best);
+                if (bestPerStage.TryGetValue(stages[i], out var best))
+                    pathSteps.Add(best);
             }
 
             // Only keep paths with ≥ 2 distinct stages
@@ -504,21 +519,32 @@ public class AttackPathAnalyzer
     {
         if (path.Steps.Count == 0) { path.ExploitabilityScore = 0; return; }
 
+        // Single-pass: compute average severity and detect criticals simultaneously
+        double severitySum = 0;
+        bool hasCritical = false;
+        var stagesSeen = new HashSet<AttackStage>();
+        foreach (var step in path.Steps)
+        {
+            severitySum += (int)step.Finding.Severity;
+            if (step.Finding.Severity == Severity.Critical) hasCritical = true;
+            stagesSeen.Add(step.Stage);
+        }
+
         // Factors:
         // 1. Stage coverage (more stages = more dangerous) — 40% weight
-        double stageCoverage = path.StagesCovered / 6.0;
+        double stageCoverage = stagesSeen.Count / 6.0;
 
         // 2. Average severity of steps — 35% weight
-        double avgSeverity = path.Steps.Average(s => (int)s.Finding.Severity) / 3.0;
+        double avgSeverity = (severitySum / path.Steps.Count) / 3.0;
 
         // 3. Has critical findings — 15% weight
-        double hasCritical = path.Steps.Any(s => s.Finding.Severity == Severity.Critical) ? 1.0 : 0.0;
+        double criticalBonus = hasCritical ? 1.0 : 0.0;
 
         // 4. Path length bonus (longer paths = more complete attack) — 10% weight
         double lengthBonus = Math.Min(path.Steps.Count / 6.0, 1.0);
 
         path.ExploitabilityScore = Math.Round(
-            (stageCoverage * 0.40 + avgSeverity * 0.35 + hasCritical * 0.15 + lengthBonus * 0.10) * 100,
+            (stageCoverage * 0.40 + avgSeverity * 0.35 + criticalBonus * 0.15 + lengthBonus * 0.10) * 100,
             1);
     }
 

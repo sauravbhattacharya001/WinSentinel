@@ -86,9 +86,12 @@ public class RemediationPlanner
         plan.MediumEffort = medium;
         plan.MajorChanges = major;
 
-        // Calculate projected score
-        var totalImpact = items.Sum(i => i.Impact);
-        plan.ProjectedScore = Math.Min(100, plan.CurrentScore + totalImpact);
+        // Calculate projected score using proper per-module recalculation
+        // (WhatIfSimulator builds a simulated report with findings removed
+        // and recalculates the averaged score, matching SecurityScorer logic)
+        var simulator = new WhatIfSimulator();
+        var simulation = simulator.SimulateFixAll(report);
+        plan.ProjectedScore = simulation.ProjectedScore;
         plan.ProjectedGrade = SecurityScorer.GetGrade(plan.ProjectedScore);
 
         return plan;

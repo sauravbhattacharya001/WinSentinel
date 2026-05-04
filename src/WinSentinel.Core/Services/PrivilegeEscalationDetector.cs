@@ -8,7 +8,7 @@ using WinSentinel.Core.Models;
 /// service creation, scheduled task abuse, process injection, and more.
 /// Builds escalation chains and recommends containment actions.
 ///
-/// MITRE ATT&CK: TA0004 (Privilege Escalation)
+/// MITRE ATT&amp;CK: TA0004 (Privilege Escalation)
 /// Techniques: T1134 (Access Token Manipulation), T1068 (Exploitation for Priv Esc),
 /// T1078.003 (Valid Accounts: Local), T1053.005 (Scheduled Task/Job),
 /// T1543.003 (Windows Service), T1548.002 (Bypass UAC), T1547.001 (Autostart),

@@ -8,7 +8,7 @@ using WinSentinel.Core.Models;
 /// Kerberoasting, brute-force attacks, keylogging, password spraying, and more.
 /// Builds harvest chains and recommends containment actions.
 ///
-/// MITRE ATT&CK: TA0006 (Credential Access)
+/// MITRE ATT&amp;CK: TA0006 (Credential Access)
 /// Techniques: T1003 (OS Credential Dumping), T1003.001 (LSASS Memory),
 /// T1003.002 (SAM), T1003.003 (NTDS), T1003.004 (LSA Secrets),
 /// T1558.003 (Kerberoasting), T1110 (Brute Force), T1110.003 (Password Spraying),

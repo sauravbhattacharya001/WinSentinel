@@ -152,7 +152,7 @@ public class InsiderThreatIndicator
     /// <summary>Confidence level (0-100).</summary>
     public int Confidence { get; set; }
 
-    /// <summary>MITRE ATT&CK technique if applicable.</summary>
+    /// <summary>MITRE ATT&amp;CK technique if applicable.</summary>
     public string? MitreTechnique { get; set; }
 
     /// <summary>Evidence supporting this indicator.</summary>

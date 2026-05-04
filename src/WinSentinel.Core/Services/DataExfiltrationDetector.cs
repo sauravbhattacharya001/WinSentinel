@@ -8,7 +8,7 @@ using WinSentinel.Core.Models;
 /// code repository pushes, webhook exfiltration, scheduled/chunked transfers, and
 /// alternative protocol abuse.
 ///
-/// MITRE ATT&CK: TA0010 (Exfiltration)
+/// MITRE ATT&amp;CK: TA0010 (Exfiltration)
 /// Techniques: T1048.001, T1048.002, T1048.003, T1041, T1567.001, T1567.002,
 /// T1567.004, T1052.001, T1029, T1030
 /// </summary>

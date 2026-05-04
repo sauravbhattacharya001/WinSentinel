@@ -59,7 +59,7 @@ public class ExfiltrationEvent
     /// <summary>Technique name.</summary>
     public string Technique { get; set; } = string.Empty;
 
-    /// <summary>MITRE ATT&CK technique ID.</summary>
+    /// <summary>MITRE ATT&amp;CK technique ID.</summary>
     public string TechniqueId { get; set; } = string.Empty;
 
     /// <summary>Description of the exfiltration indicator.</summary>

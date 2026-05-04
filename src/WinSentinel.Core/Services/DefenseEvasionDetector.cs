@@ -8,7 +8,7 @@ using WinSentinel.Core.Models;
 /// masquerading, obfuscation, proxy execution, and more.
 /// Groups related evasion techniques into campaigns and recommends countermeasures.
 ///
-/// MITRE ATT&CK: TA0005 (Defense Evasion)
+/// MITRE ATT&amp;CK: TA0005 (Defense Evasion)
 /// Techniques: T1562.001 (Disable/Modify Security Tools), T1070.001 (Clear Event Logs),
 /// T1036 (Masquerading), T1027 (Obfuscated Files), T1218 (System Binary Proxy Execution),
 /// T1112 (Modify Registry), T1564.001 (Hidden Files/Directories),

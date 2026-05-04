@@ -25,7 +25,7 @@ public class ComplianceProfile
     /// <summary>
     /// Scoring weight multipliers per module category (0.0 to 2.0).
     /// A weight of 0.0 means the module is ignored, 1.0 is default, 2.0 is double importance.
-    /// Keys are module category names (e.g., "Firewall & Network Protection", "Encryption").
+    /// Keys are module category names (e.g., "Firewall &amp; Network Protection", "Encryption").
     /// </summary>
     public Dictionary<string, double> ModuleWeights { get; set; } = new();
 

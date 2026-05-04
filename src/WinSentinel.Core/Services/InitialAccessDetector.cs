@@ -8,7 +8,7 @@ using WinSentinel.Core.Models;
 /// exploited public-facing applications, valid accounts abuse, supply chain compromise,
 /// trusted relationships abuse, external remote services, and more.
 ///
-/// MITRE ATT&CK: TA0001 (Initial Access)
+/// MITRE ATT&amp;CK: TA0001 (Initial Access)
 /// Techniques: T1566 (Phishing), T1566.001 (Spearphishing Attachment),
 /// T1566.002 (Spearphishing Link), T1189 (Drive-by Compromise),
 /// T1190 (Exploit Public-Facing Application), T1133 (External Remote Services),

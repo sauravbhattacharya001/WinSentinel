@@ -62,7 +62,7 @@ public class LateralMovement
     /// <summary>Movement technique (RDP, SMB/PsExec, WMI, PSRemoting, DCOM, WinRM, SSH, ScheduledTask, ToolTransfer).</summary>
     public string Technique { get; set; } = "";
 
-    /// <summary>MITRE ATT&CK technique ID.</summary>
+    /// <summary>MITRE ATT&amp;CK technique ID.</summary>
     public string MitreTechnique { get; set; } = "";
 
     /// <summary>Account used for the movement.</summary>

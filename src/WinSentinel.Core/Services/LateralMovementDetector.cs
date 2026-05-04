@@ -8,7 +8,7 @@ using WinSentinel.Core.Models;
 /// credential reuse, service account spreading, and scheduled task propagation.
 /// Builds movement graphs and recommends containment actions.
 ///
-/// MITRE ATT&CK: TA0008 (Lateral Movement)
+/// MITRE ATT&amp;CK: TA0008 (Lateral Movement)
 /// Techniques: T1021.001 (RDP), T1021.002 (SMB/Admin Shares), T1021.003 (DCOM),
 /// T1021.004 (SSH), T1021.006 (WinRM), T1047 (WMI), T1053.005 (Scheduled Task),
 /// T1570 (Lateral Tool Transfer)

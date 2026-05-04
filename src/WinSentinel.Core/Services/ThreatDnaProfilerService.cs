@@ -13,7 +13,7 @@ using WinSentinel.Core.Models;
 /// susceptible to. Tracks evolutionary changes over time and generates targeted
 /// hardening recommendations.
 ///
-/// MITRE ATT&CK coverage: Maps findings to techniques across Initial Access,
+/// MITRE ATT&amp;CK coverage: Maps findings to techniques across Initial Access,
 /// Execution, Persistence, Privilege Escalation, Defense Evasion, Credential Access,
 /// Discovery, Lateral Movement, and Collection tactics.
 /// </summary>

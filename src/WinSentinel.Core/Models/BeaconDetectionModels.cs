@@ -53,7 +53,7 @@ public class BeaconCandidate
     /// <summary>Standard deviation of inter-callback intervals.</summary>
     public double IntervalStdDev { get; set; }
 
-    /// <summary>MITRE ATT&CK technique mapping.</summary>
+    /// <summary>MITRE ATT&amp;CK technique mapping.</summary>
     public string MitreTechnique { get; set; } = "T1071 — Application Layer Protocol";
 
     /// <summary>Threat assessment description.</summary>

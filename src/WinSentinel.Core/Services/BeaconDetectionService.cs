@@ -14,7 +14,7 @@ using WinSentinel.Core.Models;
 /// 4. Low jitter + consistent interval = likely beacon
 /// 5. Matches against known C2 framework timing profiles
 ///
-/// MITRE ATT&CK: T1071 (Application Layer Protocol), T1573 (Encrypted Channel),
+/// MITRE ATT&amp;CK: T1071 (Application Layer Protocol), T1573 (Encrypted Channel),
 /// T1571 (Non-Standard Port)
 /// </summary>
 public sealed class BeaconDetectionService

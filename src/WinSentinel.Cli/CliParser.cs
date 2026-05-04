@@ -347,6 +347,12 @@ public class CliOptions
     public int ExecutionTop { get; set; } = 20;
     public string ExecutionFormat { get; set; } = "text";
     public string? ExecutionSeverityFilter { get; set; }
+
+    // Command & Control options
+    public int C2Days { get; set; } = 90;
+    public int C2Top { get; set; } = 20;
+    public string C2Format { get; set; } = "text";
+    public string? C2SeverityFilter { get; set; }
 }
 
 public enum CliCommand
@@ -449,6 +455,7 @@ public enum CliCommand
     InitialAccess,
     Discovery,
     Execution,
+    C2,
     Help,
     Version
 }
@@ -2954,6 +2961,31 @@ public static class CliParser
                     if (!TryConsumeArg(args, ref i, "--execution-severity", out var execSevVal, out var execSevErr))
                     { options.Error = execSevErr; return options; }
                     options.ExecutionSeverityFilter = execSevVal;
+                    break;
+                case "c2":
+                    options.Command = CliCommand.C2;
+                    break;
+                case "--c2-days":
+                    if (!TryConsumeArg(args, ref i, "--c2-days", out var c2DaysVal, out var c2DaysErr))
+                    { options.Error = c2DaysErr; return options; }
+                    if (int.TryParse(c2DaysVal, out var c2DaysInt))
+                        options.C2Days = Math.Clamp(c2DaysInt, 7, 365);
+                    break;
+                case "--c2-top":
+                    if (!TryConsumeArg(args, ref i, "--c2-top", out var c2TopVal, out var c2TopErr))
+                    { options.Error = c2TopErr; return options; }
+                    if (int.TryParse(c2TopVal, out var c2TopInt))
+                        options.C2Top = Math.Clamp(c2TopInt, 1, 50);
+                    break;
+                case "--c2-format":
+                    if (!TryConsumeArg(args, ref i, "--c2-format", out var c2FmtVal, out var c2FmtErr))
+                    { options.Error = c2FmtErr; return options; }
+                    options.C2Format = c2FmtVal;
+                    break;
+                case "--c2-severity":
+                    if (!TryConsumeArg(args, ref i, "--c2-severity", out var c2SevVal, out var c2SevErr))
+                    { options.Error = c2SevErr; return options; }
+                    options.C2SeverityFilter = c2SevVal;
                     break;
                 case "--threat-dna-days":
                     if (!TryConsumeArg(args, ref i, "--threat-dna-days", out var tdDaysVal, out var tdDaysErr))

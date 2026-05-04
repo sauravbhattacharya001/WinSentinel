@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <TargetFrameworks>net8.0;net8.0-windows</TargetFrameworks>
+    <Version>1.15.1</Version>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <Platforms>AnyCPU;x64;x86;ARM64</Platforms>

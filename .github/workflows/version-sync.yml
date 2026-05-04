@@ -1,0 +1,45 @@
+name: Sync Version on Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  sync-version:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract version from tag
+      id: version
+      run: echo "version=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+    - name: Update csproj versions
+      run: |
+        VERSION="${{ steps.version.outputs.version }}"
+        for csproj in src/WinSentinel.Core/WinSentinel.Core.csproj src/WinSentinel.Cli/WinSentinel.Cli.csproj; do
+          if grep -q '<Version>' "$csproj"; then
+            sed -i "s|<Version>.*</Version>|<Version>${VERSION}</Version>|g" "$csproj"
+          else
+            # Insert Version after TargetFramework(s) line
+            sed -i "/<TargetFramework/a\\    <Version>${VERSION}</Version>" "$csproj"
+          fi
+        done
+
+    - name: Commit version bump
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git add -A
+        if git diff --cached --quiet; then
+          echo "No version changes needed"
+        else
+          git commit -m "chore: sync package version to ${{ steps.version.outputs.version }}"
+          git push origin HEAD:main
+        fi

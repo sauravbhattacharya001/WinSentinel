@@ -10,6 +10,10 @@ on:
         required: false
         type: boolean
         default: true
+      version_override:
+        description: 'Version override (e.g. 1.15.1). Leave empty to use latest release tag.'
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -20,12 +24,27 @@ jobs:
     runs-on: windows-latest
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v4
       with:
         fetch-depth: 0
 
+    - name: Determine version
+      id: version
+      shell: pwsh
+      run: |
+        if ('${{ inputs.version_override }}') {
+          $ver = '${{ inputs.version_override }}'
+        } elseif ('${{ github.event.release.tag_name }}') {
+          $ver = '${{ github.event.release.tag_name }}' -replace '^v', ''
+        } else {
+          $tag = git describe --tags --abbrev=0 2>$null
+          $ver = if ($tag) { $tag -replace '^v', '' } else { '1.0.0' }
+        }
+        Write-Host "Package version: $ver"
+        "version=$ver" >> $env:GITHUB_OUTPUT
+
     - name: Setup .NET
-      uses: actions/setup-dotnet@v5
+      uses: actions/setup-dotnet@v4
       with:
         dotnet-version: '8.0.x'
 
@@ -36,8 +55,8 @@ jobs:
 
     - name: Build
       run: |
-        dotnet build src/WinSentinel.Core/WinSentinel.Core.csproj --no-restore -c Release
-        dotnet build src/WinSentinel.Cli/WinSentinel.Cli.csproj --no-restore -c Release
+        dotnet build src/WinSentinel.Core/WinSentinel.Core.csproj --no-restore -c Release -p:Version=${{ steps.version.outputs.version }}
+        dotnet build src/WinSentinel.Cli/WinSentinel.Cli.csproj --no-restore -c Release -p:Version=${{ steps.version.outputs.version }}
 
     - name: Run tests
       run: dotnet test tests/WinSentinel.Tests/WinSentinel.Tests.csproj -c Release --verbosity normal
@@ -47,9 +66,11 @@ jobs:
       run: |
         dotnet pack src/WinSentinel.Core/WinSentinel.Core.csproj `
           --no-build -c Release `
+          -p:Version=${{ steps.version.outputs.version }} `
           -o ./nupkg
         dotnet pack src/WinSentinel.Cli/WinSentinel.Cli.csproj `
           --no-build -c Release `
+          -p:Version=${{ steps.version.outputs.version }} `
           -o ./nupkg
 
     - name: List packages
@@ -57,7 +78,7 @@ jobs:
       run: |
         Get-ChildItem ./nupkg -Recurse | ForEach-Object {
           $sizeMB = [math]::Round($_.Length / 1KB, 1)
-          Write-Host "$($_.Name) — ${sizeMB} KB"
+          Write-Host "$($_.Name) - ${sizeMB} KB"
         }
 
     - name: Validate NuGet packages
@@ -77,7 +98,7 @@ jobs:
       continue-on-error: true
 
     - name: Upload NuGet artifacts
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@v4
       with:
         name: nuget-packages
         path: ./nupkg/*
@@ -109,9 +130,7 @@ jobs:
     - name: Package summary
       shell: pwsh
       run: |
-        # Extract version from the first .nupkg filename
-        $pkg = Get-ChildItem ./nupkg -Filter *.nupkg | Select-Object -First 1
-        $version = if ($pkg.Name -match '\.(\d+\.\d+\.\d+[^.]*)\.' ) { $Matches[1] } else { 'unknown' }
+        $version = "${{ steps.version.outputs.version }}"
 
         "## 📦 NuGet Packages Published" >> $env:GITHUB_STEP_SUMMARY
         "" >> $env:GITHUB_STEP_SUMMARY
@@ -125,11 +144,11 @@ jobs:
         }
         "" >> $env:GITHUB_STEP_SUMMARY
         "### Install Library" >> $env:GITHUB_STEP_SUMMARY
-        "``````" >> $env:GITHUB_STEP_SUMMARY
+        "``````bash" >> $env:GITHUB_STEP_SUMMARY
         "dotnet add package WinSentinel.Core --version $version" >> $env:GITHUB_STEP_SUMMARY
         "``````" >> $env:GITHUB_STEP_SUMMARY
         "" >> $env:GITHUB_STEP_SUMMARY
         "### Install CLI Tool" >> $env:GITHUB_STEP_SUMMARY
-        "``````" >> $env:GITHUB_STEP_SUMMARY
+        "``````bash" >> $env:GITHUB_STEP_SUMMARY
         "dotnet tool install --global WinSentinel.Cli --version $version" >> $env:GITHUB_STEP_SUMMARY
         "``````" >> $env:GITHUB_STEP_SUMMARY

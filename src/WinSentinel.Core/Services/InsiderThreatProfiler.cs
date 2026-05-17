@@ -17,6 +17,7 @@ public sealed class InsiderThreatProfiler
     private const double ZScoreCritical = 3.0;
     private const int OffHoursStart = 22; // 10 PM
     private const int OffHoursEnd = 6;    // 6 AM
+    private const int CriticalRiskThreshold = 85;
     private const int HighRiskThreshold = 70;
     private const int MediumRiskThreshold = 40;
 
@@ -259,25 +260,27 @@ public sealed class InsiderThreatProfiler
         // Compute days since normal
         profile.DaysSinceNormalActivity = ComputeDaysSinceNormal(activities, profile.Baseline);
 
-        // Compute composite risk score
+        // Compute composite risk score and classify into a tier.
+        // (Previously this used two back-to-back assignments: an initial ternary with an
+        // unreachable Critical arm — Critical was checked AFTER High, so RiskScore > 80
+        // never won — followed by a corrective if/else ladder that shadowed the first
+        // assignment entirely. The ladder is now the single source of truth and the
+        // 85 threshold is named.)
         profile.RiskScore = ComputeUserRiskScore(profile);
-        profile.RiskLevel = profile.RiskScore >= HighRiskThreshold ? InsiderRiskLevel.High :
-                            profile.RiskScore >= MediumRiskThreshold ? InsiderRiskLevel.Medium :
-                            profile.RiskScore > 80 ? InsiderRiskLevel.Critical :
-                            InsiderRiskLevel.Low;
-
-        // Correct: critical is above high
-        if (profile.RiskScore >= 85)
-            profile.RiskLevel = InsiderRiskLevel.Critical;
-        else if (profile.RiskScore >= HighRiskThreshold)
-            profile.RiskLevel = InsiderRiskLevel.High;
-        else if (profile.RiskScore >= MediumRiskThreshold)
-            profile.RiskLevel = InsiderRiskLevel.Medium;
-        else
-            profile.RiskLevel = InsiderRiskLevel.Low;
+        profile.RiskLevel = ClassifyInsiderRiskLevel(profile.RiskScore);
 
         return profile;
     }
+
+    /// <summary>
+    /// Map a 0-100 composite insider risk score to a discrete risk tier.
+    /// Thresholds are evaluated highest-first so each band is reachable.
+    /// </summary>
+    private static InsiderRiskLevel ClassifyInsiderRiskLevel(double score) =>
+        score >= CriticalRiskThreshold ? InsiderRiskLevel.Critical :
+        score >= HighRiskThreshold     ? InsiderRiskLevel.High :
+        score >= MediumRiskThreshold   ? InsiderRiskLevel.Medium :
+                                         InsiderRiskLevel.Low;
 
     private static BehavioralBaseline ComputeBaseline(List<UserActivityEvent> activities, int historyDays)
     {

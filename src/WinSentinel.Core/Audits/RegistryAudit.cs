@@ -20,54 +20,190 @@ namespace WinSentinel.Core.Audits;
 /// </summary>
 public class RegistryAudit : IAuditModule
 {
+    /// <inheritdoc />
     public string Name => "Registry Security Audit";
+
+    /// <inheritdoc />
     public string Category => "Registry";
+
+    /// <inheritdoc />
     public string Description =>
         "Checks registry-based security policies including UAC, Remote Desktop, " +
         "credential storage, LSASS protection, scripting hosts, and persistence mechanisms.";
 
-    // Data Transfer Object
+    /// <summary>
+    /// Immutable snapshot of every registry value sampled by <see cref="GatherStateAsync"/>.
+    /// </summary>
+    /// <remarks>
+    /// All numeric fields are nullable: <see langword="null"/> means the value was not present
+    /// (or the key could not be opened). The downstream analyzers treat "missing" and "explicitly
+    /// set to a safe value" differently, so do not collapse <see langword="null"/> to a default.
+    /// </remarks>
     public sealed class RegistryState
     {
-        // UAC
+        // ---- UAC (User Account Control) ----
+
+        /// <summary><c>HKLM\...\Policies\System\EnableLUA</c>. <c>0</c> disables UAC entirely.</summary>
         public int? EnableLua { get; set; }
+
+        /// <summary>
+        /// <c>HKLM\...\Policies\System\ConsentPromptBehaviorAdmin</c>. Controls whether admin
+        /// elevation prompts appear and on which desktop. <c>0</c> = silent auto-elevate (insecure),
+        /// <c>1</c> = regular desktop prompt, <c>2</c>/<c>5</c> = secure desktop prompt.
+        /// </summary>
         public int? ConsentPromptBehaviorAdmin { get; set; }
+
+        /// <summary>
+        /// <c>HKLM\...\Policies\System\EnableVirtualization</c>. <c>1</c> enables file/registry
+        /// virtualization for legacy apps writing to protected areas.
+        /// </summary>
         public int? EnableVirtualization { get; set; }
-        // Remote Desktop
+
+        // ---- Remote Desktop ----
+
+        /// <summary>
+        /// <c>HKLM\SYSTEM\...\Terminal Server\fDenyTSConnections</c>. <c>0</c> means RDP is enabled.
+        /// </summary>
         public int? DenyTsConnections { get; set; }
+
+        /// <summary>
+        /// <c>UserAuthentication</c> on <c>RDP-Tcp</c>. <c>1</c> requires Network Level Authentication
+        /// before the RDP login screen is reachable.
+        /// </summary>
         public int? NlaRequired { get; set; }
+
+        /// <summary>
+        /// <c>SecurityLayer</c> on <c>RDP-Tcp</c>. <c>0</c> = legacy RDP security, <c>1</c> = negotiate,
+        /// <c>2</c> = TLS (preferred).
+        /// </summary>
         public int? RdpSecurityLayer { get; set; }
-        // AutoPlay
+
+        // ---- AutoPlay / AutoRun ----
+
+        /// <summary>
+        /// <c>HKLM\...\Policies\Explorer\NoDriveTypeAutoRun</c>. <c>0xFF</c> (255) disables AutoRun on
+        /// all drive types — the recommended hardening value.
+        /// </summary>
         public int? NoDriveTypeAutoRun { get; set; }
+
+        /// <summary>
+        /// <c>DisableAutoplay</c>. <c>1</c> disables AutoPlay for all media.
+        /// </summary>
         public int? DisableAutoplay { get; set; }
-        // Credentials
+
+        // ---- Credentials ----
+
+        /// <summary>
+        /// <c>HKLM\...\Winlogon\CachedLogonsCount</c> (REG_SZ). Number of domain logon password hashes
+        /// cached locally for offline logon. Recommended: <c>0</c>–<c>4</c>.
+        /// </summary>
         public string? CachedLogonsCount { get; set; }
+
+        /// <summary>
+        /// <c>...\SecurityProviders\WDigest\UseLogonCredential</c>. <c>1</c> stores credentials in
+        /// plain text in LSASS memory — must be <c>0</c>.
+        /// </summary>
         public int? WDigestUseLogonCredential { get; set; }
-        // LSASS
+
+        // ---- LSASS protection ----
+
+        /// <summary>
+        /// <c>HKLM\SYSTEM\...\Lsa\RunAsPPL</c>. <c>1</c>/<c>2</c> enables Protected Process Light for
+        /// LSASS, blocking credential-dumping tools.
+        /// </summary>
         public int? LsassRunAsPpl { get; set; }
-        // Script Host
+
+        // ---- Windows Script Host ----
+
+        /// <summary>
+        /// <c>HKLM\SOFTWARE\Microsoft\Windows Script Host\Settings\Enabled</c> (REG_SZ).
+        /// <c>"0"</c> disables wscript/cscript execution of <c>.vbs</c>/<c>.js</c> files.
+        /// </summary>
         public string? ScriptHostEnabled { get; set; }
-        // WinRM
+
+        // ---- WinRM (Windows Remote Management) ----
+
+        /// <summary>
+        /// <c>WinRM\Service\AllowAutoConfig</c>. <c>1</c> indicates WinRM is auto-configured by policy.
+        /// </summary>
         public int? WinRmAllowAutoConfig { get; set; }
+
+        /// <summary>
+        /// <c>WinRM\Service\AllowUnencryptedTraffic</c>. <c>1</c> permits plain-text HTTP — must be <c>0</c>.
+        /// </summary>
         public int? WinRmAllowUnencrypted { get; set; }
+
+        /// <summary>
+        /// <c>WinRM\Client\AllowBasic</c>. <c>1</c> permits HTTP Basic auth (Base64 credentials).
+        /// </summary>
         public int? WinRmAllowBasic { get; set; }
-        // DLL
+
+        // ---- DLL search order ----
+
+        /// <summary>
+        /// <c>Session Manager\SafeDllSearchMode</c>. <c>1</c> searches system directories before the
+        /// current working directory when loading DLLs, mitigating DLL hijacking.
+        /// </summary>
         public int? SafeDllSearchMode { get; set; }
-        // Persistence
+
+        // ---- Persistence mechanisms ----
+
+        /// <summary>
+        /// Parsed list of DLLs from <c>...\Windows NT\CurrentVersion\Windows\AppInit_DLLs</c>. Each
+        /// listed DLL is injected into every user-mode process when <see cref="LoadAppInitDlls"/> is
+        /// <c>1</c>.
+        /// </summary>
         public List<string> AppInitDlls { get; set; } = new();
+
+        /// <summary>
+        /// <c>LoadAppInit_DLLs</c>. <c>1</c> activates the <see cref="AppInitDlls"/> list.
+        /// </summary>
         public int? LoadAppInitDlls { get; set; }
+
+        /// <summary>
+        /// Entries under <c>Image File Execution Options</c> that have a <c>Debugger</c> value set.
+        /// Used both for legitimate debugging hooks and the well-known accessibility-binary hijack
+        /// persistence technique (MITRE T1546.008).
+        /// </summary>
         public List<IfeoEntry> IfeoDebuggers { get; set; } = new();
+
+        /// <summary>
+        /// Reserved for shell-extension enumeration. Currently unused by the analyzer.
+        /// </summary>
         public List<string> ShellExtensions { get; set; } = new();
+
+        /// <summary>
+        /// <c>Winlogon\Shell</c>. Expected value <c>explorer.exe</c>; anything else indicates a
+        /// shell-hijacking persistence implant.
+        /// </summary>
         public string? WinlogonShell { get; set; }
+
+        /// <summary>
+        /// <c>Winlogon\Userinit</c>. Expected value contains <c>userinit.exe</c>; replaced values
+        /// execute custom code at every interactive logon.
+        /// </summary>
         public string? WinlogonUserinit { get; set; }
     }
 
+    /// <summary>
+    /// A single <c>Image File Execution Options</c> entry where a <c>Debugger</c> value has been set.
+    /// When Windows launches <see cref="TargetExecutable"/>, it instead launches
+    /// <see cref="DebuggerValue"/> passing the original as an argument.
+    /// </summary>
     public sealed class IfeoEntry
     {
+        /// <summary>Name of the executable the IFEO key applies to (e.g. <c>sethc.exe</c>).</summary>
         public string TargetExecutable { get; set; } = string.Empty;
+
+        /// <summary>The command line stored in the <c>Debugger</c> value of the IFEO subkey.</summary>
         public string DebuggerValue { get; set; } = string.Empty;
     }
 
+    /// <summary>
+    /// Run the full audit: gather registry state, analyze it, and return the aggregated
+    /// <see cref="AuditResult"/>. Any exception is captured into the result rather than thrown.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token forwarded to <see cref="GatherStateAsync"/>.</param>
     public async Task<AuditResult> RunAuditAsync(CancellationToken cancellationToken = default)
     {
         var result = new AuditResult
@@ -90,6 +226,15 @@ public class RegistryAudit : IAuditModule
         return result;
     }
 
+    /// <summary>
+    /// Read every monitored registry value into a <see cref="RegistryState"/> snapshot.
+    /// </summary>
+    /// <remarks>
+    /// Each read is best-effort via <see cref="RegistryHelper"/>; missing keys/values yield
+    /// <see langword="null"/> in the snapshot rather than throwing. This is synchronous I/O
+    /// wrapped in <see cref="Task.FromResult{TResult}"/> for API uniformity with other audit modules.
+    /// </remarks>
+    /// <param name="cancellationToken">Currently unused; reserved for future async I/O.</param>
     public Task<RegistryState> GatherStateAsync(CancellationToken cancellationToken = default)
     {
         var state = new RegistryState();
@@ -131,6 +276,13 @@ public class RegistryAudit : IAuditModule
         }
     }
 
+    /// <summary>
+    /// Apply every security check against the supplied <paramref name="state"/>, appending
+    /// <see cref="Finding"/>s to <paramref name="result"/>. This method is pure and side-effect
+    /// free w.r.t. the registry, so it can be unit-tested with synthetic states.
+    /// </summary>
+    /// <param name="state">A registry snapshot — typically from <see cref="GatherStateAsync"/>.</param>
+    /// <param name="result">Audit result the findings are appended to.</param>
     public void AnalyzeState(RegistryState state, AuditResult result)
     {
         CheckUac(state, result);

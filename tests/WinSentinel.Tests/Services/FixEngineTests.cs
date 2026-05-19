@@ -294,4 +294,31 @@ public class FixEngineTests
 
         Assert.True(result.Duration > TimeSpan.Zero);
     }
+
+    // -----------------------------------------------------------------
+    // EscapePowerShellSingleQuoted: defends the elevated wrapper against
+    // command injection when the OS-provided temp path contains an
+    // apostrophe (e.g. %USERPROFILE% = "O'Brien") or is otherwise tainted.
+    // -----------------------------------------------------------------
+    [Theory]
+    [InlineData("plain", "plain")]
+    [InlineData("", "")]
+    [InlineData(@"C:\Users\Alice\AppData\Local\Temp\ws_fix_abc.ps1",
+                @"C:\Users\Alice\AppData\Local\Temp\ws_fix_abc.ps1")]
+    [InlineData(@"C:\Users\O'Brien\AppData\Local\Temp\ws_fix_abc.ps1",
+                @"C:\Users\O''Brien\AppData\Local\Temp\ws_fix_abc.ps1")]
+    [InlineData("';rm -rf /;'", "'';rm -rf /;''")]
+    [InlineData("a'b'c", "a''b''c")]
+    public void EscapePowerShellSingleQuoted_DoublesApostrophes(string input, string expected)
+    {
+        var actual = FixEngine.EscapePowerShellSingleQuoted(input);
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public void EscapePowerShellSingleQuoted_NullInput_ReturnsEmpty()
+    {
+        var actual = FixEngine.EscapePowerShellSingleQuoted(null!);
+        Assert.Equal(string.Empty, actual);
+    }
 }

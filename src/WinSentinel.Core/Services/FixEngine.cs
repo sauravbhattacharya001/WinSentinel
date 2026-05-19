@@ -195,7 +195,18 @@ public class FixEngine
             // The script file is executed by the wrapper, isolating untrusted content.
             await File.WriteAllTextAsync(tempScriptFile, command, ct);
 
-            var wrappedCommand = $"try {{ . '{tempScriptFile}' | Out-File -FilePath '{tempOutputFile}' -Encoding UTF8 }} catch {{ $_.Exception.Message | Out-File -FilePath '{tempErrorFile}' -Encoding UTF8; exit 1 }}";
+            // SECURITY: Escape single quotes in temp paths before embedding them in PowerShell
+            // single-quoted strings.  Path.GetTempPath() resolves to %USERPROFILE%\AppData\Local\Temp
+            // by default, but %USERPROFILE% can contain an apostrophe when the Windows account
+            // display name does (e.g. "O'Brien"), or when TEMP/TMP env vars are overridden by a
+            // local attacker.  Without escaping, a stray ' in the path would close the PS string
+            // literal and turn the wrapper into an injection sink that runs *elevated* (Verb=runas).
+            // PowerShell's single-quoted escape rule is to double the apostrophe.
+            var psScriptPath = EscapePowerShellSingleQuoted(tempScriptFile);
+            var psOutputPath = EscapePowerShellSingleQuoted(tempOutputFile);
+            var psErrorPath = EscapePowerShellSingleQuoted(tempErrorFile);
+
+            var wrappedCommand = $"try {{ . '{psScriptPath}' | Out-File -FilePath '{psOutputPath}' -Encoding UTF8 }} catch {{ $_.Exception.Message | Out-File -FilePath '{psErrorPath}' -Encoding UTF8; exit 1 }}";
 
             var psi = new ProcessStartInfo
             {
@@ -298,6 +309,20 @@ public class FixEngine
         var bytes = System.Text.Encoding.Unicode.GetBytes(command);
         return Convert.ToBase64String(bytes);
     }
+
+    /// <summary>
+    /// Escape a string for safe embedding in a PowerShell single-quoted literal.
+    /// PowerShell's only escape inside single-quoted strings is a doubled apostrophe ('').
+    /// This is the same rule SQL uses for single-quoted literals.
+    /// </summary>
+    /// <remarks>
+    /// Use this whenever you interpolate a path or other potentially-unsafe value into a
+    /// PowerShell command and wrap it in single quotes (e.g. <c>'...'</c>).  Without it,
+    /// any apostrophe in the value breaks out of the literal and is parsed as PowerShell
+    /// code -- a command-injection sink when the resulting script runs elevated.
+    /// </remarks>
+    internal static string EscapePowerShellSingleQuoted(string value)
+        => value is null ? string.Empty : value.Replace("'", "''");
 
     private static void KillProcess(Process process)
     {

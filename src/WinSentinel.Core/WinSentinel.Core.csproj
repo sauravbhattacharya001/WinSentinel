@@ -22,7 +22,6 @@
     <NoWarn>$(NoWarn);CS1591</NoWarn>
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
-    <InternalsVisibleTo>WinSentinel.Tests</InternalsVisibleTo>
 
     <!-- SourceLink: enables stepping into NuGet package source in debuggers -->
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
@@ -32,6 +31,10 @@
 
   <ItemGroup>
     <None Include="../../README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="WinSentinel.Tests" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.IO.Pipes;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -157,19 +158,24 @@ public class IpcClient : IDisposable
     }
 
     private readonly SemaphoreSlim _sendLock = new(1, 1);
-    private readonly Dictionary<string, TaskCompletionSource<IpcResponse>> _pending = new();
+    // ConcurrentDictionary avoids the per-request lock taken by the previous Dictionary
+    // implementation. The pipe reader thread completes pending requests by id, and the caller
+    // thread inserts/removes its TCS; both happen on the hot IPC path, so lock-free reads and
+    // single-CAS removes meaningfully reduce contention under bursty request loads.
+    private readonly ConcurrentDictionary<string, TaskCompletionSource<IpcResponse>> _pending = new();
 
     private async Task<IpcResponse?> SendRequestAsync(string type, object? payload = null, CancellationToken ct = default)
     {
         if (_writer == null || !IsConnected) return null;
 
         var requestId = Guid.NewGuid().ToString("N")[..8];
-        var tcs = new TaskCompletionSource<IpcResponse>();
+        // RunContinuationsAsynchronously: the pipe reader thread calls TrySetResult on this TCS,
+        // and without this option the awaiting caller's continuation would execute inline on the
+        // reader thread, blocking it from reading the next framed message. Pushing continuations
+        // to the thread pool keeps the event loop responsive.
+        var tcs = new TaskCompletionSource<IpcResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        lock (_pending)
-        {
-            _pending[requestId] = tcs;
-        }
+        _pending[requestId] = tcs;
 
         try
         {
@@ -203,10 +209,7 @@ public class IpcClient : IDisposable
         }
         finally
         {
-            lock (_pending)
-            {
-                _pending.Remove(requestId);
-            }
+            _pending.TryRemove(requestId, out _);
         }
     }
 
@@ -225,12 +228,7 @@ public class IpcClient : IDisposable
                 // Check if this is a response to a pending request
                 if (response.RequestId != null)
                 {
-                    TaskCompletionSource<IpcResponse>? tcs;
-                    lock (_pending)
-                    {
-                        _pending.TryGetValue(response.RequestId, out tcs);
-                    }
-                    if (tcs != null)
+                    if (_pending.TryGetValue(response.RequestId, out var tcs))
                     {
                         tcs.TrySetResult(response);
                         continue;

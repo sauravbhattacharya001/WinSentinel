@@ -1,15 +1,43 @@
 # Auto-labeler configuration for WinSentinel
-# Labels PRs based on the files they change
+# Labels PRs based on the files they change.
+#
+# Conventions:
+#   * Each top-level key is a GitHub label that must exist in the repo.
+#     New labels added here must also be created via `gh label create`
+#     (see CONTRIBUTING.md → "Labels Glossary").
+#   * Globs use the `actions/labeler@v6` format with `changed-files`.
+#   * Multiple globs under one label are OR'd (any-glob-to-any-file).
+#   * Keep narrowest globs first within a label for clarity.
 
 # --- Core Library ---
 core:
   - changed-files:
       - any-glob-to-any-file: 'src/WinSentinel.Core/**/*'
 
-# --- Security Audits ---
+# --- Core: Security audit modules ---
 audits:
   - changed-files:
       - any-glob-to-any-file: 'src/WinSentinel.Core/Audits/**/*'
+
+# --- Core: Services (scoring, compliance, reporting, etc.) ---
+services:
+  - changed-files:
+      - any-glob-to-any-file: 'src/WinSentinel.Core/Services/**/*'
+
+# --- Core: Helpers (input sanitization, registry, WMI, shell) ---
+helpers:
+  - changed-files:
+      - any-glob-to-any-file: 'src/WinSentinel.Core/Helpers/**/*'
+
+# --- Core: Data models ---
+models:
+  - changed-files:
+      - any-glob-to-any-file: 'src/WinSentinel.Core/Models/**/*'
+
+# --- Core: Persistence layer (SQLite history, encryption) ---
+data:
+  - changed-files:
+      - any-glob-to-any-file: 'src/WinSentinel.Core/Data/**/*'
 
 # --- Agent (real-time monitoring) ---
 agent:
@@ -26,17 +54,23 @@ app:
   - changed-files:
       - any-glob-to-any-file: 'src/WinSentinel.App/**/*'
 
-# --- Windows Service ---
+# --- Windows Service host ---
 service:
   - changed-files:
       - any-glob-to-any-file: 'src/WinSentinel.Service/**/*'
 
-# --- Installer / Packaging ---
+# --- Installer / Packaging (MSIX project only) ---
 installer:
   - changed-files:
+      - any-glob-to-any-file: 'src/WinSentinel.Installer/**/*'
+
+# --- Standalone PowerShell scripts at repo root ---
+# (Install/Fix/RunAudit helpers — distinct from the MSIX installer project)
+scripts:
+  - changed-files:
       - any-glob-to-any-file:
-          - 'src/WinSentinel.Installer/**/*'
           - '*.ps1'
+          - 'scripts/**/*'
 
 # --- Tests ---
 tests:
@@ -48,8 +82,8 @@ ci:
   - changed-files:
       - any-glob-to-any-file:
           - '.github/workflows/**/*'
-          - '.github/dependabot.yml'
           - '.github/labeler.yml'
+          - '.github/stale.yml'
 
 # --- Docker ---
 docker:
@@ -57,26 +91,41 @@ docker:
       - any-glob-to-any-file:
           - 'Dockerfile'
           - '.dockerignore'
-          - '.github/workflows/docker.yml'
+          - 'docker-compose.yml'
+          - '.github/workflows/docker*.yml'
 
-# --- Documentation ---
+# --- Documentation (README, SECURITY, LICENSE, docs site, copilot guidance) ---
 documentation:
   - changed-files:
       - any-glob-to-any-file:
           - 'docs/**/*'
+          - 'docfx/**/*'
           - 'README.md'
           - 'SECURITY.md'
           - 'LICENSE'
+          - 'CODE_OF_CONDUCT.md'
+          - 'CONTRIBUTING.md'
           - '.github/copilot-instructions.md'
 
-# --- IPC (inter-process communication) ---
+# --- Dependency updates (Dependabot, manual bumps, lockfiles, props) ---
+dependencies:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '.github/dependabot.yml'
+          - '**/*.csproj'
+          - '**/packages.lock.json'
+          - 'Directory.Build.props'
+          - 'Directory.Packages.props'
+          - 'global.json'
+
+# --- IPC (inter-process communication between Agent and clients) ---
 ipc:
   - changed-files:
       - any-glob-to-any-file:
           - 'src/WinSentinel.Agent/Ipc/**/*'
           - 'src/WinSentinel.Core/Services/IpcClient.cs'
 
-# --- Threat Detection ---
+# --- Threat Detection (agent monitors and correlators) ---
 threat-detection:
   - changed-files:
       - any-glob-to-any-file:
@@ -86,18 +135,19 @@ threat-detection:
           - 'src/WinSentinel.Agent/ThreatEvent.cs'
           - 'src/WinSentinel.Agent/ThreatLog.cs'
 
-# --- Remediation ---
+# --- Remediation (auto-fix strategies and planners) ---
 remediation:
   - changed-files:
       - any-glob-to-any-file:
           - 'src/WinSentinel.Agent/Services/AutoRemediator.cs'
           - 'src/WinSentinel.Agent/Services/ResponsePolicy.cs'
+          - 'src/WinSentinel.Agent/Services/RemediationStrategies.cs'
           - 'src/WinSentinel.Core/Services/FixEngine.cs'
           - 'src/WinSentinel.Core/Services/RemediationPlanner.cs'
           - 'src/WinSentinel.Core/Models/RemediationModels.cs'
           - 'src/WinSentinel.Core/Models/FixResult.cs'
 
-# --- UI / XAML ---
+# --- UI / XAML (WPF views, view-models, controls) ---
 ui:
   - changed-files:
       - any-glob-to-any-file:
@@ -107,9 +157,12 @@ ui:
           - '**/*.xaml'
           - '**/*.xaml.cs'
 
-# --- Solution / Project Files ---
+# --- Solution / project / build configuration ---
 build:
   - changed-files:
       - any-glob-to-any-file:
           - '*.sln'
           - '**/*.csproj'
+          - 'Directory.Build.props'
+          - 'Directory.Packages.props'
+          - 'global.json'

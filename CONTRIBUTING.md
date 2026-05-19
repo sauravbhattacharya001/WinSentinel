@@ -12,6 +12,8 @@ Thank you for your interest in improving WinSentinel! Whether you're fixing a bu
 - [Adding an Audit Module](#adding-an-audit-module)
 - [Testing](#testing)
 - [Submitting a Pull Request](#submitting-a-pull-request)
+- [PR Lifecycle & Review Process](#pr-lifecycle--review-process)
+- [Labels Glossary](#labels-glossary)
 - [Coding Conventions](#coding-conventions)
 - [Security Vulnerabilities](#security-vulnerabilities)
 - [Getting Help](#getting-help)
@@ -446,6 +448,115 @@ Review these for patterns before writing your own:
 - **Tests**: Meaningful tests that verify behavior
 - **Performance**: No unnecessary allocations, I/O, or blocking in hot paths
 - **Style**: Consistent with the existing codebase
+
+## PR Lifecycle & Review Process
+
+Knowing what happens to a PR after you click "Create pull request" helps set expectations and avoid back-and-forth.
+
+### Stage 1 — Automated Checks (minutes)
+
+When you open a PR, several GitHub Actions run automatically:
+
+| Workflow | What It Does | Required to Pass |
+|----------|-------------|------------------|
+| `ci.yml` | Restores, builds (x64), and runs tests | ✅ Yes |
+| `codeql.yml` | Static security analysis (C#) | ✅ Yes (no new alerts) |
+| `coverage-gate.yml` | Enforces coverage threshold via Codecov | ✅ Yes |
+| `labeler.yml` | Auto-applies area labels based on changed files | Informational |
+| `docker.yml` | Builds the container image (PRs touching Docker) | ✅ When triggered |
+
+If any required check fails, the PR is blocked from merge. Look at the workflow logs, fix the issue, and push again — checks re-run automatically.
+
+### Stage 2 — Auto-Labeling (seconds)
+
+The `actions/labeler@v6` workflow inspects your changed files and applies area labels (`core`, `audits`, `agent`, `cli`, etc.) — see the [Labels Glossary](#labels-glossary) for the full list. You don't need to label your PR manually; the bot handles it. If a label seems wrong, mention it in a comment and a maintainer can update `.github/labeler.yml`.
+
+### Stage 3 — Maintainer Review (1–7 days)
+
+A maintainer will review your PR for the criteria in [What We Look For in Reviews](#what-we-look-for-in-reviews). Possible outcomes:
+
+- **Approved** ✅ — your PR will be merged (usually squash-merge to keep history clean)
+- **Changes requested** 📝 — address the comments and push more commits to the same branch; the review will be re-requested automatically
+- **Closed** ❌ — rare, only if the change conflicts with project direction; a maintainer will explain why
+
+Review turnaround is typically 1–3 business days for small PRs and up to a week for larger architectural changes. If a week has passed with no response, leave a polite ping comment.
+
+### Stage 4 — Merge & Release
+
+Once merged to `master`:
+
+- The `version-sync.yml` workflow keeps version numbers consistent across projects.
+- If your change warrants a release, a maintainer will tag a new version (`v<major>.<minor>.<patch>`), which triggers `release.yml` (GitHub Release), `nuget.yml` (NuGet packages), and `docker.yml` (container image push). See the [Release Process](#release-process) section.
+
+### Tips for a Smooth Review
+
+- **Keep PRs small and focused.** One feature or fix per PR. If you have multiple unrelated changes, split them.
+- **Write a clear description.** Explain *why* the change is needed, not just *what* it does.
+- **Link the issue** it closes (`Closes #123`) so the issue auto-closes on merge.
+- **Self-review first.** Re-read the diff in the GitHub PR view — you'll often spot leftover debug code or missed edge cases.
+- **Don't force-push after review.** Push additional commits so reviewers can see exactly what you changed in response to feedback. A maintainer will squash on merge.
+- **Be responsive but don't rush.** It's fine to take a day or two to address feedback thoughtfully.
+
+## Labels Glossary
+
+Labels are auto-applied by `.github/labeler.yml` based on the files a PR touches. They make it easy to filter issues and PRs by area. Don't apply labels manually unless a maintainer asks — the bot keeps them in sync.
+
+### Component Labels
+
+| Label | Applied When PR Touches |
+|-------|------------------------|
+| `core` | Anything in `src/WinSentinel.Core/` |
+| `audits` | `src/WinSentinel.Core/Audits/` (security audit modules) |
+| `services` | `src/WinSentinel.Core/Services/` (the 98+ service classes) |
+| `helpers` | `src/WinSentinel.Core/Helpers/` (InputSanitizer, RegistryHelper, etc.) |
+| `models` | `src/WinSentinel.Core/Models/` (data models) |
+| `data` | `src/WinSentinel.Core/Data/` (SQLite history, encryption) |
+| `agent` | `src/WinSentinel.Agent/` (real-time monitoring agent) |
+| `cli` | `src/WinSentinel.Cli/` (command-line interface) |
+| `app` | `src/WinSentinel.App/` (WPF dashboard) |
+| `service` | `src/WinSentinel.Service/` (Windows Service host) |
+| `installer` | `src/WinSentinel.Installer/` (MSIX installer project only) |
+| `ui` | XAML files, views, view-models, controls |
+
+### Cross-cutting Labels
+
+| Label | Applied When PR Touches |
+|-------|------------------------|
+| `ipc` | Agent IPC layer or `IpcClient` |
+| `threat-detection` | Agent monitors, `ThreatCorrelator`, `AgentBrain`, threat models |
+| `remediation` | Auto-remediation strategies, `FixEngine`, `RemediationPlanner` |
+| `tests` | Anything in `tests/` |
+| `build` | Solution file, `.csproj`, `Directory.Build.props`, `global.json` |
+| `ci` | Files in `.github/workflows/` or labeler/stale config |
+| `docker` | `Dockerfile`, `docker-compose.yml`, `.dockerignore`, Docker workflows |
+| `documentation` | `README.md`, `docs/`, `docfx/`, `SECURITY.md`, `LICENSE`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, copilot instructions |
+| `scripts` | Root-level `*.ps1` files (Install-Agent, Fix-Network, RunAudit, etc.) and `scripts/` |
+| `dependencies` | `.github/dependabot.yml`, `*.csproj`, lockfiles, `Directory.Packages.props` |
+
+### Triage Labels (manual)
+
+These are applied by maintainers during triage, not by the labeler:
+
+| Label | Meaning |
+|-------|---------|
+| `bug` | Confirmed defect |
+| `enhancement` | New feature or improvement |
+| `documentation` | Docs-only issue or PR |
+| `good first issue` | Approachable for new contributors |
+| `help wanted` | Maintainers welcome external contribution |
+| `question` | Discussion or clarification needed |
+| `duplicate` | Already tracked elsewhere |
+| `invalid` | Not actionable as filed |
+| `wontfix` | Out of scope or intentional |
+
+### Adding a New Label
+
+If a meaningful area of the codebase isn't covered by an existing label:
+
+1. Add a new entry to `.github/labeler.yml` with appropriate file globs.
+2. Create the label in GitHub: `gh label create <name> --color <hex> --description "<description>" --repo sauravbhattacharya001/WinSentinel`.
+3. Update this glossary table.
+4. Open a small PR with just those three changes so it's easy to review.
 
 ## Helpers & Utilities
 

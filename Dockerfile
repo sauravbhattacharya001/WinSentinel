@@ -31,7 +31,7 @@ COPY src/WinSentinel.App/WinSentinel.App.csproj src/WinSentinel.App/
 COPY src/WinSentinel.Installer/WinSentinel.Installer.csproj src/WinSentinel.Installer/
 COPY tests/WinSentinel.Tests/WinSentinel.Tests.csproj tests/WinSentinel.Tests/
 
-RUN dotnet restore WinSentinel.sln
+RUN dotnet restore WinSentinel.sln -r win-x64
 
 # Copy remaining source
 COPY src/ src/

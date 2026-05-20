@@ -118,6 +118,7 @@ return options.Command switch
     CliCommand.Discovery => await HandleDiscovery(options),
     CliCommand.Execution => await HandleExecution(options),
     CliCommand.C2 => await HandleC2(options),
+    CliCommand.Impact => await HandleImpact(options),
     _ => HandleHelp()
 };
 
@@ -8593,6 +8594,34 @@ static async Task<int> HandleC2(CliOptions options)
     ConsoleFormatter.PrintC2Report(c2Report, options.C2Format);
 
     return c2Report.ThreatScore switch
+    {
+        >= 70 => 2,
+        >= 40 => 1,
+        _ => 0
+    };
+}
+
+// ── Impact Detection ──────────────────────────────────────────────────
+
+static async Task<int> HandleImpact(CliOptions options)
+{
+    var (report, engine, elapsed) = await RunAuditAsync(options, suppressOutput: options.Quiet,
+        bannerMessage: "Running audit for impact detection...");
+
+    var history = new AuditHistoryService();
+    var detector = new ImpactDetector(history);
+    var impactReport = detector.Detect(report, options.ImpactDays);
+
+    if (options.Json)
+    {
+        var jsonOpts = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        OutputHelper.WriteOutput(JsonSerializer.Serialize(impactReport, jsonOpts), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintImpactReport(impactReport, options.ImpactFormat);
+
+    return impactReport.ThreatScore switch
     {
         >= 70 => 2,
         >= 40 => 1,

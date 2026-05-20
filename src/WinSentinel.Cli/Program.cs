@@ -119,6 +119,7 @@ return options.Command switch
     CliCommand.Execution => await HandleExecution(options),
     CliCommand.C2 => await HandleC2(options),
     CliCommand.Impact => await HandleImpact(options),
+    CliCommand.Collection => await HandleCollection(options),
     _ => HandleHelp()
 };
 
@@ -8601,7 +8602,7 @@ static async Task<int> HandleC2(CliOptions options)
     };
 }
 
-// ── Impact Detection ──────────────────────────────────────────────────
+// ===== Impact Detection =====
 
 static async Task<int> HandleImpact(CliOptions options)
 {
@@ -8622,6 +8623,32 @@ static async Task<int> HandleImpact(CliOptions options)
     ConsoleFormatter.PrintImpactReport(impactReport, options.ImpactFormat);
 
     return impactReport.ThreatScore switch
+    {
+        >= 70 => 2,
+        >= 40 => 1,
+        _ => 0
+    };
+}
+
+static async Task<int> HandleCollection(CliOptions options)
+{
+    var (report, engine, elapsed) = await RunAuditAsync(options, suppressOutput: options.Quiet,
+        bannerMessage: "Running audit for collection activity detection...");
+
+    var history = new AuditHistoryService();
+    var detector = new CollectionDetector(history);
+    var collectionReport = detector.Detect(report, options.CollectionDays);
+
+    if (options.Json)
+    {
+        var jsonOpts = new JsonSerializerOptions { WriteIndented = true, Converters = { new JsonStringEnumConverter() } };
+        OutputHelper.WriteOutput(JsonSerializer.Serialize(collectionReport, jsonOpts), options.OutputFile);
+        return 0;
+    }
+
+    ConsoleFormatter.PrintCollection(collectionReport, options);
+
+    return collectionReport.ThreatScore switch
     {
         >= 70 => 2,
         >= 40 => 1,

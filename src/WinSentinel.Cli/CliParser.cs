@@ -359,6 +359,12 @@ public class CliOptions
     public int ImpactTop { get; set; } = 20;
     public string ImpactFormat { get; set; } = "text";
     public string? ImpactSeverityFilter { get; set; }
+
+    // Collection options
+    public int CollectionDays { get; set; } = 90;
+    public int CollectionTop { get; set; } = 20;
+    public string CollectionFormat { get; set; } = "text";
+    public string? CollectionSeverityFilter { get; set; }
 }
 
 public enum CliCommand
@@ -463,6 +469,7 @@ public enum CliCommand
     Execution,
     C2,
     Impact,
+    Collection,
     Help,
     Version
 }
@@ -3018,6 +3025,34 @@ public static class CliParser
                     if (!TryConsumeArg(args, ref i, "--impact-severity", out var impSevVal, out var impSevErr))
                     { options.Error = impSevErr; return options; }
                     options.ImpactSeverityFilter = impSevVal;
+                    break;
+                case "--collection":
+                case "collection":
+                case "collect":
+                case "data-collection":
+                    options.Command = CliCommand.Collection;
+                    break;
+                case "--collection-days":
+                    if (!TryConsumeArg(args, ref i, "--collection-days", out var collDaysVal, out var collDaysErr))
+                    { options.Error = collDaysErr; return options; }
+                    if (int.TryParse(collDaysVal, out var collDaysInt))
+                        options.CollectionDays = Math.Clamp(collDaysInt, 7, 365);
+                    break;
+                case "--collection-top":
+                    if (!TryConsumeArg(args, ref i, "--collection-top", out var collTopVal, out var collTopErr))
+                    { options.Error = collTopErr; return options; }
+                    if (int.TryParse(collTopVal, out var collTopInt))
+                        options.CollectionTop = Math.Clamp(collTopInt, 1, 50);
+                    break;
+                case "--collection-format":
+                    if (!TryConsumeArg(args, ref i, "--collection-format", out var collFmtVal, out var collFmtErr))
+                    { options.Error = collFmtErr; return options; }
+                    options.CollectionFormat = collFmtVal;
+                    break;
+                case "--collection-severity":
+                    if (!TryConsumeArg(args, ref i, "--collection-severity", out var collSevVal, out var collSevErr))
+                    { options.Error = collSevErr; return options; }
+                    options.CollectionSeverityFilter = collSevVal;
                     break;
                 case "--threat-dna-days":
                     if (!TryConsumeArg(args, ref i, "--threat-dna-days", out var tdDaysVal, out var tdDaysErr))

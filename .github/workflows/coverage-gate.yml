@@ -101,7 +101,7 @@ jobs:
               Status = $status
             }
             if ($lineCoverage -lt $min) {
-              $failures += "$name: $lineCoverage% < $min% minimum"
+              $failures += "${name}: $lineCoverage% < $min% minimum"
             }
           } else {
             $results += [PSCustomObject]@{

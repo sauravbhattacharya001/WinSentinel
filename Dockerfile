@@ -38,24 +38,24 @@ COPY src/ src/
 COPY tests/ tests/
 
 # Build CLI (self-contained for portability)
-RUN dotnet publish src/WinSentinel.Cli/WinSentinel.Cli.csproj ^
-    -c Release -r win-x64 --self-contained --no-restore ^
-    -o /app/cli ^
-    -p:PublishSingleFile=true ^
-    -p:IncludeNativeLibrariesForSelfExtract=true ^
+RUN dotnet publish src/WinSentinel.Cli/WinSentinel.Cli.csproj \
+    -c Release -r win-x64 --self-contained --no-restore \
+    -o /app/cli \
+    -p:PublishSingleFile=true \
+    -p:IncludeNativeLibrariesForSelfExtract=true \
     -p:Version=%VERSION%
 
 # Build Service
-RUN dotnet publish src/WinSentinel.Service/WinSentinel.Service.csproj ^
-    -c Release -r win-x64 --self-contained --no-restore ^
-    -o /app/service ^
+RUN dotnet publish src/WinSentinel.Service/WinSentinel.Service.csproj \
+    -c Release -r win-x64 --self-contained --no-restore \
+    -o /app/service \
     -p:Version=%VERSION%
 
 # --- Test Stage (opt-in via --target test) ---
 FROM build AS test
-RUN dotnet test tests/WinSentinel.Tests/WinSentinel.Tests.csproj ^
-    -c Release --no-restore ^
-    --logger "console;verbosity=minimal" ^
+RUN dotnet test tests/WinSentinel.Tests/WinSentinel.Tests.csproj \
+    -c Release --no-restore \
+    --logger "console;verbosity=minimal" \
     --results-directory /test-results
 
 # --- Runtime Stage (CLI) ---

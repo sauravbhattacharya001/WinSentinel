@@ -405,6 +405,42 @@ public class ConsoleFormatterTests : IDisposable
         Assert.Contains("WinSentinel", GetOutput());
     }
 
+    [Fact]
+    public void GetInformationalVersion_ReturnsNonEmpty()
+    {
+        // Regression for #192: must return a real version string, never empty.
+        var version = ConsoleFormatter.GetInformationalVersion();
+        Assert.False(string.IsNullOrWhiteSpace(version), "Version string must not be empty.");
+    }
+
+    [Fact]
+    public void GetInformationalVersion_StripsBuildMetadata()
+    {
+        // The returned version must never contain SourceLink/MinVer '+commitsha' metadata —
+        // that's noise for support tickets (#192).
+        var version = ConsoleFormatter.GetInformationalVersion();
+        Assert.DoesNotContain("+", version);
+    }
+
+    [Fact]
+    public void GetInformationalVersion_LooksLikeSemVer()
+    {
+        // Must be at least "MAJOR.MINOR" — guards against the old code path that
+        // would silently fall back to "" or a stray Major-only value.
+        var version = ConsoleFormatter.GetInformationalVersion();
+        Assert.Matches(@"^\d+\.\d+(\.\d+)?(-[0-9A-Za-z\.-]+)?$", version);
+    }
+
+    [Fact]
+    public void PrintVersion_OutputContainsResolvedVersion()
+    {
+        // The printed banner must contain whatever GetInformationalVersion returned —
+        // otherwise we're back to the #192 bug where the banner ignored the package version.
+        ConsoleFormatter.PrintVersion();
+        var expected = ConsoleFormatter.GetInformationalVersion();
+        Assert.Contains(expected, GetOutput());
+    }
+
     // ── PrintError / PrintWarning ───────────────────────────────────
 
     [Fact]

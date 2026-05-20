@@ -1,3 +1,4 @@
+using System.Reflection;
 using WinSentinel.Core.Models;
 using WinSentinel.Core.Services;
 
@@ -471,11 +472,47 @@ public static partial class ConsoleFormatter
     /// </summary>
     public static void PrintVersion()
     {
-        var version = typeof(CliParser).Assembly.GetName().Version;
-        Console.WriteLine($"WinSentinel CLI v{version?.Major ?? 1}.{version?.Minor ?? 0}.{version?.Build ?? 0}");
+        Console.WriteLine($"WinSentinel CLI v{GetInformationalVersion()}");
         Console.WriteLine($"  Runtime: .NET {Environment.Version}");
         Console.WriteLine($"  OS:      {Environment.OSVersion}");
         Console.WriteLine($"  Machine: {Environment.MachineName}");
+    }
+
+    /// <summary>
+    /// Resolve the CLI version string. Prefers <see cref="AssemblyInformationalVersionAttribute"/>
+    /// (which MinVer / SourceLink populate from the git tag, e.g. "1.16.1+abcdef"), falling back
+    /// to the assembly file version and finally the plain assembly version. Strips any SourceLink
+    /// build metadata (anything after the first '+') so the output stays clean for support /
+    /// bug-report use.
+    /// </summary>
+    /// <remarks>
+    /// See issue #192: previously this code path read <c>Assembly.GetName().Version</c>, which is
+    /// the <c>AssemblyVersion</c> attribute. Because <c>AssemblyVersion</c> is intentionally pinned
+    /// to a stable surface (often "1.0.0.0") for assembly-binding stability, it does NOT reflect the
+    /// package version that flows from the git tag via MinVer. <c>AssemblyInformationalVersion</c>
+    /// is the correct source of truth for a human-readable CLI banner.
+    /// </remarks>
+    public static string GetInformationalVersion()
+    {
+        var asm = typeof(CliParser).Assembly;
+        var info = asm.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+        if (!string.IsNullOrWhiteSpace(info))
+        {
+            // Strip SourceLink/MinVer build metadata like "1.16.1+abcdef" -> "1.16.1".
+            var plus = info.IndexOf('+');
+            return plus >= 0 ? info[..plus] : info;
+        }
+
+        var fileVersion = asm.GetCustomAttribute<AssemblyFileVersionAttribute>()?.Version;
+        if (!string.IsNullOrWhiteSpace(fileVersion))
+        {
+            return fileVersion!;
+        }
+
+        var version = asm.GetName().Version;
+        return version is null
+            ? "0.0.0"
+            : $"{version.Major}.{version.Minor}.{version.Build}";
     }
 
     /// <summary>

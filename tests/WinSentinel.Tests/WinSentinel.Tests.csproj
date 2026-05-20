@@ -8,6 +8,7 @@
 
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    <NoWarn>$(NoWarn);xUnit2002;xUnit2009;xUnit2012;xUnit2013;xUnit2029;xUnit2031;xUnit1026</NoWarn>
 
     <!-- Coverlet MSBuild integration: coverage thresholds -->
     <CollectCoverage>true</CollectCoverage>

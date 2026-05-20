@@ -268,13 +268,13 @@ public sealed class DataExfiltrationDetector
             .GroupBy(e => e.TechniqueId)
             .Select(g => new ExfiltrationChannel
             {
-                ChannelType = g.First().Technique,
+                ChannelType = g.First().Technique ?? string.Empty,
                 TechniqueId = g.Key,
                 EventCount = g.Count(),
                 TotalVolumeEstimate = g.Sum(e => e.DataVolume),
                 FirstSeen = g.Min(e => e.Timestamp),
                 LastSeen = g.Max(e => e.Timestamp),
-                Severity = g.Max(e => e.Severity)
+                Severity = g.Max(e => e.Severity) ?? "Medium"
             })
             .OrderByDescending(c => c.EventCount)
             .ToList();

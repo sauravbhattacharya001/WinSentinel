@@ -324,7 +324,7 @@ public class AuditDiffService
                 }
 
                 // Handle count differences (e.g., 2 findings with same title → 1)
-                if (newGroup.Count > oldGroup.Count)
+                if (newGroup!.Count > oldGroup!.Count)
                 {
                     for (int i = oldGroup.Count; i < newGroup.Count; i++)
                         newFindings.Add(new NewFinding(moduleName, newResult.Category, newGroup[i]));

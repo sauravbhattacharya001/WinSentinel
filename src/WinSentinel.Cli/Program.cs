@@ -7400,6 +7400,7 @@ static async Task<int> HandleDrift(CliOptions options)
 
 static async Task<int> HandleMission(CliOptions options)
 {
+    await Task.CompletedTask;
     using var history = new AuditHistoryService();
     history.EnsureDatabase();
     var runs = history.GetHistory(options.MissionDays);

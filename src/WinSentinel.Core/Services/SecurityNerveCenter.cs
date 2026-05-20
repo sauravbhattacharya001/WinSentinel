@@ -39,6 +39,7 @@ public sealed class SecurityNerveCenter
 
     // ── Threat Level ─────────────────────────────────────────────────
 
+    /// <param name="report">Latest security report snapshot.</param>
     /// <param name="sortedRuns">Runs pre-sorted by Timestamp descending.</param>
     private static (int Level, string Label, string Rationale) ComputeThreatLevel(
         SecurityReport report, List<AuditRunRecord> sortedRuns)
@@ -124,6 +125,7 @@ public sealed class SecurityNerveCenter
 
     // ── Signal Feed ──────────────────────────────────────────────────
 
+    /// <param name="report">Latest security report snapshot.</param>
     /// <param name="sortedRuns">Runs pre-sorted by Timestamp descending.</param>
     private static List<SignalEntry> BuildSignals(SecurityReport report, List<AuditRunRecord> sortedRuns)
     {
@@ -229,7 +231,9 @@ public sealed class SecurityNerveCenter
 
     // ── Autonomous Alerts ────────────────────────────────────────────
 
+    /// <param name="report">Latest security report snapshot.</param>
     /// <param name="sortedRuns">Runs pre-sorted by Timestamp descending.</param>
+    /// <param name="vitals">Per-module vitals computed earlier in the pipeline.</param>
     private static List<AutonomousAlert> BuildAlerts(
         SecurityReport report,
         List<AuditRunRecord> sortedRuns,

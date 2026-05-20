@@ -145,12 +145,25 @@ public class CertificateAudit : IAuditModule
             var pubKey = cert.PublicKey;
             keyAlgorithm = pubKey.Oid.FriendlyName ?? pubKey.Oid.Value;
 
-            if (pubKey.Key is RSA rsa)
+            using var rsa = cert.GetRSAPublicKey();
+            if (rsa is not null)
+            {
                 keySize = rsa.KeySize;
-            else if (pubKey.Key is ECDsa ecdsa)
-                keySize = ecdsa.KeySize;
-            else if (pubKey.Key is DSA dsa)
-                keySize = dsa.KeySize;
+            }
+            else
+            {
+                using var ecdsa = cert.GetECDsaPublicKey();
+                if (ecdsa is not null)
+                {
+                    keySize = ecdsa.KeySize;
+                }
+                else
+                {
+                    using var dsa = cert.GetDSAPublicKey();
+                    if (dsa is not null)
+                        keySize = dsa.KeySize;
+                }
+            }
         }
         catch
         {

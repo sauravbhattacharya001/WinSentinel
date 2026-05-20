@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net8.0-windows</TargetFramework>
     <Version>1.16.0</Version>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
@@ -11,7 +11,7 @@
     <AssemblyName>winsentinel</AssemblyName>
     <Description>WinSentinel CLI - Windows Security Auditing from the Command Line</Description>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <NoWarn>$(NoWarn);CS1591;CS1587;CS1572;CS1573</NoWarn>
 
     <!-- .NET Tool Packaging -->
     <PackAsTool>true</PackAsTool>

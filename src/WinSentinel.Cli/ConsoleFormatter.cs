@@ -288,7 +288,7 @@ public static partial class ConsoleFormatter
         WriteHelpEntry("    --weather            ", "Security weather report (posture as weather metaphors)");
         WriteHelpEntry("    --rhythm             ", "Security rhythm analysis (temporal patterns, cycles, scan windows)");
         WriteHelpEntry("    --topology           ", "Module interconnection map with keystone detection & cascade analysis");
-        WriteHelpEntry("    --version, -v        ", "Show version information");
+        WriteHelpEntry("    --version, -v        ", "Show version information (add --quiet or --json for CI/inventory use)");
         Console.WriteLine();
         Console.WriteLine("  OPTIONS:");
         WriteHelpEntry("    --json, -j           ", "Output results as JSON (machine-parseable)");
@@ -476,6 +476,41 @@ public static partial class ConsoleFormatter
         Console.WriteLine($"  Runtime: .NET {Environment.Version}");
         Console.WriteLine($"  OS:      {Environment.OSVersion}");
         Console.WriteLine($"  Machine: {Environment.MachineName}");
+    }
+
+    /// <summary>
+    /// Print just the resolved version string on a single line, with no
+    /// surrounding banner. Intended for CI / smoke-test one-liners like
+    /// <c>winsentinel --version --quiet</c>. See issue #194.
+    /// </summary>
+    public static void PrintVersionQuiet()
+    {
+        Console.WriteLine(GetInformationalVersion());
+    }
+
+    /// <summary>
+    /// Print structured version information as JSON. Schema is intentionally
+    /// stable so inventory / fleet-management tooling can parse it without
+    /// touching the human-friendly banner. New fields may be added; existing
+    /// fields will not be renamed without a deprecation cycle. See issue #194.
+    /// </summary>
+    public static void PrintVersionJson()
+    {
+        var asm = typeof(CliParser).Assembly;
+        var info = asm.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+        var payload = new
+        {
+            product = "WinSentinel CLI",
+            version = GetInformationalVersion(),
+            informationalVersion = string.IsNullOrWhiteSpace(info) ? GetInformationalVersion() : info,
+            runtime = $".NET {Environment.Version}",
+            os = Environment.OSVersion.ToString(),
+            machine = Environment.MachineName
+        };
+        var json = System.Text.Json.JsonSerializer.Serialize(
+            payload,
+            new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+        Console.WriteLine(json);
     }
 
     /// <summary>

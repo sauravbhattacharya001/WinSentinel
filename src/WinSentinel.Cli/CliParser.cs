@@ -672,6 +672,27 @@ public static class CliParser
                 case "--version" or "-v":
                     options.Command = CliCommand.Version;
                     options.ShowVersion = true;
+                    // Issue #194: allow `--version --quiet` / `--version --json`
+                    // for CI and inventory tooling without breaking the existing
+                    // banner. We greedily consume only the small set of flags
+                    // that meaningfully modify --version output, then stop —
+                    // anything else is reported as an error so we don't silently
+                    // ignore typos like `--version --audit`.
+                    for (int j = i + 1; j < args.Length; j++)
+                    {
+                        var next = args[j].ToLowerInvariant();
+                        switch (next)
+                        {
+                            case "--quiet" or "-q":
+                                options.Quiet = true;
+                                continue;
+                            case "--json" or "-j":
+                                options.Json = true;
+                                continue;
+                        }
+                        options.Error = $"Unexpected argument after --version: {args[j]}";
+                        return options;
+                    }
                     return options;
 
                 case "--audit" or "-a":

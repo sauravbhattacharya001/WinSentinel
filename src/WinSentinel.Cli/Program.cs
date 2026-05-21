@@ -20,7 +20,7 @@ if (options.Error != null)
 return options.Command switch
 {
     CliCommand.Help => HandleHelp(),
-    CliCommand.Version => HandleVersion(),
+    CliCommand.Version => HandleVersion(options),
     CliCommand.Score => await HandleScore(options),
     CliCommand.Audit => await HandleAudit(options),
     CliCommand.FixAll => await HandleFixAll(options),
@@ -649,8 +649,21 @@ static int HandleHelp()
     return 0;
 }
 
-static int HandleVersion()
+static int HandleVersion(CliOptions options)
 {
+    // Issue #194: support machine-readable variants for CI/inventory tooling.
+    // --quiet wins over --json if somebody passes both, since --quiet is the
+    // smaller / more script-friendly contract.
+    if (options.Quiet)
+    {
+        ConsoleFormatter.PrintVersionQuiet();
+        return 0;
+    }
+    if (options.Json)
+    {
+        ConsoleFormatter.PrintVersionJson();
+        return 0;
+    }
     ConsoleFormatter.PrintVersion();
     return 0;
 }
@@ -2969,7 +2982,9 @@ static List<ConsoleFormatter.ListeningPort> CollectListeningPorts()
     {
         var psi = new System.Diagnostics.ProcessStartInfo("netstat", "-bno")
         {
-            RedirectStandardOutput = true, UseShellExecute = false, CreateNoWindow = true
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
         };
         using var proc = System.Diagnostics.Process.Start(psi);
         if (proc != null)
@@ -3042,7 +3057,9 @@ static List<ConsoleFormatter.ScheduledTaskEntry> CollectScheduledTasks()
     {
         var psi = new System.Diagnostics.ProcessStartInfo("schtasks", "/query /fo CSV /nh")
         {
-            RedirectStandardOutput = true, UseShellExecute = false, CreateNoWindow = true
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
         };
         using var proc = System.Diagnostics.Process.Start(psi);
         if (proc != null)
@@ -6016,7 +6033,8 @@ static int HandleChangelog(CliOptions options)
             EndScore = current.OverallScore,
             NewFindings = newKeys
                 .Where(k => currentFindingsLookup.ContainsKey(k))
-                .Select(k => {
+                .Select(k =>
+                {
                     var f = currentFindingsLookup[k];
                     return new ChangelogFinding { Title = f.Title, Severity = f.Severity, Module = f.ModuleName };
                 })
@@ -6024,7 +6042,8 @@ static int HandleChangelog(CliOptions options)
                 .ToList(),
             ResolvedFindings = resolvedKeys
                 .Where(k => baselineFindingsLookup.ContainsKey(k))
-                .Select(k => {
+                .Select(k =>
+                {
                     var f = baselineFindingsLookup[k];
                     return new ChangelogFinding { Title = f.Title, Severity = f.Severity, Module = f.ModuleName };
                 })

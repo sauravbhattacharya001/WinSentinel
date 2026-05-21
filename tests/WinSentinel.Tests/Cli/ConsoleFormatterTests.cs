@@ -949,4 +949,80 @@ public class ConsoleFormatterTests : IDisposable
         action();
         return GetOutput();
     }
+
+
+    // ── Issue #194: PrintVersionQuiet / PrintVersionJson ────────────
+
+    [Fact]
+    public void PrintVersionQuiet_OutputsExactlyOneLine()
+    {
+        // Stable CI contract: scripts can do `ver=$(winsentinel --version --quiet)`.
+        ConsoleFormatter.PrintVersionQuiet();
+        var output = GetOutput();
+        // One line + trailing newline => exactly one '\n', no extra content.
+        var lines = output.TrimEnd('\r', '\n').Split('\n');
+        Assert.Single(lines);
+    }
+
+    [Fact]
+    public void PrintVersionQuiet_OutputsResolvedVersion()
+    {
+        ConsoleFormatter.PrintVersionQuiet();
+        var expected = ConsoleFormatter.GetInformationalVersion();
+        Assert.Equal(expected, GetOutput().Trim());
+    }
+
+    [Fact]
+    public void PrintVersionQuiet_DoesNotIncludeBanner()
+    {
+        ConsoleFormatter.PrintVersionQuiet();
+        var output = GetOutput();
+        Assert.DoesNotContain("WinSentinel CLI", output);
+        Assert.DoesNotContain("Runtime:", output);
+        Assert.DoesNotContain("Machine:", output);
+    }
+
+    [Fact]
+    public void PrintVersionJson_OutputIsValidJson()
+    {
+        ConsoleFormatter.PrintVersionJson();
+        var output = GetOutput().Trim();
+        // Must parse cleanly — that's the whole point of the --json contract.
+        using var doc = System.Text.Json.JsonDocument.Parse(output);
+        Assert.Equal(System.Text.Json.JsonValueKind.Object, doc.RootElement.ValueKind);
+    }
+
+    [Fact]
+    public void PrintVersionJson_HasStableSchemaKeys()
+    {
+        // Locking down the schema documented in issue #194. Any change to these
+        // keys is a breaking change for fleet/inventory tooling and must be
+        // a deliberate decision, not a silent rename.
+        ConsoleFormatter.PrintVersionJson();
+        using var doc = System.Text.Json.JsonDocument.Parse(GetOutput());
+        var root = doc.RootElement;
+        Assert.True(root.TryGetProperty("product", out _));
+        Assert.True(root.TryGetProperty("version", out _));
+        Assert.True(root.TryGetProperty("informationalVersion", out _));
+        Assert.True(root.TryGetProperty("runtime", out _));
+        Assert.True(root.TryGetProperty("os", out _));
+        Assert.True(root.TryGetProperty("machine", out _));
+    }
+
+    [Fact]
+    public void PrintVersionJson_VersionMatchesGetInformationalVersion()
+    {
+        ConsoleFormatter.PrintVersionJson();
+        using var doc = System.Text.Json.JsonDocument.Parse(GetOutput());
+        var jsonVersion = doc.RootElement.GetProperty("version").GetString();
+        Assert.Equal(ConsoleFormatter.GetInformationalVersion(), jsonVersion);
+    }
+
+    [Fact]
+    public void PrintVersionJson_ProductIsWinSentinelCli()
+    {
+        ConsoleFormatter.PrintVersionJson();
+        using var doc = System.Text.Json.JsonDocument.Parse(GetOutput());
+        Assert.Equal("WinSentinel CLI", doc.RootElement.GetProperty("product").GetString());
+    }
 }

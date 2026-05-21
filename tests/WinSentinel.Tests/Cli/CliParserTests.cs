@@ -1164,4 +1164,77 @@ public class CliParserTests
         Assert.Equal(BadgeAction.None, options.BadgeAction);
         Assert.Null(options.BadgeStyle);
     }
+
+
+    // ── Issue #194: --version --quiet / --json for CI / inventory ──────
+
+    [Fact]
+    public void Parse_VersionQuiet_SetsQuiet()
+    {
+        var result = CliParser.Parse(["--version", "--quiet"]);
+        Assert.Equal(CliCommand.Version, result.Command);
+        Assert.True(result.ShowVersion);
+        Assert.True(result.Quiet);
+        Assert.False(result.Json);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_VersionShortQuiet_SetsQuiet()
+    {
+        var result = CliParser.Parse(["-v", "-q"]);
+        Assert.Equal(CliCommand.Version, result.Command);
+        Assert.True(result.Quiet);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_VersionJson_SetsJson()
+    {
+        var result = CliParser.Parse(["--version", "--json"]);
+        Assert.Equal(CliCommand.Version, result.Command);
+        Assert.True(result.ShowVersion);
+        Assert.True(result.Json);
+        Assert.False(result.Quiet);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_VersionShortJson_SetsJson()
+    {
+        var result = CliParser.Parse(["-v", "-j"]);
+        Assert.True(result.Json);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_VersionQuietAndJson_BothFlagsSet()
+    {
+        // Both flags allowed; runtime resolves precedence (Quiet wins).
+        var result = CliParser.Parse(["--version", "--quiet", "--json"]);
+        Assert.True(result.Quiet);
+        Assert.True(result.Json);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_VersionWithUnexpectedFlag_ReportsError()
+    {
+        // Guards against silent typos like `--version --autdit` getting
+        // dropped on the floor by an over-greedy parser.
+        var result = CliParser.Parse(["--version", "--audit"]);
+        Assert.Equal(CliCommand.Version, result.Command);
+        Assert.True(result.ShowVersion);
+        Assert.NotNull(result.Error);
+        Assert.Contains("--audit", result.Error);
+    }
+
+    [Fact]
+    public void Parse_VersionAlone_NoError()
+    {
+        var result = CliParser.Parse(["--version"]);
+        Assert.Null(result.Error);
+        Assert.False(result.Quiet);
+        Assert.False(result.Json);
+    }
 }

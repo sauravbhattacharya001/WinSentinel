@@ -1,6 +1,16 @@
 # Dependabot configuration for WinSentinel
 # Keeps NuGet packages, GitHub Actions, and Docker base images up to date.
 # https://docs.github.com/en/code-security/dependabot/dependabot-version-updates
+#
+# Design notes:
+# - NuGet updates are grouped by family (Microsoft.Extensions.*, System.*, test stack)
+#   so a single PR covers a coherent bump set instead of 8 noisy ones.
+# - GitHub Actions and Docker minor+patch bumps are auto-grouped into a single PR
+#   to cut review fatigue; majors stay as their own PR because they usually break.
+# - The Dockerfile base tag is pinned to net8.0 Windows Server Core LTSC2022.
+#   Major-version bumps (8 -> 9 / 10) require a coordinated migration of the
+#   TFM in every .csproj plus base-image retest, so we explicitly ignore them
+#   here to keep the gardener / dependabot loop from re-opening them every week.
 
 version: 2
 updates:
@@ -10,6 +20,8 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
+      time: "06:00"
+      timezone: "Etc/UTC"
     open-pull-requests-limit: 10
     reviewers:
       - "sauravbhattacharya001"
@@ -18,6 +30,7 @@ updates:
       - "nuget"
     commit-message:
       prefix: "deps(nuget)"
+      include: "scope"
     groups:
       microsoft-extensions:
         patterns:
@@ -33,6 +46,20 @@ updates:
           - "xunit*"
           - "Microsoft.NET.Test.*"
           - "coverlet.*"
+          - "FluentAssertions*"
+          - "Moq*"
+      analyzers:
+        patterns:
+          - "*Analyzers"
+          - "StyleCop.*"
+          - "Roslynator.*"
+          - "SonarAnalyzer.*"
+      nuget-minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
 
   # GitHub Actions
   - package-ecosystem: "github-actions"
@@ -40,6 +67,8 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
+      time: "06:00"
+      timezone: "Etc/UTC"
     open-pull-requests-limit: 5
     reviewers:
       - "sauravbhattacharya001"
@@ -48,6 +77,14 @@ updates:
       - "github-actions"
     commit-message:
       prefix: "deps(actions)"
+      include: "scope"
+    groups:
+      actions-minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
 
   # Docker base images
   - package-ecosystem: "docker"
@@ -55,6 +92,8 @@ updates:
     schedule:
       interval: "weekly"
       day: "monday"
+      time: "06:00"
+      timezone: "Etc/UTC"
     open-pull-requests-limit: 3
     reviewers:
       - "sauravbhattacharya001"
@@ -63,3 +102,20 @@ updates:
       - "docker"
     commit-message:
       prefix: "deps(docker)"
+      include: "scope"
+    # Pin to .NET 8 LTS Windows Server Core; major bumps require a coordinated
+    # TFM + base-image migration and are tracked manually, not by dependabot.
+    ignore:
+      - dependency-name: "mcr.microsoft.com/dotnet/sdk"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "mcr.microsoft.com/dotnet/runtime"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "mcr.microsoft.com/dotnet/aspnet"
+        update-types: ["version-update:semver-major"]
+    groups:
+      docker-minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"

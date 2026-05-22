@@ -2,16 +2,21 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <!-- net8.0 (NOT net8.0-windows): PackAsTool rejects any TargetPlatformIdentifier
+         (NETSDK1146). The Windows-only APIs used here (Microsoft.Win32.Registry,
+         ServiceController, System.Management) are part of the BCL and are usable
+         at runtime on Windows; we silence the CA1416 "platform-specific" analyzer
+         since the tool is documented as Windows-only via PackageTags/runtime guard. -->
+    <TargetFramework>net8.0</TargetFramework>
     <Version>1.16.0</Version>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <Platforms>AnyCPU;x64;x86;ARM64</Platforms>
     <RootNamespace>WinSentinel.Cli</RootNamespace>
     <AssemblyName>winsentinel</AssemblyName>
-    <Description>WinSentinel CLI - Windows Security Auditing from the Command Line</Description>
+    <Description>WinSentinel CLI - Windows Security Auditing from the Command Line (Windows only)</Description>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <NoWarn>$(NoWarn);CS1591;CS1587;CS1572;CS1573</NoWarn>
+    <NoWarn>$(NoWarn);CS1591;CS1587;CS1572;CS1573;CA1416</NoWarn>
 
     <!-- .NET Tool Packaging -->
     <PackAsTool>true</PackAsTool>

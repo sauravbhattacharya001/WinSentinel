@@ -41,6 +41,10 @@ jobs:
 
     - name: Copy MSIX manifest and assets
       run: |
+        # Ensure destination Assets/ dir exists before copying into it (dotnet publish
+        # does not create it). Without this, Copy-Item fails with
+        # "The directory name is invalid" and the whole release errors out.
+        New-Item -ItemType Directory -Path publish/msix-content/Assets -Force | Out-Null
         Copy-Item src/WinSentinel.Installer/AppxManifest.xml publish/msix-content/ -Force
         Copy-Item src/WinSentinel.Installer/Assets/* publish/msix-content/Assets/ -Force -Recurse
 

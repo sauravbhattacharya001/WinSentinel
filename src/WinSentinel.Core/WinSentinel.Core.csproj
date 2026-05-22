@@ -1,7 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <!-- Multi-target: net8.0 lets WinSentinel.Cli (a `dotnet tool`, which forbids
+         a TargetPlatformIdentifier — see NETSDK1146) consume Core. net8.0-windows
+         is still produced for the WPF app and Windows service. CA1416 is
+         suppressed because Core is documented as Windows-only at runtime. -->
+    <TargetFrameworks>net8.0;net8.0-windows</TargetFrameworks>
     <Version>1.16.0</Version>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
@@ -19,7 +23,7 @@
     <RepositoryType>git</RepositoryType>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <NoWarn>$(NoWarn);CS1591;CA1416</NoWarn>
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
 

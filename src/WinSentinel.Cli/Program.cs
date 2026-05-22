@@ -9,6 +9,13 @@ using WinSentinel.Core.Services;
 
 // ── Entry Point ──────────────────────────────────────────────────────
 
+// Install the child-process reaper *first*, before any audit module can spawn
+// `dotnet`/`powershell`/`wmic`/`certutil` workers. This puts the CLI inside a
+// Windows Job Object with KILL_ON_JOB_CLOSE, so when this process dies — via
+// clean exit, Ctrl+C, taskkill, or shell teardown — the kernel kills every
+// descendant process automatically. Closes #193.
+ChildProcessReaper.Install();
+
 var options = CliParser.Parse(args);
 
 if (options.Error != null)

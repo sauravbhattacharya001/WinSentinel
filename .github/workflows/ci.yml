@@ -98,6 +98,27 @@ jobs:
         --results-directory TestResults
       continue-on-error: true
 
+    - name: Pack smoke check (Core + Cli tool)
+      if: matrix.configuration == 'Release'
+      shell: pwsh
+      run: |
+        dotnet pack src/WinSentinel.Core/WinSentinel.Core.csproj --no-build -c Release -o ./nupkg-ci
+        dotnet pack src/WinSentinel.Cli/WinSentinel.Cli.csproj  --no-build -c Release -o ./nupkg-ci
+        $pkgs = Get-ChildItem ./nupkg-ci -Filter *.nupkg
+        if ($pkgs.Count -lt 2) {
+          Write-Error "Expected at least 2 .nupkg files (Core + Cli tool), got $($pkgs.Count)"
+          exit 1
+        }
+        $pkgs | ForEach-Object { Write-Host "OK: $($_.Name) ($([math]::Round($_.Length/1KB,1)) KB)" }
+
+    - name: Upload PR nupkg artifacts
+      if: matrix.configuration == 'Release'
+      uses: actions/upload-artifact@v7
+      with:
+        name: nupkg-ci
+        path: ./nupkg-ci/*.nupkg
+        retention-days: 7
+
     - name: Upload test results
       uses: actions/upload-artifact@v7
       if: always()

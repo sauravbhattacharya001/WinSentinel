@@ -56,18 +56,28 @@ jobs:
         "version=$version" >> $env:GITHUB_OUTPUT
 
     - name: Restore dependencies
-      run: dotnet restore src/WinSentinel.Core/WinSentinel.Core.csproj
+      run: dotnet restore
 
-    - name: Build
+    - name: Build Core
       run: dotnet build src/WinSentinel.Core/WinSentinel.Core.csproj --no-restore -c Release -p:Version=${{ steps.version.outputs.version }}
+
+    - name: Build Cli
+      run: dotnet build src/WinSentinel.Cli/WinSentinel.Cli.csproj --no-restore -c Release -p:Version=${{ steps.version.outputs.version }}
 
     - name: Run tests
       run: dotnet test tests/WinSentinel.Tests/WinSentinel.Tests.csproj -c Release --verbosity normal
       continue-on-error: true
 
-    - name: Pack NuGet package
+    - name: Pack Core (library)
       run: |
         dotnet pack src/WinSentinel.Core/WinSentinel.Core.csproj `
+          --no-build -c Release `
+          -p:Version=${{ steps.version.outputs.version }} `
+          -o ./nupkg
+
+    - name: Pack Cli (dotnet tool)
+      run: |
+        dotnet pack src/WinSentinel.Cli/WinSentinel.Cli.csproj `
           --no-build -c Release `
           -p:Version=${{ steps.version.outputs.version }} `
           -o ./nupkg
@@ -121,5 +131,9 @@ jobs:
         "" >> $env:GITHUB_STEP_SUMMARY
         "### Install" >> $env:GITHUB_STEP_SUMMARY
         "``````" >> $env:GITHUB_STEP_SUMMARY
+        "# Library" >> $env:GITHUB_STEP_SUMMARY
         "dotnet add package WinSentinel.Core --version $version" >> $env:GITHUB_STEP_SUMMARY
+        "" >> $env:GITHUB_STEP_SUMMARY
+        "# CLI (global tool)" >> $env:GITHUB_STEP_SUMMARY
+        "dotnet tool install -g WinSentinel.Cli --version $version" >> $env:GITHUB_STEP_SUMMARY
         "``````" >> $env:GITHUB_STEP_SUMMARY

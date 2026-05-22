@@ -11,11 +11,35 @@
     <Version>1.0.0</Version>
     <Description>WinSentinel CLI - Windows Security Auditing from the Command Line</Description>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <NoWarn>$(NoWarn);CS1591;NU5128</NoWarn>
+  </PropertyGroup>
+
+  <!-- dotnet global tool packaging -->
+  <PropertyGroup>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>winsentinel</ToolCommandName>
+    <PackageId>WinSentinel.Cli</PackageId>
+    <PackageOutputPath>$(MSBuildThisFileDirectory)..\..\nupkg</PackageOutputPath>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/sauravbhattacharya001/WinSentinel</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/sauravbhattacharya001/WinSentinel.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <Authors>Saurav Bhattacharya</Authors>
+    <Company>Saurav Bhattacharya</Company>
+    <PackageTags>windows;security;audit;cli;hardening;winsentinel</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <!-- Tool packages are framework-dependent; suppress RID warning -->
+    <SuppressTfmSupportBuildWarnings>true</SuppressTfmSupportBuildWarnings>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\WinSentinel.Core\WinSentinel.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" Condition="Exists('..\..\README.md')" />
   </ItemGroup>
 
 </Project>

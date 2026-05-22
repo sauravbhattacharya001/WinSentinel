@@ -4,7 +4,7 @@ using WinSentinel.Core.Services;
 namespace WinSentinel.Tests;
 
 /// <summary>
-/// Tests for InputSanitizer — security-critical input validation and sanitization.
+/// Tests for InputSanitizer - security-critical input validation and sanitization.
 /// Covers all 5 public methods: SanitizeIpAddress, SanitizeUsername,
 /// SanitizeDriveLetter, SanitizeFirewallRuleName, and CheckDangerousCommand.
 /// </summary>
@@ -697,7 +697,7 @@ public class InputSanitizerTests
 }
 
 /// <summary>
-/// Tests for IPC DTOs — IpcResponse.GetPayload and IpcAgentStatus.UptimeFormatted.
+/// Tests for IPC DTOs - IpcResponse.GetPayload and IpcAgentStatus.UptimeFormatted.
 /// </summary>
 public class IpcDtoTests
 {
@@ -955,7 +955,7 @@ public class IpcDtoTests
         Assert.NotNull(InputSanitizer.CheckDangerousCommand(input));
     }
 
-    // — PowerShell dot-source operator bypass ————————————————————————
+    // - PowerShell dot-source operator bypass ------------------------
 
     [Theory]
     [InlineData(". { Invoke-Expression 'malicious' }")]
@@ -964,6 +964,43 @@ public class IpcDtoTests
     [InlineData("safe-cmd; . { whoami }")]
     public void CheckDangerousCommand_DotSourceBypass_Blocks(string input)
     {
+        Assert.NotNull(InputSanitizer.CheckDangerousCommand(input));
+    }
+
+    // - Newline & conditional-chain command separators (regression) --
+    //
+    // Prior to the 2026-05-22 fix, CheckDangerousCommand blocked `;`
+    // statement separators but not newline (`\n`/`\r`), `&&`, or `||`.
+    // Both PowerShell and cmd.exe honour all of these as statement
+    // separators, so an attacker who controlled the fix command could
+    // smuggle a second command past every keyword check by sticking
+    // the dangerous payload after a newline or `&&`. These tests lock
+    // in the fix.
+
+    [Theory]
+    [InlineData("echo hello\necho world")]
+    [InlineData("echo hello\r\necho world")]
+    [InlineData("Get-Service\rGet-Process")]
+    public void CheckDangerousCommand_NewlineChaining_Blocks(string input)
+    {
+        var reason = InputSanitizer.CheckDangerousCommand(input);
+        Assert.NotNull(reason);
+        Assert.Contains("newline", reason!, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("echo hello && echo world")]
+    [InlineData("echo hello || echo world")]
+    [InlineData("safe-cmd&&other-cmd")]
+    [InlineData("safe-cmd||other-cmd")]
+    public void CheckDangerousCommand_ConditionalChaining_Blocks(string input)
+    {
+        // We only assert that conditional chains are rejected outright.
+        // The exact reason may come from the new conditional-chain check or
+        // from an earlier check (e.g. the PowerShell call-operator pattern
+        // fires on `&&` because `&<letter>` looks like `& word`). Either
+        // way the security property — "never let `&&`/`||` through" —
+        // must hold.
         Assert.NotNull(InputSanitizer.CheckDangerousCommand(input));
     }
 }

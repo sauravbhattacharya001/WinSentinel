@@ -489,6 +489,25 @@ public static partial class InputSanitizer
         if (command.Contains(';'))
             return "Contains semicolon command chaining (potential bypass)";
 
+        // Newline command chaining: PowerShell and cmd both treat
+        // newlines (LF/CR/CRLF) as statement separators, so the payload
+        // `safe-cmd\nmalicious` executes both lines. Without this guard
+        // an attacker who controls the fix string can sneak a second
+        // statement past every keyword check above just by inserting a
+        // line break.
+        if (command.Contains('\n') || command.Contains('\r'))
+            return "Contains newline command chaining (potential bypass)";
+
+        // Conditional command chaining: PowerShell 7 / pwsh and cmd.exe
+        // both honour `&&` (run-if-success) and `||` (run-if-fail) as
+        // conditional command separators. Like `;` and newlines, these
+        // allow smuggling a second command past per-keyword checks.
+        // The bare `&` PowerShell call operator is already blocked above
+        // by CallOperatorPattern, so any remaining `&&`/`||` here is
+        // almost always cmd.exe-style chaining or a copy/paste artefact.
+        if (command.Contains("&&") || command.Contains("||"))
+            return "Contains conditional command chaining (potential bypass)";
+
         // PowerShell format operator — `"{0}{1}" -f 'Inv','oke-Expression'` reconstructs
         // blocked keywords at runtime
         if (lower.Contains("-f ") && lower.Contains("'") && lower.Contains(","))

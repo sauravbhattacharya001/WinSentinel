@@ -3,18 +3,66 @@ using WinSentinel.Core.Models;
 namespace WinSentinel.Core.Services;
 
 /// <summary>
-/// Security Anomaly Watchdog — proactively detects score drops, finding spikes,
+/// Tunable thresholds for <see cref="AnomalyWatchdogService"/>.
+/// Defaults preserve the original (pre-refactor) detection behaviour so this
+/// type is drop-in safe; callers that need different sensitivity can supply
+/// a custom instance.
+/// </summary>
+public sealed class WatchdogConfig
+{
+    /// <summary>Z-score at which a score drop / finding spike is treated as a Warning.</summary>
+    public double ZThresholdWarn { get; init; } = 1.5;
+
+    /// <summary>Z-score at which a score drop / finding spike is treated as Critical.</summary>
+    public double ZThresholdCrit { get; init; } = 2.5;
+
+    /// <summary>Absolute score drop (regardless of z-score) that triggers a Warning anomaly.</summary>
+    public int MinorScoreDrop { get; init; } = 10;
+
+    /// <summary>Absolute score drop (regardless of z-score) that is escalated to Critical.</summary>
+    public int MajorScoreDrop { get; init; } = 20;
+
+    /// <summary>Absolute jump in total finding count that triggers a Warning spike.</summary>
+    public int FindingSpikeAbsolute { get; init; } = 5;
+
+    /// <summary>Extra critical-finding deltas that escalate a spike to Critical.</summary>
+    public int CriticalCountSpikeDelta { get; init; } = 2;
+
+    /// <summary>Module score at or below this value classifies the trend as "Collapsed".</summary>
+    public int ModuleCollapsedScore { get; init; } = 20;
+
+    /// <summary>Per-module score drop (vs previous run) that triggers a regression entry.</summary>
+    public int ModuleScoreDrop { get; init; } = 5;
+
+    /// <summary>Number of consecutive backward drops that classify the trend as "Declining".</summary>
+    public int ModuleDecliningStreak { get; init; } = 3;
+
+    /// <summary>Number of consecutive backward drops that classify the trend as "Volatile".</summary>
+    public int ModuleVolatileStreak { get; init; } = 2;
+
+    /// <summary>How many recent runs (with module data) the regression detector looks at.</summary>
+    public int RecentModuleRunWindow { get; init; } = 10;
+
+    /// <summary>Latest overall score at/below which a "consider --fix-all" recommendation is emitted.</summary>
+    public int LowScoreRecommendationThreshold { get; init; } = 50;
+}
+
+/// <summary>
+/// Security Anomaly Watchdog - proactively detects score drops, finding spikes,
 /// and module regressions using statistical analysis of audit history.
 /// </summary>
 public class AnomalyWatchdogService
 {
-    private readonly double _zThresholdWarn;
-    private readonly double _zThresholdCrit;
+    private readonly WatchdogConfig _cfg;
 
     public AnomalyWatchdogService(double zThresholdWarn = 1.5, double zThresholdCrit = 2.5)
+        : this(new WatchdogConfig { ZThresholdWarn = zThresholdWarn, ZThresholdCrit = zThresholdCrit })
     {
-        _zThresholdWarn = zThresholdWarn;
-        _zThresholdCrit = zThresholdCrit;
+    }
+
+    public AnomalyWatchdogService(WatchdogConfig config)
+    {
+        _cfg = config ?? throw new ArgumentNullException(nameof(config));
     }
 
     /// <summary>
@@ -22,6 +70,8 @@ public class AnomalyWatchdogService
     /// </summary>
     public WatchdogReport Analyze(List<AuditRunRecord> runs, int days)
     {
+        ArgumentNullException.ThrowIfNull(runs);
+
         var report = new WatchdogReport { DaysAnalyzed = days, RunsAnalyzed = runs.Count };
 
         if (runs.Count < 2)
@@ -46,22 +96,16 @@ public class AnomalyWatchdogService
         };
 
         if (stats.StdDevScore > 0)
-            stats.ScoreZScore = Math.Round((stats.LatestScore.Value - stats.MeanScore) / stats.StdDevScore, 2);
+            stats.ScoreZScore = Math.Round((stats.LatestScore!.Value - stats.MeanScore) / stats.StdDevScore, 2);
         if (stats.StdDevFindings > 0)
-            stats.FindingsZScore = Math.Round((stats.LatestFindings.Value - stats.MeanFindings) / stats.StdDevFindings, 2);
+            stats.FindingsZScore = Math.Round((stats.LatestFindings!.Value - stats.MeanFindings) / stats.StdDevFindings, 2);
 
         report.Stats = stats;
 
-        // Detect score anomalies (drops)
         DetectScoreAnomalies(ordered, stats, report);
-
-        // Detect finding spikes
         DetectFindingSpikes(ordered, stats, report);
-
-        // Detect module regressions
         DetectModuleRegressions(ordered, report);
 
-        // Set overall status
         report.TotalAnomalies = report.ScoreAnomalies.Count + report.FindingSpikes.Count + report.ModuleRegressions.Count;
 
         if (report.ScoreAnomalies.Any(a => a.Severity == "Critical") ||
@@ -75,7 +119,6 @@ public class AnomalyWatchdogService
             report.OverallStatus = "WARN";
         }
 
-        // Generate recommendations
         GenerateRecommendations(report);
 
         return report;
@@ -91,13 +134,13 @@ public class AnomalyWatchdogService
 
             if (drop <= 0) continue;
 
-            // Check if drop is anomalous using z-score on score deltas
-            double zScore = 0;
-            if (stats.StdDevScore > 0)
-                zScore = Math.Round(drop / stats.StdDevScore, 2);
+            double zScore = stats.StdDevScore > 0
+                ? Math.Round(drop / stats.StdDevScore, 2)
+                : 0;
 
-            if (zScore >= _zThresholdWarn || drop >= 10)
+            if (zScore >= _cfg.ZThresholdWarn || drop >= _cfg.MinorScoreDrop)
             {
+                var isCritical = zScore >= _cfg.ZThresholdCrit || drop >= _cfg.MajorScoreDrop;
                 report.ScoreAnomalies.Add(new ScoreAnomaly
                 {
                     Timestamp = curr.Timestamp,
@@ -105,9 +148,9 @@ public class AnomalyWatchdogService
                     PreviousScore = prev.OverallScore,
                     Drop = drop,
                     ZScore = zScore,
-                    Severity = zScore >= _zThresholdCrit || drop >= 20 ? "Critical" : "Warning",
-                    Reason = drop >= 20 ? "Major score collapse" :
-                             zScore >= _zThresholdCrit ? "Statistically significant drop" :
+                    Severity = isCritical ? "Critical" : "Warning",
+                    Reason = drop >= _cfg.MajorScoreDrop ? "Major score collapse" :
+                             zScore >= _cfg.ZThresholdCrit ? "Statistically significant drop" :
                              "Notable score decrease"
                 });
             }
@@ -124,12 +167,14 @@ public class AnomalyWatchdogService
 
             if (increase <= 0) continue;
 
-            double zScore = 0;
-            if (stats.StdDevFindings > 0)
-                zScore = Math.Round(increase / stats.StdDevFindings, 2);
+            double zScore = stats.StdDevFindings > 0
+                ? Math.Round(increase / stats.StdDevFindings, 2)
+                : 0;
 
-            if (zScore >= _zThresholdWarn || increase >= 5)
+            if (zScore >= _cfg.ZThresholdWarn || increase >= _cfg.FindingSpikeAbsolute)
             {
+                var isCritical = zScore >= _cfg.ZThresholdCrit
+                              || curr.CriticalCount > prev.CriticalCount + _cfg.CriticalCountSpikeDelta;
                 report.FindingSpikes.Add(new FindingSpike
                 {
                     Timestamp = curr.Timestamp,
@@ -138,7 +183,7 @@ public class AnomalyWatchdogService
                     Increase = increase,
                     ZScore = zScore,
                     CriticalCount = curr.CriticalCount,
-                    Severity = zScore >= _zThresholdCrit || curr.CriticalCount > prev.CriticalCount + 2 ? "Critical" : "Warning"
+                    Severity = isCritical ? "Critical" : "Warning"
                 });
             }
         }
@@ -146,16 +191,21 @@ public class AnomalyWatchdogService
 
     private void DetectModuleRegressions(List<AuditRunRecord> ordered, WatchdogReport report)
     {
-        // Get the last few runs with module data
-        var recentWithModules = ordered.Where(r => r.ModuleScores.Count > 0).TakeLast(10).ToList();
+        // Look at the most recent N runs that actually contain module data.
+        var recentWithModules = ordered.Where(r => r.ModuleScores.Count > 0)
+                                       .TakeLast(_cfg.RecentModuleRunWindow)
+                                       .ToList();
         if (recentWithModules.Count < 2) return;
 
-        var latestRun = recentWithModules.Last();
+        var latestRun = recentWithModules[^1];
         var previousRun = recentWithModules[^2];
 
-        // Group module scores
-        var latestModules = latestRun.ModuleScores.ToDictionary(m => m.ModuleName, m => m.Score);
-        var previousModules = previousRun.ModuleScores.ToDictionary(m => m.ModuleName, m => m.Score);
+        var latestModules = latestRun.ModuleScores
+            .GroupBy(m => m.ModuleName)
+            .ToDictionary(g => g.Key, g => g.Last().Score);
+        var previousModules = previousRun.ModuleScores
+            .GroupBy(m => m.ModuleName)
+            .ToDictionary(g => g.Key, g => g.Last().Score);
 
         foreach (var (module, currentScore) in latestModules)
         {
@@ -163,7 +213,7 @@ public class AnomalyWatchdogService
             var drop = prevScore - currentScore;
             if (drop <= 0) continue;
 
-            // Count consecutive drops for this module
+            // Count consecutive drops walking back through the recent window.
             int consecutiveDrops = 0;
             int lastScore = currentScore;
             for (int i = recentWithModules.Count - 2; i >= 0; i--)
@@ -175,13 +225,17 @@ public class AnomalyWatchdogService
                     consecutiveDrops++;
                     lastScore = ms.Score;
                 }
-                else break;
+                else
+                {
+                    break;
+                }
             }
 
-            if (drop >= 5 || consecutiveDrops >= 2)
+            if (drop >= _cfg.ModuleScoreDrop || consecutiveDrops >= _cfg.ModuleVolatileStreak)
             {
-                var trend = currentScore <= 20 ? "Collapsed" :
-                            consecutiveDrops >= 3 ? "Declining" : "Volatile";
+                var trend = currentScore <= _cfg.ModuleCollapsedScore ? "Collapsed" :
+                            consecutiveDrops >= _cfg.ModuleDecliningStreak ? "Declining" :
+                            "Volatile";
 
                 report.ModuleRegressions.Add(new ModuleRegression
                 {
@@ -207,13 +261,13 @@ public class AnomalyWatchdogService
         if (report.ModuleRegressions.Any(m => m.Trend == "Collapsed"))
             report.Recommendations.Add("💀 Module(s) collapsed to near-zero — investigate if a service or config was disabled.");
 
-        if (report.ModuleRegressions.Any(m => m.ConsecutiveDrops >= 3))
+        if (report.ModuleRegressions.Any(m => m.ConsecutiveDrops >= _cfg.ModuleDecliningStreak))
             report.Recommendations.Add("📉 Sustained module regression detected — check for persistent misconfiguration.");
 
         if (report.TotalAnomalies == 0)
             report.Recommendations.Add("✅ No anomalies detected. Security posture is stable.");
 
-        if (report.Stats.LatestScore.HasValue && report.Stats.LatestScore.Value < 50)
+        if (report.Stats.LatestScore.HasValue && report.Stats.LatestScore.Value < _cfg.LowScoreRecommendationThreshold)
             report.Recommendations.Add("🔴 Current score is below 50 — consider running --fix-all to remediate known issues.");
     }
 

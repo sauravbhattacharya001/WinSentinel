@@ -100,6 +100,13 @@ public static class LicenseManager
     /// <summary>Maximum trial window we ever issue locally. The server can issue longer paid windows.</summary>
     public const int TrialDays = 14;
 
+    // TODO(license): replace with production Ed25519 public key generated
+    // out-of-band per docs/plugin-key-setup.md. While this placeholder is
+    // in place, PluginHost.LoadAll() returns zero plugins and license
+    // envelope verification short-circuits to "unverified".
+    public const string EmbeddedPublicKeyBase64 =
+        "REPLACE_ME_PRODUCTION_ED25519_PUBLIC_KEY_BASE64";
+
     /// <summary>Pricing / upgrade page shown in the friendly "feature requires Pro" message.</summary>
     public const string UpgradeUrl = "https://winsentinel.ai/pricing";
 
@@ -304,6 +311,28 @@ public static class LicenseManager
             Email: string.IsNullOrEmpty(record.Email) ? null : record.Email,
             Message: (record.IsTrial ? "Pro trial" : "Pro " + record.Tier) +
                      " active, " + daysRemaining + " day" + (daysRemaining == 1 ? "" : "s") + " remaining" + transient + ".");
+    }
+
+    /// <summary>
+    /// Lightweight entitlement check used by the plugin host. Returns true
+    /// iff there is an active (non-expired) <see cref="LicenseRecord"/> on
+    /// disk whose tier covers <paramref name="featureId"/>. The current
+    /// matrix is intentionally dumb: every paid tier (and an active trial)
+    /// is entitled to every plugin. Refine here when SKU-specific gating
+    /// arrives — Pro callers should not need to change.
+    /// </summary>
+    /// <param name="featureId">Feature/plugin id from <c>plugin.json</c>. Currently unused for matching but reserved.</param>
+    /// <param name="path">Override license file path (tests).</param>
+    public static bool IsEntitled(string featureId, string? path = null)
+    {
+        // featureId is reserved for future per-feature gating. Today,
+        // entitlement is purely a function of having an active license.
+        _ = featureId;
+        var record = Load(path);
+        if (record is null) return false;
+        if (!record.IsActive) return false;
+        var tier = (record.Tier ?? string.Empty).Trim().ToLowerInvariant();
+        return tier is "trial" or "individual" or "team";
     }
 
     /// <summary>

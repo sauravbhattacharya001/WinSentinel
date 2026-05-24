@@ -520,6 +520,8 @@ dotnet test -p:Platform=x64
 
 **Ideas:** plugin system for custom modules, Linux port, UI themes, localization, additional compliance profiles.
 
+See [ROADMAP.md](ROADMAP.md) for the current plugin-architecture and release backlog, and [docs/CREATING-PLUGINS.md](docs/CREATING-PLUGINS.md) if you want to build your own plugin (free or commercial).
+
 ---
 
 ## 📄 License

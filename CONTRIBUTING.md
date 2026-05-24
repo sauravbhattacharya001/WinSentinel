@@ -10,6 +10,8 @@ Thank you for your interest in improving WinSentinel! Whether you're fixing a bu
 - [Project Structure](#project-structure)
 - [Making Changes](#making-changes)
 - [Adding an Audit Module](#adding-an-audit-module)
+
+> Looking for the project backlog? See [ROADMAP.md](ROADMAP.md). Building your own plugin? See [docs/CREATING-PLUGINS.md](docs/CREATING-PLUGINS.md). Plugin implementations do **not** live in this repository — they ship from their own repos.
 - [Testing](#testing)
 - [Submitting a Pull Request](#submitting-a-pull-request)
 - [PR Lifecycle & Review Process](#pr-lifecycle--review-process)

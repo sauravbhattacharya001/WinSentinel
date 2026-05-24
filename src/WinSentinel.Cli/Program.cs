@@ -49,6 +49,7 @@ return options.Command switch
     CliCommand.Score => await HandleScore(options),
     CliCommand.Audit => await HandleAudit(options),
     CliCommand.Pro => ProCommandHandler.Handle(options),
+    CliCommand.Plugin => PluginCommandHandler.Handle(options),
     CliCommand.FixAll => await HandleFixAll(options),
     CliCommand.History => HandleHistory(options),
     CliCommand.Baseline => await HandleBaseline(options),

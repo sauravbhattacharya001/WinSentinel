@@ -402,6 +402,26 @@ public class CliOptions
     public string ProFormat { get; set; } = "text";
     /// <summary>Transient license key from global <c>--license &lt;key&gt;</c>. Not persisted.</summary>
     public string? TransientLicenseKey { get; set; }
+
+    // ── Plugin management (multi-publisher trust model) ───────────────
+    public PluginAction PluginAction { get; set; } = PluginAction.None;
+    /// <summary>Base64-encoded Ed25519 publisher key for <c>plugin trust</c>.</summary>
+    public string? PluginPublisherKey { get; set; }
+    /// <summary>Human-readable publisher name for <c>plugin trust</c> / <c>plugin untrust</c>.</summary>
+    public string? PluginPublisherName { get; set; }
+    /// <summary>When set, <c>plugin trust --allow-unsigned</c> toggles unsigned loading.</summary>
+    public bool? PluginAllowUnsigned { get; set; }
+    /// <summary>Output format for <c>plugin list</c>: <c>text</c> (default) or <c>json</c>.</summary>
+    public string PluginFormat { get; set; } = "text";
+}
+
+public enum PluginAction
+{
+    None,
+    List,
+    Trust,
+    Untrust,
+    Help,
 }
 
 public enum ProAction
@@ -419,6 +439,7 @@ public enum CliCommand
     None,
     Audit,
     Pro,
+    Plugin,
     Score,
     FixAll,
     History,
@@ -761,6 +782,65 @@ public static class CliParser
                         options.Error = "--license requires a key (e.g. WSP-XXXX-XXXX-XXXX).";
                         return options;
                     }
+                    break;
+
+                case "plugin":
+                    options.Command = CliCommand.Plugin;
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                    {
+                        var psub = args[++i].ToLowerInvariant();
+                        options.PluginAction = psub switch
+                        {
+                            "list" or "ls" => PluginAction.List,
+                            "trust" => PluginAction.Trust,
+                            "untrust" => PluginAction.Untrust,
+                            "help" or "-h" or "--help" => PluginAction.Help,
+                            _ => PluginAction.None,
+                        };
+                        if (options.PluginAction == PluginAction.None)
+                        {
+                            options.Error = $"Unknown `plugin` subcommand: '{psub}'. Try: list, trust, untrust, help.";
+                            return options;
+                        }
+                        if (options.PluginAction == PluginAction.Trust)
+                        {
+                            if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                            {
+                                options.PluginPublisherKey = args[++i];
+                            }
+                        }
+                        else if (options.PluginAction == PluginAction.Untrust)
+                        {
+                            if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                            {
+                                options.PluginPublisherName = args[++i];
+                            }
+                        }
+                    }
+                    else
+                    {
+                        options.PluginAction = PluginAction.List;
+                    }
+                    break;
+
+                case "--name" when options.Command == CliCommand.Plugin:
+                    if (!TryConsumeArg(args, ref i, "--name", out var pnVal, out var pnErr))
+                    { options.Error = pnErr; return options; }
+                    options.PluginPublisherName = pnVal;
+                    break;
+
+                case "--allow-unsigned" when options.Command == CliCommand.Plugin:
+                    options.PluginAllowUnsigned = true;
+                    break;
+
+                case "--allow-unsigned=false" when options.Command == CliCommand.Plugin:
+                    options.PluginAllowUnsigned = false;
+                    break;
+
+                case "--plugin-format" when options.Command == CliCommand.Plugin:
+                    if (!TryConsumeArg(args, ref i, "--plugin-format", out var pfVal, out var pfErr))
+                    { options.Error = pfErr; return options; }
+                    options.PluginFormat = (pfVal ?? "text").ToLowerInvariant();
                     break;
 
                 case "pro":

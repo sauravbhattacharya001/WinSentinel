@@ -5,6 +5,7 @@ using WinSentinel.Cli;
 using WinSentinel.Core.Audits;
 using WinSentinel.Core.Interfaces;
 using WinSentinel.Core.Models;
+using WinSentinel.Core.Plugins;
 using WinSentinel.Core.Services;
 
 // ── Entry Point ──────────────────────────────────────────────────────
@@ -22,6 +23,23 @@ if (options.Error != null)
 {
     ConsoleFormatter.PrintError(options.Error);
     return 3;
+}
+
+// Plugin host: discovers signed Pro plugins under %LOCALAPPDATA%\WinSentinel\plugins.
+// With the placeholder public key this is a no-op + a single warning log per process,
+// so existing OSS users see zero behavior change.
+try
+{
+    var pluginHost = new PluginHost((msg, level) =>
+    {
+        if (level >= PluginLogLevel.Warning)
+            Console.Error.WriteLine($"[plugin:{level.ToString().ToLowerInvariant()}] {msg}");
+    });
+    pluginHost.LoadAll();
+}
+catch (Exception ex)
+{
+    Console.Error.WriteLine($"[plugin:error] plugin host failed: {ex.Message}");
 }
 
 return options.Command switch

@@ -107,10 +107,9 @@ jobs:
     - name: Push to GitHub Packages
       shell: pwsh
       run: |
+        # `dotnet nuget push *.nupkg` auto-pushes the matching .snupkg.
+        # Explicit *.snupkg loop caused 409 Conflict failing the whole workflow.
         Get-ChildItem ./nupkg -Filter *.nupkg | ForEach-Object {
-          dotnet nuget push $_.FullName --source "https://nuget.pkg.github.com/sauravbhattacharya001/index.json" --api-key ${{ secrets.GITHUB_TOKEN }} --skip-duplicate
-        }
-        Get-ChildItem ./nupkg -Filter *.snupkg | ForEach-Object {
           dotnet nuget push $_.FullName --source "https://nuget.pkg.github.com/sauravbhattacharya001/index.json" --api-key ${{ secrets.GITHUB_TOKEN }} --skip-duplicate
         }
 
@@ -119,9 +118,6 @@ jobs:
       shell: pwsh
       run: |
         Get-ChildItem ./nupkg -Filter *.nupkg | ForEach-Object {
-          dotnet nuget push $_.FullName --source "https://api.nuget.org/v3/index.json" --api-key $env:NUGET_API_KEY --skip-duplicate
-        }
-        Get-ChildItem ./nupkg -Filter *.snupkg | ForEach-Object {
           dotnet nuget push $_.FullName --source "https://api.nuget.org/v3/index.json" --api-key $env:NUGET_API_KEY --skip-duplicate
         }
       env:

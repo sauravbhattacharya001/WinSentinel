@@ -96,6 +96,10 @@ jobs:
     - name: Restore dependencies
       run: dotnet restore
 
+    - name: Enforce no-pro-code guard
+      shell: pwsh
+      run: ./scripts/check-no-pro-code.ps1
+
     - name: Build
       run: >-
         dotnet build --no-restore

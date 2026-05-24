@@ -134,4 +134,10 @@ logistics, not architecture.
 
 ## Non-plugin items
 
+### Test infrastructure
+
+- [ ] **Code coverage reporting in CI.** Wire `coverlet.collector` + ReportGenerator into the build; publish coverage as a CI check; establish baseline %. Fail CI if coverage drops below baseline. No threshold targeted yet — first measure, then aim. Tracked by GH issue.
+- [ ] **BVT (Build Verification Test) subset.** Tag ~50 critical-path tests with `[Trait("Category", "BVT")]`. Add a separate CI job that runs only BVT (`dotnet test --filter Category=BVT`) and gates PRs in <30s. Full suite still runs but doesn't block fast feedback. Tracked by GH issue.
+- [ ] **End-to-end smoke job in CI.** After build: `dotnet pack` → `dotnet tool install` from local nupkg → `winsentinel audit --format json` → assert exit 0 + parseable JSON. ~2 min. Catches packaging/tool-install regressions that unit tests miss. Tracked by GH issue.
+
 (Add other roadmap items as they come up. Keep this file curated, not a dumping ground.)

@@ -101,10 +101,14 @@ public static class LicenseManager
     public const int TrialDays = 14;
 
     // TODO(license): replace with production Ed25519 public key generated
-    // out-of-band per docs/plugin-key-setup.md. While this placeholder is
-    // in place, PluginHost.LoadAll() returns zero plugins and license
-    // envelope verification short-circuits to "unverified".
-    public const string EmbeddedPublicKeyBase64 =
+    // out-of-band per docs/plugin-key-setup.md. This is the OFFICIAL
+    // WinSentinel project publisher key — used to auto-trust plugins
+    // published by the WinSentinel project itself (e.g. winsentinel-pro).
+    // Third-party publishers add their own keys via
+    // `winsentinel plugin trust <pubkey> --name <name>`. While this
+    // placeholder is in place, the official slot contributes no trust and
+    // license envelope verification short-circuits to "unverified".
+    public const string OfficialPublisherPublicKeyBase64 =
         "REPLACE_ME_PRODUCTION_ED25519_PUBLIC_KEY_BASE64";
 
     /// <summary>Pricing / upgrade page shown in the friendly "feature requires Pro" message.</summary>

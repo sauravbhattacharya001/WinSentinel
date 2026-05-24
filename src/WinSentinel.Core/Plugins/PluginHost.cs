@@ -10,54 +10,69 @@ using WinSentinel.Core.Licensing;
 namespace WinSentinel.Core.Plugins;
 
 /// <summary>
-/// Discovers, verifies, and loads WinSentinel plugin DLLs. The host enforces
-/// three gates before instantiating anything from a plugin assembly:
-/// <list type="number">
-///   <item>The DLL must embed a <c>plugin.json</c> manifest (see <see cref="PluginManifest"/>).</item>
-///   <item>The manifest's <c>signature</c> must be a valid Ed25519 signature of the DLL's
-///         SHA-256 hash, verifiable against <see cref="LicenseManager.EmbeddedPublicKeyBase64"/>.</item>
-///   <item>The local <see cref="LicenseManager"/> must report <c>IsEntitled</c> for the manifest's
-///         <see cref="PluginManifest.RequiredEntitlement"/>.</item>
-/// </list>
-/// Any failure on a given DLL is logged and skipped; the host never throws
-/// out of <see cref="LoadAll"/>. While the embedded public key is the
-/// placeholder, <see cref="PublicKeyConfigured"/> is false and
-/// <see cref="LoadAll"/> returns zero plugins after emitting a single warning.
+/// Outcome of attempting to load a single plugin DLL. Surfaced by
+/// <see cref="PluginHost.LoadResults"/> so the CLI's <c>plugin list</c>
+/// command can show admins both what loaded and what was skipped, with
+/// the reason for each skip.
+/// </summary>
+public sealed record PluginLoadResult(
+    string DllPath,
+    PluginLoadStatus Status,
+    string? FeatureId,
+    string? Version,
+    string? PublisherName,
+    string? PublisherKey,
+    string Message);
+
+public enum PluginLoadStatus
+{
+    Loaded,
+    SkippedUnreadable,
+    SkippedNotAnAssembly,
+    SkippedNoManifest,
+    SkippedUntrustedPublisher,
+    SkippedUnsignedDisallowed,
+    SkippedBadSignature,
+    SkippedNotEntitled,
+    SkippedNoTypes,
+    SkippedInitFailed,
+}
+
+/// <summary>
+/// Discovers, verifies, and loads WinSentinel plugin DLLs under a
+/// multi-publisher trust model. Each plugin DLL embeds a <c>plugin.json</c>
+/// manifest that names its <c>publisher_key</c>; the host loads it only if
+/// (a) that key is in <see cref="TrustedPublisherStore"/>, (b) the manifest's
+/// <c>signature</c> is a valid Ed25519 signature of <c>SHA256(dllBytes)</c>
+/// under that key, and (c) <see cref="LicenseManager.IsEntitled"/> returns
+/// true for the manifest's <c>requiredEntitlement</c>.
+///
+/// <para>Unsigned plugins (empty publisher_key / signature) are rejected by
+/// default. Setting <see cref="TrustedPublisherConfig.AllowUnsigned"/> = true
+/// (via <c>winsentinel plugin trust --allow-unsigned</c>) opts in to loading
+/// them, with a loud warning emitted on every startup.</para>
+///
+/// <para>Per-DLL failures never throw out of <see cref="LoadAll"/> \u2014
+/// they're recorded into <see cref="LoadResults"/> and logged.</para>
 /// </summary>
 public sealed class PluginHost
 {
-    /// <summary>Environment variable that overrides the default plugin directory.</summary>
     public const string PluginDirEnvVar = "WINSENTINEL_PLUGIN_DIR";
 
     private readonly string _pluginDir;
-    private readonly byte[]? _publicKey;
+    private readonly TrustedPublisherConfig _trustConfig;
     private readonly Func<string, bool> _entitlementCheck;
     private readonly Action<string, PluginLogLevel> _log;
     private readonly Func<SecurityReportSnapshot?> _reportProvider;
 
     private readonly List<IReportExporter> _exporters = new();
+    private readonly List<PluginLoadResult> _loadResults = new();
     private IMonitorDaemon? _monitor;
     private IFleetSink? _fleetSink;
     private IComplianceMapper? _complianceMapper;
     private IScheduledScan? _scheduledScan;
 
     private bool _loaded;
-
-    /// <summary>
-    /// True iff <see cref="LicenseManager.EmbeddedPublicKeyBase64"/> has been
-    /// replaced with a real key that base64-decodes to exactly 32 bytes.
-    /// </summary>
-    public static bool PublicKeyConfigured
-    {
-        get
-        {
-            const string placeholder = "REPLACE_ME_PRODUCTION_ED25519_PUBLIC_KEY_BASE64";
-            var s = LicenseManager.EmbeddedPublicKeyBase64;
-            if (string.IsNullOrWhiteSpace(s) || s == placeholder) return false;
-            var bytes = Ed25519Crypto.TryDecodeBase64(s);
-            return bytes is not null && bytes.Length == Ed25519Crypto.PublicKeySize;
-        }
-    }
 
     /// <summary>Default plugin directory: <c>%LOCALAPPDATA%\WinSentinel\plugins</c>, overridable via env var.</summary>
     public static string DefaultPluginDir
@@ -67,74 +82,58 @@ public sealed class PluginHost
             var fromEnv = Environment.GetEnvironmentVariable(PluginDirEnvVar);
             if (!string.IsNullOrWhiteSpace(fromEnv)) return fromEnv;
             var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            if (string.IsNullOrEmpty(local))
-            {
-                local = Path.GetTempPath();
-            }
+            if (string.IsNullOrEmpty(local)) local = Path.GetTempPath();
             return Path.Combine(local, "WinSentinel", "plugins");
         }
     }
 
-    /// <summary>
-    /// Production constructor — uses the embedded public key, real
-    /// <see cref="LicenseManager"/>, and the default plugin directory.
-    /// </summary>
+    /// <summary>Production constructor \u2014 reads trust + plugin dir from on-disk defaults.</summary>
     public PluginHost(Action<string, PluginLogLevel>? log = null)
         : this(
-            publicKey: TryGetEmbeddedKey(),
+            trustConfig: TrustedPublisherStore.Load(),
             pluginDir: DefaultPluginDir,
-            entitlementCheck: id => LicenseManager.IsEntitled(id),
+            entitlementCheck: id => string.IsNullOrEmpty(id) || LicenseManager.IsEntitled(id),
             log: log,
             reportProvider: null)
     {
-        if (!PublicKeyConfigured)
+        if (_trustConfig.TrustedPublishers.Count == 0)
         {
             _log(
-                "Plugin public key is not configured (placeholder still in place). " +
-                "Plugin loading is disabled. See docs/plugin-key-setup.md.",
+                "No trusted plugin publishers configured. " +
+                "Plugin loading is effectively disabled. " +
+                "Add one with `winsentinel plugin trust <pubkey> --name <name>` " +
+                "or see docs/plugin-key-setup.md.",
+                PluginLogLevel.Warning);
+        }
+        if (_trustConfig.AllowUnsigned)
+        {
+            _log(
+                "Unsigned plugins are ALLOWED (developer mode). Disable with " +
+                "`winsentinel plugin trust --allow-unsigned=false`.",
                 PluginLogLevel.Warning);
         }
     }
 
-    /// <summary>
-    /// Test-only constructor: injects the public key, plugin directory, and
-    /// entitlement predicate so tests never touch real on-disk state.
-    /// </summary>
+    /// <summary>Test-only constructor: injects everything.</summary>
     public PluginHost(
-        byte[]? publicKey,
+        TrustedPublisherConfig trustConfig,
         string pluginDir,
         Func<string, bool> entitlementCheck,
         Action<string, PluginLogLevel>? log,
         Func<SecurityReportSnapshot?>? reportProvider)
     {
-        _publicKey = publicKey;
+        _trustConfig = trustConfig ?? throw new ArgumentNullException(nameof(trustConfig));
         _pluginDir = pluginDir ?? throw new ArgumentNullException(nameof(pluginDir));
         _entitlementCheck = entitlementCheck ?? throw new ArgumentNullException(nameof(entitlementCheck));
         _log = log ?? ((msg, level) => Console.Error.WriteLine($"[plugin:{level}] {msg}"));
         _reportProvider = reportProvider ?? (() => null);
     }
 
-    private static byte[]? TryGetEmbeddedKey()
-    {
-        if (!PublicKeyConfigured) return null;
-        return Ed25519Crypto.TryDecodeBase64(LicenseManager.EmbeddedPublicKeyBase64);
-    }
-
-    /// <summary>
-    /// Scans the plugin directory and loads every DLL that passes the three
-    /// gates (manifest / signature / entitlement). Idempotent — repeated
-    /// calls are no-ops after the first.
-    /// </summary>
+    /// <summary>Scans the plugin directory and loads every DLL that passes all gates. Idempotent.</summary>
     public void LoadAll()
     {
         if (_loaded) return;
         _loaded = true;
-
-        if (_publicKey is null)
-        {
-            // Already warned in ctor (production) or intentional (tests).
-            return;
-        }
 
         if (!Directory.Exists(_pluginDir))
         {
@@ -142,20 +141,30 @@ public sealed class PluginHost
             return;
         }
 
+        // Pre-decode trusted publisher keys once.
+        var trustedKeys = new List<(TrustedPublisher Pub, byte[] Bytes)>();
+        foreach (var pub in _trustConfig.TrustedPublishers)
+        {
+            var b = Ed25519Crypto.TryDecodeBase64(pub.PublicKey);
+            if (b is { Length: Ed25519Crypto.PublicKeySize }) trustedKeys.Add((pub, b));
+        }
+
         foreach (var dll in Directory.EnumerateFiles(_pluginDir, "*.dll", SearchOption.TopDirectoryOnly))
         {
             try
             {
-                TryLoadOne(dll);
+                TryLoadOne(dll, trustedKeys);
             }
             catch (Exception ex)
             {
+                _loadResults.Add(new PluginLoadResult(dll, PluginLoadStatus.SkippedInitFailed,
+                    null, null, null, null, $"unhandled error: {ex.Message}"));
                 _log($"Plugin '{Path.GetFileName(dll)}' threw during load: {ex.Message}", PluginLogLevel.Error);
             }
         }
     }
 
-    private void TryLoadOne(string dllPath)
+    private void TryLoadOne(string dllPath, List<(TrustedPublisher Pub, byte[] Bytes)> trustedKeys)
     {
         byte[] dllBytes;
         try
@@ -164,11 +173,10 @@ public sealed class PluginHost
         }
         catch (Exception ex)
         {
-            _log($"Plugin '{Path.GetFileName(dllPath)}' unreadable: {ex.Message}", PluginLogLevel.Warning);
+            Record(dllPath, PluginLoadStatus.SkippedUnreadable, null, null, null, null, ex.Message);
             return;
         }
 
-        // Load into a collectible context first so we can pull the manifest out.
         Assembly asm;
         var alc = new AssemblyLoadContext($"WinSentinelPlugin:{Path.GetFileNameWithoutExtension(dllPath)}", isCollectible: true);
         try
@@ -178,7 +186,7 @@ public sealed class PluginHost
         }
         catch (Exception ex)
         {
-            _log($"Plugin '{Path.GetFileName(dllPath)}' is not a valid .NET assembly: {ex.Message}", PluginLogLevel.Warning);
+            Record(dllPath, PluginLoadStatus.SkippedNotAnAssembly, null, null, null, null, ex.Message);
             alc.Unload();
             return;
         }
@@ -186,32 +194,79 @@ public sealed class PluginHost
         var manifest = PluginManifest.TryLoadFromAssembly(asm);
         if (manifest is null)
         {
-            _log($"Plugin '{Path.GetFileName(dllPath)}' is missing or has malformed plugin.json.", PluginLogLevel.Warning);
+            Record(dllPath, PluginLoadStatus.SkippedNoManifest, null, null, null, null,
+                "missing or malformed plugin.json");
             alc.Unload();
             return;
         }
 
-        // SHA-256 of DLL bytes is the message that was signed.
-        byte[] hash = SHA256.HashData(dllBytes);
-        var sigBytes = Ed25519Crypto.TryDecodeBase64(manifest.Signature);
-        if (sigBytes is null || !Ed25519Crypto.Verify(_publicKey!, hash, sigBytes))
+        var isUnsigned = string.IsNullOrWhiteSpace(manifest.PublisherKey) || string.IsNullOrWhiteSpace(manifest.Signature);
+
+        if (isUnsigned)
         {
-            _log($"Plugin '{Path.GetFileName(dllPath)}' failed signature verification.", PluginLogLevel.Warning);
-            alc.Unload();
-            return;
+            if (!_trustConfig.AllowUnsigned)
+            {
+                Record(dllPath, PluginLoadStatus.SkippedUnsignedDisallowed,
+                    manifest.FeatureId, manifest.Version, manifest.PublisherName, manifest.PublisherKey,
+                    "plugin is unsigned and allow_unsigned=false");
+                alc.Unload();
+                return;
+            }
+            _log($"Loading UNSIGNED plugin '{Path.GetFileName(dllPath)}' (allow_unsigned=true).", PluginLogLevel.Warning);
+        }
+        else
+        {
+            // Trust check: publisher_key must appear in the trusted set.
+            var publisherKeyBytes = Ed25519Crypto.TryDecodeBase64(manifest.PublisherKey);
+            if (publisherKeyBytes is null || publisherKeyBytes.Length != Ed25519Crypto.PublicKeySize)
+            {
+                Record(dllPath, PluginLoadStatus.SkippedUntrustedPublisher,
+                    manifest.FeatureId, manifest.Version, manifest.PublisherName, manifest.PublisherKey,
+                    "publisher_key is not a valid 32-byte Ed25519 key");
+                alc.Unload();
+                return;
+            }
+
+            bool isTrusted = false;
+            foreach (var (_, bytes) in trustedKeys)
+            {
+                if (bytes.AsSpan().SequenceEqual(publisherKeyBytes))
+                {
+                    isTrusted = true;
+                    break;
+                }
+            }
+            if (!isTrusted)
+            {
+                Record(dllPath, PluginLoadStatus.SkippedUntrustedPublisher,
+                    manifest.FeatureId, manifest.Version, manifest.PublisherName, manifest.PublisherKey,
+                    $"publisher '{manifest.PublisherName}' is not trusted (add with `winsentinel plugin trust`)");
+                alc.Unload();
+                return;
+            }
+
+            // Signature check.
+            var sigBytes = Ed25519Crypto.TryDecodeBase64(manifest.Signature);
+            byte[] hash = SHA256.HashData(dllBytes);
+            if (sigBytes is null || !Ed25519Crypto.Verify(publisherKeyBytes, hash, sigBytes))
+            {
+                Record(dllPath, PluginLoadStatus.SkippedBadSignature,
+                    manifest.FeatureId, manifest.Version, manifest.PublisherName, manifest.PublisherKey,
+                    "signature does not match DLL hash under the publisher key");
+                alc.Unload();
+                return;
+            }
         }
 
         if (!_entitlementCheck(manifest.RequiredEntitlement))
         {
-            _log(
-                $"Plugin '{Path.GetFileName(dllPath)}' requires entitlement '{manifest.RequiredEntitlement}' " +
-                "which the current license does not cover.",
-                PluginLogLevel.Info);
+            Record(dllPath, PluginLoadStatus.SkippedNotEntitled,
+                manifest.FeatureId, manifest.Version, manifest.PublisherName, manifest.PublisherKey,
+                $"current license does not cover entitlement '{manifest.RequiredEntitlement}'");
             alc.Unload();
             return;
         }
 
-        // Instantiate every IWinSentinelPlugin in the assembly.
         Type[] types;
         try
         {
@@ -233,7 +288,6 @@ public sealed class PluginHost
                 var instance = (IWinSentinelPlugin)Activator.CreateInstance(type)!;
                 instance.Initialize(ctx);
                 instantiated++;
-                // Collect well-known facets the host exposes.
                 if (instance is IReportExporter exp) _exporters.Add(exp);
                 _monitor ??= instance as IMonitorDaemon;
                 _fleetSink ??= instance as IFleetSink;
@@ -242,15 +296,34 @@ public sealed class PluginHost
             }
             catch (Exception ex)
             {
+                Record(dllPath, PluginLoadStatus.SkippedInitFailed,
+                    manifest.FeatureId, manifest.Version, manifest.PublisherName, manifest.PublisherKey,
+                    $"type {type.FullName} init failed: {ex.Message}");
                 _log($"Plugin '{Path.GetFileName(dllPath)}' type {type.FullName} failed to initialize: {ex.Message}", PluginLogLevel.Error);
+                // Don't return \u2014 other types in the same assembly may still load.
             }
         }
 
+        if (instantiated == 0)
+        {
+            Record(dllPath, PluginLoadStatus.SkippedNoTypes,
+                manifest.FeatureId, manifest.Version, manifest.PublisherName, manifest.PublisherKey,
+                "no IWinSentinelPlugin types found in assembly");
+            return;
+        }
+
+        Record(dllPath, PluginLoadStatus.Loaded,
+            manifest.FeatureId, manifest.Version, manifest.PublisherName, manifest.PublisherKey,
+            $"loaded {instantiated} type(s)");
         _log(
-            $"Plugin '{Path.GetFileName(dllPath)}' loaded: feature={manifest.FeatureId} v={manifest.Version} types={instantiated}.",
+            $"Plugin '{Path.GetFileName(dllPath)}' loaded: feature={manifest.FeatureId} v={manifest.Version} publisher={manifest.PublisherName}.",
             PluginLogLevel.Info);
     }
 
+    private void Record(string dll, PluginLoadStatus status, string? feature, string? version, string? pubName, string? pubKey, string msg)
+        => _loadResults.Add(new PluginLoadResult(dll, status, feature, version, pubName, pubKey, msg));
+
+    public IReadOnlyList<PluginLoadResult> LoadResults => _loadResults;
     public IReadOnlyList<IReportExporter> GetExporters() => _exporters;
     public IMonitorDaemon? GetMonitorDaemon() => _monitor;
     public IFleetSink? GetFleetSink() => _fleetSink;
@@ -265,7 +338,6 @@ public sealed class PluginHost
         {
             Log = log;
             _provider = provider;
-            // Plugin config = env vars prefixed WINSENTINEL_PLUGIN_.
             var cfg = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (System.Collections.DictionaryEntry e in Environment.GetEnvironmentVariables())
             {
@@ -282,9 +354,5 @@ public sealed class PluginHost
     }
 }
 
-/// <summary>
-/// Thin wrapper used to hand a current <see cref="Models.SecurityReport"/>
-/// to the plugin context lazily, without making the host hold a long-lived
-/// reference to host-owned report state.
-/// </summary>
+/// <summary>Snapshot wrapper for handing the current report to plugins via <see cref="IPluginContext.CurrentReport"/>.</summary>
 public sealed record SecurityReportSnapshot(Models.SecurityReport Report);

@@ -25,6 +25,14 @@ public sealed class PluginManifest
     [JsonPropertyName("minCoreVersion")]
     public string MinCoreVersion { get; set; } = string.Empty;
 
+    /// <summary>Base64-encoded Ed25519 public key of the publisher that signed this plugin.</summary>
+    [JsonPropertyName("publisher_key")]
+    public string PublisherKey { get; set; } = string.Empty;
+
+    /// <summary>Human-readable publisher name (informational; trust decisions use <see cref="PublisherKey"/>).</summary>
+    [JsonPropertyName("publisher_name")]
+    public string PublisherName { get; set; } = string.Empty;
+
     /// <summary>Base64-encoded Ed25519 signature of the DLL's SHA-256 hash.</summary>
     [JsonPropertyName("signature")]
     public string Signature { get; set; } = string.Empty;

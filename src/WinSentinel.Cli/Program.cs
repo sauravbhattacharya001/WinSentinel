@@ -128,6 +128,7 @@ return options.Command switch
     CliCommand.C2 => await HandleC2(options),
     CliCommand.Impact => await HandleImpact(options),
     CliCommand.Collection => await HandleCollection(options),
+    CliCommand.Export => await HandleExport(options),
     _ => HandleHelp()
 };
 
@@ -922,6 +923,69 @@ static async Task<int> HandleFixAll(CliOptions options)
     }
 
     return DetermineExitCode(report, options.Threshold);
+}
+
+// ── Export Command (F11) ─────────────────────────────────────
+
+/// <summary>
+/// `winsentinel export &lt;format&gt;` — portable findings export.
+/// Supported formats: json, csv, sarif, markdown (md).
+/// Honors -o/--output, --modules, --include-pass.
+/// Exit code: 0 on success, 2 if no format / unknown format.
+/// </summary>
+static async Task<int> HandleExport(CliOptions options)
+{
+    var fmt = (options.ExportFormat ?? string.Empty).Trim().ToLowerInvariant();
+    if (string.IsNullOrEmpty(fmt))
+    {
+        ConsoleFormatter.PrintError("Missing export format. Usage: winsentinel export <json|csv|sarif|markdown> [-o file] [--modules ...] [--include-pass]");
+        return 2;
+    }
+
+    // Normalize aliases.
+    fmt = fmt switch
+    {
+        "md" => "markdown",
+        "yml" => "yaml",
+        _ => fmt
+    };
+
+    if (fmt is not ("json" or "csv" or "sarif" or "markdown"))
+    {
+        ConsoleFormatter.PrintError($"Unknown export format: '{options.ExportFormat}'. Supported: json, csv, sarif, markdown.");
+        return 2;
+    }
+
+    // Run audit silently (export is a piped/CI command — chrome would corrupt the stream).
+    var (report, _, _) = await RunAuditAsync(options, suppressOutput: true, showScore: false);
+
+    // Apply ignore rules just like --audit does.
+    var ignoreService = new IgnoreRuleService();
+    if (ignoreService.GetActiveRules().Count > 0)
+    {
+        report = ignoreService.ApplyRulesToReport(report, out _);
+    }
+
+    string content = fmt switch
+    {
+        "json" => new ReportGenerator().GenerateJsonReport(report),
+        "csv" => new ReportGenerator().GenerateCsvReport(report),
+        "sarif" => new SarifExporter().GenerateSarif(report, options.ExportIncludePass),
+        "markdown" => new ReportGenerator().GenerateMarkdownReport(report),
+        _ => string.Empty
+    };
+
+    WriteOutput(content, options.OutputFile);
+
+    if (options.OutputFile != null && !options.Quiet)
+    {
+        var original = Console.ForegroundColor;
+        Console.ForegroundColor = ConsoleColor.Green;
+        Console.WriteLine($"  ✓ {fmt.ToUpperInvariant()} export saved to {options.OutputFile} ({report.TotalFindings} findings)");
+        Console.ForegroundColor = original;
+    }
+
+    return 0;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────

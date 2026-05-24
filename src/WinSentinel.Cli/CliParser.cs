@@ -16,6 +16,10 @@ public class CliOptions
     public bool Sarif { get; set; }
     public bool SarifIncludePass { get; set; }
     public string? OutputFile { get; set; }
+    /// <summary>Format for the `export` command: json | csv | sarif | markdown.</summary>
+    public string? ExportFormat { get; set; }
+    /// <summary>Include passing checks in the exported output (where supported).</summary>
+    public bool ExportIncludePass { get; set; }
     public string? ModulesFilter { get; set; }
     public bool Quiet { get; set; }
     public int? Threshold { get; set; }
@@ -502,6 +506,7 @@ public enum CliCommand
     C2,
     Impact,
     Collection,
+    Export,
     Help,
     Version
 }
@@ -796,6 +801,29 @@ public static class CliParser
 
                 case "--profiles":
                     options.Command = CliCommand.Profiles;
+                    break;
+
+                case "export" when options.Command == CliCommand.None:
+                    // `winsentinel export <format>` — portable findings export (F11).
+                    // Format may be supplied positionally (next non-flag arg) or via --format.
+                    options.Command = CliCommand.Export;
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                    {
+                        options.ExportFormat = args[++i].ToLowerInvariant();
+                    }
+                    break;
+
+                case "--format":
+                    if (!TryConsumeArg(args, ref i, "--format", out var fmtVal, out var fmtErr))
+                    {
+                        options.Error = fmtErr;
+                        return options;
+                    }
+                    options.ExportFormat = fmtVal.ToLowerInvariant();
+                    break;
+
+                case "--include-pass":
+                    options.ExportIncludePass = true;
                     break;
 
                 case "--trend":

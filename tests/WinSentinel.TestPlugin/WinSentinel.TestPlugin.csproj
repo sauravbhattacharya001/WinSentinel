@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    TEST-ONLY synthetic plugin DLL. Built by tests/WinSentinel.Tests to
+    exercise PluginHost signature / entitlement / trust paths. Deliberately
+    NOT in WinSentinel.sln and never shipped to users. See
+    docs/CREATING-PLUGINS.md for the REAL plugin author guide.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\WinSentinel.Core\WinSentinel.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="plugin.json" />
+  </ItemGroup>
+
+</Project>

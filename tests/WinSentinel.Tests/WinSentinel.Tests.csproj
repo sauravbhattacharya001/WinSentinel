@@ -42,6 +42,7 @@
     <ProjectReference Include="..\..\src\WinSentinel.Core\WinSentinel.Core.csproj" />
     <ProjectReference Include="..\..\src\WinSentinel.Cli\WinSentinel.Cli.csproj" />
     <ProjectReference Include="..\..\src\WinSentinel.Agent\WinSentinel.Agent.csproj" />
+    <ProjectReference Include="..\WinSentinel.TestPlugin\WinSentinel.TestPlugin.csproj" />
   </ItemGroup>
 
   <ItemGroup>

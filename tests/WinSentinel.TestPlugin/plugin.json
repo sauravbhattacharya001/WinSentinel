@@ -1,0 +1,9 @@
+{
+  "featureId": "test-stub",
+  "version": "0.0.1",
+  "minCoreVersion": "1.16.0",
+  "publisher_name": "TEST-ONLY",
+  "publisher_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+  "requiredEntitlement": "test-stub",
+  "signature": ""
+}

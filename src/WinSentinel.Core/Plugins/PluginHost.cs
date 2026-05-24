@@ -200,7 +200,53 @@ public sealed class PluginHost
             return;
         }
 
-        var isUnsigned = string.IsNullOrWhiteSpace(manifest.PublisherKey) || string.IsNullOrWhiteSpace(manifest.Signature);
+        var hasPubSidecar = File.Exists(dllPath + ".pub");
+        var hasSigSidecar = File.Exists(dllPath + ".sig");
+        var hasManifestPub = !string.IsNullOrWhiteSpace(manifest.PublisherKey);
+        var hasManifestSig = !string.IsNullOrWhiteSpace(manifest.Signature);
+        var isUnsigned = !(hasManifestPub || hasPubSidecar) || !(hasManifestSig || hasSigSidecar);
+
+        // Signature source priority: sidecar `<dll>.sig` (raw 64 bytes OR base64
+        // text) wins over manifest.Signature. Sidecars are the practical signing
+        // convention because embedding the signature inside the very bytes you're
+        // signing creates a self-reference problem.
+        string? effectiveSignatureB64 = null;
+        var sidecarPath = dllPath + ".sig";
+        if (File.Exists(sidecarPath))
+        {
+            try
+            {
+                var raw = File.ReadAllBytes(sidecarPath);
+                if (raw.Length == Ed25519Crypto.SignatureSize)
+                {
+                    effectiveSignatureB64 = Convert.ToBase64String(raw);
+                }
+                else
+                {
+                    // Treat as text.
+                    effectiveSignatureB64 = System.Text.Encoding.UTF8.GetString(raw).Trim();
+                }
+            }
+            catch
+            {
+                effectiveSignatureB64 = null;
+            }
+        }
+        if (string.IsNullOrWhiteSpace(effectiveSignatureB64))
+            effectiveSignatureB64 = manifest.Signature;
+
+        // Publisher key source: sidecar `<dll>.pub` (base64 text) wins over
+        // manifest.PublisherKey. Useful for re-publishing a third-party DLL
+        // under your own key without rebuilding it; also used by tests.
+        string? effectivePublisherKeyB64 = null;
+        var pubSidecar = dllPath + ".pub";
+        if (File.Exists(pubSidecar))
+        {
+            try { effectivePublisherKeyB64 = File.ReadAllText(pubSidecar).Trim(); }
+            catch { effectivePublisherKeyB64 = null; }
+        }
+        if (string.IsNullOrWhiteSpace(effectivePublisherKeyB64))
+            effectivePublisherKeyB64 = manifest.PublisherKey;
 
         if (isUnsigned)
         {
@@ -217,7 +263,7 @@ public sealed class PluginHost
         else
         {
             // Trust check: publisher_key must appear in the trusted set.
-            var publisherKeyBytes = Ed25519Crypto.TryDecodeBase64(manifest.PublisherKey);
+            var publisherKeyBytes = Ed25519Crypto.TryDecodeBase64(effectivePublisherKeyB64);
             if (publisherKeyBytes is null || publisherKeyBytes.Length != Ed25519Crypto.PublicKeySize)
             {
                 Record(dllPath, PluginLoadStatus.SkippedUntrustedPublisher,
@@ -239,14 +285,14 @@ public sealed class PluginHost
             if (!isTrusted)
             {
                 Record(dllPath, PluginLoadStatus.SkippedUntrustedPublisher,
-                    manifest.FeatureId, manifest.Version, manifest.PublisherName, manifest.PublisherKey,
+                    manifest.FeatureId, manifest.Version, manifest.PublisherName, effectivePublisherKeyB64,
                     $"publisher '{manifest.PublisherName}' is not trusted (add with `winsentinel plugin trust`)");
                 alc.Unload();
                 return;
             }
 
             // Signature check.
-            var sigBytes = Ed25519Crypto.TryDecodeBase64(manifest.Signature);
+            var sigBytes = Ed25519Crypto.TryDecodeBase64(effectiveSignatureB64);
             byte[] hash = SHA256.HashData(dllBytes);
             if (sigBytes is null || !Ed25519Crypto.Verify(publisherKeyBytes, hash, sigBytes))
             {

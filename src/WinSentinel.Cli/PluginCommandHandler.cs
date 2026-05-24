@@ -37,13 +37,21 @@ internal static class PluginCommandHandler
     private static int HandleList(CliOptions options)
     {
         // Spin up a quiet host so we can show what loads / what was skipped.
+        // Capture warnings into a buffer so json output stays clean; emit
+        // them on stderr only for the text format.
         var trust = TrustedPublisherStore.Load();
+        var warnings = new System.Collections.Generic.List<string>();
         var host = new PluginHost(
             trust,
             PluginHost.DefaultPluginDir,
             id => string.IsNullOrEmpty(id) || LicenseManager.IsEntitled(id),
-            log: (_, _) => { },
+            log: (msg, level) =>
+            {
+                if (level >= PluginLogLevel.Warning) warnings.Add($"[plugin:{level.ToString().ToLowerInvariant()}] {msg}");
+            },
             reportProvider: null);
+        // `plugin list` is the trust dashboard \u2014 always show trust-config warnings here.
+        host.MaybeWarnAboutTrustConfiguration(always: true);
         host.LoadAll();
 
         if (string.Equals(options.PluginFormat, "json", StringComparison.OrdinalIgnoreCase))
@@ -62,6 +70,7 @@ internal static class PluginCommandHandler
         Console.WriteLine($"Plugin directory: {PluginHost.DefaultPluginDir}");
         Console.WriteLine($"allow_unsigned:   {trust.AllowUnsigned}");
         Console.WriteLine();
+        foreach (var w in warnings) Console.Error.WriteLine(w);
         Console.WriteLine("Trusted publishers:");
         if (trust.TrustedPublishers.Count == 0)
         {

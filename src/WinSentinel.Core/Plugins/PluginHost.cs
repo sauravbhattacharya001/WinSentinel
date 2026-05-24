@@ -96,6 +96,28 @@ public sealed class PluginHost
             log: log,
             reportProvider: null)
     {
+        // Only emit trust-config warnings when they're actionable for this run:
+        // i.e. there is at least one .dll in the plugin dir. Otherwise the user
+        // has no plugins at all and the noise pollutes every CLI invocation
+        // (including JSON output). The `winsentinel plugin list` command path
+        // calls MaybeWarnAboutTrustConfiguration(always: true) to keep the
+        // trust dashboard fully verbose. Closes #222.
+        MaybeWarnAboutTrustConfiguration(always: false);
+    }
+
+    /// <summary>
+    /// Emits stderr warnings about trust configuration (no trusted publishers,
+    /// or allow_unsigned=true). When <paramref name="always"/> is false, the
+    /// warnings only fire if the plugin directory actually contains at least
+    /// one <c>.dll</c> \u2014 in which case they're actionable. When true, they
+    /// always fire (used by the explicit <c>winsentinel plugin list</c>
+    /// command, which is the trust dashboard).
+    /// </summary>
+    public void MaybeWarnAboutTrustConfiguration(bool always)
+    {
+        bool gate = always || PluginsDirHasDlls();
+        if (!gate) return;
+
         if (_trustConfig.TrustedPublishers.Count == 0)
         {
             _log(
@@ -111,6 +133,20 @@ public sealed class PluginHost
                 "Unsigned plugins are ALLOWED (developer mode). Disable with " +
                 "`winsentinel plugin trust --allow-unsigned=false`.",
                 PluginLogLevel.Warning);
+        }
+    }
+
+    /// <summary>True iff the plugin directory exists and contains at least one *.dll.</summary>
+    internal bool PluginsDirHasDlls()
+    {
+        try
+        {
+            if (!Directory.Exists(_pluginDir)) return false;
+            return Directory.EnumerateFiles(_pluginDir, "*.dll", SearchOption.TopDirectoryOnly).Any();
+        }
+        catch
+        {
+            return false;
         }
     }
 

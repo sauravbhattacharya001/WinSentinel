@@ -81,6 +81,10 @@ public class CliOptions
     public int WhatIfTopN { get; set; } = 5;
     public string SummaryFormat { get; set; } = "text";
     public int SummaryTrendDays { get; set; } = 30;
+
+    // ── License sub-command ─────────────────────────────────────────
+    public LicenseAction LicenseAction { get; set; } = LicenseAction.None;
+    public string? LicensePath { get; set; }
 }
 
 public enum CliCommand
@@ -110,6 +114,7 @@ public enum CliCommand
     AttackPaths,
     WhatIf,
     Summary,
+    License,
     Help,
     Version
 }
@@ -191,6 +196,14 @@ public enum WhatIfAction
     TopN
 }
 
+public enum LicenseAction
+{
+    None,
+    Activate,
+    Status,
+    Deactivate
+}
+
 /// <summary>
 /// Parses command-line arguments into <see cref="CliOptions"/>.
 /// </summary>
@@ -241,6 +254,43 @@ public static class CliParser
         if (args.Length == 0)
         {
             options.Command = CliCommand.None;
+            return options;
+        }
+
+        // Bare verb form for the license sub-command:
+        //   winsentinel license activate <path-or-blob>
+        //   winsentinel license status
+        //   winsentinel license deactivate
+        if (string.Equals(args[0], "license", StringComparison.OrdinalIgnoreCase))
+        {
+            options.Command = CliCommand.License;
+            if (args.Length < 2)
+            {
+                options.Error = "Missing license action. Use: license activate <path|blob> | license status | license deactivate";
+                return options;
+            }
+            var sub = args[1].ToLowerInvariant();
+            switch (sub)
+            {
+                case "activate":
+                    options.LicenseAction = LicenseAction.Activate;
+                    if (args.Length < 3)
+                    {
+                        options.Error = "Missing license path or blob. Usage: license activate <path|base64-json>";
+                        return options;
+                    }
+                    options.LicensePath = args[2];
+                    break;
+                case "status":
+                    options.LicenseAction = LicenseAction.Status;
+                    break;
+                case "deactivate":
+                    options.LicenseAction = LicenseAction.Deactivate;
+                    break;
+                default:
+                    options.Error = $"Unknown license action: {sub}. Use activate, status, or deactivate.";
+                    return options;
+            }
             return options;
         }
 

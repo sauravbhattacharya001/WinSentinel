@@ -19,7 +19,7 @@
     <ThresholdStat>total</ThresholdStat>
     <!-- Exclude generated code, test infra, and installer from coverage -->
     <ExcludeByFile>**/*.g.cs,**/obj/**</ExcludeByFile>
-    <Exclude>[WinSentinel.Tests]*,[WinSentinel.Installer]*,[WinSentinel.App]*.Views.*,[WinSentinel.App]*.Controls.*</Exclude>
+    <Exclude>[WinSentinel.Tests]*,[WinSentinel.TestPlugin]*,[WinSentinel.Installer]*,[WinSentinel.App]*.Views.*,[WinSentinel.App]*.Controls.*</Exclude>
   </PropertyGroup>
 
   <ItemGroup>
@@ -41,6 +41,7 @@
     <ProjectReference Include="..\..\src\WinSentinel.Core\WinSentinel.Core.csproj" />
     <ProjectReference Include="..\..\src\WinSentinel.Cli\WinSentinel.Cli.csproj" />
     <ProjectReference Include="..\..\src\WinSentinel.Agent\WinSentinel.Agent.csproj" />
+    <ProjectReference Include="..\WinSentinel.TestPlugin\WinSentinel.TestPlugin.csproj" />
   </ItemGroup>
 
   <ItemGroup>

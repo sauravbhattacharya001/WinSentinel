@@ -4,7 +4,9 @@ using System.Text.Json.Serialization;
 using WinSentinel.Cli;
 using WinSentinel.Core.Audits;
 using WinSentinel.Core.Interfaces;
+using WinSentinel.Core.Licensing;
 using WinSentinel.Core.Models;
+using WinSentinel.Core.Plugins;
 using WinSentinel.Core.Services;
 
 // ── Entry Point ──────────────────────────────────────────────────────
@@ -17,10 +19,17 @@ if (options.Error != null)
     return 3;
 }
 
+// Plugin host is instantiated on every startup. When no plugins are present
+// (the default) LoadAll() returns 0 and downstream behavior is unchanged.
+// Diagnostics from the host go to stderr so they don't pollute --json output.
+var pluginHost = new PluginHost(log: msg => Console.Error.WriteLine($"[plugins] {msg}"));
+pluginHost.LoadAll();
+
 return options.Command switch
 {
     CliCommand.Help => HandleHelp(),
     CliCommand.Version => HandleVersion(),
+    CliCommand.License => HandleLicense(options),
     CliCommand.Score => await HandleScore(options),
     CliCommand.Audit => await HandleAudit(options),
     CliCommand.FixAll => await HandleFixAll(options),
@@ -433,6 +442,53 @@ static int HandleVersion()
 {
     ConsoleFormatter.PrintVersion();
     return 0;
+}
+
+static int HandleLicense(CliOptions options)
+{
+    var verifier = new LicenseVerifier();
+
+    switch (options.LicenseAction)
+    {
+        case LicenseAction.Activate:
+            try
+            {
+                var info = verifier.Activate(options.LicensePath!);
+                Console.WriteLine($"License activated for {info.Customer}");
+                Console.WriteLine($"  Plan:         {info.Plan}");
+                Console.WriteLine($"  Entitlements: {string.Join(", ", info.Entitlements)}");
+                Console.WriteLine($"  Expires:      {info.Expires:yyyy-MM-dd}");
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                ConsoleFormatter.PrintError($"License activation failed: {ex.Message}");
+                return 2;
+            }
+
+        case LicenseAction.Status:
+            if (!verifier.IsActivated || verifier.Current == null)
+            {
+                Console.WriteLine("Free tier — no license");
+                return 0;
+            }
+            var cur = verifier.Current;
+            Console.WriteLine($"Licensed to:  {cur.Customer}");
+            Console.WriteLine($"Plan:         {cur.Plan}");
+            Console.WriteLine($"Entitlements: {string.Join(", ", cur.Entitlements)}");
+            Console.WriteLine($"Issued:       {cur.Issued:yyyy-MM-dd}");
+            Console.WriteLine($"Expires:      {cur.Expires:yyyy-MM-dd}");
+            return 0;
+
+        case LicenseAction.Deactivate:
+            verifier.Deactivate();
+            Console.WriteLine("License removed. Reverted to free tier.");
+            return 0;
+
+        default:
+            ConsoleFormatter.PrintError("Unknown license action.");
+            return 3;
+    }
 }
 
 static async Task<int> HandleScore(CliOptions options)

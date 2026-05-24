@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>WinSentinel.Tools.GenerateKeypair</RootNamespace>
+    <!-- This tool is intentionally NOT part of WinSentinel.sln. It's a
+         one-shot keygen helper invoked manually from docs/plugin-key-setup.md.
+         Do not reference WinSentinel.Core to avoid pulling private types
+         into a tool that runs in interactive shells. -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.4.0" />
+  </ItemGroup>
+
+</Project>

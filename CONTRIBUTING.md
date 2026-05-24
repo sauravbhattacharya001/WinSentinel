@@ -5,6 +5,7 @@ Thank you for your interest in improving WinSentinel! Whether you're fixing a bu
 ## Table of Contents
 
 - [Code of Conduct](#code-of-conduct)
+- [Pro features are out-of-tree](#pro-features-are-out-of-tree)
 - [Getting Started](#getting-started)
 - [Development Setup](#development-setup)
 - [Project Structure](#project-structure)
@@ -19,6 +20,42 @@ Thank you for your interest in improving WinSentinel! Whether you're fixing a bu
 ## Code of Conduct
 
 Be respectful, constructive, and professional. We're all here to make Windows security better.
+
+## Pro features are out-of-tree
+
+This repository is the **free, MIT-licensed core** of WinSentinel. It
+contains **zero implementations** of paid features. The split is enforced
+by `scripts/check-no-pro-code.ps1` on every CI run.
+
+**What lives in this repo:**
+
+- All audit modules, scoring, history, ignore rules, baselines,
+  hardening scripts, the CLI, the WPF app, the agent service.
+- The plugin **interfaces** in `src/WinSentinel.Core/Plugins/` —
+  `IReportExporter`, `IScheduledScan`, `IMonitorDaemon`, `IFleetSink`,
+  `IComplianceMapper`.
+- The license verifier in `src/WinSentinel.Core/Licensing/` that gates
+  plugin loading.
+
+**What does NOT live here (and PRs adding it will be closed):**
+
+- Concrete PDF / branded HTML / DOCX report generation.
+- Real-time toast monitoring daemons.
+- Background scheduled scans (the in-process `ScanScheduler` for the WPF
+  app is a legacy single-machine helper, not the Pro "fleet of agents"
+  scheduler).
+- Fleet upload / central collector clients.
+- Extended compliance framework mappers (CIS Level 2, Essential 8
+  maturity model, NIST, etc.).
+
+These ship as **signed plugin DLLs** from a separate commercial
+repository. Plugins are dropped into `%LOCALAPPDATA%\WinSentinel\plugins`
+and loaded by `PluginHost` only after Ed25519 signature verification
+and an entitlement check against the user's license.
+
+If you're unsure whether your idea is core or Pro, **open an issue
+first** before sending a PR — we'd rather have the conversation early
+than close your code at review time.
 
 ## Getting Started
 

@@ -79,6 +79,10 @@ jobs:
     - name: Restore dependencies
       run: dotnet restore
 
+    - name: Hard-isolation check (no Pro feature code in free core)
+      shell: pwsh
+      run: ./scripts/check-no-pro-code.ps1
+
     - name: Build
       run: >-
         dotnet build --no-restore

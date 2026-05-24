@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <!-- Intentionally NOT in WinSentinel.sln. Built on demand by the test
+         project as a synthetic plugin DLL for PluginHostTests. Contains
+         NO real Pro-feature code; the implementations are deliberately
+         trivial in-memory stubs. -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\WinSentinel.Core\WinSentinel.Core.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -6,7 +6,7 @@
          is still produced for the WPF app and Windows service. CA1416 is
          suppressed because Core is documented as Windows-only at runtime. -->
     <TargetFrameworks>net8.0;net8.0-windows</TargetFrameworks>
-    <Version>1.17.0</Version>
+    <Version>1.19.0</Version>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <Platforms>AnyCPU;x64;x86;ARM64</Platforms>

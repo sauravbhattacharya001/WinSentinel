@@ -280,6 +280,7 @@ public static partial class ConsoleFormatter
         WriteHelpEntry("    --status             ", "Quick security posture dashboard (no new scan)");
         WriteHelpEntry("    --harden             ", "Generate reviewable PowerShell hardening script");
         WriteHelpEntry("    export <format>      ", "Export findings as json | csv | sarif | markdown (use -o file)");
+        WriteHelpEntry("    self-update          ", "Update WinSentinel.Cli from NuGet (--check to compare only)");
         WriteHelpEntry("    --policy <action>    ", "Security Policy as Code (export/import/validate/diff)");
         WriteHelpEntry("    --threats            ", "STRIDE threat model from audit findings");
         WriteHelpEntry("    --attack-paths       ", "Kill chain attack path analysis with chokepoints");

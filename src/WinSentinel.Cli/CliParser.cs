@@ -20,6 +20,18 @@ public class CliOptions
     public string? ExportFormat { get; set; }
     /// <summary>Include passing checks in the exported output (where supported).</summary>
     public bool ExportIncludePass { get; set; }
+    /// <summary>
+    /// When <c>true</c>, <c>self-update</c> only reports whether a newer
+    /// version is available on NuGet and exits with code 0 (up-to-date) or
+    /// 10 (update available). It never invokes <c>dotnet tool update</c>.
+    /// </summary>
+    public bool SelfUpdateCheckOnly { get; set; }
+    /// <summary>Optional NuGet feed override for <c>self-update</c> (passed through as <c>--source</c>).</summary>
+    public string? SelfUpdateSource { get; set; }
+    /// <summary>Optional explicit version for <c>self-update</c> (passed through as <c>--version</c> to <c>dotnet tool update</c>).</summary>
+    public string? SelfUpdateVersion { get; set; }
+    /// <summary>When <c>true</c>, also pass <c>--prerelease</c> to <c>dotnet tool update</c>.</summary>
+    public bool SelfUpdatePrerelease { get; set; }
     public string? ModulesFilter { get; set; }
     public bool Quiet { get; set; }
     public int? Threshold { get; set; }
@@ -507,6 +519,7 @@ public enum CliCommand
     Impact,
     Collection,
     Export,
+    SelfUpdate,
     Help,
     Version
 }
@@ -801,6 +814,40 @@ public static class CliParser
 
                 case "--profiles":
                     options.Command = CliCommand.Profiles;
+                    break;
+
+                case "self-update" or "selfupdate" when options.Command == CliCommand.None:
+                    // Free F15: wrap `dotnet tool update -g WinSentinel.Cli`.
+                    // No positional args; flags are consumed by the generic
+                    // flag handlers below (--check, --source, --version,
+                    // --prerelease, --json, --quiet).
+                    options.Command = CliCommand.SelfUpdate;
+                    break;
+
+                case "--check" when options.Command == CliCommand.SelfUpdate:
+                    options.SelfUpdateCheckOnly = true;
+                    break;
+
+                case "--source" when options.Command == CliCommand.SelfUpdate:
+                    if (!TryConsumeArg(args, ref i, "--source", out var suSrcVal, out var suSrcErr))
+                    {
+                        options.Error = suSrcErr;
+                        return options;
+                    }
+                    options.SelfUpdateSource = suSrcVal;
+                    break;
+
+                case "--prerelease" when options.Command == CliCommand.SelfUpdate:
+                    options.SelfUpdatePrerelease = true;
+                    break;
+
+                case "--to" when options.Command == CliCommand.SelfUpdate:
+                    if (!TryConsumeArg(args, ref i, "--to", out var suVerVal, out var suVerErr))
+                    {
+                        options.Error = suVerErr;
+                        return options;
+                    }
+                    options.SelfUpdateVersion = suVerVal;
                     break;
 
                 case "export" when options.Command == CliCommand.None:

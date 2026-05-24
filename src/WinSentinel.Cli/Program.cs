@@ -129,6 +129,7 @@ return options.Command switch
     CliCommand.Impact => await HandleImpact(options),
     CliCommand.Collection => await HandleCollection(options),
     CliCommand.Export => await HandleExport(options),
+    CliCommand.SelfUpdate => await SelfUpdateCommandHandler.HandleAsync(options),
     _ => HandleHelp()
 };
 

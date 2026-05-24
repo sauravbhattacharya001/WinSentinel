@@ -30,6 +30,7 @@ return options.Command switch
     CliCommand.Version => HandleVersion(options),
     CliCommand.Score => await HandleScore(options),
     CliCommand.Audit => await HandleAudit(options),
+    CliCommand.Pro => ProCommandHandler.Handle(options),
     CliCommand.FixAll => await HandleFixAll(options),
     CliCommand.History => HandleHistory(options),
     CliCommand.Baseline => await HandleBaseline(options),

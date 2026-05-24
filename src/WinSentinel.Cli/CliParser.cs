@@ -365,12 +365,44 @@ public class CliOptions
     public int CollectionTop { get; set; } = 20;
     public string CollectionFormat { get; set; } = "text";
     public string? CollectionSeverityFilter { get; set; }
+
+    // ── Pro / licensing options ───────────────────────────────────────
+    //
+    // The `pro` command is the public face of WinSentinel commercialization.
+    // `--license <key>` is a global flag (works alongside ANY command) that
+    // injects a license key into the current invocation without persisting it
+    // — useful for CI runners that mount a secret at runtime.
+    public ProAction ProAction { get; set; } = ProAction.None;
+    /// <summary>The <c>WSP-XXXX-XXXX-XXXX</c> key passed to <c>pro activate</c>, or a path to a signed envelope file.</summary>
+    public string? ProKey { get; set; }
+    public string? ProEmail { get; set; }
+    /// <summary><c>individual</c> or <c>team</c>. Defaults to <c>individual</c> when missing on activate.</summary>
+    public string? ProTier { get; set; }
+    /// <summary>Override expiry for <c>pro activate</c>. When unset, defaults to 1 year from now (matches an annual purchase).</summary>
+    public DateTimeOffset? ProExpiresAt { get; set; }
+    /// <summary>Raw signed wire envelope (Ed25519 JSON) to persist alongside the key for later refresh.</summary>
+    public string? ProEnvelope { get; set; }
+    /// <summary>Output format for <c>pro status</c>: <c>text</c> (default) or <c>json</c>.</summary>
+    public string ProFormat { get; set; } = "text";
+    /// <summary>Transient license key from global <c>--license &lt;key&gt;</c>. Not persisted.</summary>
+    public string? TransientLicenseKey { get; set; }
+}
+
+public enum ProAction
+{
+    None,
+    Status,
+    Activate,
+    Deactivate,
+    StartTrial,
+    Help,
 }
 
 public enum CliCommand
 {
     None,
     Audit,
+    Pro,
     Score,
     FixAll,
     History,
@@ -699,6 +731,53 @@ public static class CliParser
                     options.Command = CliCommand.Audit;
                     break;
 
+                case "--license":
+                    // Global flag — transient license override usable with any command.
+                    // Does NOT persist; for that, use `winsentinel pro activate <key>`.
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                    {
+                        options.TransientLicenseKey = args[++i];
+                    }
+                    else
+                    {
+                        options.Error = "--license requires a key (e.g. WSP-XXXX-XXXX-XXXX).";
+                        return options;
+                    }
+                    break;
+
+                case "pro":
+                    options.Command = CliCommand.Pro;
+                    // Parse subcommand: status (default), activate, deactivate, start-trial, help.
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                    {
+                        var sub = args[++i].ToLowerInvariant();
+                        options.ProAction = sub switch
+                        {
+                            "status" => ProAction.Status,
+                            "activate" => ProAction.Activate,
+                            "deactivate" => ProAction.Deactivate,
+                            "start-trial" or "trial" or "start_trial" => ProAction.StartTrial,
+                            "help" or "-h" or "--help" => ProAction.Help,
+                            _ => ProAction.None,
+                        };
+                        if (options.ProAction == ProAction.None)
+                        {
+                            options.Error = $"Unknown `pro` subcommand: '{sub}'. Try: status, activate, deactivate, start-trial.";
+                            return options;
+                        }
+                        // For `activate`, the next non-flag arg is the key.
+                        if (options.ProAction == ProAction.Activate && i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                        {
+                            options.ProKey = args[++i];
+                        }
+                    }
+                    else
+                    {
+                        // bare `winsentinel pro` => status
+                        options.ProAction = ProAction.Status;
+                    }
+                    break;
+
                 case "--score" or "-s":
                     options.Command = CliCommand.Score;
                     break;
@@ -1004,6 +1083,69 @@ public static class CliParser
 
                 case "--policy-desc":
                     if (i + 1 < args.Length) options.PolicyDescription = args[++i];
+                    break;
+
+                case "--pro-email":
+                    if (i + 1 < args.Length) options.ProEmail = args[++i];
+                    break;
+
+                case "--pro-tier":
+                    if (i + 1 < args.Length) options.ProTier = args[++i].ToLowerInvariant();
+                    break;
+
+                case "--pro-expires":
+                    if (i + 1 < args.Length)
+                    {
+                        var raw = args[++i];
+                        if (DateTimeOffset.TryParse(raw, System.Globalization.CultureInfo.InvariantCulture,
+                                System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal,
+                                out var parsed))
+                        {
+                            options.ProExpiresAt = parsed;
+                        }
+                        else
+                        {
+                            options.Error = $"Invalid --pro-expires value '{raw}'. Use ISO-8601 (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ).";
+                            return options;
+                        }
+                    }
+                    break;
+
+                case "--pro-envelope":
+                    if (i + 1 < args.Length)
+                    {
+                        var raw = args[++i];
+                        // Accept either a path to a .wslic file or an inline JSON envelope.
+                        if (System.IO.File.Exists(raw))
+                        {
+                            try { options.ProEnvelope = System.IO.File.ReadAllText(raw); }
+                            catch (Exception ex)
+                            {
+                                options.Error = $"Could not read --pro-envelope file '{raw}': {ex.Message}";
+                                return options;
+                            }
+                        }
+                        else
+                        {
+                            options.ProEnvelope = raw;
+                        }
+                    }
+                    break;
+
+                case "--pro-format":
+                    if (i + 1 < args.Length)
+                    {
+                        var fmt = args[++i].ToLowerInvariant();
+                        if (fmt is "text" or "json")
+                        {
+                            options.ProFormat = fmt;
+                        }
+                        else
+                        {
+                            options.Error = $"Invalid --pro-format '{fmt}'. Use 'text' or 'json'.";
+                            return options;
+                        }
+                    }
                     break;
 
                 case "--no-prompt":

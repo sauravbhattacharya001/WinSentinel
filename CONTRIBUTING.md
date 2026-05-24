@@ -825,3 +825,28 @@ Releases follow semantic versioning. The CI pipeline handles most of it:
 Changelog entries are auto-generated from conventional commit messages since the last tag.
 
 Thank you for helping make Windows more secure! 🛡️
+
+## Plugins are out-of-tree
+
+WinSentinel uses a multi-publisher plugin architecture. **No plugin
+implementations may be added to this repo** — not the official `winsentinel-pro`
+plugin, not 3rd-party plugins, not internal plugins, none. `winsentinel-pro` is
+just one such external plugin and lives in its own private repo. Every other
+plugin lives in its own repo too.
+
+Concretely:
+
+- The MIT core (this repo) ships ONLY plugin **interfaces**
+  (`src/WinSentinel.Core/Plugins/`), the **trust + signature loader**
+  (`PluginHost`), and the **trust store** (`TrustedPublisherStore`).
+- Concrete plugin implementations (PDF/DOCX exporters, monitor daemons, fleet
+  clients, compliance mappers, schedulers, etc.) belong in their own repos,
+  signed with their publisher's Ed25519 key, and discovered at runtime under
+  `%LOCALAPPDATA%\WinSentinel\plugins\`.
+- `scripts/check-no-pro-code.ps1` enforces this in CI: PRs that add concrete
+  plugin impls under `src/`, smuggle inline `LicenseManager.IsPro` /
+  `TryRequirePro` / `GetStatus` branches into feature code, or embed a
+  `plugin.json` resource into a core csproj will be rejected automatically.
+- See [`docs/CREATING-PLUGINS.md`](docs/CREATING-PLUGINS.md) for the plugin
+  author guide, and [`docs/plugin-key-setup.md`](docs/plugin-key-setup.md) for
+  the WinSentinel-project signing-key runbook (founder-only).

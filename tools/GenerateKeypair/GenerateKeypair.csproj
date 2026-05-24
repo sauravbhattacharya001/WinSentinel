@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Offline operator tool for generating the WinSentinel plugin signing keypair.
+    DELIBERATELY excluded from WinSentinel.sln so CI never builds it and so the
+    private signing flow stays a manual, conscious act. Run with:
+
+        dotnet run --project tools/GenerateKeypair
+
+    The tool prints public + private keys to stdout once and exits. It never
+    writes to disk. The operator MUST immediately copy the private key into a
+    password manager and never paste it anywhere else. See
+    docs/plugin-key-setup.md for the full runbook.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>WinSentinel.Tools.GenerateKeypair</RootNamespace>
+    <AssemblyName>GenerateKeypair</AssemblyName>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.4.0" />
+  </ItemGroup>
+
+</Project>

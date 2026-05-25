@@ -624,7 +624,7 @@ public static partial class InputSanitizer
     private static partial Regex DotSourcePattern();
 
     /// <summary>Matches string concatenation patterns used to bypass keyword detection (e.g. 'I'+'EX').</summary>
-    [GeneratedRegex(@"['""][a-zA-Z]{1,10}['""]\s*\+\s*['""][a-zA-Z]{1,20}['""]", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"['""][a-zA-Z]{1,10}['""]\s*\+\s*['""][a-zA-Z\-]{1,20}['""]", RegexOptions.IgnoreCase)]
     private static partial Regex StringConcatBypassPattern();
 
     /// <summary>Matches PowerShell format operator patterns used to reconstruct keywords.</summary>

@@ -251,7 +251,7 @@ public class FixEngineTests
             Title = "Multi-line Test",
             Description = "Multiple lines",
             Severity = Severity.Warning,
-            FixCommand = "Write-Output 'Line1'; Write-Output 'Line2'; Write-Output 'Line3'"
+            FixCommand = "'Line1','Line2','Line3' | ForEach-Object { Write-Output $_ }"
         };
 
         var result = await _engine.ExecuteFixAsync(finding);

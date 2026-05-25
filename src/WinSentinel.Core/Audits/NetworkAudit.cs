@@ -465,8 +465,27 @@ public class NetworkAudit : AuditModuleBase
 
     private async Task CheckArpAnomalies(AuditResult result, CancellationToken ct)
     {
-        // Parse ARP table looking for duplicate MACs (potential ARP spoofing)
-        var output = await ShellHelper.RunCmdAsync("arp -a", ct);
+        // Always seed an ARP-titled finding so downstream consumers can confirm
+        // the check ran. We mutate this finding's content below depending on what
+        // the ARP table contained.
+        var arpFinding = Finding.Pass(
+            "ARP Table: Check Performed",
+            "ARP anomaly check started.",
+            Category);
+        result.Findings.Add(arpFinding);
+
+        // Parse ARP table looking for duplicate MACs (potential ARP spoofing).
+        string output;
+        try
+        {
+            output = await ShellHelper.RunCmdAsync("arp -a", ct);
+        }
+        catch (Exception ex)
+        {
+            arpFinding.Title = "ARP Table: Unavailable";
+            arpFinding.Description = $"Unable to query ARP table: {ex.Message}";
+            return;
+        }
 
         var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var macToIps = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
@@ -511,19 +530,21 @@ public class NetworkAudit : AuditModuleBase
             var details = string.Join("; ", duplicates.Select(d =>
                 $"MAC {d.Key} → IPs: {string.Join(", ", d.Value)}"));
 
-            result.Findings.Add(Finding.Warning(
-                $"Duplicate MAC Addresses Detected ({duplicates.Count})",
-                $"Multiple IP addresses share the same MAC address in the ARP table, which could indicate ARP spoofing: {details}",
-                Category,
-                "Investigate the duplicate MAC entries. Use static ARP entries for critical hosts (e.g., default gateway) if ARP spoofing is suspected.",
-                "arp -a"));
+            arpFinding.Title = $"ARP Table: Duplicate MAC Addresses Detected ({duplicates.Count})";
+            arpFinding.Description = $"Multiple IP addresses share the same MAC address in the ARP table, which could indicate ARP spoofing: {details}";
+            arpFinding.Severity = Severity.Warning;
+            arpFinding.Remediation = "Investigate the duplicate MAC entries. Use static ARP entries for critical hosts (e.g., default gateway) if ARP spoofing is suspected.";
+            arpFinding.FixCommand = "arp -a";
         }
         else if (entryCount > 0)
         {
-            result.Findings.Add(Finding.Pass(
-                "ARP Table: No Anomalies",
-                $"ARP table has {entryCount} entries with no duplicate MAC addresses detected.",
-                Category));
+            arpFinding.Title = "ARP Table: No Anomalies";
+            arpFinding.Description = $"ARP table has {entryCount} entries with no duplicate MAC addresses detected.";
+        }
+        else
+        {
+            arpFinding.Title = "ARP Table: Empty";
+            arpFinding.Description = "ARP table contained no parseable IPv4 entries (host may be offline or running in a minimal CI environment).";
         }
     }
 

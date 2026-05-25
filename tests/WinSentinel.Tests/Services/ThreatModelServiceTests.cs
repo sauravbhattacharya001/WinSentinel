@@ -353,8 +353,8 @@ public class ThreatModelServiceTests
     public void StrideCoverage_ReflectsAffectedCategories()
     {
         var report = MakeReport(
-            Finding.Warning("Password weak", "Bad auth", "Auth"),
-            Finding.Warning("Audit not configured", "No logs", "Logging"));
+            Finding.Warning("Weak password policy", "Bad authentication", "Auth"),
+            Finding.Warning("Audit policy not configured", "No logging", "Logging"));
         var model = _service.Analyze(report);
 
         // At least Spoofing + Repudiation

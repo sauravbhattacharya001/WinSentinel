@@ -64,9 +64,9 @@ public class ThreatLog
 
     /// <summary>
     /// Get events from today only (newest first).
-    /// Since events are enqueued chronologically, iterates from the end and
-    /// stops as soon as it hits a non-today event — O(k) where k is today's
-    /// event count rather than O(n) over the entire log.
+    /// Iterates the full snapshot since callers may Add() out-of-order events
+    /// (e.g. backfilled or historical threats), so an early-break on the first
+    /// non-today event would under-report.
     /// </summary>
     public List<ThreatEvent> GetToday()
     {
@@ -77,15 +77,13 @@ public class ThreatLog
         {
             if (snapshot[i].Timestamp.UtcDateTime.Date == today)
                 result.Add(snapshot[i]);
-            else
-                break; // Events are chronological; no more today events exist
         }
         return result;
     }
 
     /// <summary>
-    /// Count of events from today.
-    /// Short-circuits from the end of the chronologically-ordered queue.
+    /// Count of events from today. Iterates the full snapshot for the same
+    /// reason as GetToday().
     /// </summary>
     public int GetTodayCount()
     {
@@ -96,8 +94,6 @@ public class ThreatLog
         {
             if (snapshot[i].Timestamp.UtcDateTime.Date == today)
                 count++;
-            else
-                break;
         }
         return count;
     }

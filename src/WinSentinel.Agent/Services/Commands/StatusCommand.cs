@@ -13,6 +13,10 @@ public sealed class StatusCommand : ChatCommandBase
                 "security score", "my score", "what's my score", "score", "/score"))
             return Task.FromResult<ChatResponsePayload?>(null);
 
+        // "score history" / "score trend" belong to InfoCommands, not Status.
+        if (lower.Contains("history") || lower.Contains("trend"))
+            return Task.FromResult<ChatResponsePayload?>(null);
+
         var snapshot = context.State.ToSnapshot();
         var uptime = TimeSpan.FromSeconds(snapshot.UptimeSeconds);
         var uptimeStr = uptime.TotalDays >= 1

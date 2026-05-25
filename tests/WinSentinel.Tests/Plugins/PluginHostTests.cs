@@ -254,4 +254,70 @@ public sealed class PluginHostTests : IDisposable
         Assert.Equal(PluginLoadStatus.Loaded, r.Status);
         Assert.Equal("test-stub", r.FeatureId);
     }
+
+    // ---- #222: trust-config warning gating ----
+
+    private PluginHost NewHostWithLog(TrustedPublisherConfig trust, System.Collections.Generic.List<string> sink)
+    {
+        return new PluginHost(
+            trust,
+            _pluginDir,
+            _ => true,
+            log: (msg, level) =>
+            {
+                if (level >= PluginLogLevel.Warning) sink.Add(msg);
+            },
+            reportProvider: null);
+    }
+
+    [Fact]
+    public void EmptyPluginsDir_NoTrustedPublishers_DoesNotWarn()
+    {
+        // Plugins dir is empty (created in ctor, no DLL staged).
+        var warns = new System.Collections.Generic.List<string>();
+        var host = NewHostWithLog(new TrustedPublisherConfig(), warns);
+        host.MaybeWarnAboutTrustConfiguration(always: false);
+        Assert.Empty(warns);
+    }
+
+    [Fact]
+    public void PluginsDirHasDll_NoTrustedPublishers_DoesWarn()
+    {
+        // Drop any .dll (doesn't have to load) to make the warning actionable.
+        File.WriteAllBytes(Path.Combine(_pluginDir, "junk.dll"), new byte[] { 0, 1, 2, 3 });
+
+        var warns = new System.Collections.Generic.List<string>();
+        var host = NewHostWithLog(new TrustedPublisherConfig(), warns);
+        host.MaybeWarnAboutTrustConfiguration(always: false);
+        Assert.Single(warns);
+        Assert.Contains("No trusted plugin publishers", warns[0]);
+    }
+
+    [Fact]
+    public void Always_True_Warns_Even_With_Empty_PluginsDir()
+    {
+        // The `winsentinel plugin list` command path uses always:true so the
+        // trust dashboard never goes silent on a misconfigured trust store.
+        var warns = new System.Collections.Generic.List<string>();
+        var host = NewHostWithLog(new TrustedPublisherConfig(), warns);
+        host.MaybeWarnAboutTrustConfiguration(always: true);
+        Assert.Single(warns);
+        Assert.Contains("No trusted plugin publishers", warns[0]);
+    }
+
+    [Fact]
+    public void AllowUnsigned_Warning_Still_Gated_By_Plugins_Present()
+    {
+        var warns = new System.Collections.Generic.List<string>();
+        var host = NewHostWithLog(
+            new TrustedPublisherConfig
+            {
+                AllowUnsigned = true,
+                TrustedPublishers = { new TrustedPublisher { Name = "x", PublicKey = new string('A', 43) + "=" } },
+            },
+            warns);
+        host.MaybeWarnAboutTrustConfiguration(always: false);
+        // No DLLs in dir \u2192 silent.
+        Assert.Empty(warns);
+    }
 }

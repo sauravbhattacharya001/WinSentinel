@@ -50,7 +50,9 @@ public enum PluginLoadStatus
 /// <para>Unsigned plugins (empty publisher_key / signature) are rejected by
 /// default. Setting <see cref="TrustedPublisherConfig.AllowUnsigned"/> = true
 /// (via <c>winsentinel plugin trust --allow-unsigned</c>) opts in to loading
-/// them, with a loud warning emitted on every startup.</para>
+/// them, with a warning emitted on startup whenever the plugin directory
+/// actually contains at least one DLL (and always from the
+/// <c>winsentinel plugin list</c> trust dashboard).</para>
 ///
 /// <para>Per-DLL failures never throw out of <see cref="LoadAll"/> \u2014
 /// they're recorded into <see cref="LoadResults"/> and logged.</para>

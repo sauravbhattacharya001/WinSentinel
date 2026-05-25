@@ -36,7 +36,9 @@ public sealed class TrustedPublisherConfig
 
     /// <summary>
     /// When true, plugins with no <c>publisher_key</c> / no signature are
-    /// loaded anyway (dev mode). The host logs a loud warning every startup.
+    /// loaded anyway (dev mode). The host logs a warning at startup when
+    /// the plugin directory actually contains at least one DLL, and always
+    /// when the user runs <c>winsentinel plugin list</c>.
     /// </summary>
     [JsonPropertyName("allow_unsigned")]
     public bool AllowUnsigned { get; set; }

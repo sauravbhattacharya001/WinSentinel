@@ -25,7 +25,9 @@ only if all of these are true:
 
 Unsigned plugins are rejected by default. Users can opt in to loading
 unsigned DLLs (`winsentinel plugin trust --allow-unsigned`); WinSentinel
-emits a loud warning on every startup while that's set, so plan on shipping
+emits a warning on startup whenever the plugin directory contains at
+least one `.dll` while that flag is set (and always when the user runs
+`winsentinel plugin list` — the trust dashboard), so plan on shipping
 a signed build for end users.
 
 ## Repo skeleton

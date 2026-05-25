@@ -15,7 +15,7 @@ public sealed class RegressionPredictorService
 
     public RegressionReport Analyze(int days = 90, string? moduleFilter = null, int topN = 15)
     {
-        var runs = _history.GetHistory(days);
+        var runs = _history.GetHistoryWithFindings(days);
         if (runs.Count < 3) return new RegressionReport { AnalyzedRuns = runs.Count, AnalyzedDays = days };
 
         var ordered = runs.OrderBy(r => r.Timestamp).ToList();

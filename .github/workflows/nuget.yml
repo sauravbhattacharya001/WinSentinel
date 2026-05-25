@@ -109,9 +109,31 @@ jobs:
       run: |
         # `dotnet nuget push *.nupkg` auto-pushes the matching .snupkg.
         # Explicit *.snupkg loop caused 409 Conflict failing the whole workflow.
+        #
+        # GitHub Packages' NuGet endpoint returns a non-zero exit code on duplicate
+        # versions even with --skip-duplicate (unlike NuGet.org). We swallow that
+        # specific failure mode ("has already been pushed") but propagate any
+        # other error (auth, network, malformed package, etc). See issue #224.
+        $genuineFailure = $false
         Get-ChildItem ./nupkg -Filter *.nupkg | ForEach-Object {
-          dotnet nuget push $_.FullName --source "https://nuget.pkg.github.com/sauravbhattacharya001/index.json" --api-key ${{ secrets.GITHUB_TOKEN }} --skip-duplicate
+          Write-Host "::group::Pushing $($_.Name) to GitHub Packages"
+          $output = dotnet nuget push $_.FullName `
+            --source "https://nuget.pkg.github.com/sauravbhattacharya001/index.json" `
+            --api-key ${{ secrets.GITHUB_TOKEN }} `
+            --skip-duplicate 2>&1 | Out-String
+          $exit = $LASTEXITCODE
+          Write-Host $output
+          if ($exit -ne 0) {
+            if ($output -match 'has already been pushed') {
+              Write-Host "::notice::$($_.Name) already published to GitHub Packages — treating as success."
+            } else {
+              Write-Host "::error::Push of $($_.Name) to GitHub Packages failed (exit $exit)."
+              $genuineFailure = $true
+            }
+          }
+          Write-Host "::endgroup::"
         }
+        if ($genuineFailure) { exit 1 }
 
     - name: Push to NuGet.org
       if: github.event_name == 'release' || inputs.push_to_nuget == true

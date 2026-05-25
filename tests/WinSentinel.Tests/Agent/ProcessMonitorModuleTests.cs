@@ -240,19 +240,25 @@ public class ProcessMonitorModuleTests
 
     // ── Response Actions by Risk Tolerance ──
 
+    // Note: response-action routing (Alert vs Logged-only) is now owned by
+    // AgentBrain based on RiskTolerance; the module is detection-only and
+    // accepts AgentConfig solely for DI compatibility. These tests therefore
+    // verify the module emits threats with the correct severity, which is
+    // what AgentBrain consumes to decide the response action.
     [Fact]
-    public void AnalyzeProcess_MediumRisk_AlertsOnly()
+    public void AnalyzeProcess_MediumSeverityLolBin_Emitted()
     {
         _config.RiskTolerance = RiskTolerance.Medium;
         var proc = CreateMockProcess("mshta.exe", @"C:\Windows\System32\mshta.exe");
         _module.AnalyzeProcess(proc);
 
         var threats = _threatLog.GetAll();
-        Assert.Contains(threats, t => t.ResponseTaken != null && t.ResponseTaken.Contains("Alert"));
+        Assert.Contains(threats, t => t.Title == "LOLBin Execution Detected"
+            && t.Severity == ThreatSeverity.High);
     }
 
     [Fact]
-    public void AnalyzeProcess_HighRisk_LogsOnly()
+    public void AnalyzeProcess_CriticalSeverityLolBin_Emitted()
     {
         _config.RiskTolerance = RiskTolerance.High;
         var proc = CreateMockProcess("certutil.exe",
@@ -261,7 +267,8 @@ public class ProcessMonitorModuleTests
         _module.AnalyzeProcess(proc);
 
         var threats = _threatLog.GetAll();
-        Assert.Contains(threats, t => t.ResponseTaken != null && t.ResponseTaken.Contains("Logged only"));
+        Assert.Contains(threats, t => t.Title == "LOLBin Execution Detected"
+            && t.Severity == ThreatSeverity.Critical);
     }
 
     // ── Multiple Rules Can Fire ──

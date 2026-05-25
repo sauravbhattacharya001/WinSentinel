@@ -1,5 +1,6 @@
 namespace WinSentinel.Core.Services;
 
+using System.Text.RegularExpressions;
 using WinSentinel.Core.Models;
 
 /// <summary>
@@ -123,7 +124,7 @@ public sealed class PrivilegeEscalationDetector
 
         foreach (var sig in Signatures)
         {
-            if (!sig.Keywords.Any(k => text.Contains(k)))
+            if (!sig.Keywords.Any(k => ContainsKeyword(text, k)))
                 continue;
 
             var isAutomated = AutomationIndicators.Any(a => text.Contains(a));
@@ -375,6 +376,33 @@ public sealed class PrivilegeEscalationDetector
     }
 
     // ── Helpers ──────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Match a signature keyword against `text` (already lower-cased).
+    /// Multi-word keywords (containing spaces) use substring matching.
+    /// Single-token keywords use a word-boundary check so short acronyms like
+    /// "lpe" or "eop" don't false-match inside unrelated words (e.g. "fodhelper").
+    /// Keywords containing regex metacharacters (e.g. "schtasks.*system")
+    /// are treated as already-anchored regex fragments.
+    /// </summary>
+    private static bool ContainsKeyword(string text, string keyword)
+    {
+        if (string.IsNullOrEmpty(keyword)) return false;
+
+        // Regex-style keyword (contains an unescaped wildcard)
+        if (keyword.Contains(".*") || keyword.Contains("\\"))
+        {
+            try { return Regex.IsMatch(text, keyword); }
+            catch { return false; }
+        }
+
+        // Multi-word keyword: substring is fine (the spaces act as boundaries).
+        if (keyword.Contains(' ') || keyword.Contains('-'))
+            return text.Contains(keyword);
+
+        // Single-token keyword: require word boundaries to avoid intra-word hits.
+        return Regex.IsMatch(text, $"\\b{Regex.Escape(keyword)}\\b");
+    }
 
     private List<PrivilegeEscalation> DeduplicateEscalations(List<PrivilegeEscalation> escalations)
     {

@@ -171,6 +171,10 @@ public class HardenScriptGenerator
                 sb.AppendLine($"# {finding.Severity}: {finding.Title}");
                 if (!string.IsNullOrWhiteSpace(finding.Remediation))
                     sb.AppendLine($"# Remediation: {finding.Remediation}");
+                // Human-readable command for review (actual execution uses the
+                // Base64-encoded form below to defeat scriptblock injection).
+                foreach (var line in fixCmd.Replace("\r\n", "\n").Split('\n'))
+                    sb.AppendLine($"# Command: {line}");
 
                 // CWE-94 fix: encode the fix command as Base64 and reconstruct
                 // the scriptblock via [scriptblock]::Create() instead of embedding

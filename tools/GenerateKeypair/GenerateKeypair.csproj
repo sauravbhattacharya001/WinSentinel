@@ -5,7 +5,7 @@
     DELIBERATELY excluded from WinSentinel.sln so CI never builds it and so the
     private signing flow stays a manual, conscious act. Run with:
 
-        dotnet run --project tools/GenerateKeypair
+        dotnet run with the project flag pointing at tools/GenerateKeypair
 
     The tool prints public + private keys to stdout once and exits. It never
     writes to disk. The operator MUST immediately copy the private key into a

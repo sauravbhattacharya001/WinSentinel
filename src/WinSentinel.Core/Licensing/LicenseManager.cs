@@ -109,7 +109,7 @@ public static class LicenseManager
     // placeholder is in place, the official slot contributes no trust and
     // license envelope verification short-circuits to "unverified".
     public const string OfficialPublisherPublicKeyBase64 =
-        "REPLACE_ME_PRODUCTION_ED25519_PUBLIC_KEY_BASE64";
+        "k7nKP5EawOiS+O7VAkh9hlFV9rSZymzElZa4Juu17cA=";
 
     /// <summary>Pricing / upgrade page shown in the friendly "feature requires Pro" message.</summary>
     public const string UpgradeUrl = "https://winsentinel.ai/pricing";

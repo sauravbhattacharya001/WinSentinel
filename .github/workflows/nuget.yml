@@ -60,7 +60,6 @@ jobs:
 
     - name: Run tests
       run: dotnet test tests/WinSentinel.Tests/WinSentinel.Tests.csproj -c Release --verbosity normal
-      continue-on-error: true
 
     - name: Pack NuGet packages
       run: |

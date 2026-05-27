@@ -1,3 +1,14 @@
+# Versioning precedence (highest → lowest):
+#   1. Explicit `version_override` workflow_dispatch input
+#   2. Release tag (when triggered by a published release; e.g. `v1.15.1` → `1.15.1`)
+#   3. MinVer auto-computed from git history (latest `v*` tag + height/SHA)
+#
+# IMPORTANT: this repo uses MinVer (see Directory.Build.props). MinVer hooks into
+# MSBuild's version-resolution targets and OVERWRITES `$(Version)` regardless of
+# any `-p:Version=...` passed on the command line. To force a specific version we
+# must use `-p:MinVerVersionOverride=<v>` on BOTH `dotnet build` and `dotnet pack`.
+# When no override is supplied we pass nothing and let MinVer compute normally.
+# See issue #225.
 name: Publish NuGet Package
 
 on:
@@ -32,16 +43,25 @@ jobs:
       id: version
       shell: pwsh
       run: |
+        # `has_override` is true whenever we have an explicit version to force on
+        # MinVer (either the workflow_dispatch input or a release tag). When false,
+        # we let MinVer derive the version from git tags on its own.
+        $hasOverride = $false
         if ('${{ inputs.version_override }}') {
           $ver = '${{ inputs.version_override }}'
+          $hasOverride = $true
         } elseif ('${{ github.event.release.tag_name }}') {
           $ver = '${{ github.event.release.tag_name }}' -replace '^v', ''
+          $hasOverride = $true
         } else {
           $tag = git describe --tags --abbrev=0 2>$null
           $ver = if ($tag) { $tag -replace '^v', '' } else { '1.0.0' }
+          # no override — let MinVer compute the actual built version from git
         }
-        Write-Host "Package version: $ver"
+        Write-Host "Package version (display): $ver"
+        Write-Host "Has explicit override: $hasOverride"
         "version=$ver" >> $env:GITHUB_OUTPUT
+        "has_override=$($hasOverride.ToString().ToLower())" >> $env:GITHUB_OUTPUT
 
     - name: Setup .NET
       uses: actions/setup-dotnet@v5
@@ -54,23 +74,35 @@ jobs:
         dotnet restore src/WinSentinel.Cli/WinSentinel.Cli.csproj
 
     - name: Build
+      shell: pwsh
       run: |
-        dotnet build src/WinSentinel.Core/WinSentinel.Core.csproj --no-restore -c Release -p:Version=${{ steps.version.outputs.version }}
-        dotnet build src/WinSentinel.Cli/WinSentinel.Cli.csproj --no-restore -c Release -p:Version=${{ steps.version.outputs.version }}
+        # MinVer respects -p:MinVerVersionOverride; -p:Version is silently
+        # overwritten by MinVer's target. Only pass override when we have one.
+        $extra = @()
+        if ('${{ steps.version.outputs.has_override }}' -eq 'true') {
+          $extra += "-p:MinVerVersionOverride=${{ steps.version.outputs.version }}"
+        }
+        dotnet build src/WinSentinel.Core/WinSentinel.Core.csproj --no-restore -c Release @extra
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        dotnet build src/WinSentinel.Cli/WinSentinel.Cli.csproj --no-restore -c Release @extra
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
     - name: Run tests
       run: dotnet test tests/WinSentinel.Tests/WinSentinel.Tests.csproj -c Release --verbosity normal
 
     - name: Pack NuGet packages
+      shell: pwsh
       run: |
-        dotnet pack src/WinSentinel.Core/WinSentinel.Core.csproj `
-          --no-build -c Release `
-          -p:Version=${{ steps.version.outputs.version }} `
-          -o ./nupkg
-        dotnet pack src/WinSentinel.Cli/WinSentinel.Cli.csproj `
-          --no-build -c Release `
-          -p:Version=${{ steps.version.outputs.version }} `
-          -o ./nupkg
+        # Same rationale as the Build step: must use MinVerVersionOverride for
+        # the override to actually win against MinVer's MSBuild target.
+        $extra = @()
+        if ('${{ steps.version.outputs.has_override }}' -eq 'true') {
+          $extra += "-p:MinVerVersionOverride=${{ steps.version.outputs.version }}"
+        }
+        dotnet pack src/WinSentinel.Core/WinSentinel.Core.csproj --no-build -c Release -o ./nupkg @extra
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        dotnet pack src/WinSentinel.Cli/WinSentinel.Cli.csproj --no-build -c Release -o ./nupkg @extra
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
     - name: List packages
       shell: pwsh

@@ -60,8 +60,10 @@ public enum PluginLoadStatus
 public sealed class PluginHost
 {
     public const string PluginDirEnvVar = "WINSENTINEL_PLUGIN_DIR";
+    public const string MachinePluginDirEnvVar = "WINSENTINEL_MACHINE_PLUGIN_DIR";
 
     private readonly string _pluginDir;
+    private readonly string _machinePluginDir;
     private readonly TrustedPublisherConfig _trustConfig;
     private readonly Func<string, bool> _entitlementCheck;
     private readonly Action<string, PluginLogLevel> _log;
@@ -89,11 +91,29 @@ public sealed class PluginHost
         }
     }
 
+    /// <summary>
+    /// Machine-wide plugin directory: <c>%PROGRAMDATA%\WinSentinel\plugins</c>.
+    /// Used for IT-deployed plugins. User-dir plugins take precedence over
+    /// machine-dir plugins with the same filename.
+    /// </summary>
+    public static string DefaultMachinePluginDir
+    {
+        get
+        {
+            var fromEnv = Environment.GetEnvironmentVariable(MachinePluginDirEnvVar);
+            if (!string.IsNullOrWhiteSpace(fromEnv)) return fromEnv;
+            var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+            if (string.IsNullOrEmpty(programData)) programData = @"C:\ProgramData";
+            return Path.Combine(programData, "WinSentinel", "plugins");
+        }
+    }
+
     /// <summary>Production constructor \u2014 reads trust + plugin dir from on-disk defaults.</summary>
     public PluginHost(Action<string, PluginLogLevel>? log = null)
         : this(
             trustConfig: TrustedPublisherStore.Load(),
             pluginDir: DefaultPluginDir,
+            machinePluginDir: DefaultMachinePluginDir,
             entitlementCheck: id => string.IsNullOrEmpty(id) || LicenseManager.IsEntitled(id),
             log: log,
             reportProvider: null)
@@ -159,9 +179,22 @@ public sealed class PluginHost
         Func<string, bool> entitlementCheck,
         Action<string, PluginLogLevel>? log,
         Func<SecurityReportSnapshot?>? reportProvider)
+        : this(trustConfig, pluginDir, machinePluginDir: null, entitlementCheck, log, reportProvider)
+    {
+    }
+
+    /// <summary>Full constructor: supports both user and machine plugin dirs.</summary>
+    public PluginHost(
+        TrustedPublisherConfig trustConfig,
+        string pluginDir,
+        string? machinePluginDir,
+        Func<string, bool> entitlementCheck,
+        Action<string, PluginLogLevel>? log,
+        Func<SecurityReportSnapshot?>? reportProvider)
     {
         _trustConfig = trustConfig ?? throw new ArgumentNullException(nameof(trustConfig));
         _pluginDir = pluginDir ?? throw new ArgumentNullException(nameof(pluginDir));
+        _machinePluginDir = machinePluginDir ?? string.Empty;
         _entitlementCheck = entitlementCheck ?? throw new ArgumentNullException(nameof(entitlementCheck));
         _log = log ?? ((msg, level) => Console.Error.WriteLine($"[plugin:{level}] {msg}"));
         _reportProvider = reportProvider ?? (() => null);
@@ -173,12 +206,6 @@ public sealed class PluginHost
         if (_loaded) return;
         _loaded = true;
 
-        if (!Directory.Exists(_pluginDir))
-        {
-            _log($"Plugin directory '{_pluginDir}' does not exist; no plugins loaded.", PluginLogLevel.Debug);
-            return;
-        }
-
         // Pre-decode trusted publisher keys once.
         var trustedKeys = new List<(TrustedPublisher Pub, byte[] Bytes)>();
         foreach (var pub in _trustConfig.TrustedPublishers)
@@ -187,7 +214,29 @@ public sealed class PluginHost
             if (b is { Length: Ed25519Crypto.PublicKeySize }) trustedKeys.Add((pub, b));
         }
 
-        foreach (var dll in Directory.EnumerateFiles(_pluginDir, "*.dll", SearchOption.TopDirectoryOnly))
+        // Collect DLLs from machine-wide dir first, then user dir.
+        // User-dir plugins override machine-dir plugins with the same filename.
+        var dllsToLoad = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        if (!string.IsNullOrEmpty(_machinePluginDir) && Directory.Exists(_machinePluginDir))
+        {
+            foreach (var dll in Directory.EnumerateFiles(_machinePluginDir, "*.dll", SearchOption.TopDirectoryOnly))
+                dllsToLoad[Path.GetFileName(dll)] = dll;
+        }
+
+        if (Directory.Exists(_pluginDir))
+        {
+            foreach (var dll in Directory.EnumerateFiles(_pluginDir, "*.dll", SearchOption.TopDirectoryOnly))
+                dllsToLoad[Path.GetFileName(dll)] = dll; // overwrites machine-dir entry
+        }
+
+        if (dllsToLoad.Count == 0)
+        {
+            _log($"No plugin DLLs found in '{_pluginDir}' or machine-wide dir.", PluginLogLevel.Debug);
+            return;
+        }
+
+        foreach (var dll in dllsToLoad.Values)
         {
             try
             {

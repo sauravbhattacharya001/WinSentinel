@@ -40,6 +40,7 @@ public class AuditEngine
             new EnvironmentAudit(),
             new DriverAudit(),
             new ProcessLineageAudit(),
+            new UsbAudit(),
         };
     }
 

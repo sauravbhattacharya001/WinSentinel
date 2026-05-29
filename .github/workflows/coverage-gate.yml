@@ -139,16 +139,49 @@ jobs:
         Write-Output "" >> $env:GITHUB_STEP_SUMMARY
         Write-Output "### ✅ All components meet coverage thresholds" >> $env:GITHUB_STEP_SUMMARY
 
+    - name: Generate coverage PR comment
+      if: always() && github.event_name == 'pull_request'
+      shell: pwsh
+      run: |
+        $report = Get-Content "CoverageGate/Summary.json" | ConvertFrom-Json
+        $lines = @()
+        $lines += "## ☂️ Coverage Report"
+        $lines += ""
+        $lines += "| Assembly | Line Coverage | Threshold | Status |"
+        $lines += "|----------|:---:|:---:|:---:|"
+
+        $thresholds = @{
+          "WinSentinel.Core"    = 50
+          "WinSentinel.Cli"     = 35
+          "WinSentinel.Agent"   = 30
+          "WinSentinel.Service" = 25
+        }
+
+        foreach ($asm in $report.coverage.assemblies) {
+          $name = $asm.name
+          $cov = [math]::Round($asm.coverage, 1)
+          if ($thresholds.ContainsKey($name)) {
+            $min = $thresholds[$name]
+            $icon = if ($cov -ge $min) { "✅" } else { "❌" }
+            $lines += "| $name | $cov% | $min% | $icon |"
+          } else {
+            $lines += "| $name | $cov% | — | ℹ️ |"
+          }
+        }
+
+        $totalLine = [math]::Round($report.coverage.lineCoverage, 1)
+        $totalBranch = [math]::Round($report.coverage.branchCoverage, 1)
+        $lines += ""
+        $lines += "**Overall:** $totalLine% line · $totalBranch% branch"
+        $lines += ""
+        $lines += "[View full report](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+
+        $lines -join "`n" | Set-Content "CoverageGate/pr-comment.md"
+
     - name: Post coverage comment on PR
       if: always() && github.event_name == 'pull_request'
       uses: marocchino/sticky-pull-request-comment@v3
       with:
         header: coverage-gate
-        path: ${{ github.workspace }}/CoverageGate/Summary.json
+        path: CoverageGate/pr-comment.md
         recreate: true
-        message: |
-          ## 🛡️ Coverage Report
-
-          See the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for detailed per-component coverage results.
-
-          **Minimum thresholds:** Core ≥50% · CLI ≥35% · Agent ≥30% · Service ≥25%

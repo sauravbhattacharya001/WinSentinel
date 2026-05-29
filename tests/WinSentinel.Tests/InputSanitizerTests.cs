@@ -8,6 +8,7 @@ namespace WinSentinel.Tests;
 /// Covers all 5 public methods: SanitizeIpAddress, SanitizeUsername,
 /// SanitizeDriveLetter, SanitizeFirewallRuleName, and CheckDangerousCommand.
 /// </summary>
+[Trait("Category", "BVT")]
 public class InputSanitizerTests
 {
     // ── SanitizeIpAddress ─────────────────────────────────────────────

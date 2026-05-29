@@ -8,6 +8,7 @@ namespace WinSentinel.Tests.Models;
 /// scoring across the codebase, so accidental drift here would silently
 /// shift risk scores.
 /// </summary>
+[Trait("Category", "BVT")]
 public class SeverityExtensionsTests
 {
     [Theory]

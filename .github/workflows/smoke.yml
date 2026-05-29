@@ -1,0 +1,112 @@
+name: E2E Smoke Test
+
+# End-to-end: builds CLI, runs a real audit, validates JSON output structure.
+# Issue: #220
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+concurrency:
+  group: smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+
+jobs:
+  smoke:
+    name: E2E Smoke Test
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v5
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Cache NuGet packages
+      uses: actions/cache@v5
+      with:
+        path: ~/.nuget/packages
+        key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
+        restore-keys: nuget-${{ runner.os }}-
+
+    - name: Restore & Build
+      run: dotnet build --configuration Release -p:Platform=x64
+
+    - name: Publish CLI
+      run: >-
+        dotnet publish src/WinSentinel.Cli/WinSentinel.Cli.csproj
+        --configuration Release
+        -p:Platform=x64
+        --output ./artifacts/cli
+        --no-build
+
+    - name: Smoke test - CLI help
+      run: ./artifacts/cli/WinSentinel.Cli.exe --help
+
+    - name: Smoke test - version
+      run: ./artifacts/cli/WinSentinel.Cli.exe --version
+
+    - name: Smoke test - full audit (JSON)
+      shell: pwsh
+      run: |
+        $output = & ./artifacts/cli/WinSentinel.Cli.exe --audit --json 2>&1
+        $exitCode = $LASTEXITCODE
+
+        # Exit codes 0 (pass), 1 (warnings), 2 (critical) are all valid audit completions
+        if ($exitCode -gt 2) {
+          Write-Error "CLI audit failed with exit code $exitCode"
+          Write-Output $output
+          exit 1
+        }
+
+        # Validate JSON structure
+        try {
+          $json = $output | ConvertFrom-Json
+        } catch {
+          Write-Error "CLI did not produce valid JSON output"
+          Write-Output $output
+          exit 1
+        }
+
+        # Verify expected top-level fields exist
+        $requiredFields = @("score", "grade", "modules")
+        foreach ($field in $requiredFields) {
+          if (-not ($json.PSObject.Properties.Name -contains $field)) {
+            Write-Error "Missing required field '$field' in JSON output"
+            exit 1
+          }
+        }
+
+        Write-Output "## 🔥 Smoke Test Results" >> $env:GITHUB_STEP_SUMMARY
+        Write-Output "" >> $env:GITHUB_STEP_SUMMARY
+        Write-Output "| Metric | Value |" >> $env:GITHUB_STEP_SUMMARY
+        Write-Output "|--------|-------|" >> $env:GITHUB_STEP_SUMMARY
+        Write-Output "| Score | **$($json.score)** |" >> $env:GITHUB_STEP_SUMMARY
+        Write-Output "| Grade | **$($json.grade)** |" >> $env:GITHUB_STEP_SUMMARY
+        Write-Output "| Modules | $($json.modules.Count) |" >> $env:GITHUB_STEP_SUMMARY
+        Write-Output "| Exit Code | $exitCode |" >> $env:GITHUB_STEP_SUMMARY
+        Write-Output "" >> $env:GITHUB_STEP_SUMMARY
+        Write-Output "✅ CLI produced valid JSON with all required fields" >> $env:GITHUB_STEP_SUMMARY
+
+    - name: Smoke test - score-only mode
+      run: ./artifacts/cli/WinSentinel.Cli.exe --score --quiet
+
+    - name: Smoke test - specific module
+      shell: pwsh
+      run: |
+        & ./artifacts/cli/WinSentinel.Cli.exe --audit --modules firewall --json | Out-Null
+        if ($LASTEXITCODE -gt 2) { exit 1 }
+
+    - name: Smoke test - threshold gate (should pass with 0)
+      run: ./artifacts/cli/WinSentinel.Cli.exe --audit --threshold 0 --quiet

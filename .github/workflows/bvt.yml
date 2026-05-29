@@ -1,0 +1,66 @@
+name: BVT (Build Verification Tests)
+
+# Fast PR gating: builds + runs only BVT-tagged tests (~30s vs full suite ~5min)
+# Issue: #219
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+concurrency:
+  group: bvt-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+
+jobs:
+  bvt:
+    name: Build Verification Tests
+    runs-on: windows-latest
+    timeout-minutes: 10
+
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v5
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Cache NuGet packages
+      uses: actions/cache@v5
+      with:
+        path: ~/.nuget/packages
+        key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
+        restore-keys: nuget-${{ runner.os }}-
+
+    - name: Restore
+      run: dotnet restore
+
+    - name: Build
+      run: >-
+        dotnet build --no-restore
+        --configuration Release
+        -p:Platform=x64
+        -p:TreatWarningsAsErrors=true
+
+    - name: Run BVT tests only
+      run: >-
+        dotnet test --no-build
+        --configuration Release
+        -p:Platform=x64
+        --filter "Category=BVT"
+        --verbosity normal
+        --logger "trx;LogFileName=bvt-results.trx"
+
+    - name: Upload BVT results
+      uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: bvt-results
+        path: '**/bvt-results.trx'
+        retention-days: 7

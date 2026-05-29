@@ -5,6 +5,7 @@ namespace WinSentinel.Tests.Models;
 /// <summary>
 /// Tests for AuditResult scoring and severity calculations.
 /// </summary>
+[Trait("Category", "BVT")]
 public class AuditResultTests
 {
     [Fact]

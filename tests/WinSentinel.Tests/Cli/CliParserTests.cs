@@ -2,6 +2,7 @@ using WinSentinel.Cli;
 
 namespace WinSentinel.Tests.Cli;
 
+[Trait("Category", "BVT")]
 public class CliParserTests
 {
     [Fact]

@@ -6,6 +6,7 @@ namespace WinSentinel.Tests.Services;
 /// <summary>
 /// Tests for the SecurityScorer calculations.
 /// </summary>
+[Trait("Category", "BVT")]
 public class SecurityScorerTests
 {
     [Fact]

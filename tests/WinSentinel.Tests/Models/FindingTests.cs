@@ -5,6 +5,7 @@ namespace WinSentinel.Tests.Models;
 /// <summary>
 /// Tests for the Finding model and its factory methods.
 /// </summary>
+[Trait("Category", "BVT")]
 public class FindingTests
 {
     [Fact]

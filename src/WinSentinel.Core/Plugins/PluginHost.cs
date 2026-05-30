@@ -361,11 +361,13 @@ public sealed class PluginHost
             }
 
             bool isTrusted = false;
-            foreach (var (_, bytes) in trustedKeys)
+            TrustedPublisher? matchedPublisher = null;
+            foreach (var (pub, bytes) in trustedKeys)
             {
                 if (bytes.AsSpan().SequenceEqual(publisherKeyBytes))
                 {
                     isTrusted = true;
+                    matchedPublisher = pub;
                     break;
                 }
             }
@@ -376,6 +378,21 @@ public sealed class PluginHost
                     $"publisher '{manifest.PublisherName}' is not trusted (add with `winsentinel plugin trust`)");
                 alc.Unload();
                 return;
+            }
+
+            // Per-(publisher, featureId) pinning: if the publisher entry has
+            // pinned_feature_ids, reject plugins with a featureId not in the list.
+            if (matchedPublisher?.PinnedFeatureIds is { Count: > 0 } pinned)
+            {
+                var fid = manifest.FeatureId ?? string.Empty;
+                if (!pinned.Contains(fid, StringComparer.OrdinalIgnoreCase))
+                {
+                    Record(dllPath, PluginLoadStatus.SkippedUntrustedPublisher,
+                        manifest.FeatureId, manifest.Version, manifest.PublisherName, effectivePublisherKeyB64,
+                        $"publisher '{manifest.PublisherName}' is pinned to [{string.Join(", ", pinned)}] but plugin declares featureId '{fid}'");
+                    alc.Unload();
+                    return;
+                }
             }
 
             // Signature check.

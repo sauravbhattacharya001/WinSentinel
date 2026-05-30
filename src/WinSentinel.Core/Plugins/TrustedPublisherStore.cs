@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using WinSentinel.Core.Licensing;
@@ -24,6 +25,16 @@ public sealed class TrustedPublisher
     /// <summary>True iff this entry was seeded by the product (the official WinSentinel project key).</summary>
     [JsonPropertyName("auto_trusted")]
     public bool AutoTrusted { get; set; }
+
+    /// <summary>
+    /// Optional list of featureIds this publisher is pinned to. When non-empty,
+    /// only plugins whose <c>plugin.json featureId</c> appears in this list will
+    /// load from this publisher. Empty/null means all featureIds are allowed.
+    /// Added via <c>winsentinel plugin trust --pin &lt;pubkey&gt; &lt;featureId&gt;</c>.
+    /// </summary>
+    [JsonPropertyName("pinned_feature_ids")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? PinnedFeatureIds { get; set; }
 }
 
 /// <summary>
@@ -166,7 +177,7 @@ public static class TrustedPublisherStore
     /// key is base64 and 32 bytes. Returns the normalized entry, or throws
     /// <see cref="ArgumentException"/> on malformed input.
     /// </summary>
-    public static TrustedPublisher Trust(string name, string publicKeyBase64, string? path = null)
+    public static TrustedPublisher Trust(string name, string publicKeyBase64, string? pinnedFeatureId = null, string? path = null)
     {
         if (string.IsNullOrWhiteSpace(name))
             throw new ArgumentException("Publisher name is required.", nameof(name));
@@ -175,6 +186,22 @@ public static class TrustedPublisherStore
             throw new ArgumentException("Public key must be a base64-encoded 32-byte Ed25519 key.", nameof(publicKeyBase64));
 
         var cfg = Load(path);
+
+        // If pinning, check if entry already exists and add to its pin list
+        if (!string.IsNullOrWhiteSpace(pinnedFeatureId))
+        {
+            var existing = cfg.TrustedPublishers.FirstOrDefault(p =>
+                string.Equals((p.PublicKey ?? "").Trim(), publicKeyBase64.Trim(), StringComparison.Ordinal) && !p.AutoTrusted);
+            if (existing != null)
+            {
+                existing.PinnedFeatureIds ??= new List<string>();
+                if (!existing.PinnedFeatureIds.Contains(pinnedFeatureId, StringComparer.OrdinalIgnoreCase))
+                    existing.PinnedFeatureIds.Add(pinnedFeatureId);
+                Save(cfg, path);
+                return existing;
+            }
+        }
+
         cfg.TrustedPublishers.RemoveAll(p =>
             string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase) && !p.AutoTrusted);
 
@@ -183,6 +210,7 @@ public static class TrustedPublisherStore
             Name = name.Trim(),
             PublicKey = publicKeyBase64.Trim(),
             AutoTrusted = false,
+            PinnedFeatureIds = string.IsNullOrWhiteSpace(pinnedFeatureId) ? null : new List<string> { pinnedFeatureId },
         };
         cfg.TrustedPublishers.Add(entry);
         Save(cfg, path);

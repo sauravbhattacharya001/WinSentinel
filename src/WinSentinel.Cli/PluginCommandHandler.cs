@@ -145,7 +145,7 @@ internal static class PluginCommandHandler
 
         try
         {
-            var entry = TrustedPublisherStore.Trust(options.PluginPublisherName!, options.PluginPublisherKey!);
+            var entry = TrustedPublisherStore.Trust(options.PluginPublisherName!, options.PluginPublisherKey!, options.PluginPinFeatureId);
             var fp = Ed25519Crypto.FingerprintShort(entry.PublicKey) ?? "(unknown)";
             Console.WriteLine($"Trusted publisher '{entry.Name}' added.");
             Console.WriteLine($"  key:         {Short(entry.PublicKey)}");

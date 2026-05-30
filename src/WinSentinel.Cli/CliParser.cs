@@ -417,6 +417,8 @@ public class CliOptions
     public string? PluginInstallSource { get; set; }
     /// <summary>Search query or featureId for <c>plugin search/show</c>.</summary>
     public string? PluginSearchQuery { get; set; }
+    /// <summary>Feature ID to pin when using <c>plugin trust --pin</c>.</summary>
+    public string? PluginPinFeatureId { get; set; }
 }
 
 public enum PluginAction
@@ -851,6 +853,12 @@ public static class CliParser
                     if (!TryConsumeArg(args, ref i, "--name", out var pnVal, out var pnErr))
                     { options.Error = pnErr; return options; }
                     options.PluginPublisherName = pnVal;
+                    break;
+
+                case "--pin" when options.Command == CliCommand.Plugin:
+                    if (!TryConsumeArg(args, ref i, "--pin", out var pinVal, out var pinErr))
+                    { options.Error = pinErr; return options; }
+                    options.PluginPinFeatureId = pinVal;
                     break;
 
                 case "--allow-unsigned" when options.Command == CliCommand.Plugin:

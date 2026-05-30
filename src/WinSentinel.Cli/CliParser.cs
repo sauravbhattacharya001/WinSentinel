@@ -415,6 +415,8 @@ public class CliOptions
     public string PluginFormat { get; set; } = "text";
     /// <summary>URL or path to a plugin DLL for <c>plugin install</c>.</summary>
     public string? PluginInstallSource { get; set; }
+    /// <summary>Search query or featureId for <c>plugin search/show</c>.</summary>
+    public string? PluginSearchQuery { get; set; }
 }
 
 public enum PluginAction
@@ -424,6 +426,8 @@ public enum PluginAction
     Trust,
     Untrust,
     Install,
+    Search,
+    Show,
     Help,
 }
 
@@ -798,6 +802,8 @@ public static class CliParser
                             "trust" => PluginAction.Trust,
                             "untrust" => PluginAction.Untrust,
                             "install" => PluginAction.Install,
+                            "search" => PluginAction.Search,
+                            "show" or "info" => PluginAction.Show,
                             "help" or "-h" or "--help" => PluginAction.Help,
                             _ => PluginAction.None,
                         };
@@ -825,6 +831,13 @@ public static class CliParser
                             if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
                             {
                                 options.PluginInstallSource = args[++i];
+                            }
+                        }
+                        else if (options.PluginAction == PluginAction.Search || options.PluginAction == PluginAction.Show)
+                        {
+                            if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                            {
+                                options.PluginSearchQuery = args[++i];
                             }
                         }
                     }

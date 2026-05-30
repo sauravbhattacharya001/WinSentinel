@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -30,6 +31,8 @@ internal static class PluginCommandHandler
             PluginAction.Trust => HandleTrust(options),
             PluginAction.Untrust => HandleUntrust(options),
             PluginAction.Install => HandleInstall(options),
+            PluginAction.Search => HandleSearch(options),
+            PluginAction.Show => HandleShow(options),
             PluginAction.Help => HandleHelp(),
             _ => HandleHelp(),
         };
@@ -176,6 +179,126 @@ internal static class PluginCommandHandler
         }
         Console.Error.WriteLine($"No user-trusted publisher named '{options.PluginPublisherName}' found (the official entry cannot be removed).");
         return 2;
+    }
+
+    private const string RegistryUrl = "https://raw.githubusercontent.com/sauravbhattacharya001/WinSentinel/main/docs/registry.json";
+
+    private static List<RegistryEntry>? FetchRegistry()
+    {
+        try
+        {
+            using var http = new System.Net.Http.HttpClient();
+            http.DefaultRequestHeaders.UserAgent.ParseAdd("WinSentinel-CLI/1.0");
+            var json = http.GetStringAsync(RegistryUrl).GetAwaiter().GetResult();
+            return JsonSerializer.Deserialize<List<RegistryEntry>>(json, JsonOpts);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Failed to fetch plugin registry: {ex.Message}");
+            return null;
+        }
+    }
+
+    private static int HandleSearch(CliOptions options)
+    {
+        var query = options.PluginSearchQuery;
+        var registry = FetchRegistry();
+        if (registry is null) return 1;
+
+        var results = string.IsNullOrWhiteSpace(query)
+            ? registry
+            : registry.Where(e =>
+                (e.FeatureId?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (e.Name?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (e.Description?.Contains(query, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (e.Tags?.Any(t => t.Contains(query, StringComparison.OrdinalIgnoreCase)) ?? false))
+            .ToList();
+
+        if (results.Count == 0)
+        {
+            Console.WriteLine(query is null ? "No plugins in registry." : $"No plugins matching '{query}'.");
+            return 0;
+        }
+
+        Console.WriteLine($"Found {results.Count} plugin(s):");
+        Console.WriteLine();
+        foreach (var e in results)
+        {
+            Console.WriteLine($"  {e.FeatureId}  v{e.LatestVersion}");
+            Console.WriteLine($"    {e.Name} — {e.Description}");
+            Console.WriteLine($"    vendor: {e.Vendor}");
+            if (!string.IsNullOrEmpty(e.Repo)) Console.WriteLine($"    repo:   {e.Repo}");
+            Console.WriteLine();
+        }
+        return 0;
+    }
+
+    private static int HandleShow(CliOptions options)
+    {
+        var featureId = options.PluginSearchQuery;
+        if (string.IsNullOrWhiteSpace(featureId))
+        {
+            Console.Error.WriteLine("Usage: winsentinel plugin show <featureId>");
+            return 2;
+        }
+
+        var registry = FetchRegistry();
+        if (registry is null) return 1;
+
+        var entry = registry.FirstOrDefault(e =>
+            string.Equals(e.FeatureId, featureId, StringComparison.OrdinalIgnoreCase));
+
+        if (entry is null)
+        {
+            Console.Error.WriteLine($"Plugin '{featureId}' not found in registry.");
+            return 1;
+        }
+
+        Console.WriteLine($"  Feature ID:  {entry.FeatureId}");
+        Console.WriteLine($"  Name:        {entry.Name}");
+        Console.WriteLine($"  Version:     {entry.LatestVersion}");
+        Console.WriteLine($"  Vendor:      {entry.Vendor}");
+        Console.WriteLine($"  Description: {entry.Description}");
+        if (!string.IsNullOrEmpty(entry.Repo)) Console.WriteLine($"  Repository:  {entry.Repo}");
+        if (!string.IsNullOrEmpty(entry.PublisherPubkey))
+        {
+            Console.WriteLine($"  Publisher:   {Short(entry.PublisherPubkey)}");
+            var fp = Ed25519Crypto.FingerprintShort(entry.PublisherPubkey);
+            if (fp != null) Console.WriteLine($"  Fingerprint: {fp}");
+        }
+        if (!string.IsNullOrEmpty(entry.SignedDllUrl))
+            Console.WriteLine($"  Download:    {entry.SignedDllUrl}");
+        if (entry.Tags is { Count: > 0 })
+            Console.WriteLine($"  Tags:        {string.Join(", ", entry.Tags)}");
+
+        if (!string.IsNullOrEmpty(entry.SignedDllUrl))
+        {
+            Console.WriteLine();
+            Console.WriteLine($"  Install with: winsentinel plugin install {entry.SignedDllUrl}");
+        }
+        return 0;
+    }
+
+    private sealed class RegistryEntry
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("featureId")]
+        public string? FeatureId { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("name")]
+        public string? Name { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("vendor")]
+        public string? Vendor { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("repo")]
+        public string? Repo { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("latest_version")]
+        public string? LatestVersion { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("signed_dll_url")]
+        public string? SignedDllUrl { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("publisher_pubkey")]
+        public string? PublisherPubkey { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("description")]
+        public string? Description { get; set; }
+        [System.Text.Json.Serialization.JsonPropertyName("tags")]
+        public List<string>? Tags { get; set; }
     }
 
     private static int HandleInstall(CliOptions options)
@@ -347,6 +470,8 @@ internal static class PluginCommandHandler
         Console.WriteLine();
         Console.WriteLine("USAGE");
         Console.WriteLine("  winsentinel plugin list [--plugin-format text|json]");
+        Console.WriteLine("  winsentinel plugin search [<query>]");
+        Console.WriteLine("  winsentinel plugin show <featureId>");
         Console.WriteLine("  winsentinel plugin install <url-or-path>");
         Console.WriteLine("  winsentinel plugin trust <base64-pubkey> --name <publisher-name>");
         Console.WriteLine("  winsentinel plugin trust --allow-unsigned[=false]");

@@ -1,0 +1,13 @@
+[
+  {
+    "featureId": "winsentinel-pro-pdf",
+    "name": "PDF Report Exporter",
+    "vendor": "WinSentinel (official)",
+    "repo": "https://github.com/sauravbhattacharya001/winsentinel-pro",
+    "latest_version": "1.0.0",
+    "signed_dll_url": null,
+    "publisher_pubkey": "k7nKP5EawOiS+O7VAkh9hlFV9rSZymzElZa4Juu17cA=",
+    "description": "Export security audit reports to PDF format",
+    "tags": ["reporting", "pdf", "pro"]
+  }
+]

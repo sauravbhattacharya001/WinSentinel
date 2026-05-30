@@ -81,7 +81,10 @@ internal static class PluginCommandHandler
             foreach (var p in trust.TrustedPublishers)
             {
                 var tag = p.AutoTrusted ? " [official]" : string.Empty;
-                Console.WriteLine($"  - {p.Name}{tag}  {Short(p.PublicKey)}");
+                var fp = Ed25519Crypto.FingerprintShort(p.PublicKey) ?? "(invalid key)";
+                Console.WriteLine($"  - {p.Name}{tag}");
+                Console.WriteLine($"      key:         {Short(p.PublicKey)}");
+                Console.WriteLine($"      fingerprint: {fp}");
             }
         }
         Console.WriteLine();
@@ -97,7 +100,12 @@ internal static class PluginCommandHandler
                 var name = Path.GetFileName(r.DllPath);
                 Console.WriteLine($"  [{r.Status}] {name}");
                 if (!string.IsNullOrEmpty(r.FeatureId)) Console.WriteLine($"      feature:   {r.FeatureId} v{r.Version}");
-                if (!string.IsNullOrEmpty(r.PublisherName)) Console.WriteLine($"      publisher: {r.PublisherName}  {Short(r.PublisherKey)}");
+                if (!string.IsNullOrEmpty(r.PublisherName))
+                {
+                    var pfp = Ed25519Crypto.FingerprintShort(r.PublisherKey) ?? "";
+                    Console.WriteLine($"      publisher: {r.PublisherName}  {Short(r.PublisherKey)}");
+                    if (!string.IsNullOrEmpty(pfp)) Console.WriteLine($"      fp:        {pfp}");
+                }
                 Console.WriteLine($"      detail:    {r.Message}");
             }
         }
@@ -134,7 +142,10 @@ internal static class PluginCommandHandler
         try
         {
             var entry = TrustedPublisherStore.Trust(options.PluginPublisherName!, options.PluginPublisherKey!);
-            Console.WriteLine($"Trusted publisher '{entry.Name}' added ({Short(entry.PublicKey)}).");
+            var fp = Ed25519Crypto.FingerprintShort(entry.PublicKey) ?? "(unknown)";
+            Console.WriteLine($"Trusted publisher '{entry.Name}' added.");
+            Console.WriteLine($"  key:         {Short(entry.PublicKey)}");
+            Console.WriteLine($"  fingerprint: {fp}");
             if (options.PluginAllowUnsigned.HasValue)
             {
                 TrustedPublisherStore.SetAllowUnsigned(options.PluginAllowUnsigned.Value);

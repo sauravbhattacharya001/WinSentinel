@@ -88,4 +88,29 @@ public static class Ed25519Crypto
         signer.BlockUpdate(message, 0, message.Length);
         return signer.GenerateSignature();
     }
+
+    /// <summary>
+    /// Computes the SHA-256 fingerprint of a base64-encoded public key.
+    /// Returns a colon-separated hex string like <c>SHA256:ab:cd:ef:...</c>.
+    /// Returns <c>null</c> if the input is invalid.
+    /// </summary>
+    public static string? Fingerprint(string? publicKeyBase64)
+    {
+        var bytes = TryDecodeBase64(publicKeyBase64);
+        if (bytes is null || bytes.Length != PublicKeySize) return null;
+        var hash = System.Security.Cryptography.SHA256.HashData(bytes);
+        return "SHA256:" + BitConverter.ToString(hash).Replace("-", ":").ToLowerInvariant();
+    }
+
+    /// <summary>
+    /// Short fingerprint: first 8 bytes (16 hex chars) of the SHA-256.
+    /// Suitable for display in trust prompts.
+    /// </summary>
+    public static string? FingerprintShort(string? publicKeyBase64)
+    {
+        var bytes = TryDecodeBase64(publicKeyBase64);
+        if (bytes is null || bytes.Length != PublicKeySize) return null;
+        var hash = System.Security.Cryptography.SHA256.HashData(bytes);
+        return "SHA256:" + BitConverter.ToString(hash, 0, 8).Replace("-", ":").ToLowerInvariant();
+    }
 }

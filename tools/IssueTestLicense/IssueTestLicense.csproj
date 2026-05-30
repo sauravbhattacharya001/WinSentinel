@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Dev/test-only license issuer. Creates a signed license envelope that
+    LicenseManager will accept when WINSENTINEL_DEV_MODE=1 is set.
+    DELIBERATELY excluded from WinSentinel.sln.
+
+    Usage:
+        dotnet run --project tools/IssueTestLicense -- [--tier individual|team] [--days 30] [--email test@test.com]
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>WinSentinel.Tools.IssueTestLicense</RootNamespace>
+    <AssemblyName>IssueTestLicense</AssemblyName>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.4.0" />
+  </ItemGroup>
+
+</Project>

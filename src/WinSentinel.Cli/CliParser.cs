@@ -413,6 +413,8 @@ public class CliOptions
     public bool? PluginAllowUnsigned { get; set; }
     /// <summary>Output format for <c>plugin list</c>: <c>text</c> (default) or <c>json</c>.</summary>
     public string PluginFormat { get; set; } = "text";
+    /// <summary>URL or path to a plugin DLL for <c>plugin install</c>.</summary>
+    public string? PluginInstallSource { get; set; }
 }
 
 public enum PluginAction
@@ -421,6 +423,7 @@ public enum PluginAction
     List,
     Trust,
     Untrust,
+    Install,
     Help,
 }
 
@@ -794,6 +797,7 @@ public static class CliParser
                             "list" or "ls" => PluginAction.List,
                             "trust" => PluginAction.Trust,
                             "untrust" => PluginAction.Untrust,
+                            "install" => PluginAction.Install,
                             "help" or "-h" or "--help" => PluginAction.Help,
                             _ => PluginAction.None,
                         };
@@ -814,6 +818,13 @@ public static class CliParser
                             if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
                             {
                                 options.PluginPublisherName = args[++i];
+                            }
+                        }
+                        else if (options.PluginAction == PluginAction.Install)
+                        {
+                            if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                            {
+                                options.PluginInstallSource = args[++i];
                             }
                         }
                     }

@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Offline signing helper for WinSentinel plugin DLLs.
+    DELIBERATELY excluded from WinSentinel.sln so CI never builds it.
+
+    Usage:
+        dotnet run --project tools/SignPlugin -- <dll-path> <privkey-file>
+
+    Computes SHA-256 of the DLL, signs with Ed25519 private key, emits
+    base64 signature to stdout. Optionally writes a .sig sidecar file
+    with --output-sidecar.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>WinSentinel.Tools.SignPlugin</RootNamespace>
+    <AssemblyName>SignPlugin</AssemblyName>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.4.0" />
+  </ItemGroup>
+
+</Project>

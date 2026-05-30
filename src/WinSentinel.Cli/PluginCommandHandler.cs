@@ -29,6 +29,7 @@ internal static class PluginCommandHandler
             PluginAction.List => HandleList(options),
             PluginAction.Trust => HandleTrust(options),
             PluginAction.Untrust => HandleUntrust(options),
+            PluginAction.Install => HandleInstall(options),
             PluginAction.Help => HandleHelp(),
             _ => HandleHelp(),
         };
@@ -177,12 +178,176 @@ internal static class PluginCommandHandler
         return 2;
     }
 
+    private static int HandleInstall(CliOptions options)
+    {
+        var source = options.PluginInstallSource;
+        if (string.IsNullOrWhiteSpace(source))
+        {
+            Console.Error.WriteLine("Usage: winsentinel plugin install <url-or-path>");
+            Console.Error.WriteLine("  Downloads (or copies) the DLL, verifies its embedded plugin.json,");
+            Console.Error.WriteLine("  displays the publisher fingerprint, and prompts for trust confirmation.");
+            return 2;
+        }
+
+        // Resolve DLL bytes
+        byte[] dllBytes;
+        string fileName;
+        if (Uri.TryCreate(source, UriKind.Absolute, out var uri) && (uri.Scheme == "http" || uri.Scheme == "https"))
+        {
+            Console.WriteLine($"Downloading {source}...");
+            try
+            {
+                using var http = new System.Net.Http.HttpClient();
+                http.DefaultRequestHeaders.UserAgent.ParseAdd("WinSentinel-CLI/1.0");
+                dllBytes = http.GetByteArrayAsync(uri).GetAwaiter().GetResult();
+                fileName = Path.GetFileName(uri.LocalPath);
+                if (string.IsNullOrEmpty(fileName) || !fileName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                    fileName = "plugin.dll";
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Download failed: {ex.Message}");
+                return 1;
+            }
+        }
+        else if (File.Exists(source))
+        {
+            dllBytes = File.ReadAllBytes(source);
+            fileName = Path.GetFileName(source);
+        }
+        else
+        {
+            Console.Error.WriteLine($"Source not found: {source}");
+            return 1;
+        }
+
+        // Load into temp ALC to read manifest
+        var tempPath = Path.Combine(Path.GetTempPath(), $"winsentinel-install-{Guid.NewGuid():N}.dll");
+        File.WriteAllBytes(tempPath, dllBytes);
+        System.Reflection.Assembly asm;
+        try
+        {
+            var alc = new System.Runtime.Loader.AssemblyLoadContext("PluginInstallProbe", isCollectible: true);
+            using var ms = new MemoryStream(dllBytes);
+            asm = alc.LoadFromStream(ms);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Not a valid .NET assembly: {ex.Message}");
+            try { File.Delete(tempPath); } catch { }
+            return 1;
+        }
+
+        var manifest = PluginManifest.TryLoadFromAssembly(asm);
+        if (manifest is null)
+        {
+            Console.Error.WriteLine("Error: DLL does not contain an embedded plugin.json manifest.");
+            try { File.Delete(tempPath); } catch { }
+            return 1;
+        }
+
+        // Display manifest info
+        var fp = Ed25519Crypto.FingerprintShort(manifest.PublisherKey) ?? "(no key)";
+        Console.WriteLine();
+        Console.WriteLine("  Plugin manifest:");
+        Console.WriteLine($"    Feature:    {manifest.FeatureId}");
+        Console.WriteLine($"    Version:    {manifest.Version}");
+        Console.WriteLine($"    Publisher:  {manifest.PublisherName}");
+        Console.WriteLine($"    Key:        {Short(manifest.PublisherKey)}");
+        Console.WriteLine($"    Fingerprint:{fp}");
+        if (!string.IsNullOrEmpty(manifest.RequiredEntitlement))
+            Console.WriteLine($"    Entitlement:{manifest.RequiredEntitlement}");
+        Console.WriteLine();
+
+        // Check if publisher is already trusted
+        var trust = TrustedPublisherStore.Load();
+        var pubBytes = Ed25519Crypto.TryDecodeBase64(manifest.PublisherKey);
+        bool alreadyTrusted = false;
+        if (pubBytes is { Length: Ed25519Crypto.PublicKeySize })
+        {
+            foreach (var tp in trust.TrustedPublishers)
+            {
+                var tpBytes = Ed25519Crypto.TryDecodeBase64(tp.PublicKey);
+                if (tpBytes != null && tpBytes.AsSpan().SequenceEqual(pubBytes))
+                {
+                    alreadyTrusted = true;
+                    break;
+                }
+            }
+        }
+
+        if (!alreadyTrusted)
+        {
+            Console.Write($"  Trust publisher '{manifest.PublisherName}' ({fp})? [y/N] ");
+            var answer = Console.ReadLine()?.Trim().ToLowerInvariant();
+            if (answer != "y" && answer != "yes")
+            {
+                Console.WriteLine("  Aborted. Publisher not trusted, plugin not installed.");
+                try { File.Delete(tempPath); } catch { }
+                return 1;
+            }
+            // Add trust
+            TrustedPublisherStore.Trust(manifest.PublisherName, manifest.PublisherKey);
+            Console.WriteLine($"  Publisher '{manifest.PublisherName}' trusted.");
+        }
+        else
+        {
+            Console.WriteLine($"  Publisher '{manifest.PublisherName}' is already trusted.");
+        }
+
+        // Verify signature
+        if (!string.IsNullOrWhiteSpace(manifest.Signature) && pubBytes != null)
+        {
+            var sigBytes = Ed25519Crypto.TryDecodeBase64(manifest.Signature);
+            var hash = System.Security.Cryptography.SHA256.HashData(dllBytes);
+            if (sigBytes is null || !Ed25519Crypto.Verify(pubBytes, hash, sigBytes))
+            {
+                Console.Error.WriteLine("  ERROR: Signature verification FAILED. DLL may be tampered.");
+                Console.Error.WriteLine("  Plugin NOT installed.");
+                try { File.Delete(tempPath); } catch { }
+                return 1;
+            }
+            Console.WriteLine("  Signature verified \u2713");
+        }
+        else if (!trust.AllowUnsigned)
+        {
+            Console.Error.WriteLine("  ERROR: Plugin is unsigned and allow_unsigned=false.");
+            Console.Error.WriteLine("  Use `winsentinel plugin trust --allow-unsigned` to allow, or ask the publisher to sign.");
+            try { File.Delete(tempPath); } catch { }
+            return 1;
+        }
+
+        // Copy to plugin directory
+        var pluginDir = PluginHost.DefaultPluginDir;
+        Directory.CreateDirectory(pluginDir);
+        var destPath = Path.Combine(pluginDir, fileName);
+        if (File.Exists(destPath))
+        {
+            Console.Write($"  {fileName} already exists in plugin dir. Overwrite? [y/N] ");
+            var ow = Console.ReadLine()?.Trim().ToLowerInvariant();
+            if (ow != "y" && ow != "yes")
+            {
+                Console.WriteLine("  Aborted.");
+                try { File.Delete(tempPath); } catch { }
+                return 1;
+            }
+        }
+        File.Copy(tempPath, destPath, overwrite: true);
+        try { File.Delete(tempPath); } catch { }
+
+        Console.WriteLine($"  Installed: {destPath}");
+        Console.WriteLine();
+        Console.WriteLine($"  Run `winsentinel plugin list` to verify it loads.");
+        return 0;
+    }
+
     private static int HandleHelp()
     {
         Console.WriteLine("winsentinel plugin \u2014 manage signed plugin trust + see load status");
         Console.WriteLine();
         Console.WriteLine("USAGE");
         Console.WriteLine("  winsentinel plugin list [--plugin-format text|json]");
+        Console.WriteLine("  winsentinel plugin install <url-or-path>");
         Console.WriteLine("  winsentinel plugin trust <base64-pubkey> --name <publisher-name>");
         Console.WriteLine("  winsentinel plugin trust --allow-unsigned[=false]");
         Console.WriteLine("  winsentinel plugin untrust <publisher-name>");

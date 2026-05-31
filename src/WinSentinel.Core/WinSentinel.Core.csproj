@@ -15,7 +15,7 @@
     <PackageId>WinSentinel.Core</PackageId>
     <Authors>sauravbhattacharya001</Authors>
     <Company>WinSentinel</Company>
-    <Description>Core library for WinSentinel — a comprehensive Windows security auditing framework. Provides audit modules for firewall, Defender, encryption, network, processes, startup items, browser security, privacy settings, and more. Includes remediation planning, security scoring, baseline comparison, and report generation.</Description>
+    <Description>Core library for WinSentinel — full-power Windows security auditing framework. 13+ audit modules covering firewall, Defender, encryption, network, processes, startup items, browser security, privacy, and more. Includes remediation planning, security scoring, baseline comparison, and report generation. Free forever.</Description>
     <PackageTags>windows;security;audit;firewall;defender;encryption;network;privacy;registry;wmi;dotnet</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/sauravbhattacharya001/WinSentinel</PackageProjectUrl>

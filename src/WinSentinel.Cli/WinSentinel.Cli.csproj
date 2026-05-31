@@ -14,7 +14,7 @@
     <Platforms>AnyCPU;x64;x86;ARM64</Platforms>
     <RootNamespace>WinSentinel.Cli</RootNamespace>
     <AssemblyName>winsentinel</AssemblyName>
-    <Description>WinSentinel CLI - Windows Security Auditing from the Command Line (Windows only)</Description>
+    <Description>Full-power Windows security agent. 13+ audit modules, real-time monitoring, scheduled scans, auto-remediation. Free forever. Install: dotnet tool install --global WinSentinel.Cli</Description>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591;CS1587;CS1572;CS1573;CA1416</NoWarn>
 

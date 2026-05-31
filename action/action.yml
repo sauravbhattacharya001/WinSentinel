@@ -1,0 +1,133 @@
+name: 'WinSentinel Security Audit'
+description: 'Run WinSentinel security audit on Windows runners. Outputs SARIF for GitHub Code Scanning.'
+author: 'Saurav Bhattacharya'
+
+branding:
+  icon: 'shield'
+  color: 'blue'
+
+inputs:
+  version:
+    description: 'WinSentinel CLI version to install (default: latest)'
+    required: false
+    default: 'latest'
+  format:
+    description: 'Output format: sarif, json, csv, or text'
+    required: false
+    default: 'sarif'
+  severity:
+    description: 'Minimum severity to report: info, warning, critical'
+    required: false
+    default: 'warning'
+  fail-on-critical:
+    description: 'Fail the workflow if critical findings are detected'
+    required: false
+    default: 'true'
+  upload-sarif:
+    description: 'Upload SARIF to GitHub Code Scanning'
+    required: false
+    default: 'true'
+  modules:
+    description: 'Comma-separated list of audit modules to run (default: all)'
+    required: false
+    default: ''
+
+outputs:
+  score:
+    description: 'Security score (0-100)'
+  findings-count:
+    description: 'Total findings count'
+  critical-count:
+    description: 'Critical findings count'
+  sarif-file:
+    description: 'Path to SARIF output file'
+  json-file:
+    description: 'Path to JSON output file'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install WinSentinel CLI
+      shell: pwsh
+      run: |
+        $version = '${{ inputs.version }}'
+        if ($version -eq 'latest') {
+          dotnet tool install --global WinSentinel.Cli
+        } else {
+          dotnet tool install --global WinSentinel.Cli --version $version
+        }
+        # Ensure tool path is available
+        $toolPath = Join-Path $env:USERPROFILE ".dotnet\tools"
+        if ($env:PATH -notlike "*$toolPath*") {
+          echo "$toolPath" >> $env:GITHUB_PATH
+        }
+
+    - name: Run security audit
+      shell: pwsh
+      run: |
+        $modules = '${{ inputs.modules }}'
+        $severity = '${{ inputs.severity }}'
+        $outDir = Join-Path $env:RUNNER_TEMP "winsentinel-results"
+        New-Item -ItemType Directory -Path $outDir -Force | Out-Null
+
+        $sarifFile = Join-Path $outDir "winsentinel.sarif"
+        $jsonFile = Join-Path $outDir "winsentinel.json"
+
+        # Build arguments
+        $args = @("--audit", "--export", "sarif", "--output", $sarifFile)
+
+        if ($modules) {
+          $args += @("--modules", $modules)
+        }
+
+        # Run the audit
+        Write-Host "::group::WinSentinel Security Audit"
+        $result = & winsentinel @args 2>&1
+        $exitCode = $LASTEXITCODE
+        Write-Host ($result -join "`n")
+        Write-Host "::endgroup::"
+
+        # Also export JSON for parsing
+        & winsentinel --audit --export json --output $jsonFile 2>$null
+
+        # Parse results
+        if (Test-Path $jsonFile) {
+          $report = Get-Content $jsonFile -Raw | ConvertFrom-Json
+          $score = $report.score
+          $total = ($report.findings | Measure-Object).Count
+          $critical = ($report.findings | Where-Object { $_.severity -eq "Critical" } | Measure-Object).Count
+
+          echo "score=$score" >> $env:GITHUB_OUTPUT
+          echo "findings-count=$total" >> $env:GITHUB_OUTPUT
+          echo "critical-count=$critical" >> $env:GITHUB_OUTPUT
+
+          Write-Host "::notice::WinSentinel Score: $score/100 | Findings: $total ($critical critical)"
+        } else {
+          echo "score=0" >> $env:GITHUB_OUTPUT
+          echo "findings-count=0" >> $env:GITHUB_OUTPUT
+          echo "critical-count=0" >> $env:GITHUB_OUTPUT
+        }
+
+        echo "sarif-file=$sarifFile" >> $env:GITHUB_OUTPUT
+        echo "json-file=$jsonFile" >> $env:GITHUB_OUTPUT
+
+    - name: Upload SARIF to Code Scanning
+      if: inputs.upload-sarif == 'true' && hashFiles(join(env.RUNNER_TEMP, '/winsentinel-results/winsentinel.sarif')) != ''
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ env.RUNNER_TEMP }}/winsentinel-results/winsentinel.sarif
+        category: winsentinel
+
+    - name: Fail on critical findings
+      if: inputs.fail-on-critical == 'true'
+      shell: pwsh
+      run: |
+        $jsonFile = Join-Path $env:RUNNER_TEMP "winsentinel-results\winsentinel.json"
+        if (Test-Path $jsonFile) {
+          $report = Get-Content $jsonFile -Raw | ConvertFrom-Json
+          $critical = ($report.findings | Where-Object { $_.severity -eq "Critical" } | Measure-Object).Count
+          if ($critical -gt 0) {
+            Write-Host "::error::$critical critical security finding(s) detected. Failing workflow."
+            exit 1
+          }
+        }

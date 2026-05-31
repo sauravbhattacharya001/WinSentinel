@@ -88,6 +88,15 @@ public class CliOptions
     public int RootCauseTop { get; set; } = 10;
     public string? RootCauseSeverityFilter { get; set; }
     public int ScheduleOptimizeDays { get; set; } = 90;
+    // Schedule command (scheduled scans)
+    public ScheduleAction ScheduleAction { get; set; } = ScheduleAction.None;
+    public string? ScheduleCadence { get; set; }
+    public string? ScheduleTime { get; set; }
+    public string? ScheduleDayOfWeek { get; set; }
+    public bool ScheduleAutoFix { get; set; }
+    public int ScheduleResultsLimit { get; set; } = 10;
+    // Monitor command
+    public MonitorAction MonitorAction { get; set; } = MonitorAction.None;
     public int DigestHistoryDays { get; set; } = 30;
     public string DigestFormat { get; set; } = "text";
     public WhatIfAction WhatIfAction { get; set; } = WhatIfAction.None;
@@ -542,7 +551,9 @@ public enum CliCommand
     Export,
     SelfUpdate,
     Help,
-    Version
+    Version,
+    Schedule,
+    Monitor
 }
 
 public enum BaselineAction
@@ -591,6 +602,23 @@ public enum PolicyAction
     Import,
     Validate,
     Diff
+}
+
+public enum ScheduleAction
+{
+    None,
+    Create,
+    Remove,
+    Status,
+    Results
+}
+
+public enum MonitorAction
+{
+    None,
+    Start,
+    Stop,
+    Status
 }
 
 public enum ExemptionAction
@@ -2313,6 +2341,62 @@ public static class CliParser
                     if (!TryConsumeDouble(args, ref i, "--watchdog-crit-z", 0.1, 10.0, out var wdCritVal, out var wdCritZErr))
                     { options.Error = wdCritZErr; return options; }
                     options.WatchdogCritZ = wdCritVal;
+                    break;
+
+                case "--schedule":
+                case "schedule":
+                    options.Command = CliCommand.Schedule;
+                    // Check for sub-action
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith("--"))
+                    {
+                        i++;
+                        options.ScheduleAction = args[i].ToLowerInvariant() switch
+                        {
+                            "create" => ScheduleAction.Create,
+                            "remove" => ScheduleAction.Remove,
+                            "status" => ScheduleAction.Status,
+                            "results" => ScheduleAction.Results,
+                            _ => ScheduleAction.None
+                        };
+                    }
+                    break;
+
+                case "--cadence":
+                    if (i + 1 < args.Length) options.ScheduleCadence = args[++i];
+                    break;
+
+                case "--time":
+                    if (i + 1 < args.Length) options.ScheduleTime = args[++i];
+                    break;
+
+                case "--day":
+                    if (i + 1 < args.Length) options.ScheduleDayOfWeek = args[++i];
+                    break;
+
+                case "--auto-fix":
+                    options.ScheduleAutoFix = true;
+                    break;
+
+                case "--schedule-limit":
+                    if (i + 1 < args.Length && int.TryParse(args[i + 1], out var limitVal))
+                    { i++; options.ScheduleResultsLimit = limitVal; }
+                    break;
+
+                case "--monitor":
+                case "monitor":
+                    options.Command = CliCommand.Monitor;
+                    // Check for sub-action
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith("--"))
+                    {
+                        i++;
+                        options.MonitorAction = args[i].ToLowerInvariant() switch
+                        {
+                            "start" => MonitorAction.Start,
+                            "stop" => MonitorAction.Stop,
+                            "status" => MonitorAction.Status,
+                            _ => MonitorAction.None
+                        };
+                    }
                     break;
 
                 case "--cookbook":

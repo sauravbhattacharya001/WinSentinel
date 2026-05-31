@@ -149,6 +149,8 @@ return options.Command switch
     CliCommand.Collection => await HandleCollection(options),
     CliCommand.Export => await HandleExport(options),
     CliCommand.SelfUpdate => await SelfUpdateCommandHandler.HandleAsync(options),
+    CliCommand.Schedule => WinSentinel.Cli.ScheduledScans.ScheduleCommandHandler.Handle(options),
+    CliCommand.Monitor => WinSentinel.Cli.Monitor.MonitorCommandHandler.Handle(options),
     _ => HandleHelp()
 };
 

@@ -525,9 +525,9 @@ dotnet test -p:Platform=x64
 3. **Test** your changes (`dotnet test -p:Platform=x64`)
 4. **Push** and open a Pull Request
 
-**Ideas:** plugin system for custom modules, Linux port, UI themes, localization, additional compliance profiles.
+**Ideas:** Linux port, UI themes, localization, additional compliance profiles.
 
-See [ROADMAP.md](ROADMAP.md) for the current plugin-architecture and release backlog, and [docs/CREATING-PLUGINS.md](docs/CREATING-PLUGINS.md) if you want to build your own plugin (free or commercial).
+WinSentinel supports plugins for custom audit modules. Write your own security checks, share them with the community, or keep them private for your org's specific compliance needs. See [docs/CREATING-PLUGINS.md](docs/CREATING-PLUGINS.md) to build your own plugin.
 
 ---
 

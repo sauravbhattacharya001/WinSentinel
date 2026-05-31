@@ -1,0 +1,9 @@
+{
+  "featureId": "example-audit",
+  "version": "1.0.0",
+  "minCoreVersion": "1.19.0",
+  "publisher_name": "Example Author",
+  "publisher_key": "",
+  "requiredEntitlement": "",
+  "signature": ""
+}

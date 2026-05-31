@@ -1,15 +1,14 @@
 # Creating WinSentinel Plugins
 
-**Don't add plugins to this repo. Plugins ALWAYS live in their own separate repo.**
+WinSentinel supports community plugins for custom audit modules, report
+formats, monitoring daemons, compliance mappers, and more. Write your own
+security checks, share them with the community, or keep them private for
+your org's specific compliance needs.
 
-WinSentinel's free MIT core ships built-in audits, the plugin interfaces,
-the trust + signature loader, and a license manager scoped to **WinSentinel
-project** features. Everything else — fancy report formats, continuous
-monitoring daemons, fleet uploads, compliance mappers, schedulers — is a
-plugin. The official `winsentinel-pro` is just one such plugin. Anyone can
-publish more, free or paid, on their own schedule, under any license.
+Plugins live in their own repos/directories and load at runtime. No license
+or paid tier is required — plugin loading is unconditional for all users.
 
-This document is for **3rd-party plugin authors**.
+This document is for **plugin authors**.
 
 ## How trust works (read this first)
 
@@ -21,7 +20,6 @@ only if all of these are true:
 2. That key is in the user's trusted set (the official WinSentinel project
    key is pre-trusted in official builds).
 3. The DLL bytes' SHA-256 verifies against `manifest.signature` under that key.
-4. `LicenseManager.IsEntitled(manifest.requiredEntitlement)` returns true.
 
 Unsigned plugins are rejected by default. Users can opt in to loading
 unsigned DLLs (`winsentinel plugin trust --allow-unsigned`); WinSentinel
@@ -107,13 +105,9 @@ Field reference:
 - `publisher_name` — informational; displayed in `winsentinel plugin list`.
 - `publisher_key` — your Ed25519 public key (base64, 32 bytes decoded). The
   trust anchor.
-- `requiredEntitlement` — name passed to `LicenseManager.IsEntitled`.
-  - `""` (empty) → open, no WinSentinel license required.
-  - `"pro"` (or any non-empty value) → requires an active WinSentinel
-    license. NOTE: this gates on the **WinSentinel** project's license. If
-    your plugin is paid under YOUR own license, implement that licensing
-    inside your plugin (your server, offline keys, hardware tokens, whatever
-    you want) and leave `requiredEntitlement` empty.
+- `requiredEntitlement` — **deprecated / ignored.** Retained for backward
+  compatibility with existing manifests but no longer checked at load time.
+  All plugins load unconditionally regardless of this field.
 - `signature` — see below.
 
 ## Signing
@@ -165,10 +159,10 @@ Three reasons it works this way:
 
 - **Code isolation.** Plugins live in their own repos and load via a
   collectible `AssemblyLoadContext`. The OSS core has zero coupling to any
-  Pro implementation, so it stays readable + auditable.
-- **License boundary.** The MIT core never branches on `if (paid) { fancy
-  thing }`. The license only gates plugin LOADING. CI enforces this via
-  `scripts/check-no-pro-code.ps1`.
+  specific plugin implementation, so it stays readable + auditable.
+- **Community extensibility.** Anyone can write and distribute plugins
+  (custom audit modules, report formats, compliance mappers) without
+  modifying the core. No license or paid tier is required.
 - **Closed-source plugins on an MIT core.** Multi-publisher signing lets
   3rd-party vendors ship proprietary plugins without the MIT license touching
   their code, and lets ops teams ship internal-only plugins behind a forked

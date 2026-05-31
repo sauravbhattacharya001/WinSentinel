@@ -5,7 +5,6 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.Loader;
 using System.Security.Cryptography;
-using WinSentinel.Core.Licensing;
 
 namespace WinSentinel.Core.Plugins;
 
@@ -44,8 +43,8 @@ public enum PluginLoadStatus
 /// manifest that names its <c>publisher_key</c>; the host loads it only if
 /// (a) that key is in <see cref="TrustedPublisherStore"/>, (b) the manifest's
 /// <c>signature</c> is a valid Ed25519 signature of <c>SHA256(dllBytes)</c>
-/// under that key, and (c) <see cref="LicenseManager.IsEntitled"/> returns
-/// true for the manifest's <c>requiredEntitlement</c>.
+/// under that key. Plugin loading is unconditional — no license or
+/// entitlement check is required (community extensibility model).
 ///
 /// <para>Unsigned plugins (empty publisher_key / signature) are rejected by
 /// default. Setting <see cref="TrustedPublisherConfig.AllowUnsigned"/> = true
@@ -114,7 +113,7 @@ public sealed class PluginHost
             trustConfig: TrustedPublisherStore.Load(),
             pluginDir: DefaultPluginDir,
             machinePluginDir: DefaultMachinePluginDir,
-            entitlementCheck: id => string.IsNullOrEmpty(id) || LicenseManager.IsEntitled(id),
+            entitlementCheck: _ => true, // Community plugins: no license gating
             log: log,
             reportProvider: null)
     {

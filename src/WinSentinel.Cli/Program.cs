@@ -151,6 +151,7 @@ return options.Command switch
     CliCommand.SelfUpdate => await SelfUpdateCommandHandler.HandleAsync(options),
     CliCommand.Schedule => WinSentinel.Cli.ScheduledScans.ScheduleCommandHandler.Handle(options),
     CliCommand.Monitor => WinSentinel.Cli.Monitor.MonitorCommandHandler.Handle(options),
+    CliCommand.Why => await WhyCommandHandler.HandleAsync(options),
     _ => HandleHelp()
 };
 

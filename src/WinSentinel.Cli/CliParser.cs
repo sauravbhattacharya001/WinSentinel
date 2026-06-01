@@ -180,6 +180,8 @@ public class CliOptions
     public string? GrepModuleFilter { get; set; }
     public bool GrepCaseSensitive { get; set; }
     public bool GrepCountOnly { get; set; }
+    /// <summary>Search query for the <c>why</c> command (finding title/keyword).</summary>
+    public string? WhyQuery { get; set; }
     public bool GrepShowContext { get; set; } = true;
     public string GrepFormat { get; set; } = "text";
     public int GrepMaxResults { get; set; } = 100;
@@ -553,7 +555,8 @@ public enum CliCommand
     Help,
     Version,
     Schedule,
-    Monitor
+    Monitor,
+    Why
 }
 
 public enum BaselineAction
@@ -2125,6 +2128,17 @@ public static class CliParser
 
                 case "--maturity-gaps-only":
                     options.MaturityGapsOnly = true;
+                    break;
+
+                case "--why":
+                case "why":
+                    options.Command = CliCommand.Why;
+                    // Consume the next arg as the query if present
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith('-'))
+                    {
+                        i++;
+                        options.WhyQuery = args[i];
+                    }
                     break;
 
                 case "--watch":

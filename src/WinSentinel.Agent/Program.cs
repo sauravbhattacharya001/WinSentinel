@@ -82,6 +82,7 @@ builder.ConfigureServices((context, services) =>
     services.AddSingleton<IAgentModule, EventLogMonitorModule>();
     services.AddSingleton<IAgentModule, NetworkMonitorModule>();
     services.AddSingleton<IAgentModule, ClipboardMonitorModule>();
+    services.AddSingleton<IAgentModule, FleetRegistrationModule>();
 
     // Main orchestrator
     services.AddHostedService<AgentService>();

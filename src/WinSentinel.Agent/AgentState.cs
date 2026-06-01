@@ -59,6 +59,13 @@ public class AgentState
     /// </summary>
     public bool TryStartScan() => Interlocked.CompareExchange(ref _isScanRunning, 1, 0) == 0;
 
+    /// <summary>
+    /// When set to true, the ScheduledAuditModule should run a scan immediately
+    /// regardless of the schedule. Reset to false after the scan starts.
+    /// Used by fleet remote command dispatch.
+    /// </summary>
+    public volatile bool ForceImmediateScan;
+
     /// <summary>Currently active module names.</summary>
     public ConcurrentDictionary<string, bool> ActiveModules { get; } = new();
 

@@ -52,6 +52,8 @@ public class SecurityCoverageService
             ["DefenderAudit"], ["Defender"]),
         new("User Accounts", "Account policies, lockout, and password settings",
             ["AccountAudit"], ["Accounts"]),
+        new("Identity & Credentials", "Admin sprawl, stale accounts, LAPS, credential protection",
+            ["IdentityCredentialAudit"], ["Identity"]),
         new("Network Security", "Network interfaces, sharing, and protocols",
             ["NetworkAudit"], ["Network"]),
         new("Process Security", "Running processes and suspicious activity",

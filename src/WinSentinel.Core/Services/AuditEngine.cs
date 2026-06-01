@@ -41,6 +41,7 @@ public class AuditEngine
             new DriverAudit(),
             new ProcessLineageAudit(),
             new UsbAudit(),
+                new IdentityCredentialAudit(),
         };
     }
 

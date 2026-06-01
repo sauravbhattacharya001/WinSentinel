@@ -182,6 +182,13 @@ public class CliOptions
     public bool GrepCountOnly { get; set; }
     /// <summary>Search query for the <c>why</c> command (finding title/keyword).</summary>
     public string? WhyQuery { get; set; }
+
+    // Fleet command options (Pro-only)
+    public FleetAction FleetAction { get; set; } = FleetAction.Help;
+    public string? FleetEndpoint { get; set; }
+    public string? FleetTargetNodes { get; set; }
+    public string? FleetPolicyFile { get; set; }
+
     public bool GrepShowContext { get; set; } = true;
     public string GrepFormat { get; set; } = "text";
     public int GrepMaxResults { get; set; } = 100;
@@ -556,7 +563,8 @@ public enum CliCommand
     Version,
     Schedule,
     Monitor,
-    Why
+    Why,
+    Fleet
 }
 
 public enum BaselineAction
@@ -2139,6 +2147,41 @@ public static class CliParser
                         i++;
                         options.WhyQuery = args[i];
                     }
+                    break;
+
+                case "fleet":
+                case "--fleet":
+                    options.Command = CliCommand.Fleet;
+                    // Consume sub-action
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith('-'))
+                    {
+                        i++;
+                        options.FleetAction = args[i].ToLowerInvariant() switch
+                        {
+                            "status" => FleetAction.Status,
+                            "scan-all" => FleetAction.ScanAll,
+                            "scan" => FleetAction.ScanAll,
+                            "push-policy" => FleetAction.PushPolicy,
+                            "nodes" => FleetAction.Nodes,
+                            "help" => FleetAction.Help,
+                            _ => FleetAction.Help,
+                        };
+                    }
+                    break;
+
+                case "--fleet-endpoint":
+                    if (i + 1 < args.Length) { i++; options.FleetEndpoint = args[i]; }
+                    break;
+
+                case "--fleet-nodes":
+                case "--nodes":
+                    if (i + 1 < args.Length) { i++; options.FleetTargetNodes = args[i]; }
+                    break;
+
+                case "--fleet-policy-file":
+                case "--file":
+                    if (options.Command == CliCommand.Fleet && i + 1 < args.Length)
+                    { i++; options.FleetPolicyFile = args[i]; }
                     break;
 
                 case "--watch":

@@ -194,14 +194,20 @@ dotnet tool install --global WinSentinel.Cli
 winsentinel --audit
 ```
 
-### Option 2: MSIX Installer
+### Option 2: WinGet (Windows Package Manager)
+
+```powershell
+winget install SauravBhattacharya.WinSentinel
+```
+
+### Option 3: MSIX Installer
 
 ```powershell
 # Downloads cert, installs MSIX - one command
 .\Install-WinSentinel.ps1
 ```
 
-### Option 3: Windows Service
+### Option 4: Windows Service
 
 ```powershell
 dotnet build src/WinSentinel.Agent -c Release
@@ -213,7 +219,7 @@ dotnet build src/WinSentinel.Agent -c Release
 .\Install-Agent.ps1 -Status
 ```
 
-### Option 4: Build MSIX from Source
+### Option 5: Build MSIX from Source
 
 ```powershell
 cd src\WinSentinel.Installer

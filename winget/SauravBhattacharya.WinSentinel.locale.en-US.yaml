@@ -1,0 +1,32 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+
+PackageIdentifier: SauravBhattacharya.WinSentinel
+PackageVersion: 1.19.1
+PackageLocale: en-US
+Publisher: Saurav Bhattacharya
+PublisherUrl: https://winsentinel.ai
+PublisherSupportUrl: https://github.com/sauravbhattacharya001/WinSentinel/issues
+Author: Saurav Bhattacharya
+PackageName: WinSentinel
+PackageUrl: https://winsentinel.ai
+License: MIT
+LicenseUrl: https://github.com/sauravbhattacharya001/WinSentinel/blob/main/LICENSE
+ShortDescription: Windows security auditing and hardening tool
+Description: |-
+  WinSentinel is a comprehensive Windows security auditing tool that scans your system
+  for misconfigurations, vulnerabilities, and compliance gaps. It provides actionable
+  findings with one-click fixes, real-time monitoring, scheduled scans, and PDF reports.
+  Free and full-featured for single-machine use. Pro tier adds fleet orchestration.
+Tags:
+  - security
+  - audit
+  - windows
+  - hardening
+  - compliance
+  - cis-benchmark
+  - vulnerability
+  - dotnet-tool
+  - cli
+Moniker: winsentinel
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

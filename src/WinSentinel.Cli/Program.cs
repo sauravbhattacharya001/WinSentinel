@@ -153,6 +153,7 @@ return options.Command switch
     CliCommand.Monitor => WinSentinel.Cli.Monitor.MonitorCommandHandler.Handle(options),
     CliCommand.Why => await WhyCommandHandler.HandleAsync(options),
             CliCommand.Fleet => await FleetCommandHandler.HandleAsync(options),
+    CliCommand.Telemetry => HandleTelemetry(options),
     _ => HandleHelp()
 };
 
@@ -8772,6 +8773,66 @@ static async Task<int> HandleCollection(CliOptions options)
     };
 }
 
+static int HandleTelemetry(CliOptions options)
+{
+    var svc = new WinSentinel.Core.Services.TelemetryService();
+    switch (options.TelemetryAction)
+    {
+        case TelemetryAction.Enable:
+            svc.Enable();
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine("  \u2713 Telemetry enabled (anonymous crash reports only)");
+            Console.ResetColor();
+            Console.WriteLine($"    Install ID: {svc.InstallId}");
+            Console.WriteLine("    No PII is collected. Disable anytime: winsentinel telemetry disable");
+            return 0;
+
+        case TelemetryAction.Disable:
+            svc.Disable();
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine("  \u2713 Telemetry disabled");
+            Console.ResetColor();
+            return 0;
+
+        case TelemetryAction.Status:
+            var status = svc.GetStatus();
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine("  \U0001f6e1\ufe0f  WinSentinel Telemetry");
+            Console.ResetColor();
+            Console.WriteLine();
+            Console.Write("    Status:   ");
+            if (status.Enabled)
+            {
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine("ENABLED");
+            }
+            else
+            {
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.WriteLine("DISABLED");
+            }
+            Console.ResetColor();
+            Console.WriteLine($"    ID:       {status.InstallId}");
+            Console.WriteLine($"    Endpoint: {status.Endpoint}");
+            Console.WriteLine($"    Config:   {status.ConfigPath}");
+            Console.WriteLine();
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine("    Data sent: CLI version, OS build, command name, exception type.");
+            Console.WriteLine("    NOT sent:  usernames, paths, findings, license keys, IPs.");
+            Console.ResetColor();
+            return 0;
+
+        default:
+            Console.WriteLine("  Usage: winsentinel telemetry <enable|disable|status>");
+            Console.WriteLine();
+            Console.WriteLine("  Commands:");
+            Console.WriteLine("    enable   Opt in to anonymous crash/error reporting");
+            Console.WriteLine("    disable  Opt out (default)");
+            Console.WriteLine("    status   Show current telemetry configuration");
+            return 0;
+    }
+}
+
 record CorrelationRule(
     string Name,
     string[] ModulePatterns,
@@ -8779,3 +8840,4 @@ record CorrelationRule(
     string CompoundRisk,
     string Narrative,
     string Action);
+

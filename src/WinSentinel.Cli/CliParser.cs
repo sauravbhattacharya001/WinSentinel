@@ -185,6 +185,7 @@ public class CliOptions
 
     // Fleet command options (Pro-only)
     public FleetAction FleetAction { get; set; } = FleetAction.Help;
+    public TelemetryAction TelemetryAction { get; set; } = TelemetryAction.Status;
     public string? FleetEndpoint { get; set; }
     public string? FleetTargetNodes { get; set; }
     public string? FleetPolicyFile { get; set; }
@@ -564,7 +565,17 @@ public enum CliCommand
     Schedule,
     Monitor,
     Why,
-    Fleet
+    Fleet,
+    Telemetry
+}
+
+public enum TelemetryAction
+{
+    None,
+    Enable,
+    Disable,
+    Status,
+    Help
 }
 
 public enum BaselineAction
@@ -2165,6 +2176,23 @@ public static class CliParser
                             "nodes" => FleetAction.Nodes,
                             "help" => FleetAction.Help,
                             _ => FleetAction.Help,
+                        };
+                    }
+                    break;
+
+                case "telemetry":
+                case "--telemetry":
+                    options.Command = CliCommand.Telemetry;
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith('-'))
+                    {
+                        i++;
+                        options.TelemetryAction = args[i].ToLowerInvariant() switch
+                        {
+                            "enable" or "on" => TelemetryAction.Enable,
+                            "disable" or "off" => TelemetryAction.Disable,
+                            "status" => TelemetryAction.Status,
+                            "help" => TelemetryAction.Help,
+                            _ => TelemetryAction.Help,
                         };
                     }
                     break;

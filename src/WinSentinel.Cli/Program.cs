@@ -1596,27 +1596,70 @@ static int HandleHistoryCompare(AuditHistoryService historyService, CliOptions o
 
 static int HandleHistoryDiff(AuditHistoryService historyService, CliOptions options)
 {
-    var recentRuns = historyService.GetRecentRuns(2);
+    AuditRunRecord? currentRun;
+    AuditRunRecord? previousRun;
 
-    if (recentRuns.Count < 2)
+    if (!string.IsNullOrEmpty(options.DiffTarget))
     {
-        if (options.Json)
+        // Diff against a specific run ID
+        if (int.TryParse(options.DiffTarget, out var targetId))
         {
-            WriteOutput("{\"error\": \"Need at least 2 audit runs to diff. Run more audits first.\"}", options.OutputFile);
+            previousRun = historyService.GetRunDetails(targetId);
+            if (previousRun == null)
+            {
+                if (options.Json)
+                    WriteOutput($"{{\"error\": \"Run ID {targetId} not found.\"}}", options.OutputFile);
+                else
+                {
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine($"  Run ID {targetId} not found.");
+                    Console.ResetColor();
+                }
+                return 1;
+            }
+            // Current = most recent run
+            var latest = historyService.GetRecentRuns(1);
+            if (latest.Count == 0)
+            {
+                if (options.Json)
+                    WriteOutput("{\"error\": \"No audit runs found.\"}", options.OutputFile);
+                else
+                    Console.WriteLine("  No audit runs found.");
+                return 1;
+            }
+            currentRun = historyService.GetRunDetails(latest[0].Id)!;
         }
         else
         {
-            var original = Console.ForegroundColor;
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine("  Need at least 2 audit runs to diff. Run more audits first.");
-            Console.ForegroundColor = original;
-            Console.WriteLine();
+            if (options.Json)
+                WriteOutput($"{{\"error\": \"Invalid run ID: {options.DiffTarget}\"}}", options.OutputFile);
+            else
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"  Invalid run ID: {options.DiffTarget}");
+                Console.ResetColor();
+            }
+            return 1;
         }
-        return 0;
     }
-
-    var currentRun = historyService.GetRunDetails(recentRuns[0].Id)!;
-    var previousRun = historyService.GetRunDetails(recentRuns[1].Id)!;
+    else
+    {
+        var recentRuns = historyService.GetRecentRuns(2);
+        if (recentRuns.Count < 2)
+        {
+            if (options.Json)
+                WriteOutput("{\"error\": \"Need at least 2 audit runs to diff. Run more audits first.\"}", options.OutputFile);
+            else
+            {
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine("  Need at least 2 audit runs to diff. Run more audits first.");
+                Console.ResetColor();
+            }
+            return 0;
+        }
+        currentRun = historyService.GetRunDetails(recentRuns[0].Id)!;
+        previousRun = historyService.GetRunDetails(recentRuns[1].Id)!;
+    }
 
     // Calculate diffs
     var previousTitles = new HashSet<string>(previousRun.Findings.Select(f => f.Title));

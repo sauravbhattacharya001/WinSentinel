@@ -39,6 +39,7 @@ public class CliOptions
     public bool ShowVersion { get; set; }
     public bool Compare { get; set; }
     public bool Diff { get; set; }
+    public string? DiffTarget { get; set; }
     public int HistoryDays { get; set; } = 30;
     public int HistoryLimit { get; set; } = 20;
     public string? Error { get; set; }
@@ -950,6 +951,17 @@ public static class CliParser
 
                 case "--history":
                     options.Command = CliCommand.History;
+                    break;
+
+                case "diff" when options.Command == CliCommand.None:
+                case "--diff" when options.Command == CliCommand.None:
+                    options.Command = CliCommand.History;
+                    options.Diff = true;
+                    // Optional: next arg can be a run ID to diff against
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                    {
+                        options.DiffTarget = args[++i];
+                    }
                     break;
 
                 case "--checklist":

@@ -153,6 +153,7 @@ return options.Command switch
     CliCommand.Monitor => WinSentinel.Cli.Monitor.MonitorCommandHandler.Handle(options),
     CliCommand.Why => await WhyCommandHandler.HandleAsync(options),
             CliCommand.Fleet => await FleetCommandHandler.HandleAsync(options),
+    CliCommand.Agent => await AgentCommandHandler.HandleAsync(options),
     CliCommand.Telemetry => HandleTelemetry(options),
     _ => HandleHelp()
 };

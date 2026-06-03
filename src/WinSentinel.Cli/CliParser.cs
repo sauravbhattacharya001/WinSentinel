@@ -190,6 +190,9 @@ public class CliOptions
     public string? FleetTargetNodes { get; set; }
     public string? FleetPolicyFile { get; set; }
 
+    // Agent command options
+    public AgentAction AgentAction { get; set; } = AgentAction.Help;
+
     public bool GrepShowContext { get; set; } = true;
     public string GrepFormat { get; set; } = "text";
     public int GrepMaxResults { get; set; } = 100;
@@ -566,7 +569,18 @@ public enum CliCommand
     Monitor,
     Why,
     Fleet,
-    Telemetry
+    Telemetry,
+    Agent
+}
+
+public enum AgentAction
+{
+    Help,
+    Start,
+    Stop,
+    Status,
+    Install,
+    Uninstall
 }
 
 public enum TelemetryAction
@@ -2193,6 +2207,25 @@ public static class CliParser
                             "status" => TelemetryAction.Status,
                             "help" => TelemetryAction.Help,
                             _ => TelemetryAction.Help,
+                        };
+                    }
+                    break;
+
+                case "agent":
+                case "--agent":
+                    options.Command = CliCommand.Agent;
+                    if (i + 1 < args.Length && !args[i + 1].StartsWith('-'))
+                    {
+                        i++;
+                        options.AgentAction = args[i].ToLowerInvariant() switch
+                        {
+                            "start" => AgentAction.Start,
+                            "stop" => AgentAction.Stop,
+                            "status" => AgentAction.Status,
+                            "install" => AgentAction.Install,
+                            "uninstall" or "remove" => AgentAction.Uninstall,
+                            "help" => AgentAction.Help,
+                            _ => AgentAction.Help,
                         };
                     }
                     break;

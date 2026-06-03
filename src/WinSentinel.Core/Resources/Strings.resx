@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType>
+        <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="data">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" msdata:Ordinal="0" />
+              <xsd:attribute name="type" type="xsd:string" />
+              <xsd:attribute name="mimetype" type="xsd:string" />
+              <xsd:attribute name="xml:space" type="xsd:string" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="resheader">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" />
+            </xsd:complexType>
+          </xsd:element>
+        </xsd:choice>
+      </xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+
+  <!-- Severity labels -->
+  <data name="Severity_Critical" xml:space="preserve"><value>Critical</value></data>
+  <data name="Severity_Warning" xml:space="preserve"><value>Warning</value></data>
+  <data name="Severity_Info" xml:space="preserve"><value>Info</value></data>
+  <data name="Severity_Pass" xml:space="preserve"><value>Pass</value></data>
+
+  <!-- Common audit result phrases -->
+  <data name="Audit_NotInstalled" xml:space="preserve"><value>{0} is not installed on this system.</value></data>
+  <data name="Audit_Outdated" xml:space="preserve"><value>{0} version {1} is installed. The latest known version is {2}. Outdated software may have unpatched security vulnerabilities.</value></data>
+  <data name="Audit_UpToDate" xml:space="preserve"><value>{0} version {1} is installed and appears to be current.</value></data>
+  <data name="Audit_Disabled" xml:space="preserve"><value>{0} is disabled.</value></data>
+  <data name="Audit_Enabled" xml:space="preserve"><value>{0} is enabled.</value></data>
+  <data name="Audit_DisabledByPolicy" xml:space="preserve"><value>{0} is disabled via policy.</value></data>
+
+  <!-- Firewall audit -->
+  <data name="Firewall_ProfileDisabled" xml:space="preserve"><value>Windows Firewall ({0} profile) is disabled. This leaves the system exposed to network attacks.</value></data>
+  <data name="Firewall_ProfileEnabled" xml:space="preserve"><value>Windows Firewall ({0} profile) is enabled.</value></data>
+  <data name="Firewall_AllProfilesEnabled" xml:space="preserve"><value>Windows Firewall is enabled on all profiles (Domain, Private, Public).</value></data>
+
+  <!-- Defender audit -->
+  <data name="Defender_RealTimeDisabled" xml:space="preserve"><value>Windows Defender real-time protection is disabled. The system is not actively scanning for malware.</value></data>
+  <data name="Defender_RealTimeEnabled" xml:space="preserve"><value>Windows Defender real-time protection is enabled.</value></data>
+  <data name="Defender_SignaturesStale" xml:space="preserve"><value>Defender signatures are {0} days old. Signatures older than 7 days may miss recent threats.</value></data>
+  <data name="Defender_TamperProtectionOff" xml:space="preserve"><value>Defender Tamper Protection is disabled. Malware can modify or disable Defender settings.</value></data>
+
+  <!-- Update audit -->
+  <data name="Update_Stale" xml:space="preserve"><value>Windows has not been updated in {0} days. Systems more than {1} days behind on patches are at elevated risk.</value></data>
+  <data name="Update_Paused" xml:space="preserve"><value>Windows Update is paused. The system will not receive security patches until updates are resumed.</value></data>
+  <data name="Update_Current" xml:space="preserve"><value>Windows is up to date. Last successful update: {0}.</value></data>
+
+  <!-- Account audit -->
+  <data name="Account_GuestEnabled" xml:space="preserve"><value>The Guest account is enabled. Guest accounts provide unauthenticated access and should be disabled.</value></data>
+  <data name="Account_PasswordNeverExpires" xml:space="preserve"><value>Account '{0}' has password set to never expire.</value></data>
+  <data name="Account_AdminSprawl" xml:space="preserve"><value>{0} local accounts have administrator privileges. Minimize admin accounts to reduce attack surface.</value></data>
+
+  <!-- Browser audit -->
+  <data name="Browser_DangerousExtensions" xml:space="preserve"><value>{0} known-dangerous browser extension(s) found.</value></data>
+  <data name="Browser_ExcessivePermissions" xml:space="preserve"><value>{0} browser extension(s) have potentially dangerous permissions.</value></data>
+  <data name="Browser_SafeBrowsingOff" xml:space="preserve"><value>{0} Safe Browsing / SmartScreen is disabled. Phishing and malware protection is inactive.</value></data>
+  <data name="Browser_AutoUpdateDisabled" xml:space="preserve"><value>{0} auto-update is disabled via policy. The browser will not receive security patches automatically.</value></data>
+  <data name="Browser_SavedPasswords" xml:space="preserve"><value>Passwords are saved in {0}. Browser-saved passwords are vulnerable to local attacks and data breaches.</value></data>
+
+  <!-- Network audit -->
+  <data name="Network_SMBv1Enabled" xml:space="preserve"><value>SMBv1 is enabled. SMBv1 is deprecated and has critical vulnerabilities (EternalBlue). Disable it immediately.</value></data>
+  <data name="Network_LLMNREnabled" xml:space="preserve"><value>LLMNR is enabled. LLMNR is vulnerable to hash capture attacks on the local network.</value></data>
+  <data name="Network_NBTNSEnabled" xml:space="preserve"><value>NetBIOS over TCP/IP (NBT-NS) is enabled. NBT-NS is vulnerable to name resolution spoofing.</value></data>
+
+  <!-- Service audit -->
+  <data name="Service_UnquotedPath" xml:space="preserve"><value>Service '{0}' has an unquoted path containing spaces: {1}. This is a privilege escalation vector.</value></data>
+  <data name="Service_WeakDacl" xml:space="preserve"><value>Service '{0}' has a weak DACL allowing non-admin modification.</value></data>
+
+  <!-- Encryption audit -->
+  <data name="Encryption_BitLockerOff" xml:space="preserve"><value>BitLocker is not enabled on volume {0}. Data on this volume is not encrypted at rest.</value></data>
+  <data name="Encryption_NoTPM" xml:space="preserve"><value>No TPM 2.0 module detected. BitLocker may require alternative authentication methods.</value></data>
+
+  <!-- PowerShell audit -->
+  <data name="PowerShell_TranscriptionOff" xml:space="preserve"><value>PowerShell transcription logging is not enabled. Post-exploitation activity may not be recorded.</value></data>
+  <data name="PowerShell_AMSIDisabled" xml:space="preserve"><value>AMSI (Antimalware Scan Interface) appears to be disabled or tampered with.</value></data>
+  <data name="PowerShell_Unrestricted" xml:space="preserve"><value>PowerShell execution policy is set to Unrestricted. Consider using RemoteSigned or AllSigned.</value></data>
+
+  <!-- USB audit -->
+  <data name="USB_AutoRunEnabled" xml:space="preserve"><value>AutoRun is enabled for removable media. Malware can auto-execute when USB devices are inserted.</value></data>
+
+  <!-- Privacy audit -->
+  <data name="Privacy_AdvertisingIdEnabled" xml:space="preserve"><value>Windows advertising ID is enabled. Apps can track you across sessions using this identifier.</value></data>
+  <data name="Privacy_DiagnosticDataFull" xml:space="preserve"><value>Diagnostic data is set to Full. Consider reducing to Required (Basic) for better privacy.</value></data>
+
+  <!-- Remote access audit -->
+  <data name="Remote_RDPNoNLA" xml:space="preserve"><value>RDP is enabled without Network Level Authentication. This allows unauthenticated access to the login screen.</value></data>
+  <data name="Remote_RDPEnabled" xml:space="preserve"><value>Remote Desktop Protocol (RDP) is enabled. Ensure it is protected by strong authentication and firewall rules.</value></data>
+
+  <!-- Score/grade labels -->
+  <data name="Score_Format" xml:space="preserve"><value>Score: {0}/100 (Grade {1})</value></data>
+  <data name="Score_Summary" xml:space="preserve"><value>Critical: {0} | Warning: {1} | Info: {2}</value></data>
+
+  <!-- Fix engine -->
+  <data name="Fix_DryRunHeader" xml:space="preserve"><value>DRY RUN — the following changes would be applied:</value></data>
+  <data name="Fix_ApplyPrompt" xml:space="preserve"><value>Apply this fix? [y/N]</value></data>
+  <data name="Fix_Applied" xml:space="preserve"><value>Fix applied successfully.</value></data>
+  <data name="Fix_Skipped" xml:space="preserve"><value>Fix skipped.</value></data>
+  <data name="Fix_Failed" xml:space="preserve"><value>Fix failed: {0}</value></data>
+  <data name="Fix_ElevationRequired" xml:space="preserve"><value>This fix requires administrator privileges. Please run as admin.</value></data>
+
+  <!-- Compliance frameworks -->
+  <data name="Compliance_CIS_L1" xml:space="preserve"><value>CIS Windows Level 1</value></data>
+  <data name="Compliance_CIS_L2" xml:space="preserve"><value>CIS Windows Level 2</value></data>
+  <data name="Compliance_SOC2" xml:space="preserve"><value>SOC 2</value></data>
+  <data name="Compliance_HIPAA" xml:space="preserve"><value>HIPAA</value></data>
+  <data name="Compliance_Essential8" xml:space="preserve"><value>Essential Eight</value></data>
+
+</root>

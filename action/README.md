@@ -1,56 +1,93 @@
 # WinSentinel GitHub Action
 
-Run automated Windows security audits in your CI/CD pipeline. Results upload to GitHub Code Scanning as SARIF.
+Run automated Windows security audits in your CI/CD pipeline. Results upload directly to GitHub Code Scanning.
 
-## Quick Start
+## Usage
 
 ```yaml
 name: Security Audit
 on:
-  schedule:
-    - cron: '0 6 * * 1'  # Weekly Monday 6 AM UTC
   push:
     branches: [main]
+  pull_request:
+  schedule:
+    - cron: '0 6 * * 1' # Weekly Monday 6am
 
 jobs:
-  audit:
+  winsentinel:
     runs-on: windows-latest
+    permissions:
+      security-events: write
     steps:
+      - uses: actions/checkout@v4
       - uses: sauravbhattacharya001/WinSentinel/action@main
-        id: audit
         with:
-          fail-on-critical: 'true'
-
-      - name: Comment score
-        if: always()
-        run: |
-          echo "Security Score: ${{ steps.audit.outputs.score }}/100"
-          echo "Findings: ${{ steps.audit.outputs.findings-count }} (${{ steps.audit.outputs.critical-count }} critical)"
+          fail-on-score-below: 60
 ```
 
 ## Inputs
 
-| Input | Default | Description |
-|-------|---------|-------------|
-| `version` | `latest` | WinSentinel CLI version |
-| `format` | `sarif` | Output format: sarif, json, csv, text |
-| `severity` | `warning` | Minimum severity: info, warning, critical |
-| `fail-on-critical` | `true` | Fail workflow on critical findings |
-| `upload-sarif` | `true` | Upload to GitHub Code Scanning |
-| `modules` | (all) | Comma-separated module list |
+| Input | Description | Default |
+|-------|-------------|---------|
+| `version` | WinSentinel CLI version | `latest` |
+| `profile` | Audit profile (`all`, `cis-l1`, `essential8`, etc.) | `all` |
+| `fail-on-score-below` | Fail if score < threshold (0 = never) | `0` |
+| `upload-sarif` | Upload to Code Scanning | `true` |
+| `output-format` | Output: `sarif`, `json`, `csv` | `sarif` |
+| `additional-args` | Extra CLI arguments | |
 
 ## Outputs
 
 | Output | Description |
 |--------|-------------|
-| `score` | Security score 0-100 |
+| `score` | Security score (0-100) |
+| `grade` | Letter grade (A-F) |
 | `findings-count` | Total findings |
-| `critical-count` | Critical findings |
 | `sarif-file` | Path to SARIF file |
-| `json-file` | Path to JSON file |
+
+## Examples
+
+### Fail PR if score drops below 70
+
+```yaml
+- uses: sauravbhattacharya001/WinSentinel/action@main
+  with:
+    fail-on-score-below: 70
+```
+
+### Run specific compliance profile
+
+```yaml
+- uses: sauravbhattacharya001/WinSentinel/action@main
+  with:
+    profile: cis-l1
+```
+
+### Use score in subsequent steps
+
+```yaml
+- uses: sauravbhattacharya001/WinSentinel/action@main
+  id: audit
+- run: echo "Score is ${{ steps.audit.outputs.score }}"
+```
 
 ## Requirements
 
 - **Windows runner** (`runs-on: windows-latest`)
-- **.NET SDK** (pre-installed on GitHub-hosted Windows runners)
-- **GitHub Advanced Security** (for Code Scanning SARIF upload on private repos)
+- **.NET 8 SDK** (pre-installed on `windows-latest`)
+- **`security-events: write`** permission (for SARIF upload)
+
+## What gets audited
+
+WinSentinel checks 30+ security categories on the runner including:
+- Windows Defender configuration
+- Firewall rules and network posture
+- Account security and credential exposure
+- Encryption (BitLocker, TPM)
+- PowerShell security settings
+- Browser security configuration
+- Application update posture
+- Event log analysis
+- And more...
+
+Results appear in your repository's **Security → Code scanning alerts** tab.

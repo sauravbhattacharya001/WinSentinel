@@ -6,7 +6,7 @@ Welcome to the **WinSentinel** documentation - your always-on Windows security a
 
 WinSentinel is a Windows-native security agent that monitors, audits, and remediates security issues on your machine. It features:
 
-- **13 audit modules** covering Windows Defender, firewall, network, updates, privacy, and more
+- **30 audit modules** covering Windows Defender, firewall, network, updates, privacy, encryption, credentials, drivers, and more
 - **Real-time monitoring** with file integrity and event log watchers
 - **AI-powered threat correlation** that connects disparate events into threat narratives
 - **Auto-remediation** with PowerShell-based fix scripts

@@ -39,13 +39,15 @@ jobs:
         run: docfx docfx.json
         continue-on-error: true
 
-      - name: Copy landing page
+      - name: Copy landing page and CNAME
         run: |
           # Merge: landing page at root, DocFX docs at /docs/
           mkdir -p docfx/_site/docs
           # If DocFX built successfully, it's already in _site
           # Copy the original landing page as fallback root
           cp docs/index.html docfx/_site/index.html 2>/dev/null || true
+          # Ensure CNAME is at site root for custom domain
+          cp docfx/CNAME docfx/_site/CNAME 2>/dev/null || true
 
       - name: Setup Pages
         uses: actions/configure-pages@v6

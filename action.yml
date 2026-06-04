@@ -1,0 +1,188 @@
+name: 'WinSentinel Security Audit'
+description: 'Run WinSentinel security audit on a Windows runner. Produces SARIF for GitHub Code Scanning, plus score and findings summary.'
+author: 'Saurav Bhattacharya'
+
+branding:
+  icon: 'shield'
+  color: 'blue'
+
+inputs:
+  version:
+    description: 'WinSentinel CLI version to install (default: latest)'
+    required: false
+    default: 'latest'
+  sarif:
+    description: 'Generate SARIF output and upload to GitHub Code Scanning'
+    required: false
+    default: 'true'
+  fail-below:
+    description: 'Fail the action if score is below this threshold (0-100, 0 = never fail)'
+    required: false
+    default: '0'
+  modules:
+    description: 'Comma-separated list of modules to run (empty = all)'
+    required: false
+    default: ''
+  output-format:
+    description: 'Additional output format: json, csv, markdown, or none'
+    required: false
+    default: 'json'
+  profile:
+    description: 'Compliance profile to apply: cis-l1, essential-8, or none'
+    required: false
+    default: 'none'
+
+outputs:
+  score:
+    description: 'Security score (0-100)'
+    value: ${{ steps.audit.outputs.score }}
+  grade:
+    description: 'Letter grade (A-F)'
+    value: ${{ steps.audit.outputs.grade }}
+  findings-count:
+    description: 'Total number of findings'
+    value: ${{ steps.audit.outputs.findings_count }}
+  critical-count:
+    description: 'Number of critical findings'
+    value: ${{ steps.audit.outputs.critical_count }}
+  sarif-file:
+    description: 'Path to SARIF output file'
+    value: ${{ steps.audit.outputs.sarif_file }}
+  report-file:
+    description: 'Path to additional report output file'
+    value: ${{ steps.audit.outputs.report_file }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install WinSentinel CLI
+      shell: pwsh
+      run: |
+        $version = '${{ inputs.version }}'
+        if ($version -eq 'latest' -or [string]::IsNullOrEmpty($version)) {
+          dotnet tool install --global WinSentinel.Cli
+        } else {
+          dotnet tool install --global WinSentinel.Cli --version $version
+        }
+        # Ensure tool path is available
+        $toolPath = Join-Path $env:USERPROFILE '.dotnet\tools'
+        if ($env:PATH -notlike "*$toolPath*") {
+          echo "$toolPath" >> $env:GITHUB_PATH
+        }
+        winsentinel --version
+
+    - name: Run Security Audit
+      id: audit
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Continue'
+        $sarifFile = Join-Path $env:RUNNER_TEMP 'winsentinel.sarif'
+        $reportFile = ''
+
+        # Build command arguments
+        $args = @('--audit', '--json')
+
+        # Modules filter
+        $modules = '${{ inputs.modules }}'
+        if ($modules) {
+          $args += '--modules'
+          $args += $modules
+        }
+
+        # Compliance profile
+        $profile = '${{ inputs.profile }}'
+        if ($profile -ne 'none' -and $profile) {
+          $args += '--profile'
+          $args += $profile
+        }
+
+        # SARIF output
+        $genSarif = '${{ inputs.sarif }}'
+        if ($genSarif -eq 'true') {
+          $args += '--sarif'
+          $args += '--sarif-output'
+          $args += $sarifFile
+        }
+
+        # Additional output format
+        $format = '${{ inputs.output-format }}'
+        if ($format -ne 'none' -and $format) {
+          $reportFile = Join-Path $env:RUNNER_TEMP "winsentinel-report.$format"
+          $args += '--export'
+          $args += $format
+          $args += '--export-output'
+          $args += $reportFile
+        }
+
+        Write-Host "Running: winsentinel $($args -join ' ')"
+        $output = & winsentinel @args 2>&1 | Out-String
+
+        # Parse JSON output for score/grade/findings
+        $score = 0
+        $grade = 'F'
+        $findingsCount = 0
+        $criticalCount = 0
+
+        try {
+          # winsentinel --audit --json outputs JSON; extract score info
+          $jsonLines = $output -split "`n" | Where-Object { $_.Trim().StartsWith('{') -or $_.Trim().StartsWith('[') }
+          foreach ($line in $jsonLines) {
+            try {
+              $obj = $line | ConvertFrom-Json -ErrorAction SilentlyContinue
+              if ($obj.score -ne $null) {
+                $score = [int]$obj.score
+                $grade = if ($obj.grade) { $obj.grade } else { 
+                  if ($score -ge 90) { 'A' } elseif ($score -ge 80) { 'B' } elseif ($score -ge 70) { 'C' } elseif ($score -ge 60) { 'D' } else { 'F' }
+                }
+                $findingsCount = if ($obj.findings_count -ne $null) { [int]$obj.findings_count } elseif ($obj.findingsCount -ne $null) { [int]$obj.findingsCount } else { 0 }
+                $criticalCount = if ($obj.critical_count -ne $null) { [int]$obj.critical_count } elseif ($obj.criticalCount -ne $null) { [int]$obj.criticalCount } else { 0 }
+                break
+              }
+            } catch { }
+          }
+        } catch {
+          Write-Warning "Could not parse audit JSON output: $_"
+        }
+
+        # Set outputs
+        "score=$score" >> $env:GITHUB_OUTPUT
+        "grade=$grade" >> $env:GITHUB_OUTPUT
+        "findings_count=$findingsCount" >> $env:GITHUB_OUTPUT
+        "critical_count=$criticalCount" >> $env:GITHUB_OUTPUT
+        "sarif_file=$sarifFile" >> $env:GITHUB_OUTPUT
+        "report_file=$reportFile" >> $env:GITHUB_OUTPUT
+
+        # Summary
+        Write-Host ""
+        Write-Host "═══════════════════════════════════════"
+        Write-Host "  WinSentinel Score: $score/100 ($grade)"
+        Write-Host "  Findings: $findingsCount (Critical: $criticalCount)"
+        Write-Host "═══════════════════════════════════════"
+
+        # Write job summary
+        @"
+        ## 🛡️ WinSentinel Security Audit
+
+        | Metric | Value |
+        |--------|-------|
+        | **Score** | $score / 100 |
+        | **Grade** | $grade |
+        | **Findings** | $findingsCount |
+        | **Critical** | $criticalCount |
+
+        "@ >> $env:GITHUB_STEP_SUMMARY
+
+        # Fail threshold
+        $failBelow = [int]'${{ inputs.fail-below }}'
+        if ($failBelow -gt 0 -and $score -lt $failBelow) {
+          Write-Error "Security score $score is below threshold $failBelow"
+          exit 1
+        }
+
+    - name: Upload SARIF to GitHub Code Scanning
+      if: inputs.sarif == 'true' && always()
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ${{ steps.audit.outputs.sarif_file }}
+        category: winsentinel
+      continue-on-error: true

@@ -116,6 +116,7 @@ jobs:
         --verbosity normal
         --logger "trx;LogFileName=test-results.trx"
         --collect:"XPlat Code Coverage"
+        --settings tests/WinSentinel.Tests/coverlet.runsettings
         --results-directory TestResults
       continue-on-error: true
 

@@ -49,9 +49,8 @@ jobs:
         --configuration Release
         -p:Platform=x64
         --collect:"XPlat Code Coverage"
+        --settings tests/WinSentinel.Tests/coverlet.runsettings
         --results-directory TestResults
-        -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura
-           DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.IncludeTestAssembly=false
       continue-on-error: true
 
     - name: Install ReportGenerator

@@ -122,6 +122,8 @@ jobs:
 
     - name: Create Release
       uses: softprops/action-gh-release@v3
+      env:
+        GITHUB_TOKEN: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
       with:
         files: |
           dist/WinSentinel-${{ github.ref_name }}.msix

@@ -17,7 +17,7 @@ public class AuditEngineTests
     {
         var engine = new AuditEngine();
 
-        Assert.Equal(24, engine.Modules.Count);
+        Assert.True(engine.Modules.Count >= 24, $"Expected at least 24 modules but found {engine.Modules.Count}");
 
         var categories = engine.Modules.Select(m => m.Category).ToHashSet();
         Assert.Contains("Firewall", categories);

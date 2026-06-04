@@ -59,8 +59,8 @@ public class CalendarHeatmapServiceTests
     [Fact]
     public void Analyze_MultipleRunsSameDay_AggregatesCorrectly()
     {
-        // Use noon today to avoid date-boundary issues in CI (UTC vs local)
-        var today = new DateTimeOffset(DateTime.Today.AddHours(12), TimeSpan.Zero);
+        // Use noon today (UTC) to avoid date-boundary issues in CI
+        var today = new DateTimeOffset(DateTime.UtcNow.Date.AddHours(12), TimeSpan.Zero);
         var runs = new List<AuditRunRecord>
         {
             MakeRun(today, 80, findings: 10, critical: 2),
@@ -77,7 +77,7 @@ public class CalendarHeatmapServiceTests
         Assert.Equal(70, result.WorstScore);
 
         // Find today's cell
-        var todayDate = DateOnly.FromDateTime(DateTime.Today);
+        var todayDate = DateOnly.FromDateTime(DateTime.UtcNow.Date);
         var todayCell = result.Days.FirstOrDefault(d => d.Date == todayDate);
         Assert.NotNull(todayCell);
         Assert.Equal(3, todayCell.AuditCount);

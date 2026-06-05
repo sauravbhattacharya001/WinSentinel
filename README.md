@@ -13,14 +13,14 @@
 [![.NET 8](https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
 [![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4?logo=windows11)](https://www.microsoft.com/windows)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-4173%20passing-brightgreen)]()
-[![Lines of Code](https://img.shields.io/badge/LOC-72k%2B-blue)]()
+[![Tests](https://img.shields.io/badge/tests-5376%20passing-brightgreen)]()
+[![Lines of Code](https://img.shields.io/badge/LOC-111k%2B-blue)]()
 
 **Not just an auditor - a living agent that monitors, detects, correlates, and responds 24/7.**
 
-*Real-time threat detection • 13 audit modules • Auto-remediation • Chat control plane • AI-powered correlation • Compliance profiles*
+*Real-time threat detection • 34 audit modules • Auto-remediation • Chat control plane • AI-powered correlation • Compliance profiles • Plugin system*
 
-[🚀 Quick Start](#-quick-start) · [📦 Install](#-installation) · [📖 Docs](https://sauravbhattacharya001.github.io/WinSentinel/) · [🐛 Issues](https://github.com/sauravbhattacharya001/WinSentinel/issues) · [📋 Changelog](#-releases)
+[🚀 Quick Start](#-quick-start) · [📦 Install](#-installation) · [📖 Docs](https://docs.winsentinel.ai) · [🐛 Issues](https://github.com/sauravbhattacharya001/WinSentinel/issues) · [📋 Changelog](https://winsentinel.ai/changelog)
 
 ---
 
@@ -35,7 +35,8 @@ Most Windows security tools run once and give you a report. WinSentinel is diffe
 - **Takes action** - auto-remediates threats with full undo support
 - **Speaks your language** - chat-based control plane with 25+ commands plus natural language
 - **Compliance-aware** - built-in profiles for Home, Enterprise, HIPAA, PCI-DSS, and CIS L1
-- **Deeply tested** - 4,173 automated tests across 128 test files
+- **Deeply tested** - 5,376 automated tests across 188 test files
+- **Extensible** - plugin architecture with Ed25519-signed community modules
 
 ---
 
@@ -106,13 +107,15 @@ The agent runs continuously - even with the dashboard closed - watching processe
 | 🧠 **AI-Powered Brain** | Correlates individual events into attack chains. Detects multi-stage attacks that single-event analysis misses |
 | 🔧 **7 Auto-Remediation Actions** | Kill process, quarantine file, block IP, disable account, restore hosts, re-enable Defender, revert registry - **all with undo** |
 | 💬 **Chat Control Plane** | 25+ commands plus natural language. Run audits, query threats, configure policies - from the chat panel |
-| 📊 **13 Audit Modules** | Firewall, Updates, Defender, Accounts, Network, Processes, Startup, System, Privacy, Browser, App Security, Encryption, Event Log |
+| 📊 **34 Audit Modules** | Firewall, Updates, Defender, Accounts, Network, Processes, Startup, System, Privacy, Browser, App Security, Encryption, Event Log, Identity & Credentials, PowerShell, USB/Removable Media, DNS, Drivers, Certificates, Remote Access, and 14 more |
 | 📋 **Compliance Profiles** | Home, Enterprise, HIPAA, PCI-DSS, CIS L1 - context-aware scoring with per-profile severity adjustments |
 | 🔕 **Finding Suppression** | Ignore/suppress known-acceptable findings with regex rules, expiration dates, and audit trail |
-| 📈 **Score History** | SQLite-backed audit tracking with trends. See your security posture change over time |
-| 📤 **Export Reports** | HTML, JSON, Text, Markdown - save and share results |
+| 📈 **Score History** | SQLite-backed audit tracking with trends, heatmaps, and regression detection |
+| 📤 **Export Reports** | HTML, JSON, CSV, SARIF, Text, Markdown - save and share results |
 | 🔔 **Toast Notifications** | Critical finding alerts via Windows notification center |
-| 💻 **CLI Mode** | Full CLI (`winsentinel.exe`) for scripting, automation, and CI/CD gate checks |
+| 💻 **CLI Mode** | Full CLI with 50+ subcommands for scripting, automation, and CI/CD gate checks |
+| 🔌 **Plugin System** | Ed25519-signed community plugins with multi-publisher trust model |
+| 🎯 **GitHub Action** | Marketplace action for automated security auditing in CI/CD |
 | ⚙️ **System Tray** | Minimize to tray and run silently in the background |
 | 🛡️ **Input Sanitization** | Centralized security layer prevents command injection in all user-facing inputs |
 
@@ -146,9 +149,14 @@ The agent runs continuously - even with the dashboard closed - watching processe
 ║  📦 App Security     90    █████████░  PASS           ║
 ║  🔐 Encryption       80    ████████░░  WARN           ║
 ║  📋 Event Log        85    ████████░░  PASS           ║
+║  🔑 Identity         90    █████████░  PASS           ║
+║  ⚡ PowerShell       85    ████████░░  PASS           ║
+║  🔌 USB              95    █████████░  PASS           ║
+║  ... +17 more modules                              ║
 ╠══════════════════════════════════════════════════════╣
 ║  Findings: 65 total | 0 critical | 5 warnings       ║
 ║  Suppressed: 2 (accepted risk)                       ║
+║  Modules scanned: 34                                 ║
 ╚══════════════════════════════════════════════════════╝
 ```
 
@@ -240,7 +248,7 @@ cd src\WinSentinel.Installer
 
 ---
 
-## 📊 The 13 Audit Modules
+## 📊 The 34 Audit Modules
 
 | # | Module | What It Scans |
 |:---:|:---|:---|
@@ -253,10 +261,31 @@ cd src\WinSentinel.Installer
 | 7 | 🚀 **Startup** | Startup programs, scheduled tasks, Run/RunOnce keys, service types |
 | 8 | 💻 **System** | OS build, Secure Boot, BitLocker, UAC level, RDP config, DEP/NX |
 | 9 | 🔒 **Privacy** | Telemetry, advertising ID, location tracking, clipboard sync, activity history |
-| 10 | 🌍 **Browser** | Chrome/Edge settings, dangerous extensions, saved passwords, update status |
-| 11 | 📦 **App Security** | Outdated software, EOL flagging, installed program analysis |
-| 12 | 🔐 **Encryption** | BitLocker, EFS, certificate store, TPM status |
-| 13 | 📋 **Event Log** | Failed logins, suspicious events, audit policy gaps |
+| 10 | 🌍 **Browser** | Chrome/Edge extensions audit, password autofill posture, weak cert pins |
+| 11 | 📦 **App Security** | Outdated software, known-vulnerable packages, sideloaded MSIX/AppX |
+| 12 | 🔐 **Encryption** | BitLocker per volume, TPM 2.0, EFS coverage, expired certs, weak RSA keys |
+| 13 | 📋 **Event Log** | Failed logons, privilege escalations, service installations, suspicious PowerShell |
+| 14 | 🔑 **Identity & Credentials** | Local admin sprawl, stale accounts, LAPS posture, cached credentials |
+| 15 | ⚡ **PowerShell** | Execution policy, transcription/module logging, AMSI, ConstrainedLanguageMode |
+| 16 | 🔌 **USB & Removable Media** | Device history, autorun status, BitLocker-to-Go, write-protect policy |
+| 17 | 🌐 **DNS** | DNS-over-HTTPS config, cache poisoning vectors, resolver security |
+| 18 | 🖥️ **Drivers** | Unsigned drivers, vulnerable driver blocklist, kernel-mode code integrity |
+| 19 | 📜 **Certificates** | Store audit, expired/weak certs, untrusted roots, chain validation |
+| 20 | 🔗 **Remote Access** | RDP security, remote management exposure, WinRM config |
+| 21 | 📡 **Bluetooth** | Discoverable mode, paired devices, BLE security posture |
+| 22 | 🗂️ **Registry** | Security-sensitive keys, tampered values, autostart persistence |
+| 23 | 🌍 **Environment** | PATH injection risks, dangerous environment variables, temp permissions |
+| 24 | 💾 **Backup** | System Restore points, backup schedule, recovery partition health |
+| 25 | 📋 **Group Policy** | Applied GPOs, security-relevant policies, drift from baselines |
+| 26 | 📂 **SMB Shares** | Exposed shares, anonymous access, SMBv1 status, signing requirements |
+| 27 | ⏰ **Scheduled Tasks** | Suspicious tasks, unsigned executables, persistence mechanisms |
+| 28 | ⚙️ **Services** | Unquoted service paths, weak permissions, service account audit |
+| 29 | 📦 **Software Inventory** | Installed applications, version status, EOL detection |
+| 30 | 📶 **Wi-Fi** | Saved profiles, WPA/WPA2/WPA3 status, open network warnings |
+| 31 | 🖥️ **Virtualization** | Hyper-V, VBS, Credential Guard, hypervisor code integrity |
+| 32 | 🔍 **Process Lineage** | Parent-child relationships, suspicious spawn patterns, LOTL detection |
+| 33 | 🕵️ **Credential Exposure** | Credential caching, NTLM exposure, Mimikatz-harvestable secrets |
+| 34 | 📝 **Audit Policy** | Windows audit configuration gaps, recommended logging settings |
 
 ---
 
@@ -299,7 +328,7 @@ Switch profiles via the dashboard or CLI to see how your system scores under dif
 ```
 > status                    # Agent uptime, active monitors
 > threats                   # Recent threat events
-> audit                     # Run full 13-module audit
+> audit                     # Run full 34-module audit
 > audit firewall            # Run specific module
 > score                     # Current score and grade
 > history                   # Score trend over time
@@ -342,26 +371,68 @@ winsentinel --audit --threshold 90
 # Auto-fix everything
 winsentinel --fix-all
 
-# Compare last two runs
-winsentinel --history --compare
+# Compare runs / show delta
+winsentinel diff
+winsentinel diff <run-id>
 
-# Show what changed
-winsentinel --history --diff
+# Live watch mode (re-audits on interval)
+winsentinel watch --interval 300
+
+# Explain a finding
+winsentinel why "LLMNR enabled"
+
+# Export in any format
+winsentinel export json
+winsentinel export sarif
+winsentinel export csv
+
+# Manage ignored findings
+winsentinel ignore add --pattern "telemetry" --reason "accepted risk"
+winsentinel ignore list
+winsentinel ignore rm <rule-id>
+
+# Self-update from NuGet
+winsentinel self-update
+winsentinel self-update --check
+
+# Agent daemon
+winsentinel agent start
+winsentinel agent status
+winsentinel agent install   # as Windows Service
+
+# Fleet management (Pro)
+winsentinel fleet status
+winsentinel fleet scan-all
+winsentinel fleet push-policy --file policy.json
+
+# Plugin management
+winsentinel plugin list
+winsentinel plugin trust <publisher-key>
 ```
 
-| Flag | Description |
+| Flag / Command | Description |
 |:---|:---|
 | `--audit` | Run full security audit |
 | `--score` | Print score and grade only |
 | `--fix-all` | Auto-fix all fixable findings |
 | `--history` | View past audit runs |
-| `--json` / `--html` / `--md` | Output format |
+| `--json` / `--html` / `--md` / `--csv` / `--sarif` | Output format |
 | `--output <file>` | Save to file |
 | `--modules <list>` | Comma-separated module list |
 | `--threshold <n>` | Fail if score below n |
 | `--compare` / `--diff` | Compare runs or show deltas |
-| `--summary` | Executive security summary (plain-English brief) |
+| `--summary` | Executive security summary |
 | `--quiet` | Score + exit code only |
+| `diff [run-id]` | Show what changed between scans |
+| `watch` | Continuous monitoring with alerts |
+| `why <finding>` | Explain why a finding matters |
+| `export <format>` | Export results (json, csv, sarif, markdown) |
+| `ignore add/list/rm` | Manage finding suppression rules |
+| `self-update` | Update CLI from NuGet |
+| `agent start/stop/status/install` | Manage the background agent |
+| `fleet status/scan-all/push-policy` | Fleet orchestration (Pro) |
+| `plugin list/trust/untrust` | Manage community plugins |
+| `telemetry enable/disable/status` | Anonymous usage telemetry |
 
 **Exit codes:** `0` = pass, `1` = warnings, `2` = critical, `3` = error
 
@@ -389,10 +460,11 @@ Compliance profiles adjust these weights contextually - a finding that's info-le
 ```
 WinSentinel.sln
 ├── src/
-│   ├── WinSentinel.Core/          # Security audit engine (13 modules)
-│   │   ├── Audits/                # Firewall, Network, Defender, etc.
+│   ├── WinSentinel.Core/          # Security audit engine (34 modules)
+│   │   ├── Audits/                # Firewall, Network, Defender, Identity, etc.
 │   │   ├── Models/                # AuditResult, Finding, SecurityReport
 │   │   ├── Services/              # AuditEngine, Orchestrator, Scorer
+│   │   ├── Plugins/               # Plugin host, Ed25519 verification
 │   │   └── Helpers/               # Shell, PowerShell, Registry, WMI
 │   │
 │   ├── WinSentinel.Agent/         # Always-on agent (Windows Service)
@@ -406,19 +478,23 @@ WinSentinel.sln
 │   │   ├── ViewModels/            # CommunityToolkit.Mvvm
 │   │   └── Services/              # IPC client, ChatAI
 │   │
-│   ├── WinSentinel.Cli/           # Command-line interface
+│   ├── WinSentinel.Cli/           # Command-line interface (50+ commands)
+│   ├── WinSentinel.Service/       # Service host
 │   └── WinSentinel.Installer/     # MSIX packaging
 │
+├── action/                         # GitHub Action for CI security audits
 ├── tests/
-│   └── WinSentinel.Tests/         # 4,173 xUnit tests (128 files)
+│   └── WinSentinel.Tests/         # 5,376 xUnit tests (188 files)
 │
+├── docfx/                          # Documentation site source
+├── winget/                         # WinGet manifest templates
 ├── RunAudit.ps1                   # Quick audit script
 ├── Install-Agent.ps1              # Service installer
 ├── Install-WinSentinel.ps1        # MSIX installer
 └── Fix-Network.ps1                # Network security fix script
 ```
 
-**By the numbers:** 72k+ lines of source code, 50k+ lines of tests, 370+ commits, 128 test files.
+**By the numbers:** 111k+ lines of source code, 67k+ lines of tests, 560+ commits, 188 test files.
 
 ---
 
@@ -432,7 +508,7 @@ WinSentinel.sln
 | Agent | Microsoft.Extensions.Hosting + Windows Services |
 | IPC | Named Pipes (System.IO.Pipes) |
 | Database | SQLite (Microsoft.Data.Sqlite) |
-| Testing | xUnit — 4,173 tests |
+| Testing | xUnit — 5,376 tests |
 | Security | CodeQL scanning, input sanitization |
 | Packaging | MSIX with code signing |
 | CI/CD | GitHub Actions (build, test, release, CodeQL) |
@@ -444,13 +520,25 @@ WinSentinel.sln
 
 | Version | Date | Highlights |
 |:---|:---|:---|
-| [**v1.4.2**](https://github.com/sauravbhattacharya001/WinSentinel/releases/tag/v1.4.2) | 2026-04-16 | Test coverage improvements |
-| [**v1.4.1**](https://github.com/sauravbhattacharya001/WinSentinel/releases/tag/v1.4.1) | 2026-04-02 | NuGet packaging & CI fixes |
+| [**v1.19.1**](https://github.com/sauravbhattacharya001/WinSentinel/releases/tag/v1.19.1) | 2026-06-01 | Plugin trust model, Ed25519 publisher key, CI hardening |
+| [**v1.19.0**](https://github.com/sauravbhattacharya001/WinSentinel/releases/tag/v1.19.0) | 2026-05-31 | Plugin architecture, `self-update`, `export` subcommand, `pro activate` |
+| [**v1.18.0**](https://github.com/sauravbhattacharya001/WinSentinel/releases/tag/v1.18.0) | 2026-05-27 | USB audit module, BVT gating, E2E smoke tests |
+| [**v1.17.0**](https://github.com/sauravbhattacharya001/WinSentinel/releases/tag/v1.17.0) | 2026-05-26 | Test infrastructure, release prep, roadmap docs |
+| [**v1.16.1**](https://github.com/sauravbhattacharya001/WinSentinel/releases/tag/v1.16.1) | 2026-05-24 | NuGet workflow fix, orphan process reaper |
+| [**v1.16.0**](https://github.com/sauravbhattacharya001/WinSentinel/releases/tag/v1.16.0) | 2026-05-24 | Agentic advisors (ScheduledTask, Service, WMI, DLL hijack) |
+| [**v1.15.1**](https://github.com/sauravbhattacharya001/WinSentinel/releases/tag/v1.15.1) | 2026-05-22 | Score history, heatmaps, regression predictor, burndown |
+| [**v1.15.0**](https://github.com/sauravbhattacharya001/WinSentinel/releases/tag/v1.15.0) | 2026-05-21 | Watch mode, attack surface analyzer, grep, playbooks |
+| [**v1.14.0**](https://github.com/sauravbhattacharya001/WinSentinel/releases/tag/v1.14.0) | 2026-05-20 | Gamification, habits, maturity model, noise reduction |
+| [**v1.13.0**](https://github.com/sauravbhattacharya001/WinSentinel/releases/tag/v1.13.0) | 2026-05-18 | Risk matrix, coverage analysis, SLA tracking |
+| [**v1.12.0**](https://github.com/sauravbhattacharya001/WinSentinel/releases/tag/v1.12.0) | 2026-05-16 | Hotspots, tags, dependency graph, timeline |
+| [**v1.11.0**](https://github.com/sauravbhattacharya001/WinSentinel/releases/tag/v1.11.0) | 2026-05-14 | Compliance framework, benchmark, cost analysis, what-if |
 | [**v1.4.0**](https://github.com/sauravbhattacharya001/WinSentinel/releases/tag/v1.4.0) | 2026-03-29 | Major feature release |
 | [**v1.3.0**](https://github.com/sauravbhattacharya001/WinSentinel/releases/tag/v1.3.0) | 2026-03-20 | CLI power tools & hardened security |
 | [**v1.2.0**](https://github.com/sauravbhattacharya001/WinSentinel/releases/tag/v1.2.0) | 2026-03-16 | Deep system auditing & threat intelligence |
 | [**v1.1.0**](https://github.com/sauravbhattacharya001/WinSentinel/releases/tag/v1.1.0) | 2026-02-20 | Compliance profiles, finding suppression, remediation checklists |
-| [**v1.0.0**](https://github.com/sauravbhattacharya001/WinSentinel/releases/tag/v1.0.0) | 2026-02-17 | Initial release — always-on agent, 4 monitors, AI correlator, 13 audit modules |
+| [**v1.0.0**](https://github.com/sauravbhattacharya001/WinSentinel/releases/tag/v1.0.0) | 2026-02-17 | Initial release — always-on agent, 4 monitors, AI correlator |
+
+Full changelog at [winsentinel.ai/changelog](https://winsentinel.ai/changelog).
 
 ---
 
@@ -465,7 +553,7 @@ WinSentinel follows a defense-in-depth approach:
 | **Undo Journal** | Every auto-remediation action is logged with full undo metadata - quarantined files can be restored, blocked IPs unblocked, disabled accounts re-enabled |
 | **Named Pipe IPC** | Dashboard↔Agent communication uses local-only named pipes (no network exposure). The pipe is ACL-restricted to the installing user and SYSTEM |
 | **Finding Suppression Audit Trail** | When you suppress a finding, WinSentinel records who, when, why, and expiration - suppressions don't silently hide real threats |
-| **No Outbound Telemetry** | WinSentinel sends zero data home. All analysis is local. AI features use local Ollama models only |
+| **No Outbound Telemetry (by default)** | WinSentinel sends zero data home unless you opt in via `winsentinel telemetry enable`. When opted in, reports are anonymous and stripped of PII. AI features use local Ollama models only |
 
 > **Reporting vulnerabilities:** See [SECURITY.md](SECURITY.md) for responsible disclosure guidelines.
 
@@ -535,6 +623,18 @@ dotnet test -p:Platform=x64
 
 WinSentinel supports plugins for custom audit modules. Write your own security checks, share them with the community, or keep them private for your org's specific compliance needs. See [docs/CREATING-PLUGINS.md](docs/CREATING-PLUGINS.md) to build your own plugin.
 
+### CI/CD Integration
+
+Use the official [GitHub Action](https://github.com/sauravbhattacharya001/WinSentinel/tree/main/action) to run security audits in your CI pipeline:
+
+```yaml
+- uses: sauravbhattacharya001/WinSentinel@main
+  with:
+    threshold: 85
+    modules: firewall,network,defender
+    sarif: true  # Upload to GitHub Code Scanning
+```
+
 ---
 
 ## 📄 License
@@ -545,7 +645,7 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 <div align="center">
 
-**Built with C# on .NET 8 · 72k+ LOC · 4,173 tests · Always watching 🛡️**
+**Built with C# on .NET 8 · 111k+ LOC · 5,376 tests · 34 audit modules · Always watching 🛡️**
 
 [⭐ Star](https://github.com/sauravbhattacharya001/WinSentinel) · [🐛 Report Bug](https://github.com/sauravbhattacharya001/WinSentinel/issues) · [💡 Request Feature](https://github.com/sauravbhattacharya001/WinSentinel/issues)
 

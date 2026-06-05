@@ -1,6 +1,6 @@
 # Audit Modules
 
-WinSentinel ships with **30 audit modules** covering comprehensive Windows security assessment. Each module runs independently and produces findings with severity levels and remediation guidance.
+WinSentinel ships with **33 audit modules** covering comprehensive Windows security assessment. Each module runs independently and produces findings with severity levels and remediation guidance.
 
 ## Module Overview
 
@@ -21,10 +21,12 @@ WinSentinel ships with **30 audit modules** covering comprehensive Windows secur
 | [Event Log](#event-log-audit) | `EventLogAudit` | Security events, failed logins, audit policy |
 | [Firewall](#firewall-audit) | `FirewallAudit` | Firewall profile status, inbound rules |
 | [Group Policy](#group-policy-audit) | `GroupPolicyAudit` | Security-relevant GPO settings |
+| [Identity & Credential](#identity-credential-audit) | `IdentityCredentialAudit` | Admin sprawl, stale accounts, LAPS, LSA Protection |
 | [Network](#network-audit) | `NetworkAudit` | LLMNR, NetBIOS, SMB signing, open ports |
 | [PowerShell](#powershell-audit) | `PowerShellAudit` | Execution policy, v2 engine, logging config |
 | [Privacy](#privacy-audit) | `PrivacyAudit` | Telemetry, location, advertising ID |
 | [Process](#process-audit) | `ProcessAudit` | Running processes, suspicious activity |
+| [Process Lineage](#process-lineage-audit) | `ProcessLineageAudit` | Parent-child chain analysis, LOLBin abuse, MITRE ATT&CK |
 | [Registry](#registry-audit) | `RegistryAudit` | UAC, AutoRun, credential caching, WDigest |
 | [Remote Access](#remote-access-audit) | `RemoteAccessAudit` | RDP, SSH, VNC, TeamViewer, WinRM, Remote Registry |
 | [Scheduled Task](#scheduled-task-audit) | `ScheduledTaskAudit` | Persistence mechanisms, suspicious tasks |
@@ -34,6 +36,7 @@ WinSentinel ships with **30 audit modules** covering comprehensive Windows secur
 | [Startup](#startup-audit) | `StartupAudit` | Auto-start programs, persistence |
 | [System](#system-audit) | `SystemAudit` | OS version, Secure Boot, TPM |
 | [Updates](#updates-audit) | `UpdateAudit` | Pending updates, update age |
+| [USB & Removable Media](#usb-removable-media-audit) | `UsbAudit` | AutoRun, USB write-protect, BitLocker-to-Go, device history |
 | [Virtualization](#virtualization-audit) | `VirtualizationAudit` | Hyper-V, WSL, Sandbox, Docker, Credential Guard |
 | [Wi-Fi](#wi-fi-audit) | `WifiAudit` | Weak encryption profiles, auto-connect, MAC randomization |
 
@@ -226,6 +229,19 @@ Security-relevant Group Policy settings via registry.
 - Security option configurations
 - Restricted software policies
 
+## Identity & Credential Audit
+
+Identity hygiene and credential protection — complements AccountAudit with deeper checks.
+
+**Checks:**
+- Local admin sprawl (Administrators group membership count and nested groups)
+- Stale accounts (enabled but not logged in for 90+ days)
+- Password-never-expires flags on non-system accounts
+- LAPS (Local Administrator Password Solution) deployment status
+- Cached credentials count (CachedLogonsCount registry value)
+- LSA Protection / RunAsPPL status (protects lsass.exe from credential dumping)
+- Credential Guard (virtualization-based credential isolation)
+
 ## Network Audit
 
 Deep network security assessment.
@@ -273,6 +289,22 @@ Running process security analysis.
 - Unsigned executables
 - Processes from temporary directories
 - High-privilege process count
+
+## Process Lineage Audit
+
+Parent-child process relationship analysis to detect living-off-the-land attacks.
+
+**Checks:**
+- Office applications spawning command interpreters (macro malware indicator)
+- Browsers spawning script engines (drive-by compromise)
+- Script engines using download utilities (staged payload retrieval)
+- LOLBin abuse: certutil, mshta, rundll32, regsvr32 proxy execution
+- WMI provider spawning execution engines (lateral movement)
+- Service Control Manager spawning unexpected script engines
+- Scheduled task processes launching suspicious binaries
+- Orphaned processes (parent PID no longer exists — possible injection)
+- Deeply nested interpreter chains (obfuscation technique)
+- References MITRE ATT&CK techniques (T1204, T1189, T1105, T1047, T1218, etc.)
 
 ## Registry Audit
 
@@ -373,6 +405,19 @@ Windows Update status and compliance.
 - Time since last update check
 - Automatic updates enabled
 - Update installation age
+
+## USB & Removable Media Audit
+
+USB and removable media security posture.
+
+**Checks:**
+- AutoRun disabled for all drive types (NoDriveTypeAutoRun = 0xFF)
+- AutoPlay disabled (prevents social-engineering prompts on media insert)
+- USB write-protect policy (StorageDevicePolicies — blocks data exfiltration)
+- USB mass storage device installation restrictions (USBSTOR service, Group Policy)
+- BitLocker-to-Go enforcement (deny write access to unencrypted removable drives)
+- USB device connection history (USBSTOR registry enumeration)
+- Removable disk encryption requirements via Group Policy
 
 ## Virtualization Audit
 

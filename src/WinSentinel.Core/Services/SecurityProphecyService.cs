@@ -16,7 +16,7 @@ public sealed class SecurityProphecyService
     /// <summary>Predict future threat landscape from audit history.</summary>
     public ProphecyReport Predict(SecurityReport report, int historyDays = 90, int forecastDays = 30)
     {
-        var runs = _history.GetHistory(historyDays);
+        var runs = _history.GetHistoryWithFindings(historyDays);
         if (runs.Count < 3) return new ProphecyReport { AnalyzedRuns = runs.Count, ForecastDays = forecastDays };
 
         var ordered = runs.OrderBy(r => r.Timestamp).ToList();

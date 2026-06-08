@@ -14,7 +14,7 @@ public sealed class SecurityAutopsyService
 
     public AutopsyReport Analyze(SecurityReport report, int days = 90, string? moduleFilter = null)
     {
-        var runs = _history.GetHistory(days);
+        var runs = _history.GetHistoryWithFindings(days);
         var moduleTrends = _history.GetModuleHistory(maxRuns: 10);
         var ordered = runs.OrderBy(r => r.Timestamp).ToList();
 

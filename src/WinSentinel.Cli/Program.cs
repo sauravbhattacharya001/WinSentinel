@@ -962,20 +962,18 @@ static async Task<int> HandleFixAll(CliOptions options)
 /// </summary>
 static async Task<int> HandleExport(CliOptions options)
 {
-    var fmt = (options.ExportFormat ?? string.Empty).Trim().ToLowerInvariant();
-    if (string.IsNullOrEmpty(fmt))
+    // F11: portable findings export. Format can be supplied three ways:
+    //   1. Positional:  winsentinel export json
+    //   2. --format:    winsentinel export --format json
+    //   3. Flag form:   winsentinel export --json   (also --csv | --sarif | --markdown)
+    // When nothing is supplied we default to JSON — the most CI-friendly format.
+    var (resolved, resolveErr) = ExportCommandHelpers.ResolveExportFormat(options);
+    if (resolveErr != null)
     {
-        ConsoleFormatter.PrintError("Missing export format. Usage: winsentinel export <json|csv|sarif|markdown> [-o file] [--modules ...] [--include-pass]");
+        ConsoleFormatter.PrintError(resolveErr);
         return 2;
     }
-
-    // Normalize aliases.
-    fmt = fmt switch
-    {
-        "md" => "markdown",
-        "yml" => "yaml",
-        _ => fmt
-    };
+    var fmt = resolved ?? "json";
 
     if (fmt is not ("json" or "csv" or "sarif" or "markdown"))
     {
@@ -993,22 +991,34 @@ static async Task<int> HandleExport(CliOptions options)
         report = ignoreService.ApplyRulesToReport(report, out _);
     }
 
+    // SARIF gets the dedicated include-pass flag too, so `--include-pass` and
+    // `--sarif-include-pass` are interchangeable on the export command.
+    var sarifIncludePass = options.ExportIncludePass || options.SarifIncludePass;
+
     string content = fmt switch
     {
         "json" => new ReportGenerator().GenerateJsonReport(report),
         "csv" => new ReportGenerator().GenerateCsvReport(report),
-        "sarif" => new SarifExporter().GenerateSarif(report, options.ExportIncludePass),
+        "sarif" => new SarifExporter().GenerateSarif(report, sarifIncludePass),
         "markdown" => new ReportGenerator().GenerateMarkdownReport(report),
         _ => string.Empty
     };
 
-    WriteOutput(content, options.OutputFile);
+    // If the user gave -o with no extension, append the format-appropriate one
+    // so `winsentinel export --sarif -o report` lands as `report.sarif`.
+    var outputPath = options.OutputFile;
+    if (!string.IsNullOrEmpty(outputPath) && string.IsNullOrEmpty(Path.GetExtension(outputPath)))
+    {
+        outputPath += ExportCommandHelpers.ExtensionForFormat(fmt);
+    }
 
-    if (options.OutputFile != null && !options.Quiet)
+    WriteOutput(content, outputPath);
+
+    if (outputPath != null && !options.Quiet)
     {
         var original = Console.ForegroundColor;
         Console.ForegroundColor = ConsoleColor.Green;
-        Console.WriteLine($"  ✓ {fmt.ToUpperInvariant()} export saved to {options.OutputFile} ({report.TotalFindings} findings)");
+        Console.WriteLine($"  ✓ {fmt.ToUpperInvariant()} export saved to {outputPath} ({report.TotalFindings} findings)");
         Console.ForegroundColor = original;
     }
 

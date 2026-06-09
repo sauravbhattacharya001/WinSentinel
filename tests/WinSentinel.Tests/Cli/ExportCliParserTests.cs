@@ -12,7 +12,8 @@ public class ExportCliParserTests
     [Fact]
     public void Parse_ExportNoFormat_ParsesAsExportWithEmptyFormat()
     {
-        // Handler emits the "Missing format" error so the parser allows None here.
+        // Parser leaves ExportFormat null when no positional/--format is given.
+        // The handler now defaults this to JSON (CI-friendly); see ExportCommandHelpersTests.
         var result = CliParser.Parse(["export"]);
         Assert.Equal(CliCommand.Export, result.Command);
         Assert.Null(result.ExportFormat);
@@ -152,5 +153,75 @@ public class ExportCliParserTests
     {
         var result = CliParser.Parse(["export", "json"]);
         Assert.Null(result.OutputFile);
+    }
+
+    // ── F11 flag-style format ──
+    // `winsentinel export --json` (and --csv / --sarif / --markdown) is the form
+    // documented on winsentinel.ai; the parser must keep ExportFormat null and
+    // let the handler resolve the flag, but the boolean flags themselves must be set.
+
+    [Fact]
+    public void Parse_ExportWithJsonFlag_SetsJsonFlag()
+    {
+        var result = CliParser.Parse(["export", "--json"]);
+        Assert.Equal(CliCommand.Export, result.Command);
+        Assert.True(result.Json);
+        Assert.Null(result.ExportFormat);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_ExportWithCsvFlag_SetsCsvFlag()
+    {
+        var result = CliParser.Parse(["export", "--csv"]);
+        Assert.Equal(CliCommand.Export, result.Command);
+        Assert.True(result.Csv);
+        Assert.Null(result.ExportFormat);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_ExportWithSarifFlag_SetsSarifFlag()
+    {
+        var result = CliParser.Parse(["export", "--sarif"]);
+        Assert.Equal(CliCommand.Export, result.Command);
+        Assert.True(result.Sarif);
+        Assert.Null(result.ExportFormat);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_ExportWithMarkdownFlag_SetsMarkdownFlag()
+    {
+        var result = CliParser.Parse(["export", "--markdown"]);
+        Assert.Equal(CliCommand.Export, result.Command);
+        Assert.True(result.Markdown);
+        Assert.Null(result.ExportFormat);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void Parse_ExportWithMdAlias_SetsMarkdownFlag()
+    {
+        var result = CliParser.Parse(["export", "--md"]);
+        Assert.Equal(CliCommand.Export, result.Command);
+        Assert.True(result.Markdown);
+    }
+
+    [Fact]
+    public void Parse_ExportFlagWithOutput_BothCaptured()
+    {
+        var result = CliParser.Parse(["export", "--sarif", "-o", "out.sarif"]);
+        Assert.Equal(CliCommand.Export, result.Command);
+        Assert.True(result.Sarif);
+        Assert.Equal("out.sarif", result.OutputFile);
+    }
+
+    [Fact]
+    public void Parse_ExportSarifIncludePassFlag_SetsSarifIncludePass()
+    {
+        var result = CliParser.Parse(["export", "--sarif", "--sarif-include-pass"]);
+        Assert.True(result.Sarif);
+        Assert.True(result.SarifIncludePass);
     }
 }

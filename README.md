@@ -382,9 +382,12 @@ winsentinel watch --interval 300
 winsentinel why "LLMNR enabled"
 
 # Export in any format
-winsentinel export json
-winsentinel export sarif
-winsentinel export csv
+winsentinel export json                              # Positional
+winsentinel export --json                            # Or as a flag
+winsentinel export --sarif -o findings.sarif         # SARIF for GitHub Code Scanning
+winsentinel export --csv -o report.csv               # CSV for spreadsheets
+winsentinel export --markdown -o report.md           # Markdown for issue trackers
+winsentinel export                                   # No args => defaults to JSON on stdout
 
 # Manage ignored findings
 winsentinel ignore add --pattern "telemetry" --reason "accepted risk"

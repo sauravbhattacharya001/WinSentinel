@@ -1481,6 +1481,7 @@ public static class CliParser
                     options.TimelineModuleFilter = tlMod;
                     break;
 
+                case "badge" when options.Command == CliCommand.None:
                 case "--badge":
                     options.Command = CliCommand.Badge;
                     // Next arg should be the badge type: score, grade, findings, module, all

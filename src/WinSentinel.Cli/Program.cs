@@ -155,6 +155,7 @@ return options.Command switch
             CliCommand.Fleet => await FleetCommandHandler.HandleAsync(options),
     CliCommand.Agent => await AgentCommandHandler.HandleAsync(options),
     CliCommand.Telemetry => HandleTelemetry(options),
+    CliCommand.Badge => await HandleBadge(options),
     _ => HandleHelp()
 };
 
@@ -8875,6 +8876,128 @@ static int HandleTelemetry(CliOptions options)
             Console.WriteLine("    status   Show current telemetry configuration");
             return 0;
     }
+}
+
+// ── Badge Generator ──────────────────────────────────────────────────────────
+
+static async Task<int> HandleBadge(CliOptions options)
+{
+    var (report, engine, elapsed) = await RunAuditAsync(options, suppressOutput: true,
+        bannerMessage: "Running audit to generate badge...");
+
+    var generator = new BadgeGenerator();
+    var style = (options.BadgeStyle ?? "flat") switch
+    {
+        "flat-square" => BadgeGenerator.BadgeStyle.FlatSquare,
+        "for-the-badge" => BadgeGenerator.BadgeStyle.ForTheBadge,
+        _ => BadgeGenerator.BadgeStyle.Flat
+    };
+
+    string svg;
+    string defaultFilename;
+
+    switch (options.BadgeAction)
+    {
+        case BadgeAction.Grade:
+            svg = generator.GenerateGradeBadge(report, style);
+            defaultFilename = "winsentinel-grade.svg";
+            break;
+
+        case BadgeAction.Findings:
+            svg = generator.GenerateFindingsBadge(report, style);
+            defaultFilename = "winsentinel-findings.svg";
+            break;
+
+        case BadgeAction.Module:
+        {
+            var moduleName = options.ModulesFilter;
+            if (string.IsNullOrWhiteSpace(moduleName))
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine("  Error: --badge module requires --modules <name> to specify which module.");
+                Console.ResetColor();
+                Console.WriteLine("  Example: winsentinel --badge module --modules firewall");
+                return 1;
+            }
+            var moduleResult = report.Results.FirstOrDefault(
+                r => r.ModuleName.Equals(moduleName, StringComparison.OrdinalIgnoreCase)
+                  || r.Category.Equals(moduleName, StringComparison.OrdinalIgnoreCase));
+            if (moduleResult == null)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"  Error: Module '{moduleName}' not found in audit results.");
+                Console.ResetColor();
+                Console.WriteLine("  Available modules:");
+                foreach (var r in report.Results.OrderBy(r => r.Category))
+                    Console.WriteLine($"    - {r.Category} ({r.ModuleName})");
+                return 1;
+            }
+            svg = generator.GenerateModuleBadge(moduleResult, style);
+            defaultFilename = $"winsentinel-{moduleName.ToLowerInvariant()}.svg";
+            break;
+        }
+
+        case BadgeAction.All:
+            svg = generator.GenerateAllModuleBadges(report, style);
+            defaultFilename = "winsentinel-modules.svg";
+            break;
+
+        case BadgeAction.Score:
+        default:
+            svg = generator.GenerateScoreBadge(report, style);
+            defaultFilename = "winsentinel-score.svg";
+            break;
+    }
+
+    // Output to file or stdout
+    var outputFile = options.OutputFile ?? defaultFilename;
+
+    if (options.Quiet)
+    {
+        // Just write SVG to stdout for piping
+        Console.Write(svg);
+        return 0;
+    }
+
+    generator.SaveBadge(outputFile, svg);
+    var fullPath = Path.GetFullPath(outputFile);
+
+    Console.WriteLine();
+    Console.ForegroundColor = ConsoleColor.Cyan;
+    Console.WriteLine("  \U0001f3c5 Badge Generated");
+    Console.ResetColor();
+    Console.WriteLine();
+    Console.Write("    Type:   ");
+    Console.ForegroundColor = ConsoleColor.White;
+    Console.WriteLine(options.BadgeAction.ToString().ToLowerInvariant());
+    Console.ResetColor();
+    Console.Write("    Style:  ");
+    Console.ForegroundColor = ConsoleColor.White;
+    Console.WriteLine(options.BadgeStyle ?? "flat");
+    Console.ResetColor();
+    Console.Write("    Score:  ");
+    var scoreColor = report.SecurityScore >= 80 ? ConsoleColor.Green
+                   : report.SecurityScore >= 60 ? ConsoleColor.Yellow
+                   : ConsoleColor.Red;
+    Console.ForegroundColor = scoreColor;
+    Console.WriteLine($"{report.SecurityScore}/100 ({SecurityScorer.GetGrade(report.SecurityScore)})");
+    Console.ResetColor();
+    Console.Write("    Saved:  ");
+    Console.ForegroundColor = ConsoleColor.Green;
+    Console.WriteLine(fullPath);
+    Console.ResetColor();
+    Console.WriteLine();
+
+    // Print markdown embed suggestion
+    Console.ForegroundColor = ConsoleColor.DarkGray;
+    Console.WriteLine("    Embed in README.md:");
+    Console.ResetColor();
+    Console.ForegroundColor = ConsoleColor.White;
+    Console.WriteLine($"    ![WinSentinel Security Score](./{Path.GetFileName(outputFile)})");
+    Console.ResetColor();
+    Console.WriteLine();
+
+    return 0;
 }
 
 record CorrelationRule(

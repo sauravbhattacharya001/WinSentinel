@@ -4798,8 +4798,7 @@ static async Task<int> HandleWatch(CliOptions options)
     Console.ForegroundColor = orig;
     Console.WriteLine();
 
-    int? previousScore = null;
-    var previousFindings = new HashSet<string>();
+    SecurityReport? previousReport = null;
     int runCount = 0;
 
     var cts = new CancellationTokenSource();
@@ -4825,14 +4824,12 @@ static async Task<int> HandleWatch(CliOptions options)
             continue;
         }
 
-        var currentFindings = new HashSet<string>(
-            report.Results.SelectMany(r => r.Findings)
-                .Where(f => f.Severity is Severity.Critical or Severity.Warning)
-                .Select(f => f.Title));
-
-        var newFindings = currentFindings.Except(previousFindings).ToList();
-        var resolvedFindings = previousFindings.Except(currentFindings).ToList();
-        var scoreChange = previousScore.HasValue ? report.SecurityScore - previousScore.Value : 0;
+        // Pure delta computation — see WinSentinel.Cli.Watch.WatchDeltaCalculator
+        // for the unit-tested data layer that drives this status line.
+        var delta = WinSentinel.Cli.Watch.WatchDeltaCalculator.Compute(previousReport, report);
+        var newFindings = delta.NewFindings;
+        var resolvedFindings = delta.ResolvedFindings;
+        var scoreChange = delta.ScoreChange;
 
         // Print status line
         Console.Write($"  [{DateTime.Now:HH:mm:ss}] ");
@@ -4850,14 +4847,14 @@ static async Task<int> HandleWatch(CliOptions options)
 
         Console.Write($"  ({SecurityScorer.GetGrade(report.SecurityScore)})");
 
-        if (previousScore.HasValue)
+        if (!delta.IsBaseline)
         {
-            if (scoreChange > 0)
+            if (delta.ScoreImproved)
             {
                 Console.ForegroundColor = ConsoleColor.Green;
                 Console.Write($"  ↑+{scoreChange}");
             }
-            else if (scoreChange < 0)
+            else if (delta.ScoreRegressed)
             {
                 Console.ForegroundColor = ConsoleColor.Red;
                 Console.Write($"  ↓{scoreChange}");
@@ -4879,17 +4876,17 @@ static async Task<int> HandleWatch(CliOptions options)
         Console.Write($"{report.TotalWarnings}W");
         Console.ForegroundColor = orig;
 
-        if (newFindings.Count > 0 || resolvedFindings.Count > 0)
+        if (delta.HasNew || delta.HasResolved)
         {
             Console.Write("  │  ");
-            if (newFindings.Count > 0)
+            if (delta.HasNew)
             {
                 Console.ForegroundColor = ConsoleColor.Red;
                 Console.Write($"+{newFindings.Count} new");
                 Console.ForegroundColor = orig;
             }
-            if (newFindings.Count > 0 && resolvedFindings.Count > 0) Console.Write(", ");
-            if (resolvedFindings.Count > 0)
+            if (delta.HasNew && delta.HasResolved) Console.Write(", ");
+            if (delta.HasResolved)
             {
                 Console.ForegroundColor = ConsoleColor.Green;
                 Console.Write($"-{resolvedFindings.Count} resolved");
@@ -4914,7 +4911,7 @@ static async Task<int> HandleWatch(CliOptions options)
         }
 
         // Beep on new critical/warning findings
-        if (options.WatchBeep && newFindings.Count > 0)
+        if (options.WatchBeep && delta.HasNew)
         {
             Console.Beep();
         }
@@ -4925,8 +4922,7 @@ static async Task<int> HandleWatch(CliOptions options)
             historyService.SaveAuditResult(report);
         }
 
-        previousScore = report.SecurityScore;
-        previousFindings = currentFindings;
+        previousReport = report;
 
         // Check max runs
         if (options.WatchMaxRuns > 0 && runCount >= options.WatchMaxRuns)

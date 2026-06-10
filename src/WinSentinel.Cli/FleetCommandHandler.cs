@@ -31,15 +31,9 @@ public enum FleetAction
 /// </summary>
 internal static class FleetCommandHandler
 {
-    private static readonly JsonSerializerOptions JsonOpts = new()
-    {
-        WriteIndented = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-    };
-
-    // Default control plane base URL. Overridable via --fleet-endpoint or
-    // environment variable WINSENTINEL_FLEET_ENDPOINT.
-    private const string DefaultEndpoint = "https://api.winsentinel.ai/fleet";
+    // Request shaping (endpoint resolution, payload bodies, JSON field reads) lives in
+    // FleetRequestBuilder so it is unit-testable without HTTP. This class keeps the
+    // HttpClient plumbing and console rendering.
 
     public static async Task<int> HandleAsync(CliOptions options)
     {
@@ -134,17 +128,9 @@ internal static class FleetCommandHandler
         var endpoint = GetEndpoint(options);
         using var client = CreateClient(status);
 
-        var payload = new
-        {
-            command = "scan",
-            targets = options.FleetTargetNodes ?? "all",
-            modules = options.ModulesFilter,
-            priority = "normal",
-        };
-
         try
         {
-            var json = JsonSerializer.Serialize(payload, JsonOpts);
+            var json = FleetRequestBuilder.BuildScanPayload(options.FleetTargetNodes, options.ModulesFilter);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
             var response = await client.PostAsync($"{endpoint}/commands/dispatch", content);
 
@@ -213,16 +199,9 @@ internal static class FleetCommandHandler
             return 2;
         }
 
-        var payload = new
-        {
-            command = "push-policy",
-            targets = options.FleetTargetNodes ?? "all",
-            policy = JsonSerializer.Deserialize<JsonElement>(policyJson),
-        };
-
         try
         {
-            var json = JsonSerializer.Serialize(payload, JsonOpts);
+            var json = FleetRequestBuilder.BuildPushPolicyPayload(options.FleetTargetNodes, policyJson);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
             var response = await client.PostAsync($"{endpoint}/commands/dispatch", content);
 
@@ -409,17 +388,8 @@ internal static class FleetCommandHandler
 
     // ─── Helpers ────────────────────────────────────────────────────────────
 
-    private static string GetEndpoint(CliOptions options)
-    {
-        if (!string.IsNullOrEmpty(options.FleetEndpoint))
-            return options.FleetEndpoint.TrimEnd('/');
-
-        var envEndpoint = Environment.GetEnvironmentVariable("WINSENTINEL_FLEET_ENDPOINT");
-        if (!string.IsNullOrEmpty(envEndpoint))
-            return envEndpoint.TrimEnd('/');
-
-        return DefaultEndpoint;
-    }
+    private static string GetEndpoint(CliOptions options) =>
+        FleetRequestBuilder.ResolveEndpointFromEnvironment(options.FleetEndpoint);
 
     private static HttpClient CreateClient(LicenseStatus status)
     {
@@ -430,19 +400,8 @@ internal static class FleetCommandHandler
         return client;
     }
 
-    private static string GetJsonString(JsonElement element, string property, string fallback)
-    {
-        if (element.TryGetProperty(property, out var val))
-        {
-            return val.ValueKind switch
-            {
-                JsonValueKind.String => val.GetString() ?? fallback,
-                JsonValueKind.Number => val.ToString(),
-                _ => val.GetRawText(),
-            };
-        }
-        return fallback;
-    }
+    private static string GetJsonString(JsonElement element, string property, string fallback) =>
+        FleetRequestBuilder.GetJsonString(element, property, fallback);
 
     private static void WriteField(string label, string value)
     {

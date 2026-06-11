@@ -50,15 +50,6 @@ public class EventLogAudit : IAuditModule
         }
     }
 
-    /// <summary>Suspicious PowerShell patterns (case-insensitive).</summary>
-    private static readonly Regex SuspiciousPowerShellPattern = new(
-        @"(?i)(Invoke-Expression|IEX\s*\(|Invoke-WebRequest|DownloadString|DownloadFile|" +
-        @"Net\.WebClient|Start-BitsTransfer|Invoke-Mimikatz|Invoke-Shellcode|" +
-        @"-enc\s|EncodedCommand|FromBase64String|bypass|hidden|" +
-        @"Add-MpPreference\s+-ExclusionPath|Set-MpPreference\s+-DisableRealtimeMonitoring|" +
-        @"New-Object\s+System\.Net\.Sockets\.TCPClient|Invoke-Command\s+-ComputerName)",
-        RegexOptions.Compiled);
-
     public async Task<AuditResult> RunAuditAsync(CancellationToken cancellationToken = default)
     {
         var result = new AuditResult
@@ -147,10 +138,7 @@ public class EventLogAudit : IAuditModule
     {
         try
         {
-            var since = DateTime.UtcNow.AddHours(-24);
-            var timeFilter = ToSystemTimeXml(since);
-
-            // XPath query targeting only Event ID 4625 with time filter
+            // XPath query targeting only Event ID 4625 with time filter (last 24h)
             var query = $"*[System[(EventID=4625) and TimeCreated[timediff(@SystemTime) <= 86400000]]]";
 
             var events = await QueryEventLogAsync("Security", query, ct);
@@ -177,18 +165,18 @@ public class EventLogAudit : IAuditModule
                     if (evt.Properties.Count > 5)
                     {
                         var user = evt.Properties[5]?.Value?.ToString();
-                        if (!string.IsNullOrWhiteSpace(user) && user != "-")
+                        if (EventLogAnalyzer.IsMeaningfulUser(user))
                         {
-                            usernames[user] = usernames.GetValueOrDefault(user) + 1;
+                            usernames[user!] = usernames.GetValueOrDefault(user!) + 1;
                         }
                     }
 
                     if (evt.Properties.Count > 19)
                     {
                         var ip = evt.Properties[19]?.Value?.ToString();
-                        if (!string.IsNullOrWhiteSpace(ip) && ip != "-" && ip != "::1" && ip != "127.0.0.1")
+                        if (EventLogAnalyzer.IsMeaningfulSourceIp(ip))
                         {
-                            sourceIPs[ip] = sourceIPs.GetValueOrDefault(ip) + 1;
+                            sourceIPs[ip!] = sourceIPs.GetValueOrDefault(ip!) + 1;
                         }
                     }
                 }
@@ -198,58 +186,10 @@ public class EventLogAudit : IAuditModule
                 }
             }
 
-            if (count == 0)
-            {
-                AddFinding(result, Finding.Pass(
-                    "No Failed Login Attempts",
-                    "No failed login attempts (Event ID 4625) detected in the last 24 hours.",
-                    Category));
-            }
-            else
-            {
-                var details = new List<string> { $"Total failed logins: {count}" };
-
-                if (usernames.Count > 0)
-                {
-                    var topUsers = usernames.OrderByDescending(kv => kv.Value).Take(5)
-                        .Select(kv => $"{kv.Key} ({kv.Value}x)");
-                    details.Add($"Targeted accounts: {string.Join(", ", topUsers)}");
-                }
-
-                if (sourceIPs.Count > 0)
-                {
-                    var topIPs = sourceIPs.OrderByDescending(kv => kv.Value).Take(5)
-                        .Select(kv => $"{kv.Key} ({kv.Value}x)");
-                    details.Add($"Source IPs: {string.Join(", ", topIPs)}");
-                }
-
-                var description = string.Join(". ", details) + ".";
-
-                if (count > 20)
-                {
-                    AddFinding(result, Finding.Critical(
-                        $"High Failed Login Rate — {count} in 24h",
-                        $"{description} This may indicate a brute-force attack or credential stuffing attempt.",
-                        Category,
-                        "Investigate the source IPs. Consider enabling account lockout policies, IP blocking, or MFA. Check if any accounts were compromised.",
-                        "powershell -Command \"auditpol /set /subcategory:'Logon' /failure:enable\""));
-                }
-                else if (count > 5)
-                {
-                    AddFinding(result, Finding.Warning(
-                        $"Failed Login Attempts — {count} in 24h",
-                        $"{description} Multiple failed login attempts detected — monitor for patterns.",
-                        Category,
-                        "Review the failed login sources. Ensure account lockout policies are configured. Consider enabling MFA."));
-                }
-                else
-                {
-                    AddFinding(result, Finding.Info(
-                        $"Failed Login Attempts — {count} in 24h",
-                        $"{description} A small number of failed logins is normal (mistyped passwords, etc.).",
-                        Category));
-                }
-            }
+            AddFinding(result, EventLogAnalyzer.BuildFailedLoginFinding(
+                count,
+                EventLogAnalyzer.RankTopCounts(usernames),
+                EventLogAnalyzer.RankTopCounts(sourceIPs)));
         }
         catch (Exception ex)
         {
@@ -304,29 +244,9 @@ public class EventLogAudit : IAuditModule
                 catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] Error: {ex.GetType().Name} - {ex.Message}"); }
             }
 
-            if (count == 0)
-            {
-                AddFinding(result, Finding.Pass(
-                    "No Account Lockouts",
-                    "No account lockout events (Event ID 4740) in the last 7 days.",
-                    Category));
-            }
-            else
-            {
-                var accountsList = lockedAccounts.OrderByDescending(kv => kv.Value)
-                    .Take(5).Select(kv => $"{kv.Key} ({kv.Value}x)");
-
-                AddFinding(result, count > 5
-                    ? Finding.Warning(
-                        $"Account Lockouts — {count} in 7 Days",
-                        $"Detected {count} account lockout event(s). Affected accounts: {string.Join(", ", accountsList)}. Frequent lockouts may indicate brute-force attacks.",
-                        Category,
-                        "Investigate whether lockouts are from legitimate users mistyping passwords or from an attacker. Review account lockout policies.")
-                    : Finding.Info(
-                        $"Account Lockouts — {count} in 7 Days",
-                        $"Detected {count} account lockout event(s). Affected accounts: {string.Join(", ", accountsList)}. Occasional lockouts are normal.",
-                        Category));
-            }
+            AddFinding(result, EventLogAnalyzer.BuildAccountLockoutFinding(
+                count,
+                EventLogAnalyzer.RankTopCounts(lockedAccounts)));
         }
         catch (Exception ex)
         {
@@ -368,14 +288,6 @@ public class EventLogAudit : IAuditModule
             int event4673Count = 0;
             var privilegedUsers = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
-            // Well-known system accounts that normally have elevated privileges
-            var systemAccounts = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            {
-                "SYSTEM", "LOCAL SERVICE", "NETWORK SERVICE", "DWM-1", "DWM-2", "DWM-3",
-                "UMFD-0", "UMFD-1", "UMFD-2", "UMFD-3",
-                "ANONYMOUS LOGON", "Window Manager"
-            };
-
             foreach (var evt in events)
             {
                 try
@@ -387,51 +299,20 @@ public class EventLogAudit : IAuditModule
                     if (evt.Properties.Count > 1)
                     {
                         var user = evt.Properties[1]?.Value?.ToString();
-                        if (!string.IsNullOrWhiteSpace(user) && !systemAccounts.Contains(user) &&
-                            !user.EndsWith("$", StringComparison.Ordinal)) // Skip machine accounts
+                        if (EventLogAnalyzer.IsMeaningfulUser(user) && !EventLogAnalyzer.IsSystemAccount(user))
                         {
-                            privilegedUsers[user] = privilegedUsers.GetValueOrDefault(user) + 1;
+                            privilegedUsers[user!] = privilegedUsers.GetValueOrDefault(user!) + 1;
                         }
                     }
                 }
                 catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] Error: {ex.GetType().Name} - {ex.Message}"); }
             }
 
-            int total = event4672Count + event4673Count;
-
-            if (total == 0)
-            {
-                AddFinding(result, Finding.Info(
-                    "No Privilege Escalation Events",
-                    "No privilege escalation events (4672/4673) detected in the last 24 hours. Note: this may mean audit policies are not enabled for privilege use.",
-                    Category,
-                    "Enable 'Privilege Use' auditing: auditpol /set /subcategory:\"Sensitive Privilege Use\" /success:enable /failure:enable"));
-            }
-            else
-            {
-                var userList = privilegedUsers.OrderByDescending(kv => kv.Value).Take(5)
-                    .Select(kv => $"{kv.Key} ({kv.Value}x)");
-                var details = $"Detected {event4672Count} special privilege logon(s) and {event4673Count} privileged service call(s) in 24h.";
-
-                if (privilegedUsers.Count > 0)
-                    details += $" Non-system users with elevated privileges: {string.Join(", ", userList)}.";
-
-                if (privilegedUsers.Count > 10 || event4673Count > 50)
-                {
-                    AddFinding(result, Finding.Warning(
-                        "Unusual Privilege Activity",
-                        details + " High volume of privilege usage from non-system accounts may indicate compromise or misconfiguration.",
-                        Category,
-                        "Review which accounts are being granted elevated privileges. Verify that only authorized administrators have these permissions."));
-                }
-                else
-                {
-                    AddFinding(result, Finding.Pass(
-                        "Privilege Escalation Events — Normal",
-                        details + " Volume appears normal for this system.",
-                        Category));
-                }
-            }
+            AddFinding(result, EventLogAnalyzer.BuildPrivilegeEscalationFinding(
+                event4672Count,
+                event4673Count,
+                EventLogAnalyzer.RankTopCounts(privilegedUsers),
+                privilegedUsers.Count));
         }
         catch (Exception ex)
         {
@@ -454,8 +335,8 @@ public class EventLogAudit : IAuditModule
         {
             var output = await ShellHelper.RunCmdAsync("auditpol /get /category:*", QueryTimeout, ct);
 
-            if (string.IsNullOrWhiteSpace(output) ||
-                output.Contains("Access is denied", StringComparison.OrdinalIgnoreCase))
+            var auditScan = EventLogAnalyzer.ParseAuditPolicy(output);
+            if (auditScan == null)
             {
                 AddFinding(result, Finding.Info(
                     "Audit Policy Check — Access Denied",
@@ -465,76 +346,7 @@ public class EventLogAudit : IAuditModule
                 return;
             }
 
-            // Key audit subcategories and whether they should have Success/Failure enabled
-            var requiredPolicies = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            {
-                { "Logon", "Logon/Logoff" },
-                { "Logoff", "Logon/Logoff" },
-                { "Account Lockout", "Logon/Logoff" },
-                { "Special Logon", "Logon/Logoff" },
-                { "File System", "Object Access" },
-                { "Registry", "Object Access" },
-                { "Sensitive Privilege Use", "Privilege Use" },
-                { "Authentication Policy Change", "Policy Change" },
-                { "Audit Policy Change", "Policy Change" },
-                { "User Account Management", "Account Management" },
-                { "Security Group Management", "Account Management" },
-                { "Computer Account Management", "Account Management" },
-            };
-
-            var lines = output.Split('\n', StringSplitOptions.TrimEntries);
-            var gaps = new List<string>();
-            var enabled = new List<string>();
-
-            foreach (var kvp in requiredPolicies)
-            {
-                var subcategory = kvp.Key;
-                var parentCategory = kvp.Value;
-
-                // Find the line for this subcategory
-                var line = lines.FirstOrDefault(l =>
-                    l.Contains(subcategory, StringComparison.OrdinalIgnoreCase) &&
-                    !l.StartsWith("Category", StringComparison.OrdinalIgnoreCase));
-
-                if (line == null) continue;
-
-                bool hasNoAuditing = line.Contains("No Auditing", StringComparison.OrdinalIgnoreCase);
-
-                if (hasNoAuditing)
-                {
-                    gaps.Add($"{subcategory} ({parentCategory})");
-                }
-                else
-                {
-                    enabled.Add(subcategory);
-                }
-            }
-
-            if (gaps.Count == 0)
-            {
-                AddFinding(result, Finding.Pass(
-                    "Audit Policies Configured",
-                    $"All key audit policies are enabled ({enabled.Count} subcategories checked). Security events are being logged for logon/logoff, object access, privilege use, policy changes, and account management.",
-                    Category));
-            }
-            else if (gaps.Count <= 3)
-            {
-                AddFinding(result, Finding.Warning(
-                    $"Audit Policy Gaps — {gaps.Count} Missing",
-                    $"Some audit policies are not enabled: {string.Join(", ", gaps)}. Missing audit policies create blind spots where malicious activity goes unrecorded.",
-                    Category,
-                    $"Enable missing audit policies using: auditpol /set /subcategory:\"<name>\" /success:enable /failure:enable",
-                    $"powershell -Command \"{string.Join("; ", gaps.Select(g => $"auditpol /set /subcategory:\\\"{g.Split('(')[0].Trim()}\\\" /success:enable /failure:enable"))}\""));
-            }
-            else
-            {
-                AddFinding(result, Finding.Critical(
-                    $"Major Audit Policy Gaps — {gaps.Count} Missing",
-                    $"Many critical audit policies are disabled: {string.Join(", ", gaps.Take(8))}. The system is not recording important security events, making incident investigation extremely difficult.",
-                    Category,
-                    "Enable comprehensive audit policies immediately. Use: auditpol /set /category:* /success:enable /failure:enable — or apply a security baseline via Group Policy.",
-                    "powershell -Command \"auditpol /set /category:* /success:enable /failure:enable\""));
-            }
+            AddFinding(result, EventLogAnalyzer.BuildAuditPolicyFinding(auditScan));
         }
         catch (Exception ex)
         {
@@ -572,56 +384,24 @@ public class EventLogAudit : IAuditModule
 
             int count = events.Count;
 
-            if (count == 0)
+            var serviceDetails = new List<string>();
+            foreach (var evt in events)
             {
-                AddFinding(result, Finding.Pass(
-                    "No New Services Installed",
-                    "No new service installations (Event ID 7045) detected in the last 7 days.",
-                    Category));
-            }
-            else
-            {
-                var serviceDetails = new List<string>();
-
-                foreach (var evt in events)
+                try
                 {
-                    try
-                    {
-                        // Properties: 0=ServiceName, 1=ImagePath, 2=ServiceType, 3=StartType, 4=AccountName
-                        string serviceName = evt.Properties.Count > 0 ? evt.Properties[0]?.Value?.ToString() ?? "Unknown" : "Unknown";
-                        string imagePath = evt.Properties.Count > 1 ? evt.Properties[1]?.Value?.ToString() ?? "Unknown" : "Unknown";
-                        string startType = evt.Properties.Count > 3 ? evt.Properties[3]?.Value?.ToString() ?? "" : "";
+                    // Properties: 0=ServiceName, 1=ImagePath, 2=ServiceType, 3=StartType, 4=AccountName
+                    string serviceName = evt.Properties.Count > 0 ? evt.Properties[0]?.Value?.ToString() ?? "Unknown" : "Unknown";
+                    string imagePath = evt.Properties.Count > 1 ? evt.Properties[1]?.Value?.ToString() ?? "Unknown" : "Unknown";
 
-                        serviceDetails.Add($"• {serviceName} — {imagePath} ({evt.TimeCreated:yyyy-MM-dd HH:mm})");
-                    }
-                    catch
-                    {
-                        serviceDetails.Add($"• (malformed event at {evt.TimeCreated:yyyy-MM-dd HH:mm})");
-                    }
+                    serviceDetails.Add($"• {serviceName} — {imagePath} ({evt.TimeCreated:yyyy-MM-dd HH:mm})");
                 }
-
-                var description = $"{count} new service(s) installed in the last 7 days. Service installations can be used for malware persistence.\n{string.Join("\n", serviceDetails.Take(10))}";
-
-                if (count > 10)
-                    description += $"\n... and {count - 10} more.";
-
-                if (count > 5)
+                catch
                 {
-                    AddFinding(result, Finding.Warning(
-                        $"New Services Installed — {count} in 7 Days",
-                        description,
-                        Category,
-                        "Review installed services to ensure they are legitimate. Malware often persists by installing services. Check service binary paths for suspicious locations (temp folders, AppData, etc.)."));
-                }
-                else
-                {
-                    AddFinding(result, Finding.Info(
-                        $"New Services Installed — {count} in 7 Days",
-                        description,
-                        Category,
-                        "Review installed services to ensure they are expected."));
+                    serviceDetails.Add($"• (malformed event at {evt.TimeCreated:yyyy-MM-dd HH:mm})");
                 }
             }
+
+            AddFinding(result, EventLogAnalyzer.BuildServiceInstallFinding(count, serviceDetails));
         }
         catch (Exception ex)
         {
@@ -655,22 +435,12 @@ public class EventLogAudit : IAuditModule
                     @"SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging",
                     "EnableScriptBlockLogging", -1);
 
-                if (scriptBlockLogging != 1)
-                {
-                    AddFinding(result, Finding.Warning(
-                        "PowerShell Script Block Logging Not Enabled",
-                        "PowerShell Script Block Logging is not enabled. Malicious PowerShell commands will not be recorded in event logs, making it difficult to detect living-off-the-land attacks.",
-                        Category,
-                        "Enable Script Block Logging via Group Policy: Computer Configuration → Administrative Templates → Windows Components → Windows PowerShell → Turn on PowerShell Script Block Logging.",
-                        "powershell -Command \"New-Item -Path 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell\\ScriptBlockLogging' -Force | Out-Null; Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell\\ScriptBlockLogging' -Name 'EnableScriptBlockLogging' -Value 1 -Type DWord\""));
-                }
-                else
-                {
-                    AddFinding(result, Finding.Info(
+                AddFinding(result, scriptBlockLogging != 1
+                    ? EventLogAnalyzer.BuildScriptBlockLoggingDisabledFinding()
+                    : Finding.Info(
                         "PowerShell Activity Check — No Events",
                         "Script Block Logging is enabled but could not read events. Run as Administrator.",
                         Category));
-                }
                 return;
             }
 
@@ -688,14 +458,12 @@ public class EventLogAudit : IAuditModule
 
                     if (string.IsNullOrWhiteSpace(scriptBlock)) continue;
 
-                    if (SuspiciousPowerShellPattern.IsMatch(scriptBlock))
+                    if (EventLogAnalyzer.IsSuspiciousPowerShell(scriptBlock))
                     {
                         suspiciousCount++;
 
                         // Truncate to keep report readable
-                        var snippet = scriptBlock.Length > 150
-                            ? scriptBlock[..150] + "..."
-                            : scriptBlock;
+                        var snippet = EventLogAnalyzer.Truncate(scriptBlock, 150);
                         snippet = snippet.Replace("\r", " ").Replace("\n", " ");
 
                         if (suspiciousCommands.Count < 5)
@@ -713,48 +481,17 @@ public class EventLogAudit : IAuditModule
                     @"SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging",
                     "EnableScriptBlockLogging", -1);
 
-                if (scriptBlockLogging != 1)
-                {
-                    AddFinding(result, Finding.Warning(
-                        "PowerShell Script Block Logging Not Enabled",
-                        "PowerShell Script Block Logging is not enabled. Malicious PowerShell commands will not be recorded, making detection of attacks difficult.",
-                        Category,
-                        "Enable Script Block Logging via Group Policy or registry.",
-                        "powershell -Command \"New-Item -Path 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell\\ScriptBlockLogging' -Force | Out-Null; Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell\\ScriptBlockLogging' -Name 'EnableScriptBlockLogging' -Value 1 -Type DWord\""));
-                }
-                else
-                {
-                    AddFinding(result, Finding.Pass(
+                AddFinding(result, scriptBlockLogging != 1
+                    ? EventLogAnalyzer.BuildScriptBlockLoggingDisabledFinding()
+                    : Finding.Pass(
                         "No Suspicious PowerShell Activity",
                         "PowerShell Script Block Logging is enabled and no suspicious patterns detected in the last 7 days.",
                         Category));
-                }
-            }
-            else if (suspiciousCount == 0)
-            {
-                AddFinding(result, Finding.Pass(
-                    "No Suspicious PowerShell Activity",
-                    $"Analyzed {events.Count} PowerShell script block event(s) from the last 7 days. No suspicious patterns (encoded commands, download cradles, bypass techniques) detected.",
-                    Category));
             }
             else
             {
-                var description = $"Detected {suspiciousCount} suspicious PowerShell script block(s) in the last 7 days out of {events.Count} total. Suspicious patterns include encoded commands, download cradles, and security bypass techniques.";
-
-                if (suspiciousCommands.Count > 0)
-                    description += "\n\nExamples:\n" + string.Join("\n", suspiciousCommands);
-
-                AddFinding(result, suspiciousCount > 5
-                    ? Finding.Critical(
-                        $"Suspicious PowerShell Activity — {suspiciousCount} Events",
-                        description,
-                        Category,
-                        "Investigate the PowerShell commands immediately. Check which user account ran them. Look for indicators of compromise. Consider blocking PowerShell for non-admin users via AppLocker.")
-                    : Finding.Warning(
-                        $"Suspicious PowerShell Activity — {suspiciousCount} Events",
-                        description,
-                        Category,
-                        "Review the flagged PowerShell commands. Some may be legitimate admin scripts, but encoded commands and download cradles are common attack techniques."));
+                AddFinding(result, EventLogAnalyzer.BuildSuspiciousPowerShellFinding(
+                    suspiciousCount, events.Count, suspiciousCommands));
             }
         }
         catch (Exception ex)
@@ -827,29 +564,8 @@ public class EventLogAudit : IAuditModule
             }
             else
             {
-                var description = $"Windows Defender detected {detections} threat(s) in the last 7 days, with {actions} remediation action(s) taken.";
-
-                if (threatNames.Count > 0)
-                    description += $" Threats: {string.Join(", ", threatNames)}.";
-
-                if (detections > actions)
-                {
-                    AddFinding(result, Finding.Critical(
-                        $"Defender Threats Detected — {detections} ({detections - actions} Unresolved)",
-                        description + " Some threats may not have been remediated.",
-                        Category,
-                        "Open Windows Security → Virus & threat protection → Protection history. Review and resolve any remaining threats. Run a full system scan.",
-                        "powershell -Command \"Start-MpScan -ScanType FullScan\""));
-                }
-                else
-                {
-                    AddFinding(result, Finding.Warning(
-                        $"Defender Threats Detected — {detections} (All Remediated)",
-                        description + " All detected threats were remediated.",
-                        Category,
-                        "Review Windows Security → Protection history to understand what was detected. Consider running a full scan to ensure no threats remain.",
-                        "powershell -Command \"Start-MpScan -ScanType FullScan\""));
-                }
+                AddFinding(result, EventLogAnalyzer.BuildDefenderDetectionFinding(
+                    detections, actions, threatNames));
             }
         }
         catch (Exception ex)
@@ -918,7 +634,7 @@ public class EventLogAudit : IAuditModule
                         if (samples.Count < 5)
                         {
                             var desc = evt.FormatDescription();
-                            var shortDesc = desc != null && desc.Length > 100 ? desc[..100] + "..." : desc ?? "No description";
+                            var shortDesc = EventLogAnalyzer.Truncate(desc ?? "No description", 100);
                             shortDesc = shortDesc.Replace("\r", " ").Replace("\n", " ");
                             samples.Add($"• [{evt.TimeCreated:HH:mm}] {source} (ID {evt.Id}): {shortDesc}");
                         }
@@ -926,40 +642,10 @@ public class EventLogAudit : IAuditModule
                     catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] Error: {ex.GetType().Name} - {ex.Message}"); }
                 }
 
-                var topSources = sources.OrderByDescending(kv => kv.Value).Take(5)
-                    .Select(kv => $"{kv.Key} ({kv.Value}x)");
-
-                var description = $"Detected {criticalCount} critical and {errorCount} error event(s) in the System log in the last 24 hours. " +
-                                  $"Top sources: {string.Join(", ", topSources)}.";
-
-                if (samples.Count > 0)
-                    description += "\n\nRecent events:\n" + string.Join("\n", samples);
-
-                if (criticalCount > 0)
-                {
-                    AddFinding(result, Finding.Warning(
-                        $"System Critical Errors — {criticalCount} Critical, {errorCount} Errors",
-                        description,
-                        Category,
-                        "Investigate critical events immediately. Check for bugcheck dumps (BSOD), driver failures, or hardware issues. Run 'sfc /scannow' and 'DISM /Online /Cleanup-Image /RestoreHealth' to repair system files.",
-                        "powershell -Command \"sfc /scannow\""));
-                }
-                else if (errorCount > 20)
-                {
-                    AddFinding(result, Finding.Warning(
-                        $"High System Error Rate — {errorCount} Errors in 24h",
-                        description,
-                        Category,
-                        "Investigate recurring error sources. High error rates may indicate driver issues, hardware failure, or misconfigurations."));
-                }
-                else
-                {
-                    AddFinding(result, Finding.Info(
-                        $"System Errors — {errorCount} in 24h",
-                        description,
-                        Category,
-                        "Review error sources if any seem unusual. A small number of errors is common."));
-                }
+                AddFinding(result, EventLogAnalyzer.BuildSystemErrorFinding(
+                    criticalCount, errorCount,
+                    EventLogAnalyzer.RankTopCounts(sources),
+                    samples));
             }
         }
         catch (Exception ex)
@@ -980,9 +666,6 @@ public class EventLogAudit : IAuditModule
     {
         try
         {
-            const long recommendedSize = 128L * 1024 * 1024; // 128 MB
-            const long minimumSize = 64L * 1024 * 1024; // 64 MB
-
             // Read from registry where log configuration is stored
             var logSizeBytes = RegistryHelper.GetValue<int>(
                 RegistryHive.LocalMachine,
@@ -1007,71 +690,24 @@ public class EventLogAudit : IAuditModule
 
                     if (!string.IsNullOrWhiteSpace(psOutput))
                     {
-                        var sizeMatch = Regex.Match(psOutput, @"MaximumSizeInBytes\s*:\s*(\d+)");
-                        if (sizeMatch.Success)
-                            logSizeBytes = int.Parse(sizeMatch.Groups[1].Value);
+                        var parsedSize = EventLogAnalyzer.ParseMaxSizeFromPowerShell(psOutput);
+                        if (parsedSize > 0)
+                            logSizeBytes = (int)Math.Min(parsedSize, int.MaxValue);
 
-                        var modeMatch = Regex.Match(psOutput, @"LogMode\s*:\s*(\w+)");
-                        if (modeMatch.Success)
-                        {
-                            var mode = modeMatch.Groups[1].Value;
-                            if (mode.Equals("Retain", StringComparison.OrdinalIgnoreCase))
-                                retention = -1;
-                            else if (mode.Equals("Circular", StringComparison.OrdinalIgnoreCase))
-                                retention = 0;
-                        }
+                        retention = EventLogAnalyzer.ParseRetentionFromLogMode(psOutput, retention);
                     }
                 }
                 catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] Error: {ex.GetType().Name} - {ex.Message}"); }
             }
 
-            long maxSizeBytes = logSizeBytes > 0 ? logSizeBytes : 20L * 1024 * 1024; // Default is usually 20 MB
-            double maxSizeMB = maxSizeBytes / (1024.0 * 1024.0);
+            long maxSizeBytes = logSizeBytes > 0 ? logSizeBytes : EventLogAnalyzer.SecurityLogDefaultBytes;
 
-            // Check overwrite mode
-            string overwriteMode = retention switch
-            {
-                0 => "Overwrite as needed (default)",
-                -1 => "Do not overwrite (archive/manual clear)",
-                _ => $"Overwrite events older than {retention} days"
-            };
-
-            if (maxSizeBytes < minimumSize)
-            {
-                AddFinding(result, Finding.Critical(
-                    $"Security Log Too Small — {maxSizeMB:F0} MB",
-                    $"The Security event log maximum size is only {maxSizeMB:F0} MB. Recommended minimum is 128 MB. Small log sizes cause events to be overwritten quickly, potentially destroying forensic evidence. Overwrite mode: {overwriteMode}.",
-                    Category,
-                    "Increase Security log size to at least 128 MB: Event Viewer → Windows Logs → Security → Properties → Maximum log size.",
-                    $"powershell -Command \"wevtutil sl Security /ms:{recommendedSize}\""));
-            }
-            else if (maxSizeBytes < recommendedSize)
-            {
-                AddFinding(result, Finding.Warning(
-                    $"Security Log Size — {maxSizeMB:F0} MB",
-                    $"The Security event log is {maxSizeMB:F0} MB. Recommended size is >= 128 MB for adequate forensic retention. Overwrite mode: {overwriteMode}.",
-                    Category,
-                    "Increase Security log size to 128 MB or more.",
-                    $"powershell -Command \"wevtutil sl Security /ms:{recommendedSize}\""));
-            }
-            else
-            {
-                AddFinding(result, Finding.Pass(
-                    $"Security Log Size — {maxSizeMB:F0} MB",
-                    $"The Security event log is adequately sized at {maxSizeMB:F0} MB (recommended >= 128 MB). Overwrite mode: {overwriteMode}.",
-                    Category));
-            }
+            AddFinding(result, EventLogAnalyzer.BuildSecurityLogSizeFinding(maxSizeBytes, retention));
 
             // Warn if set to "do not overwrite" — can cause event loss if log fills up
-            if (retention == -1)
-            {
-                AddFinding(result, Finding.Warning(
-                    "Security Log — Do Not Overwrite Mode",
-                    "The Security event log is configured to NOT overwrite events. When the log fills up, new events will be silently dropped. This can cause a denial-of-logging attack.",
-                    Category,
-                    "Change to 'Overwrite as needed' or implement automated log archiving to prevent event loss.",
-                    "powershell -Command \"wevtutil sl Security /rt:false\""));
-            }
+            var doNotOverwrite = EventLogAnalyzer.BuildDoNotOverwriteFinding(retention);
+            if (doNotOverwrite != null)
+                AddFinding(result, doNotOverwrite);
         }
         catch (Exception ex)
         {
@@ -1110,10 +746,7 @@ public class EventLogAudit : IAuditModule
 
             if (events.Count == 0)
             {
-                AddFinding(result, Finding.Pass(
-                    "No Audit Log Clears",
-                    "No audit log clear events (Event ID 1102) detected in the last 30 days. Log integrity appears intact.",
-                    Category));
+                AddFinding(result, EventLogAnalyzer.BuildLogClearedFinding(0));
             }
             else
             {
@@ -1138,11 +771,7 @@ public class EventLogAudit : IAuditModule
                     }
                 }
 
-                AddFinding(result, Finding.Critical(
-                    $"Audit Log Cleared — {events.Count} Time(s)",
-                    $"The Security audit log was cleared {events.Count} time(s) in the last 30 days. This destroys forensic evidence and may indicate an attacker covering their tracks.\n\nClear events:\n{string.Join("\n", clearDetails)}",
-                    Category,
-                    "Investigate who cleared the logs and why. Implement log forwarding to a SIEM or remote log collector to prevent evidence destruction. Consider restricting 'Manage auditing and security log' privilege."));
+                AddFinding(result, EventLogAnalyzer.BuildLogClearedFinding(events.Count, clearDetails));
             }
         }
         catch (Exception ex)
@@ -1218,14 +847,6 @@ public class EventLogAudit : IAuditModule
                 return null;
             }
         }, ct);
-    }
-
-    /// <summary>
-    /// Convert a DateTime to the XPath SystemTime XML format for event log queries.
-    /// </summary>
-    private static string ToSystemTimeXml(DateTime utcTime)
-    {
-        return utcTime.ToString("yyyy-MM-ddTHH:mm:ss.fffffffZ");
     }
 
     #endregion

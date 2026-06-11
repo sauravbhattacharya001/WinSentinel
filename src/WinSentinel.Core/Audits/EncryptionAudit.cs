@@ -94,98 +94,14 @@ public class EncryptionAudit : AuditModuleBase
                 output.Contains("is not recognized", StringComparison.OrdinalIgnoreCase) ||
                 output.Contains("not found", StringComparison.OrdinalIgnoreCase))
             {
-                result.Findings.Add(Finding.Info(
-                    $"BitLocker — {driveLetter}",
-                    $"BitLocker tools not available on this system for drive {driveLetter}. This edition of Windows may not support BitLocker.",
-                    Category,
-                    "Upgrade to Windows 10/11 Pro or Enterprise for BitLocker support."));
+                result.Findings.Add(EncryptionAnalyzer.BuildBitLockerFinding(
+                    driveLetter, EncryptionAnalyzer.ParseBitLockerStatus(output)));
                 return;
             }
 
-            var outputLower = output.ToLowerInvariant();
-
-            // Parse protection status
-            bool isProtected = outputLower.Contains("protection on") ||
-                               outputLower.Contains("protectionstatus") && outputLower.Contains(": on") ||
-                               output.Contains("ProtectionStatus      : On", StringComparison.OrdinalIgnoreCase);
-
-            // Parse encryption status
-            bool isFullyEncrypted = outputLower.Contains("percentage encrypted:    100") ||
-                                    outputLower.Contains("percentage encrypted:   100") ||
-                                    outputLower.Contains("fully encrypted") ||
-                                    (outputLower.Contains("encryptionpercentage") && outputLower.Contains(": 100"));
-
-            bool isPartiallyEncrypted = !isFullyEncrypted && (
-                outputLower.Contains("encryption in progress") ||
-                outputLower.Contains("percentage encrypted") && !outputLower.Contains("percentage encrypted:    0"));
-
-            bool isNotEncrypted = outputLower.Contains("fully decrypted") ||
-                                  outputLower.Contains("percentage encrypted:    0.0%") ||
-                                  outputLower.Contains("percentage encrypted:    0%") ||
-                                  (outputLower.Contains("encryptionpercentage") && outputLower.Contains(": 0"));
-
-            // Parse encryption method
-            string encryptionMethod = "Unknown";
-            foreach (var method in new[] { "XTS-AES 256", "XTS-AES 128", "AES-CBC 256", "AES-CBC 128", "AES 256", "AES 128" })
-            {
-                if (output.Contains(method, StringComparison.OrdinalIgnoreCase))
-                {
-                    encryptionMethod = method;
-                    break;
-                }
-            }
-
-            // Parse key protectors
-            var keyProtectors = new List<string>();
-            foreach (var protector in new[] { "TPM", "Numerical Password", "Password", "External Key", "Recovery Key", "Smart Card" })
-            {
-                if (output.Contains(protector, StringComparison.OrdinalIgnoreCase))
-                    keyProtectors.Add(protector);
-            }
-
-            // Build description
-            string protectorInfo = keyProtectors.Count > 0
-                ? string.Join(", ", keyProtectors)
-                : "None detected";
-
-            if (isFullyEncrypted && isProtected)
-            {
-                result.Findings.Add(Finding.Pass(
-                    $"BitLocker — {driveLetter} Encrypted",
-                    $"Drive {driveLetter} is fully encrypted with BitLocker. Method: {encryptionMethod}. Protection: ON. Key protectors: {protectorInfo}.",
-                    Category));
-            }
-            else if (isPartiallyEncrypted)
-            {
-                result.Findings.Add(Finding.Warning(
-                    $"BitLocker — {driveLetter} Partially Encrypted",
-                    $"Drive {driveLetter} encryption is in progress. Method: {encryptionMethod}. Key protectors: {protectorInfo}.",
-                    Category,
-                    "Wait for encryption to complete. Do not interrupt the process."));
-            }
-            else if (isNotEncrypted || !isProtected)
-            {
-                bool isSystemDrive = driveLetter.StartsWith("C", StringComparison.OrdinalIgnoreCase);
-                var severity = isSystemDrive ? Severity.Critical : Severity.Warning;
-
-                result.Findings.Add(new Finding
-                {
-                    Title = $"BitLocker — {driveLetter} Not Encrypted",
-                    Description = $"Drive {driveLetter} is NOT encrypted with BitLocker. Data on this drive is accessible if the device is stolen or lost.",
-                    Severity = severity,
-                    Category = Category,
-                    Remediation = $"Enable BitLocker encryption on drive {driveLetter} via Settings → Privacy & Security → Device encryption, or use manage-bde.",
-                    FixCommand = $"powershell -Command \"Enable-BitLocker -MountPoint '{driveLetter}' -EncryptionMethod XtsAes256 -UsedSpaceOnly -RecoveryPasswordProtector\""
-                });
-            }
-            else
-            {
-                result.Findings.Add(Finding.Info(
-                    $"BitLocker — {driveLetter} Status",
-                    $"Drive {driveLetter} BitLocker status could not be fully determined. Method: {encryptionMethod}. Key protectors: {protectorInfo}.",
-                    Category,
-                    "Run 'manage-bde -status' as Administrator for detailed status."));
-            }
+            // All BitLocker classification now lives in the pure, unit-tested analyzer.
+            var blState = EncryptionAnalyzer.ParseBitLockerStatus(output);
+            result.Findings.Add(EncryptionAnalyzer.BuildBitLockerFinding(driveLetter, blState));
         }
         catch (Exception ex)
         {
@@ -277,58 +193,8 @@ public class EncryptionAudit : AuditModuleBase
     /// </summary>
     private void ParseTpmPowerShell(AuditResult result, string output)
     {
-        bool isPresent = output.Contains("TpmPresent", StringComparison.OrdinalIgnoreCase) &&
-                         output.Contains(": True", StringComparison.OrdinalIgnoreCase);
-        bool isReady = output.Contains("TpmReady", StringComparison.OrdinalIgnoreCase) &&
-                       output.Contains("TpmReady                        : True", StringComparison.OrdinalIgnoreCase);
-        bool isEnabled = !output.Contains("TpmEnabled                      : False", StringComparison.OrdinalIgnoreCase);
-
-        // Try to extract version from ManufacturerVersion or ManufacturerVersionFull20
-        string version = "Unknown";
-        foreach (var line in output.Split('\n'))
-        {
-            var trimmed = line.Trim();
-            if (trimmed.StartsWith("ManufacturerVersionFull20", StringComparison.OrdinalIgnoreCase))
-            {
-                var parts = trimmed.Split(':', 2);
-                if (parts.Length == 2) version = parts[1].Trim();
-            }
-        }
-
-        if (isPresent && isReady && isEnabled)
-        {
-            result.Findings.Add(Finding.Pass(
-                "TPM Present & Ready",
-                $"TPM is present, enabled, and ready. Version: {version}. Hardware security features are available.",
-                Category));
-        }
-        else if (isPresent && !isEnabled)
-        {
-            result.Findings.Add(Finding.Warning(
-                "TPM Present but Disabled",
-                $"TPM is present but not enabled. Version: {version}. Hardware security features are unavailable until TPM is enabled.",
-                Category,
-                "Enable TPM in BIOS/UEFI settings or via tpm.msc.",
-                "powershell -Command \"Start-Process 'tpm.msc'\""));
-        }
-        else if (isPresent && !isReady)
-        {
-            result.Findings.Add(Finding.Warning(
-                "TPM Present but Not Ready",
-                $"TPM is present and enabled but not fully ready. Version: {version}. Some security features may not work.",
-                Category,
-                "Open TPM management (tpm.msc) to initialize the TPM.",
-                "powershell -Command \"Initialize-Tpm\""));
-        }
-        else
-        {
-            result.Findings.Add(Finding.Warning(
-                "TPM Not Available",
-                "TPM (Trusted Platform Module) is not present or not enabled. Hardware-backed security features are unavailable.",
-                Category,
-                "Enable TPM in BIOS/UEFI settings. Modern CPUs have firmware TPM (Intel PTT / AMD fTPM).",
-                "powershell -Command \"Start-Process 'tpm.msc'\""));
-        }
+        var state = EncryptionAnalyzer.ParseTpmPowerShell(output);
+        result.Findings.Add(EncryptionAnalyzer.BuildTpmPowerShellFinding(state));
     }
 
     /// <summary>
@@ -737,25 +603,13 @@ public class EncryptionAudit : AuditModuleBase
 
         if (clientEnabled || serverEnabled)
         {
-            var side = clientEnabled && serverEnabled ? "client and server"
-                : clientEnabled ? "client" : "server";
-
-            result.Findings.Add(new Finding
-            {
-                Title = $"{protocol} Still Enabled",
-                Description = $"{protocol} is enabled for {side} connections. This protocol has known vulnerabilities (POODLE, BEAST, etc.) and should be disabled.",
-                Severity = protocol.Contains("SSL") ? Severity.Critical : Severity.Warning,
-                Category = Category,
-                Remediation = $"Disable {protocol} via registry or Group Policy. Path: {SchannelProtocolsPath}\\{protocol}",
-                FixCommand = $"powershell -Command \"New-Item 'HKLM:\\{SchannelProtocolsPath}\\{protocol}\\Client' -Force | Out-Null; Set-ItemProperty -Path 'HKLM:\\{SchannelProtocolsPath}\\{protocol}\\Client' -Name 'Enabled' -Value 0 -Type DWord; New-Item 'HKLM:\\{SchannelProtocolsPath}\\{protocol}\\Server' -Force | Out-Null; Set-ItemProperty -Path 'HKLM:\\{SchannelProtocolsPath}\\{protocol}\\Server' -Name 'Enabled' -Value 0 -Type DWord\""
-            });
+            result.Findings.Add(EncryptionAnalyzer.BuildLegacyProtocolFinding(
+                protocol, clientEnabled, serverEnabled, SchannelProtocolsPath));
         }
         else
         {
-            result.Findings.Add(Finding.Pass(
-                $"{protocol} Disabled",
-                $"{protocol} is disabled or not configured (system default). This is the recommended setting.",
-                Category));
+            result.Findings.Add(EncryptionAnalyzer.BuildLegacyProtocolFinding(
+                protocol, false, false, SchannelProtocolsPath));
         }
     }
 
@@ -774,22 +628,13 @@ public class EncryptionAudit : AuditModuleBase
 
         if (clientDisabled || serverDisabled)
         {
-            var side = clientDisabled && serverDisabled ? "client and server"
-                : clientDisabled ? "client" : "server";
-
-            result.Findings.Add(Finding.Critical(
-                $"{protocol} Disabled",
-                $"{protocol} has been explicitly disabled for {side} connections. This weakens security and may cause connectivity issues with modern services.",
-                Category,
-                $"Re-enable {protocol} by removing or modifying the registry key at {SchannelProtocolsPath}\\{protocol}.",
-                $"powershell -Command \"Set-ItemProperty -Path 'HKLM:\\{SchannelProtocolsPath}\\{protocol}\\Client' -Name 'Enabled' -Value 1 -Type DWord -ErrorAction SilentlyContinue; Set-ItemProperty -Path 'HKLM:\\{SchannelProtocolsPath}\\{protocol}\\Server' -Name 'Enabled' -Value 1 -Type DWord -ErrorAction SilentlyContinue\""));
+            result.Findings.Add(EncryptionAnalyzer.BuildModernProtocolFinding(
+                protocol, clientDisabled, serverDisabled, SchannelProtocolsPath));
         }
         else
         {
-            result.Findings.Add(Finding.Pass(
-                $"{protocol} Enabled",
-                $"{protocol} is enabled (system default or explicitly configured). Modern TLS is available.",
-                Category));
+            result.Findings.Add(EncryptionAnalyzer.BuildModernProtocolFinding(
+                protocol, false, false, SchannelProtocolsPath));
         }
     }
 
@@ -800,24 +645,13 @@ public class EncryptionAudit : AuditModuleBase
     /// </summary>
     private bool IsProtocolEnabled(string registryPath)
     {
-        // If Enabled explicitly set to 0, it's disabled
-        // If key doesn't exist, check DisabledByDefault
         var enabled = RegistryHelper.GetValue<int>(
             RegistryHive.LocalMachine, registryPath, "Enabled", -1);
-
-        if (enabled == 0) return false; // Explicitly disabled
-        if (enabled == 1) return true;  // Explicitly enabled
-
-        // Check DisabledByDefault
         var disabledByDefault = RegistryHelper.GetValue<int>(
             RegistryHive.LocalMachine, registryPath, "DisabledByDefault", -1);
 
-        if (disabledByDefault == 1) return false;
-
-        // For legacy protocols, if no explicit setting, check if the protocol
-        // is disabled by default on modern Windows (TLS 1.0/1.1 are disabled by default on Win11+)
-        // Return false for "not configured" — we treat system defaults as acceptable
-        return false;
+        // Pure decision delegated to the analyzer.
+        return EncryptionAnalyzer.IsProtocolEnabled(enabled, disabledByDefault);
     }
 
     /// <summary>
@@ -828,7 +662,7 @@ public class EncryptionAudit : AuditModuleBase
         var enabled = RegistryHelper.GetValue<int>(
             RegistryHive.LocalMachine, registryPath, "Enabled", -1);
 
-        return enabled == 0;
+        return EncryptionAnalyzer.IsProtocolExplicitlyDisabled(enabled);
     }
 
     /// <summary>
@@ -845,37 +679,11 @@ public class EncryptionAudit : AuditModuleBase
 
             if (!string.IsNullOrEmpty(cipherOrder))
             {
-                var suites = cipherOrder.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-                var weakSuites = suites.Where(s =>
-                    s.Contains("RC4", StringComparison.OrdinalIgnoreCase) ||
-                    s.Contains("DES", StringComparison.OrdinalIgnoreCase) ||
-                    s.Contains("NULL", StringComparison.OrdinalIgnoreCase) ||
-                    s.Contains("EXPORT", StringComparison.OrdinalIgnoreCase) ||
-                    s.Contains("MD5", StringComparison.OrdinalIgnoreCase))
-                    .ToList();
-
-                if (weakSuites.Count > 0)
-                {
-                    result.Findings.Add(Finding.Warning(
-                        $"Weak Cipher Suites Configured ({weakSuites.Count})",
-                        $"Found {weakSuites.Count} weak cipher suite(s) in the configured order: {string.Join(", ", weakSuites.Take(5))}. These use broken cryptographic algorithms.",
-                        Category,
-                        "Remove weak cipher suites (RC4, DES, NULL, EXPORT, MD5) from the cipher suite order via Group Policy or registry."));
-                }
-                else
-                {
-                    result.Findings.Add(Finding.Pass(
-                        "Cipher Suite Order Configured",
-                        $"Custom cipher suite order is configured with {suites.Length} suite(s), none using known-weak algorithms.",
-                        Category));
-                }
+                result.Findings.Add(EncryptionAnalyzer.BuildCipherSuiteFinding(cipherOrder));
             }
             else
             {
-                result.Findings.Add(Finding.Info(
-                    "Cipher Suite Order — System Default",
-                    "No custom cipher suite order configured. Windows is using its default cipher suite selection, which is generally secure on modern Windows versions.",
-                    Category));
+                result.Findings.Add(EncryptionAnalyzer.BuildCipherSuiteFinding(null));
             }
         }
         catch (Exception ex)

@@ -4,7 +4,8 @@ namespace WinSentinel.Core.Services;
 
 /// <summary>
 /// Maps security audit findings to industry regulatory compliance controls.
-/// Supports CIS Benchmarks, NIST 800-53, PCI-DSS, and HIPAA Security Rule.
+/// Supports CIS Benchmarks, NIST 800-53, PCI-DSS, HIPAA Security Rule, SOC 2
+/// Trust Services Criteria, and the ASD Essential Eight.
 /// Generates a compliance posture report showing per-control pass/fail/gap status.
 /// </summary>
 public class ComplianceMapper
@@ -190,7 +191,9 @@ public class ComplianceMapper
             BuildCisBenchmark(),
             BuildNist80053(),
             BuildPciDss(),
-            BuildHipaa()
+            BuildHipaa(),
+            BuildSoc2(),
+            BuildEssentialEight()
         };
     }
 
@@ -344,6 +347,77 @@ public class ComplianceMapper
                     Categories = { "Accounts", "Certificates" }, Keywords = { "authentication", "verify", "identity", "certificate" } },
                 new() { Id = "164.312(e)(1)", Title = "Transmission Security", Description = "Guard against unauthorized access to ePHI during transmission",
                     Categories = { "Network", "Encryption", "WiFi" }, Keywords = { "transmit", "encrypt", "tls", "ssl", "network", "wifi" } },
+            }
+        };
+    }
+
+    private static ComplianceFramework BuildSoc2()
+    {
+        // SOC 2 Trust Services Criteria (2017, rev. 2022). WinSentinel evidences the
+        // technical Common Criteria (CC) for the Security category and the
+        // Availability criterion most relevant to endpoint posture. Organisational
+        // controls (e.g. CC1 control environment, CC2 communication) are out of
+        // scope for a host scanner and are intentionally omitted.
+        return new ComplianceFramework
+        {
+            Id = "soc2",
+            Name = "SOC 2 Trust Services Criteria",
+            Version = "2017 (rev. 2022)",
+            Controls = new List<ComplianceControl>
+            {
+                new() { Id = "CC6.1", Title = "Logical Access - Identification & Authentication", Description = "Restrict logical access through identification, authentication, and credential management",
+                    Categories = { "Accounts", "Identity", "Credentials", "Credential Hygiene" }, Keywords = { "password", "account", "admin", "privilege", "credential", "authentication", "stale", "lockout" } },
+                new() { Id = "CC6.2", Title = "Logical Access - Provisioning & Deprovisioning", Description = "Register and authorize new users; remove access when no longer required",
+                    Categories = { "Accounts", "Identity" }, Keywords = { "account", "user", "stale", "inactive", "orphan", "disabled", "never expires" } },
+                new() { Id = "CC6.6", Title = "Logical Access - Boundary Protection", Description = "Implement boundary protection (firewall, remote access controls) against external threats",
+                    Categories = { "Firewall", "Network", "Remote Access" }, Keywords = { "firewall", "port", "remote", "rdp", "network", "exposed", "boundary" } },
+                new() { Id = "CC6.7", Title = "Data Protection - Encryption", Description = "Protect information during transmission and at rest using encryption",
+                    Categories = { "Encryption", "Certificates", "Network", "WiFi" }, Keywords = { "encrypt", "bitlocker", "tls", "ssl", "certificate", "at rest", "transmit" } },
+                new() { Id = "CC6.8", Title = "Malicious Software Prevention", Description = "Prevent or detect and act upon the introduction of unauthorized or malicious software",
+                    Categories = { "Defender", "Processes", "Startup" }, Keywords = { "defender", "antivirus", "malware", "real-time", "protection", "unsigned", "startup" } },
+                new() { Id = "CC7.1", Title = "System Monitoring - Configuration", Description = "Detect changes to configurations that introduce new vulnerabilities",
+                    Categories = { "Registry", "GroupPolicy", "System", "Services" }, Keywords = { "configuration", "setting", "registry", "policy", "harden", "baseline" } },
+                new() { Id = "CC7.2", Title = "System Monitoring - Detection", Description = "Monitor system components for anomalies and security events",
+                    Categories = { "Event Logs", "Defender", "Monitoring" }, Keywords = { "audit", "log", "event", "monitor", "detect", "logging" } },
+                new() { Id = "CC7.3", Title = "Security Incident Evaluation", Description = "Evaluate security events to determine whether they could result in a failure to meet objectives",
+                    Categories = { "Event Logs", "Monitoring" }, Keywords = { "failed logon", "escalation", "suspicious", "alert", "incident" } },
+                new() { Id = "CC8.1", Title = "Change Management", Description = "Authorize, design, develop, and implement changes to infrastructure and software",
+                    Categories = { "Updates", "Software", "Drivers" }, Keywords = { "update", "patch", "outdated", "unsigned", "driver", "vulnerable", "version" } },
+                new() { Id = "A1.2", Title = "Availability - Backup & Recovery", Description = "Maintain, monitor, and evaluate environmental protections, backups, and recovery infrastructure",
+                    Categories = { "Backup", "Encryption" }, Keywords = { "backup", "restore", "recovery", "shadow copy", "snapshot" } },
+            }
+        };
+    }
+
+    private static ComplianceFramework BuildEssentialEight()
+    {
+        // ASD (Australian Signals Directorate) Essential Eight mitigation strategies.
+        // Maturity-model based; WinSentinel evidences the host-observable posture of
+        // each of the eight strategies. "Daily backups" and "restrict admin" map
+        // cleanly to existing audit categories; macro hardening maps via keywords.
+        return new ComplianceFramework
+        {
+            Id = "essential8",
+            Name = "ASD Essential Eight",
+            Version = "July 2025",
+            Controls = new List<ComplianceControl>
+            {
+                new() { Id = "E8-1", Title = "Application Control", Description = "Prevent execution of unapproved/malicious programs",
+                    Categories = { "Startup", "Processes", "Services", "Software" }, Keywords = { "unsigned", "untrusted", "startup", "unapproved", "applocker", "whitelist", "execution" } },
+                new() { Id = "E8-2", Title = "Patch Applications", Description = "Patch/mitigate applications with known vulnerabilities",
+                    Categories = { "Software", "Updates" }, Keywords = { "outdated", "vulnerable", "application", "package", "software", "patch", "version" } },
+                new() { Id = "E8-3", Title = "Configure Microsoft Office Macro Settings", Description = "Block macros from the internet and untrusted sources",
+                    Categories = { "Software", "Registry", "GroupPolicy" }, Keywords = { "macro", "office", "vba", "document" } },
+                new() { Id = "E8-4", Title = "User Application Hardening", Description = "Harden web browsers and applications against exploitation",
+                    Categories = { "Software", "Network", "Registry" }, Keywords = { "browser", "extension", "flash", "java", "hardening", "cert pin", "autofill" } },
+                new() { Id = "E8-5", Title = "Restrict Administrative Privileges", Description = "Restrict and monitor privileged access based on duties",
+                    Categories = { "Accounts", "Identity", "GroupPolicy" }, Keywords = { "admin", "privilege", "elevated", "sprawl", "local admin", "laps", "right" } },
+                new() { Id = "E8-6", Title = "Patch Operating Systems", Description = "Patch/mitigate operating systems with known vulnerabilities",
+                    Categories = { "Updates", "System" }, Keywords = { "update", "patch", "pending", "critical", "os", "hotfix", "wsus" } },
+                new() { Id = "E8-7", Title = "Multi-Factor Authentication", Description = "Authenticate users with multiple factors for important actions",
+                    Categories = { "Accounts", "Identity", "Remote Access" }, Keywords = { "mfa", "multi-factor", "two-factor", "2fa", "windows hello", "smart card" } },
+                new() { Id = "E8-8", Title = "Regular Backups", Description = "Perform and test regular backups of important data, software, and configurations",
+                    Categories = { "Backup", "Encryption" }, Keywords = { "backup", "restore", "recovery", "shadow copy", "snapshot", "stale" } },
             }
         };
     }

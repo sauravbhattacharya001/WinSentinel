@@ -97,13 +97,15 @@ public class ComplianceMapperTests
     // ── Framework Discovery ──────────────────────────────────────────
 
     [Fact]
-    public void FrameworkIds_ContainsFourFrameworks()
+    public void FrameworkIds_ContainsSixFrameworks()
     {
-        Assert.Equal(4, _mapper.FrameworkIds.Count);
+        Assert.Equal(6, _mapper.FrameworkIds.Count);
         Assert.Contains("cis", _mapper.FrameworkIds);
         Assert.Contains("nist", _mapper.FrameworkIds);
         Assert.Contains("pci-dss", _mapper.FrameworkIds);
         Assert.Contains("hipaa", _mapper.FrameworkIds);
+        Assert.Contains("soc2", _mapper.FrameworkIds);
+        Assert.Contains("essential8", _mapper.FrameworkIds);
     }
 
     [Theory]
@@ -111,6 +113,8 @@ public class ComplianceMapperTests
     [InlineData("nist", "NIST SP 800-53 Rev. 5")]
     [InlineData("pci-dss", "PCI DSS v4.0")]
     [InlineData("hipaa", "HIPAA Security Rule")]
+    [InlineData("soc2", "SOC 2 Trust Services Criteria")]
+    [InlineData("essential8", "ASD Essential Eight")]
     public void GetFramework_ReturnsCorrectName(string id, string expectedName)
     {
         var fw = _mapper.GetFramework(id);
@@ -121,7 +125,7 @@ public class ComplianceMapperTests
     [Fact]
     public void GetFramework_UnknownId_ReturnsNull()
     {
-        Assert.Null(_mapper.GetFramework("soc2"));
+        Assert.Null(_mapper.GetFramework("iso27001"));
     }
 
     [Fact]
@@ -136,6 +140,8 @@ public class ComplianceMapperTests
     [InlineData("nist")]
     [InlineData("pci-dss")]
     [InlineData("hipaa")]
+    [InlineData("soc2")]
+    [InlineData("essential8")]
     public void EachFramework_HasControls(string id)
     {
         var fw = _mapper.GetFramework(id);
@@ -148,6 +154,8 @@ public class ComplianceMapperTests
     [InlineData("nist")]
     [InlineData("pci-dss")]
     [InlineData("hipaa")]
+    [InlineData("soc2")]
+    [InlineData("essential8")]
     public void EachControl_HasIdAndTitle(string id)
     {
         var fw = _mapper.GetFramework(id)!;
@@ -209,7 +217,7 @@ public class ComplianceMapperTests
     [Fact]
     public void Evaluate_UnknownFramework_Throws()
     {
-        Assert.Throws<ArgumentException>(() => _mapper.Evaluate(EmptyReport(), "soc2"));
+        Assert.Throws<ArgumentException>(() => _mapper.Evaluate(EmptyReport(), "iso27001"));
     }
 
     // ── Multi-Category Report ────────────────────────────────────────
@@ -343,14 +351,16 @@ public class ComplianceMapperTests
     // ── EvaluateAll ──────────────────────────────────────────────────
 
     [Fact]
-    public void EvaluateAll_ReturnsFourReports()
+    public void EvaluateAll_ReturnsSixReports()
     {
         var reports = _mapper.EvaluateAll(MultiCategoryReport());
-        Assert.Equal(4, reports.Count);
+        Assert.Equal(6, reports.Count);
         Assert.Contains(reports, r => r.FrameworkId == "cis");
         Assert.Contains(reports, r => r.FrameworkId == "nist");
         Assert.Contains(reports, r => r.FrameworkId == "pci-dss");
         Assert.Contains(reports, r => r.FrameworkId == "hipaa");
+        Assert.Contains(reports, r => r.FrameworkId == "soc2");
+        Assert.Contains(reports, r => r.FrameworkId == "essential8");
     }
 
     // ── CrossFrameworkAnalysis ────────────────────────────────────────
@@ -360,7 +370,7 @@ public class ComplianceMapperTests
     {
         var summary = _mapper.CrossFrameworkAnalysis(MultiCategoryReport());
         Assert.Equal(65, summary.SecurityScore);
-        Assert.Equal(4, summary.FrameworkResults.Count);
+        Assert.Equal(6, summary.FrameworkResults.Count);
     }
 
     [Fact]
@@ -493,5 +503,132 @@ public class ComplianceMapperTests
         Assert.Equal("NIST SP 800-53 Rev. 5", result.FrameworkName);
         Assert.Equal("Rev. 5", result.FrameworkVersion);
         Assert.True(result.GeneratedAt <= DateTimeOffset.UtcNow);
+    }
+
+    // ── SOC 2 ──────────────────────────────────────────────────────────
+
+    [Fact]
+    public void Soc2_PasswordCritical_FailsLogicalAccess()
+    {
+        var report = ReportWith(
+            Finding.Critical("Weak password policy", "No complexity requirements", "Accounts"));
+
+        var result = _mapper.Evaluate(report, "soc2");
+        var cc61 = result.Controls.First(c => c.ControlId == "CC6.1");
+        Assert.Equal(ControlStatus.Fail, cc61.Status);
+    }
+
+    [Fact]
+    public void Soc2_DefenderCritical_FailsMalwarePrevention()
+    {
+        var report = ReportWith(
+            Finding.Critical("Real-time protection disabled", "Defender real-time scanning is off", "Defender"));
+
+        var result = _mapper.Evaluate(report, "soc2");
+        var cc68 = result.Controls.First(c => c.ControlId == "CC6.8");
+        Assert.Equal(ControlStatus.Fail, cc68.Status);
+    }
+
+    [Fact]
+    public void Soc2_BitLockerPass_PassesDataProtection()
+    {
+        var report = ReportWith(
+            Finding.Pass("BitLocker enabled", "System drive encrypted with BitLocker", "Encryption"));
+
+        var result = _mapper.Evaluate(report, "soc2");
+        var cc67 = result.Controls.First(c => c.ControlId == "CC6.7");
+        Assert.Equal(ControlStatus.Pass, cc67.Status);
+    }
+
+    [Fact]
+    public void Soc2_FirewallPass_PassesBoundaryProtection()
+    {
+        var report = ReportWith(
+            Finding.Pass("Firewall enabled", "Windows Firewall is on for all profiles", "Firewall"));
+
+        var result = _mapper.Evaluate(report, "soc2");
+        var cc66 = result.Controls.First(c => c.ControlId == "CC6.6");
+        Assert.Equal(ControlStatus.Pass, cc66.Status);
+    }
+
+    [Fact]
+    public void Soc2_EmptyReport_AllNotAssessed()
+    {
+        var result = _mapper.Evaluate(EmptyReport(), "soc2");
+        Assert.Equal("SOC 2 Trust Services Criteria", result.FrameworkName);
+        Assert.All(result.Controls, c => Assert.Equal(ControlStatus.NotAssessed, c.Status));
+        Assert.Equal(ComplianceVerdict.NotAssessed, result.Summary.OverallVerdict);
+    }
+
+    [Fact]
+    public void Soc2_MultiCategory_NonCompliant()
+    {
+        var result = _mapper.Evaluate(MultiCategoryReport(), "soc2");
+        Assert.Equal(ComplianceVerdict.NonCompliant, result.Summary.OverallVerdict);
+        Assert.True(result.Summary.FailCount > 0);
+        Assert.InRange(result.Summary.CompliancePercentage, 0, 100);
+    }
+
+    // ── Essential Eight ────────────────────────────────────────────────
+
+    [Fact]
+    public void Essential8_AdminSprawl_FailsRestrictAdmin()
+    {
+        var report = ReportWith(
+            Finding.Critical("Excessive local admins", "7 accounts have admin privilege", "Accounts"));
+
+        var result = _mapper.Evaluate(report, "essential8");
+        var e85 = result.Controls.First(c => c.ControlId == "E8-5");
+        Assert.Equal(ControlStatus.Fail, e85.Status);
+    }
+
+    [Fact]
+    public void Essential8_PendingUpdates_PartialPatchOs()
+    {
+        var report = ReportWith(
+            Finding.Warning("Pending updates", "12 critical updates pending install", "Updates"));
+
+        var result = _mapper.Evaluate(report, "essential8");
+        var e86 = result.Controls.First(c => c.ControlId == "E8-6");
+        Assert.Equal(ControlStatus.Partial, e86.Status);
+    }
+
+    [Fact]
+    public void Essential8_OutdatedSoftware_FailsPatchApplications()
+    {
+        var report = ReportWith(
+            Finding.Critical("Outdated software", "3 applications have known vulnerable versions", "Software"));
+
+        var result = _mapper.Evaluate(report, "essential8");
+        var e82 = result.Controls.First(c => c.ControlId == "E8-2");
+        Assert.Equal(ControlStatus.Fail, e82.Status);
+    }
+
+    [Fact]
+    public void Essential8_HasEightControls()
+    {
+        var fw = _mapper.GetFramework("essential8")!;
+        Assert.Equal(8, fw.Controls.Count);
+        // Strategy ids E8-1 .. E8-8 all present
+        for (var i = 1; i <= 8; i++)
+        {
+            Assert.Contains(fw.Controls, c => c.Id == $"E8-{i}");
+        }
+    }
+
+    [Fact]
+    public void Essential8_EmptyReport_NotAssessed()
+    {
+        var result = _mapper.Evaluate(EmptyReport(), "essential8");
+        Assert.Equal("ASD Essential Eight", result.FrameworkName);
+        Assert.All(result.Controls, c => Assert.Equal(ControlStatus.NotAssessed, c.Status));
+    }
+
+    [Fact]
+    public void NewFrameworks_AppearInCrossFrameworkAnalysis()
+    {
+        var summary = _mapper.CrossFrameworkAnalysis(MultiCategoryReport());
+        Assert.Contains(summary.FrameworkResults, f => f.FrameworkName == "SOC 2 Trust Services Criteria");
+        Assert.Contains(summary.FrameworkResults, f => f.FrameworkName == "ASD Essential Eight");
     }
 }

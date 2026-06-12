@@ -271,4 +271,113 @@ public class FleetRequestBuilderTests
     {
         Assert.Equal(expected, FleetRequestBuilder.IsDispatchAction(action));
     }
+
+    // ─── NormalizeCommandStatus ─────────────────────────────────────────
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void NormalizeCommandStatus_Blank_Means_No_Filter(string? blank)
+    {
+        Assert.Null(FleetRequestBuilder.NormalizeCommandStatus(blank));
+    }
+
+    [Theory]
+    [InlineData("completed", "completed")]
+    [InlineData("FAILED", "failed")]
+    [InlineData("  Pending  ", "pending")]
+    [InlineData("Acknowledged", "acknowledged")]
+    [InlineData("expired", "expired")]
+    public void NormalizeCommandStatus_Lowercases_Known_States(string raw, string expected)
+    {
+        Assert.Equal(expected, FleetRequestBuilder.NormalizeCommandStatus(raw));
+    }
+
+    [Theory]
+    [InlineData("done")]
+    [InlineData("running")]
+    [InlineData("cancelled")]
+    public void NormalizeCommandStatus_Throws_On_Unknown_State(string bogus)
+    {
+        var ex = Assert.Throws<ArgumentException>(() => FleetRequestBuilder.NormalizeCommandStatus(bogus));
+        // The message lists the valid set so the CLI can show it verbatim.
+        Assert.Contains("completed", ex.Message);
+    }
+
+    // ─── ClampCommandHistoryLimit ──────────────────────────────────
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(0)]
+    [InlineData(-5)]
+    public void ClampCommandHistoryLimit_Defaults_On_NonPositive_Or_Null(int? input)
+    {
+        Assert.Equal(FleetRequestBuilder.DefaultCommandHistoryLimit,
+            FleetRequestBuilder.ClampCommandHistoryLimit(input));
+    }
+
+    [Fact]
+    public void ClampCommandHistoryLimit_Passes_Through_In_Range()
+    {
+        Assert.Equal(25, FleetRequestBuilder.ClampCommandHistoryLimit(25));
+    }
+
+    [Fact]
+    public void ClampCommandHistoryLimit_Caps_At_Max()
+    {
+        Assert.Equal(FleetRequestBuilder.MaxCommandHistoryLimit,
+            FleetRequestBuilder.ClampCommandHistoryLimit(99999));
+    }
+
+    [Fact]
+    public void ClampCommandHistoryLimit_Allows_Exact_Max()
+    {
+        Assert.Equal(FleetRequestBuilder.MaxCommandHistoryLimit,
+            FleetRequestBuilder.ClampCommandHistoryLimit(FleetRequestBuilder.MaxCommandHistoryLimit));
+    }
+
+    // ─── BuildCommandHistoryPath ───────────────────────────────────
+
+    [Fact]
+    public void BuildCommandHistoryPath_Defaults_To_Limit_Only()
+    {
+        // No node, no status: just the clamped default limit.
+        Assert.Equal("/commands?limit=50", FleetRequestBuilder.BuildCommandHistoryPath(null, null, null));
+    }
+
+    [Fact]
+    public void BuildCommandHistoryPath_Includes_Node_And_Status_And_Limit_In_Order()
+    {
+        Assert.Equal("/commands?nodeId=node-01&status=failed&limit=20",
+            FleetRequestBuilder.BuildCommandHistoryPath("node-01", "FAILED", 20));
+    }
+
+    [Fact]
+    public void BuildCommandHistoryPath_Skips_Blank_Node()
+    {
+        Assert.Equal("/commands?status=completed&limit=50",
+            FleetRequestBuilder.BuildCommandHistoryPath("   ", "completed", null));
+    }
+
+    [Fact]
+    public void BuildCommandHistoryPath_Url_Encodes_Node_Id()
+    {
+        // A node id with spaces / specials must be percent-encoded so the query is valid.
+        var path = FleetRequestBuilder.BuildCommandHistoryPath("web prod/7", null, null);
+        Assert.Equal("/commands?nodeId=web%20prod%2F7&limit=50", path);
+    }
+
+    [Fact]
+    public void BuildCommandHistoryPath_Clamps_Oversized_Limit()
+    {
+        Assert.Equal("/commands?limit=200", FleetRequestBuilder.BuildCommandHistoryPath(null, null, 5000));
+    }
+
+    [Fact]
+    public void BuildCommandHistoryPath_Propagates_Bad_Status_As_ArgumentException()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            FleetRequestBuilder.BuildCommandHistoryPath("node-01", "bogus", 10));
+    }
 }

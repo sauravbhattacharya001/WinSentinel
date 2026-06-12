@@ -154,4 +154,72 @@ public static class FleetRequestBuilder
     /// </summary>
     public static bool IsDispatchAction(FleetAction action) =>
         action is FleetAction.ScanAll or FleetAction.PushPolicy;
+
+    /// <summary>Terminal/lifecycle states a dispatched command can be filtered by.</summary>
+    public static readonly string[] CommandStatuses =
+        { "pending", "acknowledged", "completed", "failed", "expired" };
+
+    /// <summary>Largest command-history page the control plane will return.</summary>
+    public const int MaxCommandHistoryLimit = 200;
+
+    /// <summary>Default command-history page size when <c>--limit</c> is omitted/invalid.</summary>
+    public const int DefaultCommandHistoryLimit = 50;
+
+    /// <summary>
+    /// Normalize a <c>--status</c> filter for <c>fleet commands</c>. Null/blank means "no
+    /// filter" (returns null). A recognized status (any case) is lower-cased and returned.
+    /// An unrecognized value throws <see cref="ArgumentException"/> so the handler can show
+    /// a precise error instead of silently querying with a bogus filter the server rejects.
+    /// </summary>
+    public static string? NormalizeCommandStatus(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            return null;
+        var s = raw.Trim().ToLowerInvariant();
+        if (Array.IndexOf(CommandStatuses, s) < 0)
+            throw new ArgumentException(
+                $"Invalid status '{raw}'. Valid: {string.Join(", ", CommandStatuses)}", nameof(raw));
+        return s;
+    }
+
+    /// <summary>
+    /// Clamp a requested command-history page size into the server-accepted range. Null or
+    /// any non-positive value collapses to <see cref="DefaultCommandHistoryLimit"/>; anything
+    /// above <see cref="MaxCommandHistoryLimit"/> is capped to it. Mirrors the worker so the
+    /// CLI never asks for more than the server will hand back.
+    /// </summary>
+    public static int ClampCommandHistoryLimit(int? requested)
+    {
+        if (requested is null || requested.Value <= 0)
+            return DefaultCommandHistoryLimit;
+        return requested.Value > MaxCommandHistoryLimit ? MaxCommandHistoryLimit : requested.Value;
+    }
+
+    /// <summary>
+    /// Build the relative request path (with query string) for <c>fleet commands</c> — the
+    /// command dispatch history view that closes the remote-command loop (admin dispatches a
+    /// command, the agent reports its outcome, this lists what happened). Returned as a path
+    /// suffix the handler appends to the resolved endpoint, e.g. <c>/commands?limit=50</c>.
+    ///
+    /// <paramref name="nodeId"/> filters to one node when non-blank. <paramref name="status"/>
+    /// is normalized via <see cref="NormalizeCommandStatus"/> (throws on a bad value).
+    /// <paramref name="limit"/> is clamped via <see cref="ClampCommandHistoryLimit"/>. All
+    /// query values are URL-encoded.
+    /// </summary>
+    public static string BuildCommandHistoryPath(string? nodeId, string? status, int? limit)
+    {
+        var query = new System.Collections.Generic.List<string>();
+
+        var normalizedNode = string.IsNullOrWhiteSpace(nodeId) ? null : nodeId.Trim();
+        if (normalizedNode is not null)
+            query.Add("nodeId=" + Uri.EscapeDataString(normalizedNode));
+
+        var normalizedStatus = NormalizeCommandStatus(status);
+        if (normalizedStatus is not null)
+            query.Add("status=" + Uri.EscapeDataString(normalizedStatus));
+
+        query.Add("limit=" + ClampCommandHistoryLimit(limit).ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+        return "/commands?" + string.Join("&", query);
+    }
 }

@@ -23,6 +23,8 @@ public class FleetCliParserTests
     [InlineData("scan", FleetAction.ScanAll)]
     [InlineData("push-policy", FleetAction.PushPolicy)]
     [InlineData("nodes", FleetAction.Nodes)]
+    [InlineData("commands", FleetAction.Commands)]
+    [InlineData("history", FleetAction.Commands)]
     [InlineData("help", FleetAction.Help)]
     public void Fleet_Subcommands_Map_Correctly(string sub, FleetAction expected)
     {
@@ -72,5 +74,68 @@ public class FleetCliParserTests
         var opts = CliParser.Parse(new[] { "fleet", "status", "--license", "WSP-AAAA-BBBB-CCCC" });
         Assert.Equal(CliCommand.Fleet, opts.Command);
         Assert.Equal("WSP-AAAA-BBBB-CCCC", opts.TransientLicenseKey);
+    }
+
+    // ─── commands / history view ─────────────────────────────────────
+
+    [Fact]
+    public void Fleet_Commands_Status_Filter_Parsed()
+    {
+        var opts = CliParser.Parse(new[] { "fleet", "commands", "--fleet-status", "failed" });
+        Assert.Null(opts.Error);
+        Assert.Equal(FleetAction.Commands, opts.FleetAction);
+        Assert.Equal("failed", opts.FleetStatusFilter);
+    }
+
+    [Fact]
+    public void Fleet_Commands_Status_Filter_Alias_Parsed()
+    {
+        var opts = CliParser.Parse(new[] { "fleet", "commands", "--command-status", "completed" });
+        Assert.Equal("completed", opts.FleetStatusFilter);
+    }
+
+    [Fact]
+    public void Fleet_Commands_Limit_Parsed_And_Routes_To_FleetLimit()
+    {
+        // Inside a fleet command, --limit fills FleetLimit (not HistoryLimit) and allows up to 200.
+        var opts = CliParser.Parse(new[] { "fleet", "commands", "--limit", "150" });
+        Assert.Null(opts.Error);
+        Assert.Equal(FleetAction.Commands, opts.FleetAction);
+        Assert.Equal(150, opts.FleetLimit);
+        // HistoryLimit keeps its default; the fleet redirect must not touch it.
+        Assert.Equal(20, opts.HistoryLimit);
+    }
+
+    [Fact]
+    public void Fleet_Commands_Limit_Rejects_Above_200()
+    {
+        var opts = CliParser.Parse(new[] { "fleet", "commands", "--limit", "500" });
+        Assert.NotNull(opts.Error);
+    }
+
+    [Fact]
+    public void Fleet_Commands_Node_And_Json_And_Status_Combined()
+    {
+        var opts = CliParser.Parse(new[]
+        {
+            "fleet", "commands", "--nodes", "node-01", "--fleet-status", "completed", "--limit", "20", "--json"
+        });
+        Assert.Null(opts.Error);
+        Assert.Equal(FleetAction.Commands, opts.FleetAction);
+        Assert.Equal("node-01", opts.FleetTargetNodes);
+        Assert.Equal("completed", opts.FleetStatusFilter);
+        Assert.Equal(20, opts.FleetLimit);
+        Assert.True(opts.Json);
+    }
+
+    [Fact]
+    public void NonFleet_Limit_Still_Routes_To_HistoryLimit()
+    {
+        // Regression guard: the fleet-scoped --limit redirect must not affect other commands.
+        var opts = CliParser.Parse(new[] { "--history", "--limit", "25" });
+        Assert.Null(opts.Error);
+        Assert.Equal(CliCommand.History, opts.Command);
+        Assert.Equal(25, opts.HistoryLimit);
+        Assert.Null(opts.FleetLimit);
     }
 }

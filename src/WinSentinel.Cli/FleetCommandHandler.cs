@@ -19,6 +19,7 @@ public enum FleetAction
     ScanAll,
     PushPolicy,
     Nodes,
+    Commands,
 }
 
 /// <summary>
@@ -51,6 +52,7 @@ internal static class FleetCommandHandler
             FleetAction.ScanAll => await HandleScanAll(options, licenseStatus),
             FleetAction.PushPolicy => await HandlePushPolicy(options, licenseStatus),
             FleetAction.Nodes => await HandleNodes(options, licenseStatus),
+            FleetAction.Commands => await HandleCommands(options, licenseStatus),
             FleetAction.Help => HandleHelp(),
             _ => HandleHelp(),
         };
@@ -318,6 +320,120 @@ internal static class FleetCommandHandler
         }
     }
 
+    // ─── Commands (dispatch history) ──────────────────────────────────────────
+
+    /// <summary>
+    /// <c>winsentinel fleet commands</c> — list the remote-command dispatch history and
+    /// each command's reported outcome. This is the read side of the closed remote-command
+    /// loop: an admin dispatches (scan-all / push-policy), the agent executes and reports
+    /// completed/failed, and this view shows what actually happened across the fleet.
+    /// Supports <c>--nodes &lt;id&gt;</c>, <c>--fleet-status &lt;state&gt;</c>, and <c>--limit N</c>.
+    /// </summary>
+    private static async Task<int> HandleCommands(CliOptions options, LicenseStatus status)
+    {
+        var endpoint = GetEndpoint(options);
+
+        // Build the query path first — a bad --fleet-status is a user error we surface
+        // before opening a socket.
+        string path;
+        try
+        {
+            path = FleetRequestBuilder.BuildCommandHistoryPath(
+                options.FleetTargetNodes, options.FleetStatusFilter, options.FleetLimit);
+        }
+        catch (ArgumentException ex)
+        {
+            WriteError(ex.Message);
+            return 2;
+        }
+
+        using var client = CreateClient(status);
+
+        try
+        {
+            var response = await client.GetAsync($"{endpoint}{path}");
+            if (!response.IsSuccessStatusCode)
+            {
+                WriteError($"Fleet API returned {(int)response.StatusCode}: {response.ReasonPhrase}");
+                return 1;
+            }
+
+            var body = await response.Content.ReadAsStringAsync();
+
+            if (options.Json)
+            {
+                Console.WriteLine(body);
+                return 0;
+            }
+
+            var doc = JsonDocument.Parse(body);
+            var root = doc.RootElement;
+
+            if (!root.TryGetProperty("commands", out var commands) ||
+                commands.ValueKind != JsonValueKind.Array || commands.GetArrayLength() == 0)
+            {
+                Console.WriteLine();
+                Console.WriteLine("  No dispatched commands match that filter yet.");
+                Console.WriteLine("  Dispatch one with `winsentinel fleet scan-all` or `fleet push-policy`.");
+                Console.WriteLine();
+                return 0;
+            }
+
+            Console.WriteLine();
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine("  Command Dispatch History:");
+            Console.ResetColor();
+            Console.WriteLine("  ──────────────────────────────────────────────────────────────────────");
+            Console.WriteLine($"  {"Command ID",-14} {"Node",-12} {"Type",-14} {"Status",-12} {"Dispatched",-20}");
+            Console.WriteLine("  ──────────────────────────────────────────────────────────────────────");
+
+            foreach (var cmd in commands.EnumerateArray())
+            {
+                var id = GetJsonString(cmd, "id", "?");
+                var node = GetJsonString(cmd, "nodeId", GetJsonString(cmd, "node_id", "-"));
+                var type = GetJsonString(cmd, "commandType", GetJsonString(cmd, "type", "-"));
+                var cmdStatus = GetJsonString(cmd, "status", "pending");
+                var created = GetJsonString(cmd, "createdAt", GetJsonString(cmd, "created_at", "-"));
+
+                var statusColor = cmdStatus switch
+                {
+                    "completed" => ConsoleColor.Green,
+                    "failed" => ConsoleColor.Red,
+                    "expired" => ConsoleColor.DarkGray,
+                    "acknowledged" => ConsoleColor.Cyan,
+                    _ => ConsoleColor.Yellow,
+                };
+
+                Console.Write($"  {id,-14} {node,-12} {type,-14} ");
+                Console.ForegroundColor = statusColor;
+                Console.Write($"{cmdStatus,-12} ");
+                Console.ResetColor();
+                Console.WriteLine($"{created,-20}");
+
+                // Surface the agent-reported result line for terminal commands so operators
+                // see *why* something failed without re-querying.
+                var result = GetJsonString(cmd, "result", GetJsonString(cmd, "result_json", ""));
+                if (!string.IsNullOrWhiteSpace(result) && result != "-")
+                {
+                    var oneLine = result.Replace("\r", " ").Replace("\n", " ").Trim();
+                    if (oneLine.Length > 66) oneLine = oneLine.Substring(0, 63) + "...";
+                    Console.ForegroundColor = ConsoleColor.DarkGray;
+                    Console.WriteLine($"      └ {oneLine}");
+                    Console.ResetColor();
+                }
+            }
+
+            Console.WriteLine();
+            return 0;
+        }
+        catch (HttpRequestException ex)
+        {
+            WriteError($"Cannot reach fleet API at {endpoint}: {ex.Message}");
+            WriteHint("Ensure your fleet control plane is running and reachable.");
+            return 1;
+        }
+    }
+
     // ─── Help ───────────────────────────────────────────────────────────────
 
     private static int HandleHelp()
@@ -333,11 +449,14 @@ internal static class FleetCommandHandler
     scan-all                Dispatch scan to all (or targeted) nodes
     push-policy --file <f>  Push a policy file to fleet nodes
     nodes                   List registered fleet nodes
+    commands                Show command dispatch history & reported outcomes
     help                    Show this help
 
   OPTIONS:
     --nodes <filter>        Target specific nodes (comma-separated IDs or 'all')
     --modules <filter>      Limit scan to specific modules (for scan-all)
+    --fleet-status <state>  Filter `commands` history (pending|acknowledged|completed|failed|expired)
+    --limit <n>             Max rows for `commands` history (1-200, default 50)
     --endpoint <url>        Fleet API endpoint (default: api.winsentinel.ai)
     --json                  Output in JSON format
     --license <key>         Use transient license key
@@ -351,6 +470,8 @@ internal static class FleetCommandHandler
     winsentinel fleet scan-all --nodes node-01,node-02
     winsentinel fleet push-policy --file cis-l1-policy.json
     winsentinel fleet nodes --json
+    winsentinel fleet commands --fleet-status failed --limit 20
+    winsentinel fleet commands --nodes node-01 --json
 
   NOTE: All fleet commands require an active WinSentinel Pro license.
   Use `winsentinel pro status` to check your license state.

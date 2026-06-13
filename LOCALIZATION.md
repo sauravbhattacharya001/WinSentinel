@@ -65,6 +65,22 @@ L.Culture = new System.Globalization.CultureInfo("es");
 
 | Locale | Status |
 |--------|--------|
-| `en-US` | ✅ Default (embedded in main `.resx`) |
+| `en-US` | Default (embedded in main `.resx`) |
+| `es` | Spanish — community reference translation (`Strings.es.resx`, `CliStrings.es.resx`) |
 
-Community translations welcome! Open an issue or PR to add your language.
+Community translations welcome! Open an issue or PR to add your language. The
+`es` files are a complete worked example to copy from.
+
+## How translations are kept honest
+
+The test suite (`LocalizationTests`) guards every shipped satellite so gaps
+can't slip in silently. For each non-default locale it asserts:
+
+- every English key has a translation (no missing strings),
+- there are no stray keys with no English counterpart (catches typos),
+- no translated value is blank, and
+- each translation keeps the same `{0}`, `{1}`, … placeholders as the
+  English template (a dropped placeholder would throw at runtime).
+
+So if you add a new English string and forget the translation, CI fails with the
+exact missing key — add the locale entry and you're green again.

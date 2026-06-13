@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType>
+        <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="data">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" msdata:Ordinal="0" />
+              <xsd:attribute name="type" type="xsd:string" />
+              <xsd:attribute name="mimetype" type="xsd:string" />
+              <xsd:attribute name="xml:space" type="xsd:string" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="resheader">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" />
+            </xsd:complexType>
+          </xsd:element>
+        </xsd:choice>
+      </xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+
+  <!-- Interfaz general de la CLI -->
+  <data name="App_Banner" xml:space="preserve"><value>WinSentinel — Herramienta de auditoría de seguridad de Windows</value></data>
+  <data name="App_Version" xml:space="preserve"><value>Versión {0}</value></data>
+  <data name="App_RunningAudit" xml:space="preserve"><value>Ejecutando auditoría de seguridad...</value></data>
+  <data name="App_AuditComplete" xml:space="preserve"><value>Auditoría completada.</value></data>
+  <data name="App_NoFindings" xml:space="preserve"><value>No hay hallazgos que informar. ¡Su sistema tiene buen aspecto!</value></data>
+
+  <!-- Encabezados de módulo -->
+  <data name="Module_Running" xml:space="preserve"><value>Ejecutando {0}...</value></data>
+  <data name="Module_Complete" xml:space="preserve"><value>{0} completado — {1} hallazgo(s).</value></data>
+  <data name="Module_Skipped" xml:space="preserve"><value>{0} omitido.</value></data>
+  <data name="Module_Error" xml:space="preserve"><value>{0} encontró un error: {1}</value></data>
+
+  <!-- Comandos -->
+  <data name="Cmd_Help_Header" xml:space="preserve"><value>USO</value></data>
+  <data name="Cmd_Help_Commands" xml:space="preserve"><value>COMANDOS</value></data>
+  <data name="Cmd_Help_Options" xml:space="preserve"><value>OPCIONES</value></data>
+  <data name="Cmd_Help_Examples" xml:space="preserve"><value>EJEMPLOS</value></data>
+
+  <data name="Cmd_Audit_Desc" xml:space="preserve"><value>Ejecutar una auditoría de seguridad completa</value></data>
+  <data name="Cmd_Score_Desc" xml:space="preserve"><value>Mostrar su puntuación de seguridad (0-100)</value></data>
+  <data name="Cmd_Fix_Desc" xml:space="preserve"><value>Corregir hallazgos automáticamente</value></data>
+  <data name="Cmd_Export_Desc" xml:space="preserve"><value>Exportar hallazgos (json, csv, sarif, markdown)</value></data>
+  <data name="Cmd_Monitor_Desc" xml:space="preserve"><value>Iniciar la supervisión de seguridad en tiempo real</value></data>
+  <data name="Cmd_Schedule_Desc" xml:space="preserve"><value>Crear o administrar análisis programados</value></data>
+  <data name="Cmd_History_Desc" xml:space="preserve"><value>Ver el historial de análisis y las tendencias</value></data>
+  <data name="Cmd_Pro_Desc" xml:space="preserve"><value>Administrar su licencia Pro</value></data>
+  <data name="Cmd_SelfUpdate_Desc" xml:space="preserve"><value>Actualizar WinSentinel a la última versión</value></data>
+
+  <!-- Licencia Pro -->
+  <data name="Pro_Badge" xml:space="preserve"><value>  PRO  </value></data>
+  <data name="Pro_FreeBadge" xml:space="preserve"><value> FREE </value></data>
+  <data name="Pro_Activated" xml:space="preserve"><value>Licencia activada.</value></data>
+  <data name="Pro_Deactivated" xml:space="preserve"><value>Licencia eliminada. Ha vuelto al nivel gratuito.</value></data>
+  <data name="Pro_TrialStarted" xml:space="preserve"><value>Prueba de Pro de 14 días iniciada.</value></data>
+  <data name="Pro_TrialExpires" xml:space="preserve"><value>Caduca: {0}</value></data>
+  <data name="Pro_UpgradeHint" xml:space="preserve"><value>Esta función requiere WinSentinel Pro. Inicie una prueba gratuita: winsentinel pro start-trial</value></data>
+  <data name="Pro_InvalidKey" xml:space="preserve"><value>Formato de clave de licencia no válido. Se esperaba WSP-XXXX-XXXX-XXXX.</value></data>
+  <data name="Pro_NoLicense" xml:space="preserve"><value>No hay ninguna licencia en este equipo; no hay nada que desactivar.</value></data>
+
+  <!-- Exportación -->
+  <data name="Export_Saved" xml:space="preserve"><value>Exportación {0} guardada en {1} ({2} hallazgos).</value></data>
+  <data name="Export_MissingFormat" xml:space="preserve"><value>Falta el formato de exportación. Uso: winsentinel export &lt;json|csv|sarif|markdown&gt;</value></data>
+  <data name="Export_UnknownFormat" xml:space="preserve"><value>Formato de exportación desconocido: '{0}'. Compatibles: json, csv, sarif, markdown.</value></data>
+
+  <!-- Errores -->
+  <data name="Error_NotWindows" xml:space="preserve"><value>WinSentinel requiere Windows. Este sistema operativo no es compatible.</value></data>
+  <data name="Error_AdminRequired" xml:space="preserve"><value>Este comando requiere privilegios de administrador. Ejecútelo como administrador.</value></data>
+  <data name="Error_FileWrite" xml:space="preserve"><value>No se pudo escribir el archivo: {0}</value></data>
+
+  <!-- Autoactualización -->
+  <data name="Update_Checking" xml:space="preserve"><value>Buscando actualizaciones...</value></data>
+  <data name="Update_Available" xml:space="preserve"><value>Actualización disponible: {0} → {1}</value></data>
+  <data name="Update_AlreadyLatest" xml:space="preserve"><value>Está ejecutando la última versión ({0}).</value></data>
+  <data name="Update_Installing" xml:space="preserve"><value>Instalando actualización...</value></data>
+  <data name="Update_Success" xml:space="preserve"><value>Actualizado a la versión {0}.</value></data>
+
+</root>

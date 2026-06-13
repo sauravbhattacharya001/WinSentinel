@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType>
+        <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="data">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" msdata:Ordinal="0" />
+              <xsd:attribute name="type" type="xsd:string" />
+              <xsd:attribute name="mimetype" type="xsd:string" />
+              <xsd:attribute name="xml:space" type="xsd:string" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="resheader">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" />
+            </xsd:complexType>
+          </xsd:element>
+        </xsd:choice>
+      </xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+
+  <!-- Etiquetas de gravedad -->
+  <data name="Severity_Critical" xml:space="preserve"><value>Crítico</value></data>
+  <data name="Severity_Warning" xml:space="preserve"><value>Advertencia</value></data>
+  <data name="Severity_Info" xml:space="preserve"><value>Información</value></data>
+  <data name="Severity_Pass" xml:space="preserve"><value>Correcto</value></data>
+
+  <!-- Frases comunes de resultados de auditoría -->
+  <data name="Audit_NotInstalled" xml:space="preserve"><value>{0} no está instalado en este sistema.</value></data>
+  <data name="Audit_Outdated" xml:space="preserve"><value>Está instalada la versión {1} de {0}. La última versión conocida es la {2}. El software desactualizado puede tener vulnerabilidades de seguridad sin parchear.</value></data>
+  <data name="Audit_UpToDate" xml:space="preserve"><value>Está instalada la versión {1} de {0} y parece estar actualizada.</value></data>
+  <data name="Audit_Disabled" xml:space="preserve"><value>{0} está deshabilitado.</value></data>
+  <data name="Audit_Enabled" xml:space="preserve"><value>{0} está habilitado.</value></data>
+  <data name="Audit_DisabledByPolicy" xml:space="preserve"><value>{0} está deshabilitado mediante directiva.</value></data>
+
+  <!-- Auditoría del firewall -->
+  <data name="Firewall_ProfileDisabled" xml:space="preserve"><value>El Firewall de Windows (perfil {0}) está deshabilitado. Esto deja el sistema expuesto a ataques de red.</value></data>
+  <data name="Firewall_ProfileEnabled" xml:space="preserve"><value>El Firewall de Windows (perfil {0}) está habilitado.</value></data>
+  <data name="Firewall_AllProfilesEnabled" xml:space="preserve"><value>El Firewall de Windows está habilitado en todos los perfiles (Dominio, Privado, Público).</value></data>
+
+  <!-- Auditoría de Defender -->
+  <data name="Defender_RealTimeDisabled" xml:space="preserve"><value>La protección en tiempo real de Windows Defender está deshabilitada. El sistema no está analizando activamente en busca de malware.</value></data>
+  <data name="Defender_RealTimeEnabled" xml:space="preserve"><value>La protección en tiempo real de Windows Defender está habilitada.</value></data>
+  <data name="Defender_SignaturesStale" xml:space="preserve"><value>Las firmas de Defender tienen {0} días de antigüedad. Las firmas con más de 7 días pueden pasar por alto amenazas recientes.</value></data>
+  <data name="Defender_TamperProtectionOff" xml:space="preserve"><value>La protección contra alteraciones de Defender está deshabilitada. El malware puede modificar o deshabilitar la configuración de Defender.</value></data>
+
+  <!-- Auditoría de actualizaciones -->
+  <data name="Update_Stale" xml:space="preserve"><value>Windows no se ha actualizado en {0} días. Los sistemas con más de {1} días de retraso en los parches corren un riesgo elevado.</value></data>
+  <data name="Update_Paused" xml:space="preserve"><value>Windows Update está en pausa. El sistema no recibirá parches de seguridad hasta que se reanuden las actualizaciones.</value></data>
+  <data name="Update_Current" xml:space="preserve"><value>Windows está actualizado. Última actualización correcta: {0}.</value></data>
+
+  <!-- Auditoría de cuentas -->
+  <data name="Account_GuestEnabled" xml:space="preserve"><value>La cuenta de Invitado está habilitada. Las cuentas de invitado permiten acceso sin autenticar y deberían deshabilitarse.</value></data>
+  <data name="Account_PasswordNeverExpires" xml:space="preserve"><value>La cuenta '{0}' tiene la contraseña configurada para que no caduque nunca.</value></data>
+  <data name="Account_AdminSprawl" xml:space="preserve"><value>{0} cuentas locales tienen privilegios de administrador. Minimice las cuentas de administrador para reducir la superficie de ataque.</value></data>
+
+  <!-- Auditoría del navegador -->
+  <data name="Browser_DangerousExtensions" xml:space="preserve"><value>Se encontraron {0} extensión(es) de navegador con peligrosidad conocida.</value></data>
+  <data name="Browser_ExcessivePermissions" xml:space="preserve"><value>{0} extensión(es) de navegador tienen permisos potencialmente peligrosos.</value></data>
+  <data name="Browser_SafeBrowsingOff" xml:space="preserve"><value>La Navegación Segura / SmartScreen de {0} está deshabilitada. La protección contra phishing y malware está inactiva.</value></data>
+  <data name="Browser_AutoUpdateDisabled" xml:space="preserve"><value>La actualización automática de {0} está deshabilitada mediante directiva. El navegador no recibirá parches de seguridad automáticamente.</value></data>
+  <data name="Browser_SavedPasswords" xml:space="preserve"><value>Hay contraseñas guardadas en {0}. Las contraseñas guardadas en el navegador son vulnerables a ataques locales y filtraciones de datos.</value></data>
+
+  <!-- Auditoría de red -->
+  <data name="Network_SMBv1Enabled" xml:space="preserve"><value>SMBv1 está habilitado. SMBv1 está obsoleto y tiene vulnerabilidades críticas (EternalBlue). Deshabilítelo de inmediato.</value></data>
+  <data name="Network_LLMNREnabled" xml:space="preserve"><value>LLMNR está habilitado. LLMNR es vulnerable a ataques de captura de hash en la red local.</value></data>
+  <data name="Network_NBTNSEnabled" xml:space="preserve"><value>NetBIOS sobre TCP/IP (NBT-NS) está habilitado. NBT-NS es vulnerable a la suplantación en la resolución de nombres.</value></data>
+
+  <!-- Auditoría de servicios -->
+  <data name="Service_UnquotedPath" xml:space="preserve"><value>El servicio '{0}' tiene una ruta sin comillas que contiene espacios: {1}. Esto es un vector de elevación de privilegios.</value></data>
+  <data name="Service_WeakDacl" xml:space="preserve"><value>El servicio '{0}' tiene una DACL débil que permite la modificación por usuarios sin privilegios de administrador.</value></data>
+
+  <!-- Auditoría de cifrado -->
+  <data name="Encryption_BitLockerOff" xml:space="preserve"><value>BitLocker no está habilitado en el volumen {0}. Los datos de este volumen no están cifrados en reposo.</value></data>
+  <data name="Encryption_NoTPM" xml:space="preserve"><value>No se detectó ningún módulo TPM 2.0. Es posible que BitLocker requiera métodos de autenticación alternativos.</value></data>
+
+  <!-- Auditoría de PowerShell -->
+  <data name="PowerShell_TranscriptionOff" xml:space="preserve"><value>El registro de transcripción de PowerShell no está habilitado. Es posible que la actividad posterior a una intrusión no quede registrada.</value></data>
+  <data name="PowerShell_AMSIDisabled" xml:space="preserve"><value>AMSI (interfaz de análisis antimalware) parece estar deshabilitado o haber sido alterado.</value></data>
+  <data name="PowerShell_Unrestricted" xml:space="preserve"><value>La directiva de ejecución de PowerShell está configurada como Unrestricted. Considere usar RemoteSigned o AllSigned.</value></data>
+
+  <!-- Auditoría de USB -->
+  <data name="USB_AutoRunEnabled" xml:space="preserve"><value>AutoRun está habilitado para medios extraíbles. El malware puede ejecutarse automáticamente al insertar dispositivos USB.</value></data>
+
+  <!-- Auditoría de privacidad -->
+  <data name="Privacy_AdvertisingIdEnabled" xml:space="preserve"><value>El identificador de publicidad de Windows está habilitado. Las aplicaciones pueden rastrearle entre sesiones mediante este identificador.</value></data>
+  <data name="Privacy_DiagnosticDataFull" xml:space="preserve"><value>Los datos de diagnóstico están configurados como Completos. Considere reducirlos a Requeridos (Básico) para una mayor privacidad.</value></data>
+
+  <!-- Auditoría de acceso remoto -->
+  <data name="Remote_RDPNoNLA" xml:space="preserve"><value>RDP está habilitado sin Autenticación a Nivel de Red. Esto permite el acceso sin autenticar a la pantalla de inicio de sesión.</value></data>
+  <data name="Remote_RDPEnabled" xml:space="preserve"><value>El Protocolo de Escritorio Remoto (RDP) está habilitado. Asegúrese de protegerlo con autenticación fuerte y reglas de firewall.</value></data>
+
+  <!-- Etiquetas de puntuación/calificación -->
+  <data name="Score_Format" xml:space="preserve"><value>Puntuación: {0}/100 (Calificación {1})</value></data>
+  <data name="Score_Summary" xml:space="preserve"><value>Crítico: {0} | Advertencia: {1} | Información: {2}</value></data>
+
+  <!-- Motor de corrección -->
+  <data name="Fix_DryRunHeader" xml:space="preserve"><value>SIMULACIÓN — se aplicarían los siguientes cambios:</value></data>
+  <data name="Fix_ApplyPrompt" xml:space="preserve"><value>¿Aplicar esta corrección? [s/N]</value></data>
+  <data name="Fix_Applied" xml:space="preserve"><value>Corrección aplicada correctamente.</value></data>
+  <data name="Fix_Skipped" xml:space="preserve"><value>Corrección omitida.</value></data>
+  <data name="Fix_Failed" xml:space="preserve"><value>La corrección falló: {0}</value></data>
+  <data name="Fix_ElevationRequired" xml:space="preserve"><value>Esta corrección requiere privilegios de administrador. Ejecútelo como administrador.</value></data>
+
+  <!-- Marcos de cumplimiento -->
+  <data name="Compliance_CIS_L1" xml:space="preserve"><value>CIS Windows Nivel 1</value></data>
+  <data name="Compliance_CIS_L2" xml:space="preserve"><value>CIS Windows Nivel 2</value></data>
+  <data name="Compliance_SOC2" xml:space="preserve"><value>SOC 2</value></data>
+  <data name="Compliance_HIPAA" xml:space="preserve"><value>HIPAA</value></data>
+  <data name="Compliance_Essential8" xml:space="preserve"><value>Essential Eight</value></data>
+
+</root>

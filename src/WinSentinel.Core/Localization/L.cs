@@ -35,6 +35,18 @@ public static class L
     public static string Get(string key, params object[] args)
     {
         var culture = Culture ?? CultureInfo.CurrentUICulture;
+        return Get(culture, key, args);
+    }
+
+    /// <summary>
+    /// Get a localized string for an explicit culture, optionally formatted with
+    /// arguments. Unlike <see cref="Get(string, object[])"/> this does not read or
+    /// mutate the shared <see cref="Culture"/> property, so it is safe to call
+    /// concurrently with different cultures.
+    /// Returns the key itself if the resource is not found (fail-open).
+    /// </summary>
+    public static string Get(CultureInfo culture, string key, params object[] args)
+    {
         var value = s_rm.GetString(key, culture);
 
         if (value == null)

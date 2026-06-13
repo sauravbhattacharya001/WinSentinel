@@ -1,6 +1,8 @@
 using WinSentinel.Core.Audits;
 using WinSentinel.Core.Models;
 using static WinSentinel.Core.Audits.PowerShellAudit;
+// PowerShellState moved onto the pure analyzer; surface it for the existing tests.
+using static WinSentinel.Core.Audits.PowerShellSecurityAnalyzer;
 
 namespace WinSentinel.Tests.Audits;
 

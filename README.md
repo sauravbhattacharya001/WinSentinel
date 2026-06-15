@@ -633,9 +633,9 @@ Use the official [GitHub Action](https://github.com/sauravbhattacharya001/WinSen
 ```yaml
 - uses: sauravbhattacharya001/WinSentinel@main
   with:
-    threshold: 85
-    modules: firewall,network,defender
-    sarif: true  # Upload to GitHub Code Scanning
+    fail-below: 85                         # fail the job if score < 85 (0 = never fail)
+    modules: firewall,network,defender     # comma-separated; omit to run all modules
+    sarif: true                            # upload results to GitHub Code Scanning
 ```
 
 ---

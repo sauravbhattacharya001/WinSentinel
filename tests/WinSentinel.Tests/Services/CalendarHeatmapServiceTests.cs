@@ -59,16 +59,17 @@ public class CalendarHeatmapServiceTests
     [Fact]
     public void Analyze_MultipleRunsSameDay_AggregatesCorrectly()
     {
-        // Use noon today (UTC) to avoid date-boundary issues in CI
-        var today = new DateTimeOffset(DateTime.UtcNow.Date.AddHours(12), TimeSpan.Zero);
+        // Anchor to an explicit "now" so the calendar window is deterministic
+        // regardless of the machine's timezone or the wall-clock time of the run.
+        var now = new DateTimeOffset(2026, 6, 15, 12, 0, 0, TimeSpan.Zero);
         var runs = new List<AuditRunRecord>
         {
-            MakeRun(today, 80, findings: 10, critical: 2),
-            MakeRun(today.AddHours(-3), 90, findings: 5, critical: 0),
-            MakeRun(today.AddHours(-2), 70, findings: 15, critical: 3),
+            MakeRun(now, 80, findings: 10, critical: 2),
+            MakeRun(now.AddHours(-3), 90, findings: 5, critical: 0),
+            MakeRun(now.AddHours(-2), 70, findings: 15, critical: 3),
         };
 
-        var result = _service.Analyze(runs, weeks: 4);
+        var result = _service.Analyze(runs, now, weeks: 4);
 
         Assert.Equal(3, result.TotalAudits);
         Assert.Equal(1, result.ActiveDays);
@@ -76,8 +77,8 @@ public class CalendarHeatmapServiceTests
         Assert.Equal(90, result.BestScore);
         Assert.Equal(70, result.WorstScore);
 
-        // Find today's cell
-        var todayDate = DateOnly.FromDateTime(DateTime.UtcNow.Date);
+        // Find today's cell (same offset as `now`)
+        var todayDate = DateOnly.FromDateTime(now.DateTime);
         var todayCell = result.Days.FirstOrDefault(d => d.Date == todayDate);
         Assert.NotNull(todayCell);
         Assert.Equal(3, todayCell.AuditCount);
@@ -252,5 +253,130 @@ public class CalendarHeatmapServiceTests
 
         Assert.Equal(100, result.BestScore);
         Assert.Equal(0, result.WorstScore);
+    }
+
+    // ── Deterministic clock injection / cross-timezone correctness ──────────
+    // Regression coverage for the bug where the window end (DateTime.Now, local)
+    // and run bucketing (Timestamp.LocalDateTime) could disagree with a caller
+    // reasoning in UTC, silently dropping "today" runs whenever the local and UTC
+    // day boundaries diverged. The injected-now overload frames both in one offset.
+
+    [Fact]
+    public void Analyze_InjectedNow_WindowEndsOnGivenInstant()
+    {
+        // Wednesday 2026-06-10; end-of-week Sunday is 2026-06-14.
+        var now = new DateTimeOffset(2026, 6, 10, 9, 0, 0, TimeSpan.Zero);
+
+        var result = _service.Analyze([], now, weeks: 4);
+
+        Assert.Equal(28, result.Days.Count);
+        // Last cell is the aligned end-of-week Sunday, independent of wall clock.
+        Assert.Equal(new DateOnly(2026, 6, 14), result.Days[^1].Date);
+        // First cell is (weeks*7 - 1) = 27 days before that Sunday.
+        Assert.Equal(new DateOnly(2026, 5, 18), result.Days[0].Date);
+    }
+
+    [Fact]
+    public void Analyze_InjectedNow_IsDeterministicAcrossCalls()
+    {
+        var now = new DateTimeOffset(2026, 3, 1, 17, 30, 0, TimeSpan.Zero);
+        var runs = new List<AuditRunRecord> { MakeRun(now, 88) };
+
+        var a = _service.Analyze(runs, now, weeks: 6);
+        var b = _service.Analyze(runs, now, weeks: 6);
+
+        Assert.Equal(a.Days.Count, b.Days.Count);
+        Assert.Equal(a.Days[0].Date, b.Days[0].Date);
+        Assert.Equal(a.Days[^1].Date, b.Days[^1].Date);
+        Assert.Equal(a.TotalAudits, b.TotalAudits);
+        Assert.Equal(a.CurrentStreak, b.CurrentStreak);
+    }
+
+    [Fact]
+    public void Analyze_LateEveningRun_LandsOnLocalDayNotUtcDay()
+    {
+        // 2026-06-15 22:00 in UTC-07:00 is already 2026-06-16 05:00 UTC.
+        // Bucketing must follow the caller's offset (the run's local day = the 15th),
+        // not the UTC day, so the run shows up on the day the user actually ran it.
+        var offset = TimeSpan.FromHours(-7);
+        var now = new DateTimeOffset(2026, 6, 15, 22, 0, 0, offset);
+        var runs = new List<AuditRunRecord> { MakeRun(now, 77) };
+
+        var result = _service.Analyze(runs, now, weeks: 4);
+
+        var localToday = new DateOnly(2026, 6, 15);
+        var utcToday = new DateOnly(2026, 6, 16);
+        var localCell = result.Days.FirstOrDefault(d => d.Date == localToday);
+        Assert.NotNull(localCell);
+        Assert.Equal(1, localCell.AuditCount);
+        Assert.Equal(77, localCell.BestScore);
+        // The UTC "tomorrow" cell must not exist / must be empty.
+        var utcCell = result.Days.FirstOrDefault(d => d.Date == utcToday);
+        Assert.True(utcCell is null || utcCell.AuditCount == 0);
+        Assert.Equal(1, result.ActiveDays);
+        Assert.Equal(1, result.CurrentStreak);
+    }
+
+    [Fact]
+    public void Analyze_RunStoredInDifferentOffset_BucketsByNowOffset()
+    {
+        // A run timestamped in UTC, evaluated by a UTC-07:00 caller anchored to the
+        // same wall instant, must aggregate onto a single local day (no double cell).
+        var localNow = new DateTimeOffset(2026, 6, 15, 23, 30, 0, TimeSpan.FromHours(-7));
+        var sameInstantUtc = localNow.ToUniversalTime(); // 2026-06-16 06:30Z
+        var runs = new List<AuditRunRecord>
+        {
+            MakeRun(localNow, 80, findings: 4),
+            MakeRun(sameInstantUtc, 90, findings: 6),
+        };
+
+        var result = _service.Analyze(runs, localNow, weeks: 4);
+
+        Assert.Equal(2, result.TotalAudits);
+        Assert.Equal(1, result.ActiveDays); // both land on the same local day
+        Assert.Equal(2, result.MaxAuditsInDay);
+
+        var localCell = result.Days.FirstOrDefault(d => d.Date == new DateOnly(2026, 6, 15));
+        Assert.NotNull(localCell);
+        Assert.Equal(2, localCell.AuditCount);
+        Assert.Equal(10, localCell.TotalFindings); // 4 + 6
+        Assert.Equal(85, localCell.AvgScore); // avg(80, 90)
+        Assert.Equal(90, localCell.BestScore);
+    }
+
+    [Fact]
+    public void Analyze_InjectedNow_ConsecutiveDaysStreakDeterministic()
+    {
+        // Three consecutive local days ending on the anchor → current streak 3,
+        // with no dependence on the machine's actual clock or timezone.
+        var now = new DateTimeOffset(2026, 2, 18, 8, 0, 0, TimeSpan.Zero);
+        var runs = new List<AuditRunRecord>
+        {
+            MakeRun(now, 90),
+            MakeRun(now.AddDays(-1), 85),
+            MakeRun(now.AddDays(-2), 80),
+        };
+
+        var result = _service.Analyze(runs, now, weeks: 4);
+
+        Assert.Equal(3, result.CurrentStreak);
+        Assert.Equal(3, result.ActiveDays);
+    }
+
+    [Fact]
+    public void Analyze_DefaultOverload_DelegatesToInjectedNow()
+    {
+        // The parameterless overload must behave like the injected one at "now";
+        // a run at the current instant is always today's cell.
+        var now = DateTimeOffset.Now;
+        var runs = new List<AuditRunRecord> { MakeRun(now, 73) };
+
+        var viaDefault = _service.Analyze(runs, weeks: 4);
+        var viaInjected = _service.Analyze(runs, now, weeks: 4);
+
+        Assert.Equal(viaInjected.Days.Count, viaDefault.Days.Count);
+        Assert.Equal(viaInjected.TotalAudits, viaDefault.TotalAudits);
+        Assert.Equal(viaInjected.ActiveDays, viaDefault.ActiveDays);
+        Assert.Equal(viaInjected.Days[^1].Date, viaDefault.Days[^1].Date);
     }
 }

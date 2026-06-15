@@ -10,20 +10,41 @@ public class CalendarHeatmapService
     /// <summary>
     /// Analyze audit runs and produce a calendar heatmap model.
     /// </summary>
+    /// <param name="runs">Audit run history.</param>
+    /// <param name="weeks">Number of weeks of cells to render.</param>
     public CalendarHeatmap Analyze(List<AuditRunRecord> runs, int weeks = 26)
+        => Analyze(runs, DateTimeOffset.Now, weeks);
+
+    /// <summary>
+    /// Analyze audit runs and produce a calendar heatmap model, relative to an explicit
+    /// "now". Pass <paramref name="now"/> to make the calendar window deterministic
+    /// (tests, fleet-side recompute); production callers use the parameterless
+    /// <see cref="Analyze(List{AuditRunRecord}, int)"/> overload which uses the wall clock.
+    /// </summary>
+    /// <param name="runs">Audit run history.</param>
+    /// <param name="now">The reference instant the heatmap ends at.</param>
+    /// <param name="weeks">Number of weeks of cells to render.</param>
+    public CalendarHeatmap Analyze(List<AuditRunRecord> runs, DateTimeOffset now, int weeks = 26)
     {
         var heatmap = new CalendarHeatmap { Weeks = weeks };
-        var endDate = DateOnly.FromDateTime(DateTime.Now);
+
+        // Bucket runs and frame the window in a single, consistent calendar frame:
+        // the offset of `now`. Mixing UTC and local dates (e.g. bucketing by
+        // Timestamp.LocalDateTime while a caller reasons in UTC) silently drops
+        // "today" runs whenever the two day boundaries diverge. Normalising every
+        // run to now.Offset before taking the date keeps bucketing and the window
+        // edge in lockstep regardless of the machine timezone.
+        var endDate = DateOnly.FromDateTime(now.DateTime);
         // Align to end-of-week (Sunday)
         var daysUntilSunday = ((int)DayOfWeek.Sunday - (int)endDate.DayOfWeek + 7) % 7;
         var endSunday = endDate.AddDays(daysUntilSunday);
         var startDate = endSunday.AddDays(-(weeks * 7) + 1);
 
-        // Group runs by date
+        // Group runs by date, normalised to the same offset as `now`.
         var runsByDate = new Dictionary<DateOnly, List<AuditRunRecord>>();
         foreach (var run in runs)
         {
-            var date = DateOnly.FromDateTime(run.Timestamp.LocalDateTime);
+            var date = DateOnly.FromDateTime(run.Timestamp.ToOffset(now.Offset).DateTime);
             if (!runsByDate.ContainsKey(date))
                 runsByDate[date] = [];
             runsByDate[date].Add(run);

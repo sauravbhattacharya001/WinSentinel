@@ -71,7 +71,7 @@ public class SecurityCoverageService
         new("Encryption", "Disk encryption and data protection",
             ["EncryptionAudit"], ["Encryption"]),
         new("Event Logging", "Audit log configuration and retention",
-            ["EventLogAudit"], ["EventLog"]),
+            ["EventLogAudit"], ["Event Logs"]),
         new("Software Inventory", "Installed software and version tracking",
             ["SoftwareInventoryAudit"], ["Software"]),
         new("Certificates", "Certificate store and trust chain",
@@ -81,7 +81,7 @@ public class SecurityCoverageService
         new("DNS Security", "DNS resolver and cache configuration",
             ["DnsAudit"], ["DNS"]),
         new("Scheduled Tasks", "Task scheduler security review",
-            ["ScheduledTaskAudit"], ["Tasks"]),
+            ["ScheduledTaskAudit"], ["ScheduledTasks"]),
         new("Windows Services", "Service configuration and permissions",
             ["ServiceAudit"], ["Services"]),
         new("Registry Security", "Registry key permissions and settings",
@@ -94,7 +94,7 @@ public class SecurityCoverageService
         new("Email Security", "Email client and phishing protection",
             [], []),
         new("VPN / Remote Access", "VPN and remote desktop security",
-            ["RemoteAccessAudit"], ["RemoteAccess"]),
+            ["RemoteAccessAudit"], ["Remote Access"]),
         new("Bluetooth", "Bluetooth adapter and pairing security",
             ["BluetoothAudit"], ["Bluetooth"]),
         new("Wi-Fi Security", "Wireless network security",
@@ -129,21 +129,24 @@ public class SecurityCoverageService
                 .ToArray();
 
             var matchingCategories = domain.ExpectedCategories
-                .Where(c => categories.Any(rc => rc.Contains(c, StringComparison.OrdinalIgnoreCase)))
+                .Where(c => categories.Contains(c))
                 .ToArray();
 
             var coveredByModules = matchingModules.Concat(matchingCategories).Distinct().ToArray();
             bool isCovered = coveredByModules.Length > 0 || domain.ExpectedModules.Length == 0 && domain.ExpectedCategories.Length == 0;
 
+            // Results that actually belong to this domain: module name match OR exact
+            // category match. Exact (not substring) match avoids cross-domain leakage
+            // (e.g. a "mDNS-Discovery" category must NOT count toward the "DNS" domain).
+            var relevantResults = report.Results
+                .Where(r => domain.ExpectedModules.Contains(r.ModuleName, StringComparer.OrdinalIgnoreCase) ||
+                            domain.ExpectedCategories.Contains(r.Category, StringComparer.OrdinalIgnoreCase))
+                .ToList();
+
             // If covered, count findings in those modules
             int totalChecks = 0, passing = 0, failing = 0;
             if (isCovered && coveredByModules.Length > 0)
             {
-                var relevantResults = report.Results
-                    .Where(r => domain.ExpectedModules.Contains(r.ModuleName, StringComparer.OrdinalIgnoreCase) ||
-                                domain.ExpectedCategories.Any(c => r.Category.Contains(c, StringComparison.OrdinalIgnoreCase)))
-                    .ToList();
-
                 totalChecks = relevantResults.Sum(r => r.Findings.Count);
                 passing = relevantResults.Sum(r => r.PassCount);
                 failing = totalChecks - passing;
@@ -170,11 +173,12 @@ public class SecurityCoverageService
 
             if (!hasGap) covered++;
 
-            var coveredByLabels = report.Results
-                .Where(r => domain.ExpectedModules.Contains(r.ModuleName, StringComparer.OrdinalIgnoreCase))
-                .Select(r => r.ModuleName)
-                .Distinct()
-                .ToArray();
+            // What is covering this domain: the matching module names, plus the
+            // module names of any results matched purely by category (so a plugin
+            // reporting a known category is still credited as the coverer).
+            var coveredByLabels = isCovered && coveredByModules.Length > 0
+                ? relevantResults.Select(r => r.ModuleName).Distinct().ToArray()
+                : Array.Empty<string>();
 
             domains.Add(new DomainCoverage(
                 domain.Name,

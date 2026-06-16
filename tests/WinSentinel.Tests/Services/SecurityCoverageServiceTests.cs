@@ -215,4 +215,89 @@ public class SecurityCoverageServiceTests
         Assert.Equal(coverage.TotalDomains, coverage.Domains.Count);
         Assert.True(coverage.TotalDomains >= 30);
     }
+
+    [Fact]
+    public void Analyze_UnrelatedCategorySubstring_DoesNotContaminateDomainCounts()
+    {
+        // "DNS Security" expects category "DNS". A separate module reporting category
+        // "mDNS-Discovery" .Contains("DNS") as a substring and previously leaked its
+        // (failing) findings into the DNS domain's totals, inflating TotalChecks/
+        // FailingChecks and falsely flagging DNS as a weak domain. Exact category
+        // matching must keep the unrelated module out.
+        var report = CreateReport(
+            CreateAuditResult("DnsAudit", "DNS", pass: 2),
+            CreateAuditResult("SomethingElseAudit", "mDNS-Discovery", critical: 9));
+
+        var coverage = _service.Analyze(report);
+        var dns = coverage.Domains.Single(d => d.Domain == "DNS Security");
+
+        Assert.False(dns.HasGap);
+        Assert.Equal(2, dns.TotalChecks);
+        Assert.Equal(2, dns.PassingChecks);
+        Assert.Equal(0, dns.FailingChecks);
+        Assert.Equal(100, dns.CoveragePercent);
+        // The unrelated module must not push DNS into the weak-domain recommendation.
+        Assert.DoesNotContain(coverage.Recommendations,
+            r => r.Contains("DNS Security") && r.Contains("failing"));
+    }
+
+    [Fact]
+    public void Analyze_CategoryOnlyMatch_PopulatesCoveredBy()
+    {
+        // A plugin module whose name is not in ExpectedModules but whose Category IS a
+        // known domain category should both cover the domain AND be credited in
+        // CoveredBy (previously CoveredBy only ever listed ExpectedModules, so a
+        // category-covered domain showed HasGap=false with an empty CoveredBy).
+        var report = CreateReport(
+            CreateAuditResult("AcmeFirewallPlugin", "Firewall", pass: 5, warning: 1));
+
+        var coverage = _service.Analyze(report);
+        var firewall = coverage.Domains.Single(d => d.Domain == "Firewall");
+
+        Assert.False(firewall.HasGap);
+        Assert.Equal(6, firewall.TotalChecks);
+        Assert.Equal(5, firewall.PassingChecks);
+        Assert.Equal(1, firewall.FailingChecks);
+        Assert.NotEmpty(firewall.CoveredBy);
+        Assert.Contains("AcmeFirewallPlugin", firewall.CoveredBy);
+    }
+
+    [Theory]
+    [InlineData("Event Logging", "EventLogAudit", "Event Logs")]
+    [InlineData("VPN / Remote Access", "RemoteAccessAudit", "Remote Access")]
+    [InlineData("Scheduled Tasks", "ScheduledTaskAudit", "ScheduledTasks")]
+    public void Analyze_RealAuditCategory_IsDetectedByCategoryAlone(
+        string domainName, string moduleName, string realCategory)
+    {
+        // These domains' ExpectedCategories must equal the category strings the real
+        // audits actually emit (e.g. EventLogAudit reports "Event Logs", not
+        // "EventLog"). Verify coverage is detected via the category path even when the
+        // reporting module name differs from the expected one.
+        var report = CreateReport(
+            CreateAuditResult("SomePluginNamed_" + moduleName.ToLowerInvariant(), realCategory, pass: 3));
+
+        var coverage = _service.Analyze(report);
+        var domain = coverage.Domains.Single(d => d.Domain == domainName);
+
+        Assert.False(domain.HasGap);
+        Assert.Equal(3, domain.TotalChecks);
+        Assert.Equal(3, domain.PassingChecks);
+    }
+
+    [Fact]
+    public void Analyze_NearMissCategory_IsNotTreatedAsCoverage()
+    {
+        // A category that merely contains a domain category as a substring (here
+        // "Networking-Extras" vs the "Network" domain) must NOT, on its own, cover
+        // the Network domain now that matching is exact.
+        var report = CreateReport(
+            CreateAuditResult("ThirdPartyNetTool", "Networking-Extras", pass: 4));
+
+        var coverage = _service.Analyze(report);
+        var network = coverage.Domains.Single(d => d.Domain == "Network Security");
+
+        Assert.True(network.HasGap);
+        Assert.Equal(0, network.TotalChecks);
+        Assert.Contains("NetworkAudit", network.GapReason);
+    }
 }

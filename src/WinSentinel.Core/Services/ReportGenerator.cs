@@ -657,18 +657,22 @@ public class ReportGenerator
     }
 
     /// <summary>
-    /// Characters that spreadsheet applications (Excel, Google Sheets, LibreOffice Calc)
-    /// interpret as formula prefixes.  Values starting with any of these must be
-    /// neutralized to prevent CSV formula injection (CWE-1236).
-    /// </summary>
-    private static readonly char[] FormulaLeadChars = { '=', '+', '-', '@', '\t', '\r' };
-
-    /// <summary>
     /// Escape a value for CSV output (RFC 4180) with formula injection protection.
-    /// Values whose first character is a formula trigger (<c>= + - @ \t \r</c>)
-    /// are prefixed with a single-quote so spreadsheet applications treat them as
-    /// literal text rather than executable formulas (OWASP recommendation).
+    /// Values whose first <em>non-whitespace</em> character is a formula trigger
+    /// (<c>= + - @</c>), or whose literal first character is a control trigger
+    /// (<c>\t \r</c>), are prefixed with a single-quote so spreadsheet apps treat
+    /// them as literal text rather than executable formulas (OWASP recommendation).
     /// </summary>
+    /// <remarks>
+    /// Excel, Google Sheets and LibreOffice Calc <strong>trim leading whitespace</strong>
+    /// before deciding whether a cell is a formula, so a value like
+    /// <c>"   =HYPERLINK(...)"</c> or <c>"\t+cmd"</c> still evaluates as a live
+    /// formula. Inspecting only the first character (the previous behaviour) let
+    /// every whitespace-padded payload through - and finding titles/descriptions/
+    /// fix-commands can carry environment-influenced text (file names, registry
+    /// values, service display names), so this is an attacker-reachable export
+    /// path (CWE-1236).
+    /// </remarks>
     private static string CsvEscape(string value)
     {
         if (string.IsNullOrEmpty(value)) return "";
@@ -676,7 +680,7 @@ public class ReportGenerator
         // Neutralize formula injection: prefix with single-quote so the value
         // is treated as a text literal in Excel / Google Sheets / LibreOffice.
         var escaped = value;
-        if (escaped.Length > 0 && Array.IndexOf(FormulaLeadChars, escaped[0]) >= 0)
+        if (StartsWithFormulaTrigger(escaped))
         {
             escaped = "'" + escaped;
         }
@@ -686,6 +690,30 @@ public class ReportGenerator
             return $"\"{escaped.Replace("\"", "\"\"")}\"";
         }
         return escaped;
+    }
+
+    /// <summary>
+    /// True if <paramref name="value"/> would be interpreted as a formula by a
+    /// spreadsheet application: its first non-whitespace character is one of
+    /// <c>= + - @</c>, or its literal first character is a control trigger
+    /// (<c>\t \r</c>). An all-whitespace string is not a formula.
+    /// </summary>
+    private static bool StartsWithFormulaTrigger(string value)
+    {
+        if (string.IsNullOrEmpty(value)) return false;
+
+        // Literal control triggers (tab / CR) are dangerous wherever they lead,
+        // and they are themselves whitespace, so check the raw first char first.
+        if (value[0] == '\t' || value[0] == '\r') return true;
+
+        // Otherwise find the first non-whitespace character; spreadsheets trim
+        // leading whitespace before evaluating, so that is the deciding char.
+        foreach (var c in value)
+        {
+            if (char.IsWhiteSpace(c)) continue;
+            return c == '=' || c == '+' || c == '-' || c == '@';
+        }
+        return false; // all whitespace -> nothing to neutralize
     }
 
     /// <summary>

@@ -146,6 +146,80 @@ public class CsvReportTests
         }
     }
 
+    [Theory]
+    [InlineData("   =cmd|'/C calc'!A0", "spaces before =")]
+    [InlineData("  +cmd|'/C calc'!A0", "spaces before +")]
+    [InlineData(" -1+1|cmd", "space before -")]
+    [InlineData("\t=SUM(1+1)", "tab before =")]
+    [InlineData(" \t @SUM(1+1)", "mixed whitespace before @")]
+    public void GenerateCsvReport_NeutralizesWhitespacePaddedFormulaInjection(string maliciousTitle, string description)
+    {
+        // Regression: Excel / Sheets / LibreOffice TRIM leading whitespace before
+        // evaluating a cell as a formula, so "   =HYPERLINK(...)" is still a live
+        // formula. The previous guard only inspected the first character and let
+        // every whitespace-padded payload through. Finding titles/descriptions
+        // can carry environment-influenced text, so this is attacker-reachable.
+        var result = new AuditResult
+        {
+            ModuleName = "TestModule",
+            Category = "Test",
+            Success = true,
+        };
+        result.Findings.Add(Finding.Warning(maliciousTitle, description, "Test"));
+
+        var report = new SecurityReport { SecurityScore = 80 };
+        report.Results.Add(result);
+
+        var generator = new ReportGenerator();
+        var csv = generator.GenerateCsvReport(report);
+
+        var dataLines = csv.Split('\n', StringSplitOptions.RemoveEmptyEntries).Skip(1).ToArray();
+        Assert.True(dataLines.Length > 0, "Expected at least one data row");
+
+        foreach (var line in dataLines)
+        {
+            foreach (var cell in ParseCsvLine(line))
+            {
+                // After the spreadsheet trims leading whitespace, the (decoded)
+                // cell must NOT begin with a formula trigger. A neutralized cell
+                // begins with our single-quote guard.
+                var trimmed = cell.TrimStart(' ', '\t', '\r', '\n');
+                if (trimmed.Length > 0)
+                {
+                    Assert.False(
+                        trimmed[0] == '=' || trimmed[0] == '+' || trimmed[0] == '-' || trimmed[0] == '@',
+                        $"Cell evaluates as a formula after whitespace-trim: <{cell}>");
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public void GenerateCsvReport_AllWhitespaceValue_NotGuarded()
+    {
+        // An all-whitespace value has no formula to neutralize, so it must NOT be
+        // prefixed with a guard quote (that would corrupt a legitimately blank-ish
+        // field). A leading space alone is not a trigger.
+        var result = new AuditResult
+        {
+            ModuleName = "Spaces Module", // contains a space but is not a formula
+            Category = "Net",
+            Success = true,
+        };
+        result.Findings.Add(Finding.Warning("  spaced title", "desc", "Net"));
+
+        var report = new SecurityReport { SecurityScore = 70 };
+        report.Results.Add(result);
+
+        var generator = new ReportGenerator();
+        var csv = generator.GenerateCsvReport(report);
+
+        // The space-led, non-formula title keeps its leading spaces and is NOT
+        // quote-guarded.
+        Assert.Contains("  spaced title", csv);
+        Assert.DoesNotContain("'  spaced title", csv);
+    }
+
     [Fact]
     public void GenerateCsvReport_SafeValuesUnchanged()
     {

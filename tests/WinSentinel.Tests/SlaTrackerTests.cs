@@ -392,6 +392,70 @@ public class SlaTrackerTests
     }
 
     [Fact]
+    public void GenerateReport_BySeverity_Approaching_Is_Not_Missed()
+    {
+        // Regression: an open finding that is merely "approaching" its deadline is
+        // still within SLA and must NOT be counted as MissedSla (doc: "Resolved
+        // after SLA or still overdue"). Enterprise Critical SLA = 24h, approaching
+        // threshold 0.75 => approaching at 18h. Assess at 20h: open + approaching.
+        var tracker = new SlaTracker();
+        tracker.Track(MakeFinding(Severity.Critical, "C1"), _baseTime);
+
+        var sev = tracker.GenerateReport(_baseTime + TimeSpan.FromHours(20))
+            .BySeverity[Severity.Critical];
+
+        Assert.Equal(1, sev.Total);
+        Assert.Equal(0, sev.MetSla);
+        Assert.Equal(0, sev.OnTrack);     // past threshold, so not OnTrack
+        Assert.Equal(0, sev.MissedSla);   // approaching != missed (was wrongly 1)
+    }
+
+    [Fact]
+    public void GenerateReport_BySeverity_Overdue_Counts_As_Missed()
+    {
+        // An open finding past its deadline IS a missed SLA.
+        var tracker = new SlaTracker();
+        tracker.Track(MakeFinding(Severity.Critical, "C1"), _baseTime);
+
+        var sev = tracker.GenerateReport(_baseTime + TimeSpan.FromHours(30))
+            .BySeverity[Severity.Critical];
+
+        Assert.Equal(1, sev.Total);
+        Assert.Equal(0, sev.MetSla);
+        Assert.Equal(1, sev.MissedSla);
+        Assert.Equal(0, sev.OnTrack);
+    }
+
+    [Fact]
+    public void GenerateReport_BySeverity_Counts_Partition_Total()
+    {
+        // Every finding at a severity falls into exactly one of: Met, Missed,
+        // OnTrack, or Approaching. Construct one of each and verify the partition.
+        // Enterprise Critical SLA = 24h (approaching at 18h).
+        var tracker = new SlaTracker();
+        var met = tracker.Track(MakeFinding(Severity.Critical, "Met"), _baseTime);
+        var missed = tracker.Track(MakeFinding(Severity.Critical, "MissedResolved"), _baseTime);
+        tracker.Track(MakeFinding(Severity.Critical, "OnTrack"), _baseTime);              // deadline +24h
+        tracker.Track(MakeFinding(Severity.Critical, "OverdueOpen"), _baseTime - TimeSpan.FromHours(30)); // deadline -6h
+        tracker.Resolve(met.Id, _baseTime + TimeSpan.FromHours(12));    // within 24h => met
+        tracker.Resolve(missed.Id, _baseTime + TimeSpan.FromHours(48)); // after 24h  => missed
+
+        // Assess at +10h: OnTrack is at 42% of window (<75%), OverdueOpen is past deadline.
+        var report = tracker.GenerateReport(_baseTime + TimeSpan.FromHours(10));
+        var sev = report.BySeverity[Severity.Critical];
+        var approaching = report.Assessments.Count(a =>
+            a.Finding.Severity == Severity.Critical
+            && a.Status == SlaTracker.SlaStatus.Approaching);
+
+        Assert.Equal(4, sev.Total);
+        Assert.Equal(1, sev.MetSla);
+        Assert.Equal(2, sev.MissedSla);   // resolved-after-deadline + currently-overdue
+        Assert.Equal(1, sev.OnTrack);
+        Assert.Equal(0, approaching);
+        Assert.Equal(sev.Total, sev.MetSla + sev.MissedSla + sev.OnTrack + approaching);
+    }
+
+    [Fact]
     public void GenerateReport_Overdue_List()
     {
         var tracker = new SlaTracker();

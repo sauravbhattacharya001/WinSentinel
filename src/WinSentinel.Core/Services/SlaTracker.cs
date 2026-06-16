@@ -486,12 +486,18 @@ public class SlaTracker
             var sevMetSla = sevResolved.Count(f => f.MetSla);
             var sevOnTrack = assessments.Count(a =>
                 a.Finding.Severity == sev && a.Status == SlaStatus.OnTrack);
+            // "Missed" means actually breached the SLA: resolved after the deadline,
+            // or still open and overdue. Open-but-Approaching findings are still
+            // within SLA and must NOT be counted as missed (see SeverityCompliance.MissedSla).
+            var sevMissedResolved = sevResolved.Count - sevMetSla;
+            var sevOverdue = assessments.Count(a =>
+                a.Finding.Severity == sev && a.Status == SlaStatus.Overdue);
 
             bySeverity[sev] = new SeverityCompliance
             {
                 Total = sevFindings.Count,
                 MetSla = sevMetSla,
-                MissedSla = sevFindings.Count - sevMetSla - sevOnTrack,
+                MissedSla = sevMissedResolved + sevOverdue,
                 OnTrack = sevOnTrack,
                 CompliancePercent = sevResolved.Count > 0
                     ? Math.Round(100.0 * sevMetSla / sevResolved.Count, 1)

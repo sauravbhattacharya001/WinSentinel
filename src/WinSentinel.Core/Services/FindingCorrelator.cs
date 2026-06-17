@@ -142,37 +142,76 @@ public class FindingCorrelator
     private static List<Finding> FindMatchingFindings(List<Finding> findings, CorrelationRule rule)
     {
         var matched = new HashSet<Finding>();
-        bool allPatternsMatched = true;
         bool allCategoriesMatched = true;
 
-        // Track which findings are already claimed by a pattern to enforce
-        // the "distinct finding per pattern" rule.  Without this, a single
-        // finding whose title contains both "Defender" and "Firewall" (e.g.
-        // "Windows Defender Firewall disabled") would satisfy CORR-001 on its
-        // own even though the intent is two independently broken defenses.
-        var claimedByPattern = new HashSet<Finding>();
-
-        // Check required patterns — each must match a *different* finding
-        foreach (var pattern in rule.RequiredPatterns)
+        // --- Patterns: assign each required pattern a DISTINCT finding ---------
+        //
+        // The contract is "each pattern is satisfied by a different finding".
+        // A naive first-match-wins loop is wrong: if one finding contains the
+        // keywords for two patterns (e.g. "Windows Defender Firewall") it can be
+        // greedily claimed by the first pattern, starving a later pattern even
+        // though a different, still-unclaimed finding could have satisfied the
+        // first one. That produces a false negative on rules like CORR-001.
+        //
+        // Correct behaviour is a maximum bipartite matching between patterns and
+        // findings: the pattern condition is met iff EVERY pattern can be matched
+        // to its own distinct finding simultaneously. We solve it with Kuhn's
+        // augmenting-path algorithm (rule pattern/finding counts are tiny, so the
+        // O(patterns × findings) cost is negligible).
+        if (rule.RequiredPatterns.Length > 0)
         {
-            var match = findings.FirstOrDefault(f =>
-                !claimedByPattern.Contains(f) &&
-                (f.Title.Contains(pattern, StringComparison.OrdinalIgnoreCase) ||
-                 f.Description.Contains(pattern, StringComparison.OrdinalIgnoreCase)));
-            if (match != null)
+            // Candidate findings for each pattern (by index into `findings`).
+            var candidates = new List<int>[rule.RequiredPatterns.Length];
+            for (int p = 0; p < rule.RequiredPatterns.Length; p++)
             {
-                matched.Add(match);
-                claimedByPattern.Add(match);
+                var pattern = rule.RequiredPatterns[p];
+                var list = new List<int>();
+                for (int fi = 0; fi < findings.Count; fi++)
+                {
+                    var f = findings[fi];
+                    if (f.Title.Contains(pattern, StringComparison.OrdinalIgnoreCase) ||
+                        f.Description.Contains(pattern, StringComparison.OrdinalIgnoreCase))
+                        list.Add(fi);
+                }
+                candidates[p] = list;
             }
-            else
+
+            // findingToPattern[fi] = pattern index currently matched to finding fi, or -1.
+            var findingToPattern = new int[findings.Count];
+            Array.Fill(findingToPattern, -1);
+
+            bool TryAssign(int patternIdx, bool[] visited)
             {
-                allPatternsMatched = false;
+                foreach (var fi in candidates[patternIdx])
+                {
+                    if (visited[fi]) continue;
+                    visited[fi] = true;
+                    if (findingToPattern[fi] == -1 || TryAssign(findingToPattern[fi], visited))
+                    {
+                        findingToPattern[fi] = patternIdx;
+                        return true;
+                    }
+                }
+                return false;
             }
+
+            for (int p = 0; p < rule.RequiredPatterns.Length; p++)
+            {
+                var visited = new bool[findings.Count];
+                if (!TryAssign(p, visited))
+                    return new List<Finding>(); // some pattern cannot get a distinct finding
+            }
+
+            // Every pattern matched: collect the distinct findings used.
+            for (int fi = 0; fi < findings.Count; fi++)
+                if (findingToPattern[fi] != -1)
+                    matched.Add(findings[fi]);
         }
 
-        // Check required categories — a finding already claimed by a pattern
-        // MAY also satisfy a category (categories are complementary filters,
-        // not independent conditions that need distinct findings).
+        // --- Categories: complementary filters, may reuse pattern findings -----
+        // A finding already claimed by a pattern MAY also satisfy a category
+        // (categories are complementary filters, not independent conditions that
+        // need distinct findings).
         foreach (var category in rule.RequiredCategories)
         {
             var match = findings.FirstOrDefault(f =>
@@ -184,7 +223,7 @@ public class FindingCorrelator
         }
 
         // All conditions must be met
-        if (!allPatternsMatched || !allCategoriesMatched)
+        if (!allCategoriesMatched)
             return new List<Finding>();
 
         return matched.ToList();

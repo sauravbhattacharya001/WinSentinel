@@ -701,6 +701,56 @@ public class FindingCorrelatorTests
     }
 
     [Fact]
+    public void EdgeCase_DualKeywordFindingDoesNotStarveSecondPattern()
+    {
+        // Regression: greedy pattern assignment must not block a valid match.
+        // Finding A contains BOTH "Defender" and "Firewall"; finding B contains
+        // only "Defender". A correct distinct-finding matcher assigns
+        // A→Firewall and B→Defender, so CORR-001 SHOULD fire (two genuinely
+        // distinct broken defenses). A naive first-match-wins assignment claims
+        // A for "Defender", then finds nothing left for "Firewall" and wrongly
+        // reports no correlation — a false negative on the most critical rule.
+        var correlator = new FindingCorrelator();
+        var report = CreateReport(
+            ("Windows Defender Firewall service stopped", "perimeter service down", "Network", Severity.Critical),
+            ("Microsoft Defender realtime protection disabled", "endpoint AV off", "Security", Severity.Critical));
+        var result = correlator.Analyze(report);
+        var corr001 = result.Matches.FirstOrDefault(m => m.Rule.Id == "CORR-001");
+        Assert.NotNull(corr001);
+        Assert.Equal(2, corr001!.MatchedFindings.Count);
+    }
+
+    [Fact]
+    public void EdgeCase_DualKeywordFindingStillNeedsASecondFinding()
+    {
+        // Counterpart to the regression above: a single finding mentioning both
+        // keywords, with NO other matching finding, must still NOT fire CORR-001
+        // — there is only one broken defense described, not two distinct ones.
+        var correlator = new FindingCorrelator();
+        var report = CreateReport(
+            ("Windows Defender Firewall disabled", "both off in one finding", "Security", Severity.Critical),
+            ("Unrelated disk warning", "nothing to do with defenses", "Storage", Severity.Warning));
+        var result = correlator.Analyze(report);
+        var corr001 = result.Matches.FirstOrDefault(m => m.Rule.Id == "CORR-001");
+        Assert.Null(corr001);
+    }
+
+    [Fact]
+    public void EdgeCase_PatternOrderDoesNotAffectMatch()
+    {
+        // The matcher result must be independent of the order findings are
+        // supplied. Same two findings as the starvation case, reversed.
+        var correlator = new FindingCorrelator();
+        var report = CreateReport(
+            ("Microsoft Defender realtime protection disabled", "endpoint AV off", "Security", Severity.Critical),
+            ("Windows Defender Firewall service stopped", "perimeter service down", "Network", Severity.Critical));
+        var result = correlator.Analyze(report);
+        var corr001 = result.Matches.FirstOrDefault(m => m.Rule.Id == "CORR-001");
+        Assert.NotNull(corr001);
+        Assert.Equal(2, corr001!.MatchedFindings.Count);
+    }
+
+    [Fact]
     public void EdgeCase_ReportWithOnlyPassFindings_ReturnsZeroCorrelations()
     {
         var correlator = new FindingCorrelator();

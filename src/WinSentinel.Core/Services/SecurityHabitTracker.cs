@@ -101,8 +101,16 @@ public class SecurityHabitTracker
                 ConsistencyPercent = Math.Round(100.0 * completions.Count / days, 1),
             };
 
-            // Current streak
-            for (var d = today; d >= startDate; d = d.AddDays(-1))
+            // Current streak.
+            // Today is a grace day: a streak is not considered broken just
+            // because the user hasn't checked the habit off *yet* today (the
+            // day isn't over). So if today isn't completed we anchor the walk
+            // at yesterday — a 9-day streak ending yesterday still reports 9
+            // mid-afternoon, and becomes 10 once today is checked off, instead
+            // of collapsing to 0. The streak only truly breaks once the most
+            // recent day that *should* be done (yesterday) is also missed.
+            var streakAnchor = completions.Contains(today) ? today : today.AddDays(-1);
+            for (var d = streakAnchor; d >= startDate; d = d.AddDays(-1))
             {
                 if (completions.Contains(d)) stats.CurrentStreak++;
                 else break;

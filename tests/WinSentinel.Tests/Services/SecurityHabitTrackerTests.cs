@@ -235,6 +235,79 @@ public class SecurityHabitTrackerTests : IDisposable
     }
 
     [Fact]
+    public void GetReport_TodayNotDoneYet_StreakSurvivesViaYesterday()
+    {
+        // A live streak must NOT collapse to 0 just because the user hasn't
+        // checked the habit off *yet* today (it's, say, mid-afternoon).
+        // Streak runs yesterday(-1) back through -9 = 9 consecutive days,
+        // today deliberately left undone.
+        _sut.AddHabit("Check Updates");
+        var today = DateTime.UtcNow.Date;
+        for (int i = 1; i <= 9; i++)
+            _sut.Complete("Check Updates", today.AddDays(-i).ToString("yyyy-MM-dd"));
+
+        var report = _sut.GetReport(days: 30);
+        var stats = report.HabitStats[0];
+
+        Assert.False(stats.CompletedToday);
+        Assert.Equal(9, stats.CurrentStreak); // grace day: not broken by undone today
+        Assert.Equal(9, stats.BestStreak);
+    }
+
+    [Fact]
+    public void GetReport_TodayDone_StreakIncludesToday()
+    {
+        // Same 9-day run as above, but now today IS checked off → streak = 10.
+        _sut.AddHabit("Check Updates");
+        var today = DateTime.UtcNow.Date;
+        for (int i = 0; i <= 9; i++)
+            _sut.Complete("Check Updates", today.AddDays(-i).ToString("yyyy-MM-dd"));
+
+        var report = _sut.GetReport(days: 30);
+        var stats = report.HabitStats[0];
+
+        Assert.True(stats.CompletedToday);
+        Assert.Equal(10, stats.CurrentStreak);
+        Assert.Equal(10, stats.BestStreak);
+    }
+
+    [Fact]
+    public void GetReport_NeitherTodayNorYesterday_StreakIsZero()
+    {
+        // Streak truly broken: the two most recent days are both missing, so
+        // even with the today-grace rule the current streak is 0 (the older
+        // run sits behind a gap and only counts toward BestStreak).
+        _sut.AddHabit("Review Logs");
+        var today = DateTime.UtcNow.Date;
+        // Miss today and yesterday; completed -2, -3, -4.
+        _sut.Complete("Review Logs", today.AddDays(-2).ToString("yyyy-MM-dd"));
+        _sut.Complete("Review Logs", today.AddDays(-3).ToString("yyyy-MM-dd"));
+        _sut.Complete("Review Logs", today.AddDays(-4).ToString("yyyy-MM-dd"));
+
+        var report = _sut.GetReport(days: 30);
+        var stats = report.HabitStats[0];
+
+        Assert.False(stats.CompletedToday);
+        Assert.Equal(0, stats.CurrentStreak);
+        Assert.Equal(3, stats.BestStreak);
+    }
+
+    [Fact]
+    public void GetReport_OnlyYesterdayDone_StreakIsOne()
+    {
+        // Edge of the grace rule: today undone, only yesterday completed.
+        _sut.AddHabit("Check Updates");
+        var today = DateTime.UtcNow.Date;
+        _sut.Complete("Check Updates", today.AddDays(-1).ToString("yyyy-MM-dd"));
+
+        var report = _sut.GetReport(days: 30);
+        var stats = report.HabitStats[0];
+
+        Assert.False(stats.CompletedToday);
+        Assert.Equal(1, stats.CurrentStreak);
+    }
+
+    [Fact]
     public void GetReport_Last7Days_Has7Elements()
     {
         _sut.AddHabit("Check Updates");

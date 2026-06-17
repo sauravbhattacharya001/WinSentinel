@@ -319,19 +319,33 @@ public class MaintenanceWindowManager
         return false;
     }
 
+    /// <summary>
+    /// The start of the earliest recurring occurrence at or after <paramref name="after"/>.
+    /// Returns <c>null</c> for non-recurring or cancelled windows.
+    /// </summary>
+    /// <remarks>
+    /// Semantics are "at or after": if <paramref name="after"/> lands exactly on an
+    /// occurrence start, that occurrence is returned (not the following one). The
+    /// previous implementation computed <c>floor(elapsed/interval) + 1</c>, which on an
+    /// exact interval boundary (e.g. querying at the very instant the next weekly
+    /// occurrence begins) skipped a whole cycle and returned the occurrence *after*
+    /// the one starting right then -- so <see cref="GetUpcoming"/> silently dropped a
+    /// recurring window that was about to start. Using <c>ceil</c> over ticks makes
+    /// every occurrence start reachable and keeps the boundary inclusive.
+    /// </remarks>
     private DateTimeOffset? GetNextOccurrence(MaintenanceWindow w, DateTimeOffset after)
     {
         if (!w.Recurring || w.RecurrenceIntervalDays <= 0) return null;
         if (w.Cancelled) return null;
 
-        var duration = w.EndUtc - w.StartUtc;
-        var interval = TimeSpan.FromDays(w.RecurrenceIntervalDays);
+        if (after <= w.StartUtc) return w.StartUtc;
 
-        if (after < w.StartUtc) return w.StartUtc;
-
-        var elapsed = after - w.StartUtc;
-        var cycles = (long)(elapsed.TotalDays / w.RecurrenceIntervalDays) + 1;
-        return w.StartUtc.Add(TimeSpan.FromDays(cycles * w.RecurrenceIntervalDays));
+        var intervalTicks = TimeSpan.FromDays(w.RecurrenceIntervalDays).Ticks;
+        var elapsedTicks = (after - w.StartUtc).Ticks;
+        // ceil(elapsedTicks / intervalTicks): the number of whole intervals needed to
+        // reach or pass `after`. Both operands are positive here (after > StartUtc).
+        var cycles = (elapsedTicks + intervalTicks - 1) / intervalTicks;
+        return w.StartUtc.AddTicks(cycles * intervalTicks);
     }
 
     private static bool WindowSuppresses(MaintenanceWindow window, Finding finding)

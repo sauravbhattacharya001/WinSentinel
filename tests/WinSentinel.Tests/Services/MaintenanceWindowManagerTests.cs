@@ -373,6 +373,62 @@ public class MaintenanceWindowManagerTests : IDisposable
         Assert.Single(upcoming);
     }
 
+    // Regression: GetNextOccurrence used floor(elapsed/interval)+1, which on an
+    // EXACT interval boundary skipped a whole cycle. A recurring window whose
+    // next occurrence begins exactly at `now` was therefore reported as ~one
+    // interval away and dropped from GetUpcoming under a short horizon, even
+    // though it was starting right then.
+    [Fact]
+    public void GetUpcoming_RecurringWindow_OccurrenceStartingExactlyNow_NotSkipped()
+    {
+        var now = DateTimeOffset.UtcNow;
+        // Started exactly one interval ago -> the next occurrence begins at `now`.
+        var start = now.AddDays(-7);
+        _mgr.Create(new MaintenanceWindowRequest
+        {
+            Name = "WeeklyBoundary",
+            StartUtc = start,
+            EndUtc = start.AddHours(2),
+            Recurring = true,
+            RecurrenceIntervalDays = 7
+        });
+
+        // Even with a horizon far shorter than the interval, the occurrence that
+        // starts at `now` must be considered upcoming (old code returned next =
+        // now + 7d and dropped it).
+        var upcoming = _mgr.GetUpcoming(TimeSpan.FromHours(1), now);
+        Assert.Single(upcoming);
+        Assert.Equal("WeeklyBoundary", upcoming[0].Name);
+    }
+
+    // Regression: every occurrence start must be reachable as the window advances
+    // through consecutive intervals. With the old +1 skip, querying at successive
+    // boundary instants jumped past a cycle.
+    [Fact]
+    public void GetUpcoming_RecurringWindow_EachIntervalBoundaryIsUpcoming()
+    {
+        var start = DateTimeOffset.UtcNow.AddDays(-30);
+        _mgr.Create(new MaintenanceWindowRequest
+        {
+            Name = "Daily",
+            StartUtc = start,
+            EndUtc = start.AddHours(1),
+            Recurring = true,
+            RecurrenceIntervalDays = 1
+        });
+
+        // For each of the next several daily boundaries, querying exactly at that
+        // boundary with a tiny horizon must surface the window (the occurrence
+        // starting at that instant), never skip it.
+        for (int day = 0; day < 5; day++)
+        {
+            var asOf = start.AddDays(30 + day); // an exact daily boundary, in the future
+            var upcoming = _mgr.GetUpcoming(TimeSpan.FromMinutes(1), asOf);
+            Assert.True(upcoming.Count == 1,
+                $"expected the recurring window to be upcoming at boundary day {day}");
+        }
+    }
+
     [Fact]
     public void MultipleWindows_FirstMatchWins()
     {

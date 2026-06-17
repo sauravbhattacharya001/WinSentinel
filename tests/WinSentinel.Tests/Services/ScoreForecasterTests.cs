@@ -189,14 +189,75 @@ public class ScoreForecasterTests
     }
 
     [Fact]
-    public void Forecast_TargetAlreadyMet_NoDaysToTarget()
+    public void Forecast_TargetAlreadyMet_ReturnsZeroDays()
     {
-        var runs = MakeImprovingRuns(); // latest score = 92
+        var runs = MakeImprovingRuns(); // latest score = 92, improving
         var opts = new ScoreForecaster.ForecastOptions { TargetScore = 50 };
         var result = _forecaster.Forecast(runs, opts);
 
-        // Target below current with positive slope → target behind us
+        // Target (50) is already exceeded by the current score (92). The ETA to a
+        // goal you have already reached is 0 days — NOT null/"unreachable".
+        // Regression: previously the regression line put the crossing in the past,
+        // daysFromNow <= 0 failed the guard, and DaysToTarget stayed null, telling
+        // a user who had already hit their target that it was unreachable.
         Assert.True(result.Success);
+        Assert.Equal(50, result.TargetScore);
+        Assert.NotNull(result.DaysToTarget);
+        Assert.Equal(0, result.DaysToTarget);
+    }
+
+    [Fact]
+    public void Forecast_TargetEqualsCurrentScore_ReturnsZeroDays()
+    {
+        // Flat history sitting exactly on the target: goal is met right now.
+        var runs = new List<AuditRunRecord>
+        {
+            MakeRun(14, 80),
+            MakeRun(7, 80),
+            MakeRun(0, 80),
+        };
+        var opts = new ScoreForecaster.ForecastOptions { TargetScore = 80 };
+        var result = _forecaster.Forecast(runs, opts);
+
+        Assert.True(result.Success);
+        Assert.Equal(0, result.DaysToTarget);
+    }
+
+    [Fact]
+    public void Forecast_TargetAlreadyMet_ImprovingFast_StillZero()
+    {
+        // Already above target AND climbing further away from it: still 0 (met),
+        // must not be reported as unreachable just because the line never
+        // "returns" to the lower target going forward.
+        var runs = new List<AuditRunRecord>
+        {
+            MakeRun(14, 85),
+            MakeRun(7, 90),
+            MakeRun(0, 96),
+        };
+        var opts = new ScoreForecaster.ForecastOptions { TargetScore = 70 };
+        var result = _forecaster.Forecast(runs, opts);
+
+        Assert.True(result.Success);
+        Assert.Equal(0, result.DaysToTarget);
+    }
+
+    [Fact]
+    public void Forecast_TargetAboveCurrent_Declining_StaysUnreachable()
+    {
+        // Below the target with a declining trend: genuinely unreachable -> null.
+        // Guards that the already-met fix did not loosen the wrong-direction case.
+        var runs = new List<AuditRunRecord>
+        {
+            MakeRun(14, 80),
+            MakeRun(7, 75),
+            MakeRun(0, 70),
+        };
+        var opts = new ScoreForecaster.ForecastOptions { TargetScore = 95 };
+        var result = _forecaster.Forecast(runs, opts);
+
+        Assert.True(result.Success);
+        Assert.Null(result.DaysToTarget);
     }
 
     // ── Module forecasts ─────────────────────────────────────────────

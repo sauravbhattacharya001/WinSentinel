@@ -208,23 +208,43 @@ public class ScoreForecaster
                 Grade: GetGrade((int)Math.Round(clamped))));
         }
 
-        // Days to target
+        // Days to target.
+        //
+        // Security score is higher-is-better, so a target is a level you want to
+        // reach or exceed (an "up-goal"). Two cases:
+        //   1. Current score already >= target  -> goal met, ETA = 0 days.
+        //      (Previously this fell through to the regression path, produced a
+        //      targetDay in the past, and reported null/"unreachable" — telling a
+        //      user who had *already* hit their target that it was unreachable.)
+        //   2. Current score < target -> must climb. Reachable only if the trend
+        //      is improving (slope > 0) and the line crosses the target within
+        //      the forecast horizon; otherwise null (flat/declining = unreachable).
         int? daysToTarget = null;
-        if (options.TargetScore.HasValue && Math.Abs(slope) > 1e-10)
+        if (options.TargetScore.HasValue)
         {
-            var targetDay = (options.TargetScore.Value - intercept) / slope;
-            var daysFromNow = targetDay - latestDay;
+            var target = options.TargetScore.Value;
 
-            if (daysFromNow > 0 && daysFromNow <= MaxForecastDays)
+            if (latest.OverallScore >= target)
             {
-                // Only reachable if slope is going in the right direction
-                if ((options.TargetScore.Value > latest.OverallScore && slope > 0) ||
-                    (options.TargetScore.Value < latest.OverallScore && slope < 0) ||
-                    options.TargetScore.Value == latest.OverallScore)
+                daysToTarget = 0; // already met
+            }
+            else if (slope > 1e-10)
+            {
+                var targetDay = (target - intercept) / slope;
+                var daysFromNow = targetDay - latestDay;
+                if (daysFromNow <= 0)
+                {
+                    // Regression line already at/above target even though the
+                    // latest sample is below it (noisy data, improving trend).
+                    daysToTarget = 0;
+                }
+                else if (daysFromNow <= MaxForecastDays)
                 {
                     daysToTarget = (int)Math.Ceiling(daysFromNow);
                 }
+                // else: crossing is beyond the forecast horizon -> leave null.
             }
+            // else: at-or-below target with a flat/declining trend -> unreachable.
         }
 
         // Module forecasts

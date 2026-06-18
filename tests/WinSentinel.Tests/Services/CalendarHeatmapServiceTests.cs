@@ -379,4 +379,85 @@ public class CalendarHeatmapServiceTests
         Assert.Equal(viaInjected.ActiveDays, viaDefault.ActiveDays);
         Assert.Equal(viaInjected.Days[^1].Date, viaDefault.Days[^1].Date);
     }
+
+    // ── Current-streak correctness (future days & not-yet-audited "today") ──────
+    // Regression coverage for the bug where the streak walk started at the
+    // padded end-of-week Sunday with a single `streakActive` flag, so:
+    //   (a) a future-dated run (clock skew / a node ahead) was *counted* into the
+    //       current streak even with zero recent activity, and
+    //   (b) a daily streak that ran through yesterday collapsed to 0 the instant
+    //       midnight passed before the user ran "today's" audit.
+    // The fix anchors the streak at today-or-yesterday and ignores future days.
+
+    [Fact]
+    public void Analyze_TodayNotYetAudited_KeepsYesterdayAnchoredStreak()
+    {
+        // Audited every day through yesterday, but not yet today (e.g. it's
+        // 00:20 and the daily scan hasn't run). The streak must survive — a
+        // calendar day hasn't fully lapsed without an audit.
+        var now = new DateTimeOffset(2026, 6, 18, 0, 20, 0, TimeSpan.Zero);
+        var runs = new List<AuditRunRecord>
+        {
+            MakeRun(now.AddDays(-1), 90), // yesterday
+            MakeRun(now.AddDays(-2), 88),
+            MakeRun(now.AddDays(-3), 91),
+        };
+
+        var result = _service.Analyze(runs, now, weeks: 4);
+
+        // 3 consecutive days through yesterday; today (no run yet) is grace, not a break.
+        Assert.Equal(3, result.CurrentStreak);
+    }
+
+    [Fact]
+    public void Analyze_TwoDayGapBeforeToday_ResetsCurrentStreak()
+    {
+        // Neither today nor yesterday was audited (a full day lapsed) → streak is 0,
+        // even though there is an older run. Guards the grace window from over-reaching.
+        var now = new DateTimeOffset(2026, 6, 18, 9, 0, 0, TimeSpan.Zero);
+        var runs = new List<AuditRunRecord>
+        {
+            MakeRun(now.AddDays(-2), 90),
+            MakeRun(now.AddDays(-3), 88),
+        };
+
+        var result = _service.Analyze(runs, now, weeks: 4);
+
+        Assert.Equal(0, result.CurrentStreak);
+    }
+
+    [Fact]
+    public void Analyze_FutureDatedRun_DoesNotInflateCurrentStreak()
+    {
+        // A single run dated *tomorrow* (clock skew between fleet nodes) with no
+        // recent activity must not register as a current streak. Previously the
+        // backward walk from the end-of-week Sunday counted it.
+        var now = new DateTimeOffset(2026, 6, 17, 12, 0, 0, TimeSpan.Zero);
+        var runs = new List<AuditRunRecord>
+        {
+            MakeRun(now.AddDays(1), 95), // tomorrow — future relative to `now`
+        };
+
+        var result = _service.Analyze(runs, now, weeks: 4);
+
+        Assert.Equal(0, result.CurrentStreak);
+    }
+
+    [Fact]
+    public void Analyze_FutureRunWithTodayStreak_CountsOnlyRealDays()
+    {
+        // Today + yesterday audited (real 2-day streak), plus a stray future-dated
+        // run. The future run must neither extend nor inflate the streak.
+        var now = new DateTimeOffset(2026, 6, 17, 12, 0, 0, TimeSpan.Zero);
+        var runs = new List<AuditRunRecord>
+        {
+            MakeRun(now.AddDays(2), 99),  // future noise
+            MakeRun(now, 90),             // today
+            MakeRun(now.AddDays(-1), 85), // yesterday
+        };
+
+        var result = _service.Analyze(runs, now, weeks: 4);
+
+        Assert.Equal(2, result.CurrentStreak);
+    }
 }

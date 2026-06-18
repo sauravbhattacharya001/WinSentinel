@@ -55,11 +55,12 @@ public class CalendarHeatmapService
         int maxAuditsInDay = 0;
         int bestScore = 0;
         int worstScore = 100;
-        int currentStreak = 0;
         int longestStreak = 0;
-        bool streakActive = true;
 
-        // Build day cells from most recent backward
+        // Build day cells from most recent backward. Cell stats only — the
+        // current-streak walk is computed separately below so that future cells
+        // (when `now` isn't a Sunday, the window extends to the end-of-week
+        // Sunday) and a not-yet-audited "today" don't corrupt the streak count.
         for (var d = endSunday; d >= startDate; d = d.AddDays(-1))
         {
             var cell = new HeatmapDay
@@ -82,17 +83,25 @@ public class CalendarHeatmapService
                 if (cell.BestScore > bestScore) bestScore = cell.BestScore;
                 var dayWorst = dayRuns.Min(r => r.OverallScore);
                 if (dayWorst < worstScore) worstScore = dayWorst;
-
-                if (streakActive) currentStreak++;
-            }
-            else
-            {
-                if (d <= endDate) // Don't break streak on future days
-                    streakActive = false;
             }
 
             heatmap.Days.Add(cell);
         }
+
+        // Current streak: count consecutive *non-future* active days ending at
+        // the most recent activity. GitHub-style semantics:
+        //   * Future-dated runs (clock skew / a fleet node ahead) never count
+        //     and never extend the streak — anchor at `endDate` (today), not the
+        //     padded end-of-week Sunday.
+        //   * The streak is only broken once a full calendar day passes with no
+        //     audit, so "haven't run *yet* today" still preserves a streak that
+        //     ran through yesterday (the anchor may be today OR yesterday).
+        int currentStreak = 0;
+        var anchor = endDate;
+        if (!runsByDate.ContainsKey(anchor) && runsByDate.ContainsKey(anchor.AddDays(-1)))
+            anchor = anchor.AddDays(-1); // grace: today not audited yet, resume from yesterday
+        for (var d = anchor; runsByDate.ContainsKey(d); d = d.AddDays(-1))
+            currentStreak++;
 
         // Compute longest streak
         var sortedDates = runsByDate.Keys.OrderBy(d => d).ToList();

@@ -424,4 +424,55 @@ public class NoiseAnalyzerTests
         Assert.Equal(2, module.UniqueFindingTitles);
         Assert.Equal(3, module.TotalFindings);
     }
+
+    // ───── AvgFindingsPerScan is per scan the module actually ran in ─────
+
+    [Fact]
+    public void Analyze_ModuleAbsentFromSomeRuns_AvgFindingsPerScanUsesRunsModuleRanIn()
+    {
+        // "LateMod" was added partway through history: it only ran in 2 of the 4
+        // scans, producing 6 findings across those 2 runs. Its average findings
+        // per scan should be measured against the scans it actually ran in
+        // (6 / 2 = 3.0), not against every scan in history (6 / 4 = 1.5) — the
+        // latter understates how noisy the module is whenever it runs.
+        var runs = new List<AuditRunRecord>
+        {
+            MakeRun(Day(0), ("Baseline", "AlwaysMod", "Info")),
+            MakeRun(Day(1), ("Baseline", "AlwaysMod", "Info")),
+            MakeRun(Day(2),
+                ("Baseline", "AlwaysMod", "Info"),
+                ("L1", "LateMod", "Warning"),
+                ("L2", "LateMod", "Warning"),
+                ("L3", "LateMod", "Info")),
+            MakeRun(Day(3),
+                ("Baseline", "AlwaysMod", "Info"),
+                ("L1", "LateMod", "Warning"),
+                ("L2", "LateMod", "Warning"),
+                ("L4", "LateMod", "Info"))
+        };
+
+        var result = _sut.Analyze(runs);
+        var lateMod = result.TopNoisyModules.First(m => m.ModuleName == "LateMod");
+
+        Assert.Equal(6, lateMod.TotalFindings);          // 3 + 3 across the two runs
+        Assert.Equal(3.0, lateMod.AvgFindingsPerScan);   // 6 findings / 2 runs it ran in
+    }
+
+    [Fact]
+    public void Analyze_ModulePresentInEveryRun_AvgFindingsPerScanUnchanged()
+    {
+        // When a module runs in every scan, the per-scan average is the same
+        // whether you divide by total runs or by runs-it-ran-in. This pins the
+        // common case so the fix above does not regress it.
+        var runs = new List<AuditRunRecord>
+        {
+            MakeRun(Day(0), ("A", "Mod", "Info"), ("B", "Mod", "Info")),
+            MakeRun(Day(1), ("A", "Mod", "Info"), ("B", "Mod", "Info"))
+        };
+
+        var result = _sut.Analyze(runs);
+        var module = Assert.Single(result.TopNoisyModules);
+        Assert.Equal(4, module.TotalFindings);
+        Assert.Equal(2.0, module.AvgFindingsPerScan); // 4 findings / 2 runs
+    }
 }

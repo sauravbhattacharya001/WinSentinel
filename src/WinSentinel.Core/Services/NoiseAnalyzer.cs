@@ -56,12 +56,19 @@ public class NoiseAnalyzer
                 var category = runs.SelectMany(r => r.ModuleScores)
                     .FirstOrDefault(m => m.ModuleName == g.Key)?.Category ?? "";
 
+                // Average against the scans this module actually ran in, not the
+                // full history. A module added partway through (or run only on
+                // some machines) otherwise looks artificially quiet because the
+                // scans before it existed dilute the average. Fall back to the
+                // total run count if the module never appears in ModuleScores.
+                var moduleScanCount = moduleRuns.Count > 0 ? moduleRuns.Count : totalRuns;
+
                 return new NoisyModule
                 {
                     ModuleName = g.Key,
                     Category = category,
                     TotalFindings = g.Count(),
-                    AvgFindingsPerScan = totalRuns > 0 ? Math.Round((double)g.Count() / totalRuns, 1) : 0,
+                    AvgFindingsPerScan = moduleScanCount > 0 ? Math.Round((double)g.Count() / moduleScanCount, 1) : 0,
                     UniqueFindingTitles = g.Select(f => f.Title).Distinct().Count(),
                     NoiseShare = totalOccurrences > 0 ? Math.Round((double)g.Count() / totalOccurrences * 100, 1) : 0
                 };

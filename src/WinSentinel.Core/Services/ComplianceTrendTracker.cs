@@ -407,11 +407,16 @@ public class ComplianceTrendTracker
 
     private static bool IsStatusImprovement(string previous, string current)
     {
+        // Rank by compliance value. NotAssessed means "no data" — it is excluded
+        // from the compliance percentage (assessed = Pass+Fail+Partial), so losing
+        // assessment is a loss of signal, never an improvement. It must therefore
+        // rank BELOW Fail: a control going Partial→NotAssessed or Fail→NotAssessed
+        // is not progress. Pass > Partial > Fail > NotAssessed.
         var rank = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
         {
-            ["Fail"] = 0,
-            ["Partial"] = 1,
-            ["NotAssessed"] = 2,
+            ["NotAssessed"] = 0,
+            ["Fail"] = 1,
+            ["Partial"] = 2,
             ["Pass"] = 3
         };
 

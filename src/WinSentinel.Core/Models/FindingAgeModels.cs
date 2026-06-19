@@ -53,7 +53,12 @@ public class FindingLifecycle
         get
         {
             var age = Age;
-            if (age.TotalDays >= 1) return $"{age.TotalDays:F0}d {age.Hours}h";
+            // Day count must be FLOORED to stay consistent with age.Hours, which
+            // is the truncated 0–23 remainder. Using "{TotalDays:F0}" rounds to
+            // nearest (e.g. 45h → 1.875d → "2d") and pairs it with the truncated
+            // 21h remainder, yielding "2d 21h" (~2.9d) for a 1.875d-old finding —
+            // overstating finding age. Floor the days instead.
+            if (age.TotalDays >= 1) return $"{(int)age.TotalDays}d {age.Hours}h";
             if (age.TotalHours >= 1) return $"{age.TotalHours:F1}h";
             return $"{age.TotalMinutes:F0}m";
         }

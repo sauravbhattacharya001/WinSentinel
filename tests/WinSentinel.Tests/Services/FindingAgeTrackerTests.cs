@@ -714,6 +714,29 @@ public class FindingAgeTrackerTests
         Assert.Contains("d", lc.AgeText);
     }
 
+    // Regression: the day component must be floored, not rounded, so it stays
+    // consistent with age.Hours (the truncated 0–23 remainder). 45h is 1d 21h;
+    // the old "{TotalDays:F0}d {Hours}h" rounded to "2d 21h" (~2.9d), overstating
+    // the age of every multi-day finding.
+    [Theory]
+    [InlineData(45, "1d 21h")]   // 1.875d — used to render "2d 21h"
+    [InlineData(36, "1d 12h")]   // 1.5d   — used to render "2d 12h"
+    [InlineData(71, "2d 23h")]   // 2.958d — used to render "3d 23h"
+    [InlineData(60, "2d 12h")]   // 2.5d
+    [InlineData(24, "1d 0h")]    // exactly one day
+    public void FindingLifecycle_AgeText_Days_FloorsDayComponent(int hours, string expected)
+    {
+        var first = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var lc = new FindingLifecycle
+        {
+            FirstSeen = first,
+            LastSeen = first.AddHours(hours),
+            ResolvedAt = first.AddHours(hours),
+            IsActive = false,   // Age = ResolvedAt - FirstSeen (exact, no clock drift)
+        };
+        Assert.Equal(expected, lc.AgeText);
+    }
+
     // ── FormatReport ────────────────────────────────────────────────
 
     [Fact]

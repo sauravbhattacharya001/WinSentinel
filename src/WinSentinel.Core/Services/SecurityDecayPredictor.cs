@@ -120,6 +120,7 @@ public sealed class SecurityDecayPredictor
     {
         var ageDays = Math.Max(0, (now - finding.Timestamp).TotalDays);
         var exposureMultiplier = GetExposureMultiplier(finding.Category);
+        var isKnownCategory = IsKnownCategory(finding.Category);
         var decayRate = GetDecayRate(finding.Severity);
         var threshold = GetEscalationThreshold(finding.Severity);
 
@@ -155,7 +156,7 @@ public sealed class SecurityDecayPredictor
         }
 
         var urgency = ClassifyUrgency(daysToEscalation, finding.Severity);
-        var confidence = ComputeConfidence(ageDays, exposureMultiplier);
+        var confidence = ComputeConfidence(ageDays, isKnownCategory);
         var interventionWindow = DescribeInterventionWindow(daysToEscalation, trajectory);
         var decayVelocity = decayRate * exposureMultiplier;
 
@@ -181,6 +182,17 @@ public sealed class SecurityDecayPredictor
         if (string.IsNullOrEmpty(category)) return 1.0;
         return CategoryExposure.TryGetValue(category, out var multiplier) ? multiplier : 1.0;
     }
+
+    /// <summary>
+    /// Whether <paramref name="category"/> is one this predictor has a calibrated
+    /// exposure profile for. Used to boost prediction confidence: a finding in a
+    /// recognized category is more predictable than one in an unknown category.
+    /// This is membership in <see cref="CategoryExposure"/> - NOT a function of the
+    /// multiplier's magnitude, so well-known low-exposure categories (EventLog,
+    /// Backup, Privacy, Registry, ...) still count as "known".
+    /// </summary>
+    private static bool IsKnownCategory(string category)
+        => !string.IsNullOrEmpty(category) && CategoryExposure.ContainsKey(category);
 
     private static double GetDecayRate(Severity severity) => severity switch
     {
@@ -223,12 +235,15 @@ public sealed class SecurityDecayPredictor
         };
     }
 
-    private static int ComputeConfidence(double ageDays, double exposureMultiplier)
+    private static int ComputeConfidence(double ageDays, bool isKnownCategory)
     {
         // More data (older findings) = higher confidence in prediction
         var ageBonus = Math.Min(15, ageDays * 0.5);
-        // Well-known categories = higher confidence
-        var categoryBonus = exposureMultiplier > 1.0 ? 10 : 0;
+        // Well-known categories (those with a calibrated exposure profile) = higher
+        // confidence. Keyed off recognition, not the multiplier's size, so a known
+        // low-exposure category (e.g. EventLog at 0.7x or Registry at 1.0x) is still
+        // rewarded over a genuinely unknown category that merely defaults to 1.0x.
+        var categoryBonus = isKnownCategory ? 10 : 0;
         var confidence = (int)(BaseConfidence + ageBonus + categoryBonus);
         return Math.Clamp(confidence, MinConfidence, MaxConfidence);
     }

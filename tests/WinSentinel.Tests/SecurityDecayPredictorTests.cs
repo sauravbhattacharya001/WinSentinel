@@ -275,6 +275,46 @@ public class SecurityDecayPredictorTests
     }
 
     [Fact]
+    public void Predict_Confidence_KnownLowExposureCategory_BeatsUnknownCategory()
+    {
+        // EventLog is a KNOWN category but its exposure multiplier is 0.7 (< 1.0).
+        // The confidence bonus must be awarded for being a recognized category, not
+        // for having a high multiplier - so a finding in EventLog should be MORE
+        // confident than one in a category the predictor has never seen (which
+        // merely defaults to a 1.0 multiplier). Same age so only the category bonus
+        // differs. Regression test for the old `exposureMultiplier > 1.0` gate that
+        // wrongly scored well-known low-exposure categories like an unknown one.
+        var known = MakeReport(("Known low-exposure", Severity.Warning, "EventLog", 10));
+        var unknown = MakeReport(("Unknown category", Severity.Warning, "TotallyMadeUpCategory", 10));
+
+        var predictor = new SecurityDecayPredictor();
+        var knownConfidence = predictor.Predict(known).Predictions[0].Confidence;
+        var unknownConfidence = predictor.Predict(unknown).Predictions[0].Confidence;
+
+        Assert.True(
+            knownConfidence > unknownConfidence,
+            $"Known category EventLog (conf {knownConfidence}) should be more confident than " +
+            $"an unknown category (conf {unknownConfidence}).");
+    }
+
+    [Fact]
+    public void Predict_Confidence_KnownCategories_GetEqualBonus_RegardlessOfExposure()
+    {
+        // Two KNOWN categories with very different multipliers (Credentials 2.0x vs
+        // EventLog 0.7x) must receive the SAME category-recognition confidence bonus.
+        // The exposure magnitude affects decay speed, not how confident we are that
+        // the prediction applies. Same age isolates the category bonus.
+        var highExposure = MakeReport(("High exposure", Severity.Warning, "Credentials", 10));
+        var lowExposure = MakeReport(("Low exposure", Severity.Warning, "EventLog", 10));
+
+        var predictor = new SecurityDecayPredictor();
+        var highConfidence = predictor.Predict(highExposure).Predictions[0].Confidence;
+        var lowConfidence = predictor.Predict(lowExposure).Predictions[0].Confidence;
+
+        Assert.Equal(highConfidence, lowConfidence);
+    }
+
+    [Fact]
     public void Predict_EscalatingWithin7Days_Count()
     {
         // Network (1.7x), Warning (0.02 rate)

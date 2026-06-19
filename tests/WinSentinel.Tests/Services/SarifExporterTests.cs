@@ -504,6 +504,42 @@ public class SarifExporterTests
         Assert.Equal(60, result.Length);
     }
 
+    [Fact]
+    public void NormalizeForId_TruncationBoundaryIsSeparator_NoTrailingHyphen()
+    {
+        // Regression: when the title exceeds the 60-char cap AND the character at
+        // the cap boundary is a separator, truncation used to re-introduce a
+        // trailing hyphen because the hyphen trim ran BEFORE the cap. Here the
+        // 60th normalized character (index 59) is the separator between the run of
+        // 'a's and the following word, so the result must end on a letter, never '-'.
+        var title = new string('a', 59) + " " + new string('b', 20);
+        var result = SarifExporter.NormalizeForId(title);
+        Assert.False(result.EndsWith("-"), $"rule id ended in a trailing hyphen: '{result}'");
+        Assert.Equal(59, result.Length); // 59 'a's, boundary hyphen dropped
+        Assert.Equal(new string('a', 59), result);
+    }
+
+    [Fact]
+    public void NormalizeForId_ManySeparatorsAtBoundary_NoTrailingHyphen()
+    {
+        // A block of separators straddling the cap must also never leave a dangling
+        // hyphen (collapsing means at most one hyphen lands at the boundary).
+        var title = new string('x', 60) + "     tail";
+        var result = SarifExporter.NormalizeForId(title);
+        Assert.False(result.EndsWith("-"), $"rule id ended in a trailing hyphen: '{result}'");
+        Assert.True(result.Length <= 60);
+    }
+
+    [Fact]
+    public void GenerateRuleId_LongTitleWithBoundarySeparator_HasNoTrailingHyphen()
+    {
+        // End-to-end through the public rule-id surface used for SARIF output.
+        var title = new string('a', 59) + " extra words here that overflow the cap";
+        var ruleId = SarifExporter.GenerateRuleId("Firewall", title);
+        Assert.StartsWith("WSFW/", ruleId);
+        Assert.False(ruleId.EndsWith("-"), $"rule id ended in a trailing hyphen: '{ruleId}'");
+    }
+
     // ──────────── Severity mapping ────────────
 
     [Theory]

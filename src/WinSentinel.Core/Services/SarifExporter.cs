@@ -180,11 +180,14 @@ public class SarifExporter
             }
         }
 
-        // Trim trailing hyphen
-        if (len > 0 && chars[len - 1] == '-') len--;
-
-        // Cap at 60 chars for readability
+        // Cap at 60 chars for readability, THEN trim a trailing hyphen. Trimming
+        // before the cap is not enough: when the title is longer than the cap and
+        // the character at the 60-char boundary is a separator, truncation would
+        // re-introduce a trailing hyphen (e.g. "<59 chars> word" -> "<59 chars>-").
+        // Rule IDs are stable identifiers GitHub Code Scanning keys alerts on, so a
+        // dangling hyphen is both ugly and a needless id churn risk. Trim after cap.
         var maxLen = Math.Min(len, 60);
+        if (maxLen > 0 && chars[maxLen - 1] == '-') maxLen--;
         return new string(chars, 0, maxLen);
     }
 

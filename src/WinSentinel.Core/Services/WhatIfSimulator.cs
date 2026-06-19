@@ -72,13 +72,14 @@ public class WhatIfSimulator
     /// </summary>
     public SimulationResult SimulateBySeverity(SecurityReport report, Severity severity)
     {
-        var indices = new List<(string module, int findingIndex)>();
-        foreach (var result in report.Results)
+        var indices = new List<(int resultIndex, int findingIndex)>();
+        for (int r = 0; r < report.Results.Count; r++)
         {
+            var result = report.Results[r];
             for (int i = 0; i < result.Findings.Count; i++)
             {
                 if (result.Findings[i].Severity == severity)
-                    indices.Add((result.ModuleName, i));
+                    indices.Add((r, i));
             }
         }
         return SimulateByIndices(report, indices);
@@ -89,15 +90,16 @@ public class WhatIfSimulator
     /// </summary>
     public SimulationResult SimulateByModule(SecurityReport report, string moduleName)
     {
-        var indices = new List<(string module, int findingIndex)>();
-        foreach (var result in report.Results)
+        var indices = new List<(int resultIndex, int findingIndex)>();
+        for (int r = 0; r < report.Results.Count; r++)
         {
+            var result = report.Results[r];
             if (!result.ModuleName.Contains(moduleName, StringComparison.OrdinalIgnoreCase))
                 continue;
             for (int i = 0; i < result.Findings.Count; i++)
             {
                 if (result.Findings[i].Severity is Severity.Critical or Severity.Warning)
-                    indices.Add((result.ModuleName, i));
+                    indices.Add((r, i));
             }
         }
         return SimulateByIndices(report, indices);
@@ -108,16 +110,17 @@ public class WhatIfSimulator
     /// </summary>
     public SimulationResult SimulateByPattern(SecurityReport report, string pattern)
     {
-        var indices = new List<(string module, int findingIndex)>();
-        foreach (var result in report.Results)
+        var indices = new List<(int resultIndex, int findingIndex)>();
+        for (int r = 0; r < report.Results.Count; r++)
         {
+            var result = report.Results[r];
             for (int i = 0; i < result.Findings.Count; i++)
             {
                 var f = result.Findings[i];
                 if (f.Severity is not (Severity.Critical or Severity.Warning)) continue;
                 if (f.Title.Contains(pattern, StringComparison.OrdinalIgnoreCase) ||
                     f.Description.Contains(pattern, StringComparison.OrdinalIgnoreCase))
-                    indices.Add((result.ModuleName, i));
+                    indices.Add((r, i));
             }
         }
         return SimulateByIndices(report, indices);
@@ -128,13 +131,14 @@ public class WhatIfSimulator
     /// </summary>
     public SimulationResult SimulateFixAll(SecurityReport report)
     {
-        var indices = new List<(string module, int findingIndex)>();
-        foreach (var result in report.Results)
+        var indices = new List<(int resultIndex, int findingIndex)>();
+        for (int r = 0; r < report.Results.Count; r++)
         {
+            var result = report.Results[r];
             for (int i = 0; i < result.Findings.Count; i++)
             {
                 if (result.Findings[i].Severity is Severity.Critical or Severity.Warning)
-                    indices.Add((result.ModuleName, i));
+                    indices.Add((r, i));
             }
         }
         return SimulateByIndices(report, indices);
@@ -147,9 +151,10 @@ public class WhatIfSimulator
     public SimulationResult SimulateTopN(SecurityReport report, int count)
     {
         // Rank all actionable findings by point value (critical=20, warning=5)
-        var ranked = new List<(string module, int index, Finding finding, int points)>();
-        foreach (var result in report.Results)
+        var ranked = new List<(int resultIndex, string module, int index, Finding finding, int points)>();
+        for (int r = 0; r < report.Results.Count; r++)
         {
+            var result = report.Results[r];
             for (int i = 0; i < result.Findings.Count; i++)
             {
                 var f = result.Findings[i];
@@ -160,15 +165,16 @@ public class WhatIfSimulator
                     _ => 0
                 };
                 if (pts > 0)
-                    ranked.Add((result.ModuleName, i, f, pts));
+                    ranked.Add((r, result.ModuleName, i, f, pts));
             }
         }
 
         var topN = ranked
             .OrderByDescending(r => r.points)
             .ThenBy(r => r.module)
+            .ThenBy(r => r.resultIndex)
             .Take(count)
-            .Select(r => (r.module, r.index))
+            .Select(r => (r.resultIndex, r.index))
             .ToList();
 
         return SimulateByIndices(report, topN);
@@ -176,24 +182,30 @@ public class WhatIfSimulator
 
     /// <summary>
     /// Core simulation: remove specified findings and recalculate scores.
+    /// Findings are addressed by their result position in <see cref="SecurityReport.Results"/>
+    /// so that multiple results sharing the same ModuleName are never cross-resolved.
     /// </summary>
     private SimulationResult SimulateByIndices(SecurityReport report,
-        List<(string module, int findingIndex)> toResolve)
+        List<(int resultIndex, int findingIndex)> toResolve)
     {
         var currentScore = SecurityScorer.CalculateScore(report);
         var resolved = new List<ResolvedFinding>();
         var moduleImpacts = new List<ModuleImpact>();
 
-        // Group removals by module
-        var byModule = toResolve
-            .GroupBy(t => t.module)
+        // Group removals by result position (unique), not by the non-unique module name.
+        var byResult = toResolve
+            .GroupBy(t => t.resultIndex)
             .ToDictionary(g => g.Key, g => g.Select(x => x.findingIndex).ToHashSet());
 
-        foreach (var result in report.Results)
+        // Build the projected report alongside per-module impacts in a single pass.
+        var simReport = new SecurityReport();
+
+        for (int r = 0; r < report.Results.Count; r++)
         {
+            var result = report.Results[r];
             int scoreBefore = SecurityScorer.CalculateCategoryScore(result);
 
-            if (!byModule.TryGetValue(result.ModuleName, out var indicesToRemove))
+            if (!byResult.TryGetValue(r, out var indicesToRemove) || indicesToRemove.Count == 0)
             {
                 moduleImpacts.Add(new ModuleImpact
                 {
@@ -202,10 +214,11 @@ public class WhatIfSimulator
                     ScoreAfter = scoreBefore,
                     FindingsResolved = 0
                 });
+                simReport.Results.Add(result);
                 continue;
             }
 
-            // Build a simulated result without the resolved findings
+            // Build a simulated result without the resolved findings.
             var simResult = new AuditResult
             {
                 ModuleName = result.ModuleName,
@@ -248,33 +261,7 @@ public class WhatIfSimulator
                 ScoreAfter = scoreAfter,
                 FindingsResolved = indicesToRemove.Count
             });
-        }
-
-        // Calculate projected overall score
-        var simReport = new SecurityReport();
-        foreach (var result in report.Results)
-        {
-            if (byModule.TryGetValue(result.ModuleName, out var indices))
-            {
-                var simResult = new AuditResult
-                {
-                    ModuleName = result.ModuleName,
-                    Category = result.Category,
-                    StartTime = result.StartTime,
-                    EndTime = result.EndTime,
-                    Success = result.Success
-                };
-                for (int i = 0; i < result.Findings.Count; i++)
-                {
-                    if (!indices.Contains(i))
-                        simResult.Findings.Add(result.Findings[i]);
-                }
-                simReport.Results.Add(simResult);
-            }
-            else
-            {
-                simReport.Results.Add(result);
-            }
+            simReport.Results.Add(simResult);
         }
 
         var projectedScore = SecurityScorer.CalculateScore(simReport);

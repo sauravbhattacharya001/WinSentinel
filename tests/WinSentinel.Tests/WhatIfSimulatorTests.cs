@@ -289,4 +289,90 @@ public class WhatIfSimulatorTests
         var result = _simulator.SimulateFixAll(report);
         Assert.Equal(0, result.ScoreDelta);
     }
+
+    // ── Duplicate Module Names ───────────────────────────────────────
+    //   report.Results may contain multiple AuditResults that share the
+    //   same ModuleName. Resolution must be tracked per result instance,
+    //   not keyed by the (non-unique) module name, or findings get
+    //   cross-resolved between same-named results.
+
+    private static SecurityReport MakeReportRaw(params AuditResult[] results)
+    {
+        var report = new SecurityReport();
+        report.Results.AddRange(results);
+        report.SecurityScore = SecurityScorer.CalculateScore(report);
+        return report;
+    }
+
+    private static AuditResult MakeResult(string module, params Severity[] sevs)
+    {
+        var r = new AuditResult { ModuleName = module, Category = "Test" };
+        int i = 0;
+        foreach (var s in sevs)
+            r.Findings.Add(new Finding
+            {
+                Title = $"{module}-{i++}",
+                Description = $"Test finding {s}",
+                Severity = s,
+                Category = "Test"
+            });
+        return r;
+    }
+
+    [Fact]
+    public void DuplicateModuleName_BySeverity_DoesNotCrossResolve()
+    {
+        // Two results share ModuleName "Firewall".
+        //   [0] index0 = Critical (the real target)
+        //   [1] index0 = Pass     (must NOT be touched)
+        var report = MakeReportRaw(
+            MakeResult("Firewall", Severity.Critical),
+            MakeResult("Firewall", Severity.Pass));
+
+        var result = _simulator.SimulateBySeverity(report, Severity.Critical);
+
+        // Exactly one Critical resolved; the Pass in the second result is untouched.
+        Assert.Equal(1, result.CriticalResolved);
+        Assert.Single(result.ResolvedFindings);
+        Assert.All(result.ResolvedFindings, f => Assert.Equal(Severity.Critical, f.Severity));
+    }
+
+    [Fact]
+    public void DuplicateModuleName_ProjectedScore_IsCorrect()
+    {
+        // [0] Firewall: Critical  -> category 80
+        // [1] Firewall: Critical  -> category 80
+        // Overall current = (80+80)/2 = 80.
+        // Resolve only the FIRST result's critical: categories 100 & 80 -> 90.
+        var report = MakeReportRaw(
+            MakeResult("Firewall", Severity.Critical),
+            MakeResult("Firewall", Severity.Critical));
+
+        // Target a single result instance via SimulateByIndices-equivalent path:
+        // SimulateBySeverity resolves BOTH criticals (both match), projected = 100.
+        var both = _simulator.SimulateBySeverity(report, Severity.Critical);
+        Assert.Equal(2, both.CriticalResolved);
+        Assert.Equal(80, both.CurrentScore);
+        Assert.Equal(100, both.ProjectedScore);
+    }
+
+    [Fact]
+    public void DuplicateModuleName_ResolvedCount_NotInflated()
+    {
+        // [0] Firewall: Critical, Warning
+        // [1] Firewall: Pass, Pass
+        // FixAll should resolve exactly the 1 Critical + 1 Warning from [0],
+        // never the passes from [1].
+        var report = MakeReportRaw(
+            MakeResult("Firewall", Severity.Critical, Severity.Warning),
+            MakeResult("Firewall", Severity.Pass, Severity.Pass));
+
+        var result = _simulator.SimulateFixAll(report);
+
+        Assert.Equal(1, result.CriticalResolved);
+        Assert.Equal(1, result.WarningResolved);
+        Assert.Equal(2, result.ResolvedFindings.Count);
+        // ModuleImpacts only lists results that actually had findings resolved.
+        Assert.Equal(2, result.ModuleImpacts.Sum(m => m.FindingsResolved));
+    }
 }

@@ -412,13 +412,19 @@ public static class NetworkPostureAnalyzer
                 "netsh wlan disconnect");
         }
 
-        if (auth.Contains("WPA-Personal", StringComparison.OrdinalIgnoreCase) &&
+        // WPA1 (any flavour: "WPA-Personal", "WPA-Enterprise", or a bare "WPA").
+        // netsh reports the 802.1X variant as "WPA-Enterprise", which is just as
+        // deprecated/vulnerable (TKIP) as WPA-Personal -- matching only the
+        // literal "WPA-Personal" let a WPA1-Enterprise network fall through to the
+        // benign generic Info branch instead of warning. Match anything that
+        // mentions WPA but is neither WPA2 nor WPA3 (those are handled below).
+        if (auth.Contains("WPA", StringComparison.OrdinalIgnoreCase) &&
             !auth.Contains("WPA2", StringComparison.OrdinalIgnoreCase) &&
             !auth.Contains("WPA3", StringComparison.OrdinalIgnoreCase))
         {
             return Finding.Warning(
                 $"WPA1 Wi-Fi Security: {ssid}",
-                $"Connected to Wi-Fi network '{ssid}' using WPA1 (TKIP), which has known vulnerabilities.",
+                $"Connected to Wi-Fi network '{ssid}' using WPA1 ({auth}, TKIP), which has known vulnerabilities.",
                 Category,
                 "Upgrade your router to use WPA2-AES or WPA3.",
                 "netsh wlan disconnect");

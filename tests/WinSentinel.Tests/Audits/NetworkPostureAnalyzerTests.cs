@@ -299,6 +299,20 @@ public class NetworkPostureAnalyzerTests
         Assert.Contains("WPA1", f.Title);
     }
 
+    [Theory]
+    [InlineData("WPA-Enterprise")] // 802.1X WPA1 -- netsh's enterprise spelling
+    [InlineData("WPA")]            // bare "WPA" with no -Personal/-Enterprise suffix
+    public void WiFi_Wpa1Variants_Warn(string auth)
+    {
+        // Regression: only "WPA-Personal" used to be flagged, so a WPA1-Enterprise
+        // (or bare "WPA") network fell through to the benign generic Info branch
+        // even though WPA1/TKIP is deprecated and vulnerable. Every WPA1 flavour
+        // must warn.
+        var f = CheckWiFi(new NetworkState { WiFiConnected = true, WiFiSsid = "Legacy", WiFiAuth = auth });
+        Assert.Equal(Severity.Warning, f!.Severity);
+        Assert.Contains("WPA1", f.Title);
+    }
+
     [Fact]
     public void WiFi_Wpa2Tkip_Warns()
     {

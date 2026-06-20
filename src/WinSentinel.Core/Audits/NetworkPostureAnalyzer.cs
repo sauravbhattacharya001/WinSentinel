@@ -365,7 +365,10 @@ public static class NetworkPostureAnalyzer
     /// Classifies the connected Wi-Fi's security. Returns <c>null</c> when no Wi-Fi
     /// adapter / state was collected; an Info "not connected" when a radio exists but
     /// is idle; otherwise Critical (Open/WEP), Warning (WPA1, WPA2-TKIP) or Pass
-    /// (WPA2-AES, WPA3) based on the authentication + cipher strings.
+    /// (WPA2-AES, WPA2 with an unconfirmed cipher, WPA3) based on the authentication
+    /// + cipher strings. The confident "WPA2-AES" label is only used when the cipher
+    /// actually reports AES/CCMP - an unreadable cipher passes as a plain "WPA2" so
+    /// the finding never overstates encryption it did not verify.
     /// </summary>
     public static Finding? CheckWiFi(NetworkState state)
     {
@@ -451,9 +454,28 @@ public static class NetworkPostureAnalyzer
                     "netsh wlan disconnect");
             }
 
+            // Only assert the strong "WPA2-AES" posture when the cipher actually
+            // reports AES/CCMP. When the cipher could not be read (null/empty/N/A or
+            // some other value), WPA2 is still acceptable -- so this stays a Pass --
+            // but the finding must not overstate an unverified AES cipher (the link
+            // could in fact be running TKIP).
+            bool aesConfirmed =
+                cipherInfo.Contains("CCMP", StringComparison.OrdinalIgnoreCase) ||
+                cipherInfo.Contains("AES", StringComparison.OrdinalIgnoreCase) ||
+                cipherInfo.Contains("GCMP", StringComparison.OrdinalIgnoreCase);
+
+            if (aesConfirmed)
+            {
+                return Finding.Pass(
+                    $"WPA2-AES Wi-Fi Security: {ssid}",
+                    $"Connected to Wi-Fi network '{ssid}' with WPA2-AES encryption. Cipher: {cipherInfo}.",
+                    Category);
+            }
+
             return Finding.Pass(
-                $"WPA2-AES Wi-Fi Security: {ssid}",
-                $"Connected to Wi-Fi network '{ssid}' with WPA2-AES encryption. Cipher: {cipherInfo}.",
+                $"WPA2 Wi-Fi Security: {ssid}",
+                $"Connected to Wi-Fi network '{ssid}' using WPA2. The exact cipher could not be confirmed " +
+                "(reported as '" + cipherInfo + "'); verify the router is using WPA2-AES (CCMP) rather than the weaker TKIP.",
                 Category);
         }
 

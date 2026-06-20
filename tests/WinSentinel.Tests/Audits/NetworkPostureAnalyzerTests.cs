@@ -329,6 +329,46 @@ public class NetworkPostureAnalyzerTests
         Assert.Contains("WPA2-AES", f.Title);
     }
 
+    [Theory]
+    [InlineData("AES")]
+    [InlineData("CCMP")]
+    [InlineData("AES-CCMP")]
+    public void WiFi_Wpa2ExplicitAesCipher_ClaimsAes(string cipher)
+    {
+        // When netsh actually reports an AES/CCMP cipher we are entitled to assert
+        // the strong "WPA2-AES" posture in the finding title.
+        var f = CheckWiFi(new NetworkState { WiFiConnected = true, WiFiSsid = "Home", WiFiAuth = "WPA2-Personal", WiFiCipher = cipher });
+        Assert.Equal(Severity.Pass, f!.Severity);
+        Assert.Contains("WPA2-AES", f.Title);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("N/A")]
+    public void WiFi_Wpa2UnknownCipher_DoesNotClaimAes(string? cipher)
+    {
+        // Regression: a WPA2 network whose cipher could not be read used to be
+        // reported as "WPA2-AES Wi-Fi Security" with "Cipher: N/A" -- a confident
+        // AES claim the analyzer never actually verified (the link could be running
+        // TKIP). WPA2 itself is still acceptable, so this stays a Pass, but the
+        // title must NOT overstate the cipher as AES.
+        var f = CheckWiFi(new NetworkState { WiFiConnected = true, WiFiSsid = "Home", WiFiAuth = "WPA2-Personal", WiFiCipher = cipher });
+        Assert.Equal(Severity.Pass, f!.Severity);
+        Assert.DoesNotContain("AES", f.Title);
+        Assert.Contains("WPA2", f.Title);
+    }
+
+    [Fact]
+    public void WiFi_Wpa2UnknownCipher_BodyNotesCipherUnverified()
+    {
+        // The remediation/description should make the uncertainty explicit so a user
+        // does not read the Pass as "AES confirmed".
+        var f = CheckWiFi(new NetworkState { WiFiConnected = true, WiFiSsid = "Home", WiFiAuth = "WPA2-Personal" });
+        Assert.Equal(Severity.Pass, f!.Severity);
+        Assert.Contains("could not", f.Description, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public void WiFi_Wpa3_Passes()
     {
@@ -340,9 +380,11 @@ public class NetworkPostureAnalyzerTests
     [Fact]
     public void WiFi_Enterprise_ClassifiedAsWpa2Pass()
     {
-        // "WPA2-Enterprise" contains "WPA2"; with no TKIP cipher it passes.
+        // "WPA2-Enterprise" contains "WPA2"; with no cipher reported it still passes
+        // (WPA2 is acceptable) but must not be mislabelled as verified "WPA2-AES".
         var f = CheckWiFi(new NetworkState { WiFiConnected = true, WiFiSsid = "Ent", WiFiAuth = "WPA2-Enterprise" });
         Assert.Equal(Severity.Pass, f!.Severity);
+        Assert.DoesNotContain("AES", f.Title);
     }
 
     [Fact]

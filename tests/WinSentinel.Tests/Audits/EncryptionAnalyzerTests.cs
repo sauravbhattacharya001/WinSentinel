@@ -198,7 +198,10 @@ ManufacturerVersionFull20       : 7.2.2.0";
         Assert.True(s.IsPresent);
         Assert.True(s.IsReady);
         Assert.True(s.IsEnabled);
-        Assert.Equal("7.2.2.0", s.Version);
+        // ManufacturerVersionFull20 is the firmware revision, and its presence is a
+        // TPM 2.0-only signal -> spec Version is inferred as 2.0, firmware kept separate.
+        Assert.Equal("2.0", s.Version);
+        Assert.Equal("7.2.2.0", s.FirmwareVersion);
     }
 
     [Fact]
@@ -225,7 +228,47 @@ ManufacturerVersionFull20       : 7.2.2.0";
         var s = EncryptionAnalyzer.ParseTpmPowerShell(TpmReadyOutput);
         var f = EncryptionAnalyzer.BuildTpmPowerShellFinding(s);
         Assert.Equal(Severity.Pass, f.Severity);
+        // Firmware revision (not a bogus "spec version") is surfaced to the user.
         Assert.Contains("7.2.2.0", f.Description);
+    }
+
+    [Fact]
+    public void BuildTpm_Tpm12Present_IsOutdatedWarning_NotPass()
+    {
+        // Regression: a present-and-ready TPM that reports the 1.2 spec generation
+        // must be flagged as outdated, NOT reported as a healthy pass. Previously the
+        // PowerShell path never consulted the spec version at all, so a real TPM 1.2
+        // silently passed.
+        var s = new EncryptionAnalyzer.TpmState
+        {
+            IsPresent = true,
+            IsReady = true,
+            IsEnabled = true,
+            Version = "1.2",
+            FirmwareVersion = "3.1.0.0"
+        };
+        var f = EncryptionAnalyzer.BuildTpmPowerShellFinding(s);
+        Assert.Equal(Severity.Warning, f.Severity);
+        Assert.Contains("1.2", f.Title);
+        Assert.Contains("Outdated", f.Title);
+    }
+
+    [Fact]
+    public void BuildTpm_Tpm20Firmware_StartingWith12_StillPasses()
+    {
+        // Guard against the false-positive: a genuine TPM 2.0 whose *firmware* string
+        // happens to start with "1.2" must NOT be misread as an outdated 1.2 module,
+        // because the spec Version ("2.0") is what drives the decision.
+        var s = new EncryptionAnalyzer.TpmState
+        {
+            IsPresent = true,
+            IsReady = true,
+            IsEnabled = true,
+            Version = "2.0",
+            FirmwareVersion = "1.2.99.0"
+        };
+        var f = EncryptionAnalyzer.BuildTpmPowerShellFinding(s);
+        Assert.Equal(Severity.Pass, f.Severity);
     }
 
     [Fact]
@@ -263,6 +306,12 @@ ManufacturerVersionFull20       : 7.2.2.0";
     [InlineData("Unknown", false)]
     [InlineData(null, false)]
     [InlineData("", false)]
+    // WMI Win32_Tpm.SpecVersion is a comma-delimited list: only the leading family
+    // token decides, so revision fields starting with "1.2" must not false-positive.
+    [InlineData("1.2, 2, 3", true)]
+    [InlineData("2.0, 0, 1.59", false)]
+    [InlineData("2.0, 0, 1.2", false)]
+    [InlineData("  1.2 , 2 , 3 ", true)]
     public void IsOutdatedTpmVersion_Works(string? version, bool expected)
     {
         Assert.Equal(expected, EncryptionAnalyzer.IsOutdatedTpmVersion(version));

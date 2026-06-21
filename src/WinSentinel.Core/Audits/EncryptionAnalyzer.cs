@@ -204,12 +204,34 @@ public static class EncryptionAnalyzer
         public bool IsPresent { get; set; }
         public bool IsReady { get; set; }
         public bool IsEnabled { get; set; } = true;
+
+        /// <summary>
+        /// TPM <b>spec</b> family ("1.2", "2.0", or "Unknown") — the value that
+        /// determines whether the module is outdated. This is NOT the manufacturer
+        /// firmware revision; see <see cref="FirmwareVersion"/>.
+        /// </summary>
         public string Version { get; set; } = "Unknown";
+
+        /// <summary>
+        /// Manufacturer firmware revision (e.g. "7.2.2.0"), purely informational.
+        /// Get-Tpm only exposes this via the <c>ManufacturerVersionFull20</c> field,
+        /// which itself only exists on TPM 2.0 hardware. Never use this to decide the
+        /// spec generation — that's what <see cref="Version"/> is for.
+        /// </summary>
+        public string FirmwareVersion { get; set; } = "Unknown";
     }
 
     /// <summary>
-    /// Parse Get-Tpm output into a TpmState. Preserves the audit's original
-    /// (intentionally specific) string matching so behavior is identical.
+    /// Parse Get-Tpm output into a TpmState.
+    ///
+    /// Get-Tpm does not print a literal "spec version" field, but it does expose
+    /// <c>ManufacturerVersionFull20</c> — and that field is only emitted by the
+    /// TPM 2.0 WMI provider. So its mere presence is a reliable TPM-2.0 signal, and
+    /// its value is the manufacturer <i>firmware</i> revision (e.g. 7.2.2.0), which
+    /// must not be confused with the spec generation. We record the firmware string
+    /// separately and infer the spec family (2.0) from the field's presence; a
+    /// genuine TPM 1.2 lacks this field, so <see cref="TpmState.Version"/> stays
+    /// "Unknown" rather than being mis-derived from a firmware number.
     /// </summary>
     public static TpmState ParseTpmPowerShell(string? output)
     {
@@ -228,28 +250,46 @@ public static class EncryptionAnalyzer
             if (trimmed.StartsWith("ManufacturerVersionFull20", StringComparison.OrdinalIgnoreCase))
             {
                 var parts = trimmed.Split(':', 2);
-                if (parts.Length == 2 && parts[1].Trim().Length > 0) state.Version = parts[1].Trim();
+                if (parts.Length == 2 && parts[1].Trim().Length > 0)
+                {
+                    state.FirmwareVersion = parts[1].Trim();
+                    // The ...Full20 field is a TPM 2.0-only construct: its presence
+                    // means the module reports the 2.0 spec generation.
+                    state.Version = "2.0";
+                }
             }
         }
 
         return state;
     }
 
-    /// <summary>Build the TPM finding from PowerShell-derived state.</summary>
+    /// <summary>Build the TPM finding from PowerShell-derived state. When the module is
+    /// present but reports the outdated 1.2 spec generation, that takes precedence
+    /// over the otherwise-healthy "present &amp; ready" pass — a working TPM 1.2 is
+    /// still a posture gap (no Credential Guard, no Windows 11 support).
+    /// </summary>
     public static Finding BuildTpmPowerShellFinding(TpmState state)
     {
+        if (state.IsPresent && IsOutdatedTpmVersion(state.Version))
+        {
+            return Finding.Warning(
+                "TPM 1.2 Detected (Outdated)",
+                $"TPM is present but reports spec version {state.Version} (firmware {state.FirmwareVersion}). TPM 2.0 is required for Credential Guard and Windows 11, and is recommended for all modern hardware-backed security.",
+                Category,
+                "Upgrade to hardware with TPM 2.0 (Intel PTT / AMD fTPM provide firmware TPM 2.0 on modern CPUs).");
+        }
         if (state.IsPresent && state.IsReady && state.IsEnabled)
         {
             return Finding.Pass(
                 "TPM Present & Ready",
-                $"TPM is present, enabled, and ready. Version: {state.Version}. Hardware security features are available.",
+                $"TPM is present, enabled, and ready. Firmware: {state.FirmwareVersion}. Hardware security features are available.",
                 Category);
         }
         if (state.IsPresent && !state.IsEnabled)
         {
             return Finding.Warning(
                 "TPM Present but Disabled",
-                $"TPM is present but not enabled. Version: {state.Version}. Hardware security features are unavailable until TPM is enabled.",
+                $"TPM is present but not enabled. Firmware: {state.FirmwareVersion}. Hardware security features are unavailable until TPM is enabled.",
                 Category,
                 "Enable TPM in BIOS/UEFI settings or via tpm.msc.",
                 "powershell -Command \"Start-Process 'tpm.msc'\"");
@@ -258,7 +298,7 @@ public static class EncryptionAnalyzer
         {
             return Finding.Warning(
                 "TPM Present but Not Ready",
-                $"TPM is present and enabled but not fully ready. Version: {state.Version}. Some security features may not work.",
+                $"TPM is present and enabled but not fully ready. Firmware: {state.FirmwareVersion}. Some security features may not work.",
                 Category,
                 "Open TPM management (tpm.msc) to initialize the TPM.",
                 "powershell -Command \"Initialize-Tpm\"");
@@ -271,10 +311,21 @@ public static class EncryptionAnalyzer
             "powershell -Command \"Start-Process 'tpm.msc'\"");
     }
 
-    /// <summary>True when a TPM spec version string denotes the outdated 1.2 generation.</summary>
-    public static bool IsOutdatedTpmVersion(string? version) =>
-        !string.IsNullOrWhiteSpace(version) &&
-        version.Trim().StartsWith("1.2", StringComparison.OrdinalIgnoreCase);
+    /// <summary>
+    /// True when a TPM spec version string denotes the outdated 1.2 generation.
+    ///
+    /// Accepts both a bare family string ("1.2", "2.0") and a WMI
+    /// <c>Win32_Tpm.SpecVersion</c> list such as "1.2, 2, 3" or "2.0, 0, 1.59" —
+    /// only the <b>first</b> comma-delimited token is the spec family, so we must
+    /// not let a trailing revision field that happens to start with "1.2" (e.g.
+    /// "2.0, 0, 1.2") be misread as an outdated module.
+    /// </summary>
+    public static bool IsOutdatedTpmVersion(string? version)
+    {
+        if (string.IsNullOrWhiteSpace(version)) return false;
+        var family = version.Split(',', 2)[0].Trim();
+        return family.StartsWith("1.2", StringComparison.OrdinalIgnoreCase);
+    }
 
     // === TLS / SChannel protocols ==========================================
 

@@ -224,8 +224,10 @@ public class EncryptionAudit : AuditModuleBase
                 "Enable and activate TPM in BIOS/UEFI settings."));
         }
 
-        // Check TPM version - flag 1.2 as warning
-        if (version.StartsWith("1.2", StringComparison.OrdinalIgnoreCase))
+        // Check TPM version - flag 1.2 as warning. SpecVersion is a comma-delimited
+        // list (e.g. "1.2, 2, 3" or "2.0, 0, 1.59"); IsOutdatedTpmVersion reads only
+        // the leading family token so a trailing "1.2" revision can't false-positive.
+        if (EncryptionAnalyzer.IsOutdatedTpmVersion(version))
         {
             result.Findings.Add(Finding.Warning(
                 "TPM 1.2 Detected (Outdated)",

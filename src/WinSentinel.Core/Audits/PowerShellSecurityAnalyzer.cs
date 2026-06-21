@@ -129,6 +129,26 @@ public static class PowerShellSecurityAnalyzer
         return scopes.FirstOrDefault(p => !IsUndefined(p)) ?? UndefinedPolicy;
     }
 
+    /// <summary>
+    /// Single source of truth for "what policy is actually in force" used by every
+    /// execution-policy check. Honours an explicitly-supplied <see
+    /// cref="PowerShellState.EffectivePolicy"/> (what <see cref="PowerShellAudit"/>
+    /// sets after collection) when it is defined, otherwise derives it from the
+    /// per-scope values via <see cref="ResolveEffectivePolicy"/>.
+    ///
+    /// This closes a false-negative on the analyzer's documented synthetic-state
+    /// contract: a caller that sets per-scope policies but leaves the denormalized
+    /// <c>EffectivePolicy</c> at its "Undefined" default previously had its real
+    /// effective policy (e.g. a CurrentUser-scope <c>Bypass</c>) silently ignored.
+    /// </summary>
+    public static string EffectiveExecutionPolicy(PowerShellState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        return IsUndefined(state.EffectivePolicy)
+            ? ResolveEffectivePolicy(state)
+            : state.EffectivePolicy;
+    }
+
     // ── Execution policy ───────────────────────────────────────────────────
 
     /// <summary>
@@ -139,7 +159,7 @@ public static class PowerShellSecurityAnalyzer
     public static List<Finding> CheckExecutionPolicy(PowerShellState state)
     {
         var findings = new List<Finding>();
-        var effective = state.EffectivePolicy;
+        var effective = EffectiveExecutionPolicy(state);
 
         if (InsecurePolicies.Contains(effective))
         {
@@ -154,19 +174,19 @@ public static class PowerShellSecurityAnalyzer
         }
         else if (IsUndefined(effective))
         {
-            // If machine/user are both Undefined, Windows defaults to Restricted on
-            // client SKUs (safe) but it's better to be explicit.
-            if (IsUndefined(state.LocalMachinePolicy) && IsUndefined(state.CurrentUserPolicy))
-            {
-                findings.Add(Finding.Info(
-                    "Execution Policy: Not Explicitly Set",
-                    "No execution policy is explicitly configured. " +
-                    "Windows defaults to Restricted on client SKUs, but " +
-                    "setting it explicitly prevents ambiguity.",
-                    Category,
-                    "Set an explicit execution policy.",
-                    "Set-ExecutionPolicy RemoteSigned -Scope LocalMachine -Force"));
-            }
+            // A genuinely Undefined effective policy means every scope
+            // (Machine/User/Process/CurrentUser/LocalMachine) is unset, so Windows
+            // falls back to Restricted on client SKUs (safe) - but it is better to
+            // be explicit. Gate on the full resolved value (not a hand-picked
+            // subset of scopes) so this stays consistent with the precedence model.
+            findings.Add(Finding.Info(
+                "Execution Policy: Not Explicitly Set",
+                "No execution policy is explicitly configured. " +
+                "Windows defaults to Restricted on client SKUs, but " +
+                "setting it explicitly prevents ambiguity.",
+                Category,
+                "Set an explicit execution policy.",
+                "Set-ExecutionPolicy RemoteSigned -Scope LocalMachine -Force"));
         }
         else if (SecurePolicies.Contains(effective))
         {

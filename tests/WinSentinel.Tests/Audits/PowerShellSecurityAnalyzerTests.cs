@@ -209,6 +209,78 @@ public class PowerShellSecurityAnalyzerTests
     }
 
     // ------------------------------------------------------------------
+    // EffectiveExecutionPolicy - single source of truth (precedence-aware)
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void EffectiveExecutionPolicy_PrefersExplicitEffectivePolicy()
+    {
+        // When EffectivePolicy is already resolved (what PowerShellAudit sets), use it
+        // verbatim - even if it disagrees with a naive scope read.
+        var state = new PowerShellState
+        {
+            EffectivePolicy = "RemoteSigned",
+            CurrentUserPolicy = "Bypass"
+        };
+        Assert.Equal("RemoteSigned", EffectiveExecutionPolicy(state));
+    }
+
+    [Fact]
+    public void EffectiveExecutionPolicy_FallsBackToScopePrecedence_WhenEffectiveUnset()
+    {
+        // EffectivePolicy left at its "Undefined" default -> derive from scopes by
+        // precedence rather than silently treating the machine as unconfigured.
+        var state = new PowerShellState
+        {
+            CurrentUserPolicy = "Bypass",
+            LocalMachinePolicy = "Restricted"
+        };
+        Assert.Equal("Bypass", EffectiveExecutionPolicy(state));
+    }
+
+    [Fact]
+    public void EffectiveExecutionPolicy_AllUnset_IsUndefined()
+    {
+        Assert.Equal("Undefined", EffectiveExecutionPolicy(new PowerShellState()));
+    }
+
+    [Fact]
+    public void EffectiveExecutionPolicy_NullState_Throws()
+    {
+        Assert.Throws<ArgumentNullException>(() => EffectiveExecutionPolicy(null!));
+    }
+
+    [Fact]
+    public void CheckExecutionPolicy_InsecureScope_WithoutPrecomputedEffective_IsCritical()
+    {
+        // Regression: a CurrentUser-scope Bypass with EffectivePolicy left unset must
+        // still be flagged Critical. Previously CheckExecutionPolicy read the raw
+        // (default "Undefined") EffectivePolicy field and reported a benign "Not
+        // Explicitly Set" Info - a security false-negative on synthetic state.
+        var findings = CheckExecutionPolicy(new PowerShellState
+        {
+            CurrentUserPolicy = "Bypass"
+        });
+        var crit = Assert.Single(findings, f => f.Severity == Severity.Critical);
+        Assert.Contains("Bypass", crit.Title);
+        Assert.DoesNotContain(findings, f => f.Title.Contains("Not Explicitly Set"));
+    }
+
+    [Fact]
+    public void CheckExecutionPolicy_SecureScope_WithoutPrecomputedEffective_IsPass()
+    {
+        // The mirror case: a single secure scope resolves to Pass, not the
+        // unconfigured Info, even when EffectivePolicy is not pre-set.
+        var findings = CheckExecutionPolicy(new PowerShellState
+        {
+            LocalMachinePolicy = "AllSigned"
+        });
+        var f = Assert.Single(findings);
+        Assert.Equal(Severity.Pass, f.Severity);
+        Assert.Contains("AllSigned", f.Title);
+    }
+
+    // ------------------------------------------------------------------
     // Individual checks called directly
     // ------------------------------------------------------------------
 

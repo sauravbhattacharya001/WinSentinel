@@ -130,6 +130,75 @@ public class EventLogAnalyzerTests
         Assert.Empty(EventLogAnalyzer.RankTopCounts(new Dictionary<string, int>()));
     }
 
+    [Fact]
+    public void RankTopCounts_TiedCounts_BreakTiesByOrdinalKey()
+    {
+        // Every key shares the same count, so ordering is decided entirely by the
+        // tie-break. Insertion order here is deliberately scrambled to prove the
+        // result does not depend on dictionary enumeration order.
+        var counts = new Dictionary<string, int>
+        {
+            ["charlie"] = 3,
+            ["alice"] = 3,
+            ["bob"] = 3,
+        };
+        var ranked = EventLogAnalyzer.RankTopCounts(counts);
+        Assert.Equal(new[] { "alice (3x)", "bob (3x)", "charlie (3x)" }, ranked);
+    }
+
+    [Fact]
+    public void RankTopCounts_CountTakesPrecedenceOverKey()
+    {
+        // Count is the primary key: a higher count always outranks an
+        // alphabetically-earlier name. "zeta" (10) must precede "alpha" (2).
+        var counts = new Dictionary<string, int>
+        {
+            ["alpha"] = 2,
+            ["zeta"] = 10,
+            ["mike"] = 2,
+        };
+        var ranked = EventLogAnalyzer.RankTopCounts(counts);
+        Assert.Equal(new[] { "zeta (10x)", "alpha (2x)", "mike (2x)" }, ranked);
+    }
+
+    [Fact]
+    public void RankTopCounts_TiedAtCutoff_SelectsDeterministicSubset()
+    {
+        // 8 entries tied at count 1, take=3: WHICH three survive the cut must be
+        // deterministic (the ordinal-lowest three), not an arbitrary slice of the
+        // dictionary. Build the dictionary in reverse order to make a naive
+        // "first three enumerated" implementation visibly wrong.
+        var counts = new Dictionary<string, int>();
+        foreach (var name in new[] { "h", "g", "f", "e", "d", "c", "b", "a" })
+            counts[name] = 1;
+        var ranked = EventLogAnalyzer.RankTopCounts(counts, take: 3);
+        Assert.Equal(new[] { "a (1x)", "b (1x)", "c (1x)" }, ranked);
+    }
+
+    [Fact]
+    public void RankTopCounts_IsStableAcrossDifferentInsertionOrders()
+    {
+        // Same data, two different insertion orders -> identical ranked output.
+        // This is the property that prevents phantom diffs between two scans.
+        var forward = new Dictionary<string, int>
+        {
+            ["10.0.0.1"] = 4,
+            ["10.0.0.2"] = 4,
+            ["10.0.0.3"] = 7,
+            ["10.0.0.4"] = 1,
+        };
+        var reverse = new Dictionary<string, int>
+        {
+            ["10.0.0.4"] = 1,
+            ["10.0.0.3"] = 7,
+            ["10.0.0.2"] = 4,
+            ["10.0.0.1"] = 4,
+        };
+        Assert.Equal(
+            EventLogAnalyzer.RankTopCounts(forward),
+            EventLogAnalyzer.RankTopCounts(reverse));
+    }
+
     // ----------------------------------------------------------------------
     // IsSuspiciousPowerShell
     // ----------------------------------------------------------------------

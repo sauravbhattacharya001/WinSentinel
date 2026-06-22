@@ -137,11 +137,21 @@ public static class EventLogAnalyzer
     /// <summary>
     /// Rank a name→count tally into the top <paramref name="take"/> "name (Nx)" fragments,
     /// ordered by descending count. Used for top targeted users / source IPs / lockout accounts.
+    ///
+    /// Ties are broken by ascending key (ordinal) so the output is fully deterministic.
+    /// A bare <c>OrderByDescending(kv =&gt; kv.Value)</c> is a <em>stable</em> sort, but the
+    /// input is an <see cref="IReadOnlyDictionary{TKey,TValue}"/> whose enumeration order is
+    /// not defined — it depends on insertion order, hash-bucket layout and any prior removals.
+    /// Without a secondary key, two scans of <em>identical</em> event data could surface a
+    /// different set of equally-frequent users/IPs at the <paramref name="take"/> cut-off (or
+    /// the same set in a different order), producing phantom diffs in score history /
+    /// <c>winsentinel diff</c>. The ordinal key tie-break removes that non-determinism.
     /// </summary>
     public static IReadOnlyList<string> RankTopCounts(IReadOnlyDictionary<string, int> counts, int take = 5)
     {
         if (counts is null || counts.Count == 0) return Array.Empty<string>();
         return counts.OrderByDescending(kv => kv.Value)
+            .ThenBy(kv => kv.Key, StringComparer.Ordinal)
             .Take(take)
             .Select(kv => $"{kv.Key} ({kv.Value}x)")
             .ToList();

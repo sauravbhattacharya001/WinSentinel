@@ -745,12 +745,26 @@ public class EventLogAnalyzerTests
     [Theory]
     [InlineData("LogMode : Retain", -1)]
     [InlineData("LogMode : Circular", 0)]
-    [InlineData("LogMode : AutoBackup", 7)]   // unknown mode => fallback
+    [InlineData("LogMode : AutoBackup", -1)] // archive-when-full: events are never overwritten => -1
+    [InlineData("LogMode : autobackup", -1)] // EventLogMode match is case-insensitive
+    [InlineData("LogMode : Streaming", 7)]   // genuinely unknown mode => fallback
     [InlineData("no mode", 7)]                 // no match => fallback
     [InlineData(null, 7)]
     public void ParseRetentionFromLogMode_MapsModes(string? psOutput, int expected)
     {
         Assert.Equal(expected, EventLogAnalyzer.ParseRetentionFromLogMode(psOutput, fallback: 7));
+    }
+
+    [Fact]
+    public void ParseRetentionFromLogMode_AutoBackup_TripsDoNotOverwriteFinding()
+    {
+        // AutoBackup must flow through to the denial-of-logging warning, exactly like Retain,
+        // because an archive-when-full log will silently drop new events once it fills if not
+        // actively archived. Misclassifying it as 0 (overwrite-as-needed) hid this finding.
+        var retention = EventLogAnalyzer.ParseRetentionFromLogMode("LogMode : AutoBackup", fallback: 0);
+        Assert.Equal(-1, retention);
+        Assert.NotNull(EventLogAnalyzer.BuildDoNotOverwriteFinding(retention));
+        Assert.Equal("Do not overwrite (archive/manual clear)", EventLogAnalyzer.DescribeRetentionMode(retention));
     }
 
     // ----------------------------------------------------------------------

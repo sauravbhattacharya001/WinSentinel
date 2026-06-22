@@ -632,8 +632,19 @@ public static class EventLogAnalyzer
     }
 
     /// <summary>
-    /// Map a <c>LogMode</c> string to a retention sentinel: Retain =&gt; -1, Circular =&gt; 0,
-    /// otherwise the <paramref name="fallback"/>.
+    /// Map a <c>LogMode</c> string to a retention sentinel. <c>LogMode</c> comes from
+    /// <see cref="!:System.Diagnostics.Eventing.Reader.EventLogMode"/>, whose only three
+    /// members are <c>Circular</c>, <c>Retain</c>, and <c>AutoBackup</c>:
+    /// <list type="bullet">
+    ///   <item><c>Circular</c> — overwrite the oldest events when full =&gt; <c>0</c> (overwrite as needed).</item>
+    ///   <item><c>Retain</c> — keep all events, stop logging when full =&gt; <c>-1</c> (do not overwrite).</item>
+    ///   <item><c>AutoBackup</c> — archive the log when full and start a fresh one; events are
+    ///         <em>never overwritten</em> =&gt; <c>-1</c> (do not overwrite / archive). This is the
+    ///         "Archive the log when full" radio button in Event Viewer's log properties.</item>
+    /// </list>
+    /// Both <c>Retain</c> and <c>AutoBackup</c> mean the log will not overwrite events, so both map
+    /// to <c>-1</c> — that is what trips the denial-of-logging warning and the
+    /// "do not overwrite" retention label. Anything unrecognised returns the <paramref name="fallback"/>.
     /// </summary>
     public static int ParseRetentionFromLogMode(string? psOutput, int fallback = 0)
     {
@@ -641,7 +652,10 @@ public static class EventLogAnalyzer
         var m = Regex.Match(psOutput, @"LogMode\s*:\s*(\w+)");
         if (!m.Success) return fallback;
         var mode = m.Groups[1].Value;
+        // Retain and AutoBackup both stop the log from overwriting events (archive vs. block),
+        // so both surface as -1 "do not overwrite"; Circular is the normal overwrite-as-needed mode.
         if (mode.Equals("Retain", StringComparison.OrdinalIgnoreCase)) return -1;
+        if (mode.Equals("AutoBackup", StringComparison.OrdinalIgnoreCase)) return -1;
         if (mode.Equals("Circular", StringComparison.OrdinalIgnoreCase)) return 0;
         return fallback;
     }

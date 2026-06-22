@@ -388,6 +388,55 @@ public class EventLogAnalyzerTests
         Assert.Contains("Logon (Logon/Logoff)", scan!.Gaps);
     }
 
+    [Fact]
+    public void ParseAuditPolicy_SpecialLogonBeforeLogon_DoesNotMisattributeLogon()
+    {
+        // Regression: "Logon" is a substring of "Special Logon". A loose Contains
+        // match would bind the "Logon" subcategory to whichever such line appears
+        // first. Here "Special Logon" is listed first and is disabled, while the
+        // real "Logon" subcategory is fully enabled — "Logon" must NOT be reported
+        // as a gap, and "Special Logon" must be the only collision-affected gap.
+        var lines = new[]
+        {
+            "Special Logon            No Auditing",
+            "Logon                    Success and Failure",
+            "Logoff                   Success and Failure",
+            "Account Lockout          Success and Failure",
+        };
+        var scan = EventLogAnalyzer.ParseAuditPolicy(string.Join("\n", lines));
+        Assert.NotNull(scan);
+        Assert.DoesNotContain("Logon (Logon/Logoff)", scan!.Gaps);
+        Assert.Contains("Special Logon (Logon/Logoff)", scan.Gaps);
+        Assert.Contains("Logon", scan.Enabled);          // the real Logon line, enabled
+        Assert.DoesNotContain("Special Logon", scan.Enabled);
+    }
+
+    [Fact]
+    public void ParseAuditPolicy_SpecialLogonGap_DoesNotAlsoFlagLogon()
+    {
+        // When ONLY "Special Logon" is present and disabled (no "Logon" line at all),
+        // the loose match used to manufacture a phantom "Logon" gap off the
+        // "Special Logon" line. With token-anchored matching, "Logon" is simply
+        // absent (skipped), and the sole gap is "Special Logon".
+        var scan = EventLogAnalyzer.ParseAuditPolicy("Special Logon            No Auditing");
+        Assert.NotNull(scan);
+        Assert.Contains("Special Logon (Logon/Logoff)", scan!.Gaps);
+        Assert.DoesNotContain("Logon (Logon/Logoff)", scan.Gaps);
+        Assert.Single(scan.Gaps);
+    }
+
+    [Theory]
+    [InlineData("Logon                    Success and Failure", "Logon", true)]
+    [InlineData("Logon", "Logon", true)]                         // bare name, no setting column
+    [InlineData("Special Logon            No Auditing", "Logon", false)] // collision rejected
+    [InlineData("Logon/Logoff", "Logon", false)]                 // category header, not bounded
+    [InlineData("logon  Success", "Logon", true)]                // case-insensitive (pre-trimmed)
+    [InlineData("", "Logon", false)]
+    public void LineStartsWithSubcategory_AnchorsToWholeToken(string line, string sub, bool expected)
+    {
+        Assert.Equal(expected, EventLogAnalyzer.LineStartsWithSubcategory(line, sub));
+    }
+
     // ----------------------------------------------------------------------
     // Service installs (7045)
     // ----------------------------------------------------------------------

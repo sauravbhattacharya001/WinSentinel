@@ -299,8 +299,16 @@ public static class EventLogAnalyzer
             var subcategory = kvp.Key;
             var parentCategory = kvp.Value;
 
+            // Match the subcategory as a leading token on the (already TrimEntries'd)
+            // line, NOT a free substring anywhere on it. A loose Contains lets the
+            // shorter "Logon" subcategory match a "Special Logon" line (substring
+            // collision), which — depending on auditpol output ordering — misreports
+            // "Logon" using "Special Logon"'s setting (e.g. a false gap, or a duplicate
+            // when both share the same wording). Anchoring to the start with a
+            // whitespace/end boundary keeps each required subcategory bound to its
+            // own line. Category headers are still excluded.
             var line = lines.FirstOrDefault(l =>
-                l.Contains(subcategory, StringComparison.OrdinalIgnoreCase) &&
+                LineStartsWithSubcategory(l, subcategory) &&
                 !l.StartsWith("Category", StringComparison.OrdinalIgnoreCase));
 
             if (line == null) continue;
@@ -312,6 +320,25 @@ public static class EventLogAnalyzer
         }
 
         return new AuditPolicyScan(gaps, enabled);
+    }
+
+    /// <summary>
+    /// True when a (whitespace-trimmed) auditpol line names exactly
+    /// <paramref name="subcategory"/> as its leading subcategory token — i.e. the
+    /// line starts with the name and the name is bounded by whitespace or end of
+    /// line. This avoids the substring collision where "Logon" would otherwise
+    /// match a "Special Logon" line. Case-insensitive; the line is expected to be
+    /// pre-trimmed (the caller splits with <see cref="StringSplitOptions.TrimEntries"/>).
+    /// </summary>
+    internal static bool LineStartsWithSubcategory(string? line, string subcategory)
+    {
+        if (string.IsNullOrEmpty(line) || string.IsNullOrEmpty(subcategory)) return false;
+        if (!line.StartsWith(subcategory, StringComparison.OrdinalIgnoreCase)) return false;
+        // Exact length → whole line is the name; otherwise the next char must be a
+        // separator (auditpol pads subcategory → setting with spaces/tabs), so
+        // "Logon" does not match "Logon/Logoff" or a longer name either.
+        if (line.Length == subcategory.Length) return true;
+        return char.IsWhiteSpace(line[subcategory.Length]);
     }
 
     /// <summary>

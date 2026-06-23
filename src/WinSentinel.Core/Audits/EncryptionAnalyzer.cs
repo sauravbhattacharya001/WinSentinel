@@ -238,11 +238,35 @@ public static class EncryptionAnalyzer
         var state = new TpmState();
         if (string.IsNullOrWhiteSpace(output)) return state;
 
-        state.IsPresent = output.Contains("TpmPresent", StringComparison.OrdinalIgnoreCase) &&
-                          output.Contains(": True", StringComparison.OrdinalIgnoreCase);
-        state.IsReady = output.Contains("TpmReady", StringComparison.OrdinalIgnoreCase) &&
-                        output.Contains("TpmReady                        : True", StringComparison.OrdinalIgnoreCase);
-        state.IsEnabled = !output.Contains("TpmEnabled                      : False", StringComparison.OrdinalIgnoreCase);
+        // Parse each Get-Tpm field on its OWN line: <FieldName> [spaces] : <Value>.
+        // Matching the whole-output text for a bare ": True" was a substring-collision
+        // bug - on a machine with NO TPM (TpmPresent : False), any *other* field that
+        // reads ": True" (e.g. RestartPending, AutoProvisioning) made IsPresent flip
+        // true, so "TPM Not Available" was mis-reported as "TPM Present but Disabled".
+        // Reading the value of the specific field (and defaulting IsEnabled to true only
+        // when the field is absent, preserving the prior !"...: False" behaviour) fixes
+        // that and also tolerates varying column widths instead of hardcoded spacing.
+        var fields = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var line in output.Split('\n'))
+        {
+            var trimmed = line.Trim();
+            int colon = trimmed.IndexOf(':');
+            if (colon <= 0) continue;
+            var name = trimmed[..colon].TrimEnd();
+            var value = trimmed[(colon + 1)..].Trim();
+            // First occurrence wins; Get-Tpm prints each field once.
+            if (name.Length > 0 && !fields.ContainsKey(name)) fields[name] = value;
+        }
+
+        static bool FieldIsTrue(Dictionary<string, string> f, string key) =>
+            f.TryGetValue(key, out var v) && v.Equals("True", StringComparison.OrdinalIgnoreCase);
+
+        state.IsPresent = FieldIsTrue(fields, "TpmPresent");
+        state.IsReady = FieldIsTrue(fields, "TpmReady");
+        // Enabled unless explicitly reported False (preserves the prior default-true
+        // behaviour for outputs that omit TpmEnabled, e.g. the disabled-detection test).
+        state.IsEnabled = !(fields.TryGetValue("TpmEnabled", out var en) &&
+                            en.Equals("False", StringComparison.OrdinalIgnoreCase));
 
         foreach (var line in output.Split('\n'))
         {

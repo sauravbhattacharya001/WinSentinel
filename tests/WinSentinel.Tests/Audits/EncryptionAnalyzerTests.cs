@@ -223,6 +223,56 @@ ManufacturerVersionFull20       : 7.2.2.0";
     }
 
     [Fact]
+    public void ParseTpm_NotPresent_OtherFieldTrue_NotMisdetected()
+    {
+        // Regression: ParseTpmPowerShell matched a bare ": True" anywhere in the whole
+        // Get-Tpm output, so a machine with NO TPM (TpmPresent : False) but ANY other
+        // field reading ": True" (here RestartPending) was misdetected as present ->
+        // "TPM Present but Disabled" instead of "TPM Not Available". Each field must be
+        // read by its own name on its own line.
+        var output =
+            "TpmPresent                      : False\n" +
+            "TpmReady                        : False\n" +
+            "TpmEnabled                      : False\n" +
+            "TpmActivated                    : False\n" +
+            "RestartPending                  : True\n" +
+            "LockedOut                       : False";
+        var s = EncryptionAnalyzer.ParseTpmPowerShell(output);
+        Assert.False(s.IsPresent);
+        Assert.False(s.IsReady);
+        var f = EncryptionAnalyzer.BuildTpmPowerShellFinding(s);
+        Assert.Equal("TPM Not Available", f.Title);
+    }
+
+    [Fact]
+    public void ParseTpm_ReadyFalse_OtherFieldTrue_NotMisreadAsReady()
+    {
+        // The old IsReady check keyed on the exact-spacing literal
+        // "TpmReady                        : True"; with the field-name parse it now
+        // reads TpmReady's own value, so an unrelated ": True" never flips IsReady.
+        var output =
+            "TpmPresent                      : True\n" +
+            "TpmReady                        : False\n" +
+            "TpmEnabled                      : True";
+        var s = EncryptionAnalyzer.ParseTpmPowerShell(output);
+        Assert.True(s.IsPresent);
+        Assert.True(s.IsEnabled);
+        Assert.False(s.IsReady);
+    }
+
+    [Fact]
+    public void ParseTpm_TolerantOfColumnSpacing()
+    {
+        // Field values are read after the field-name + colon regardless of the
+        // (variable) column padding Get-Tpm uses, not via a hardcoded-width literal.
+        var output = "TpmPresent : True\nTpmReady: True\nTpmEnabled   :   True";
+        var s = EncryptionAnalyzer.ParseTpmPowerShell(output);
+        Assert.True(s.IsPresent);
+        Assert.True(s.IsReady);
+        Assert.True(s.IsEnabled);
+    }
+
+    [Fact]
     public void BuildTpm_PresentReadyEnabled_IsPass()
     {
         var s = EncryptionAnalyzer.ParseTpmPowerShell(TpmReadyOutput);

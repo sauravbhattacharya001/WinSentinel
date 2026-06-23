@@ -622,12 +622,23 @@ public static class EventLogAnalyzer
     }
 
     /// <summary>
-    /// Extract <c>MaximumSizeInBytes</c> from Get-WinEvent -ListLog output. Returns 0 when not found.
+    /// Extract <c>MaximumSizeInBytes</c> from <c>Get-WinEvent -ListLog</c> output (a <c>Format-List</c>
+    /// block of <c>Property : Value</c> lines). Returns 0 when not found.
     /// </summary>
+    /// <remarks>
+    /// The property name is anchored to the start of a line (after optional indentation) with a
+    /// trailing word boundary, so a longer-named property that merely <em>ends with</em>
+    /// <c>MaximumSizeInBytes</c> (e.g. a hypothetical <c>OwningProviderMaximumSizeInBytes</c>), or the
+    /// literal substring appearing inside another property's <em>value</em>, cannot be mistaken for the
+    /// real <c>MaximumSizeInBytes</c> line and bind a bogus size. Without the anchor the unbounded
+    /// match grabbed whichever <c>...MaximumSizeInBytes : N</c> appeared first, which could be the wrong
+    /// value entirely (same substring-collision class as <c>ParseAuditPolicy</c>).
+    /// </remarks>
     public static long ParseMaxSizeFromPowerShell(string? psOutput)
     {
         if (string.IsNullOrWhiteSpace(psOutput)) return 0;
-        var m = Regex.Match(psOutput, @"MaximumSizeInBytes\s*:\s*(\d+)");
+        // ^...\b in multiline mode: the token must be a whole property name at line start, not a suffix.
+        var m = Regex.Match(psOutput, @"^\s*MaximumSizeInBytes\b\s*:\s*(\d+)", RegexOptions.Multiline);
         return m.Success && long.TryParse(m.Groups[1].Value, out var bytes) ? bytes : 0;
     }
 

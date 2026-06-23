@@ -737,9 +737,34 @@ public class EventLogAnalyzerTests
     [InlineData("no size here", 0L)]
     [InlineData(null, 0L)]
     [InlineData("", 0L)]
+    // Real `... | Select-Object MaximumSizeInBytes,LogMode | Format-List` shape: the size line is
+    // followed by the LogMode line; the colon in LogMode must not derail the size capture.
+    [InlineData("MaximumSizeInBytes : 134217728\r\nLogMode            : Circular\r\n", 134217728L)]
+    // The property name is anchored to line-start with a word boundary, so a LONGER-named property
+    // ending in "MaximumSizeInBytes" (listed first by Format-List) cannot bind its bogus value.
+    // Before the fix the unbounded regex returned 1024 here instead of the real 134217728.
+    [InlineData("OwningProviderMaximumSizeInBytes : 1024\r\nMaximumSizeInBytes : 134217728\r\n", 134217728L)]
+    // The literal substring appearing inside another property's VALUE must likewise be ignored;
+    // only a real "MaximumSizeInBytes :" property line counts. Pre-fix this returned 999.
+    [InlineData("LogFilePath : C:\\Logs\\MaximumSizeInBytes : 999.evtx\r\nMaximumSizeInBytes : 20971520\r\n", 20971520L)]
     public void ParseMaxSizeFromPowerShell_ExtractsBytes(string? psOutput, long expected)
     {
         Assert.Equal(expected, EventLogAnalyzer.ParseMaxSizeFromPowerShell(psOutput));
+    }
+
+    [Fact]
+    public void ParseMaxSizeFromPowerShell_IgnoresLongerNamedPropertyToken()
+    {
+        // Regression: the size-parsing regex had no left boundary, so any property whose name merely
+        // ENDED WITH "MaximumSizeInBytes" (or the substring inside a value) could be matched first and
+        // bind a wrong size. A wrong size silently corrupts the Security-log-size finding (e.g. a
+        // 128 MB log mis-read as 1 KB would fire a false "too small" warning, or vice versa). The
+        // token is now anchored to the start of a line with a trailing word boundary.
+        const string psOutput =
+            "OwningProviderMaximumSizeInBytes : 1024\r\n" + // longer-named token, bogus value, listed first
+            "MaximumSizeInBytes               : 134217728\r\n" +
+            "LogMode                          : Circular\r\n";
+        Assert.Equal(134217728L, EventLogAnalyzer.ParseMaxSizeFromPowerShell(psOutput));
     }
 
     [Theory]

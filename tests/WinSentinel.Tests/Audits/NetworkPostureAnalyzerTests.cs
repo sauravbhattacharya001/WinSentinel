@@ -487,6 +487,26 @@ public class NetworkPostureAnalyzerTests
     }
 
     [Fact]
+    public void Arp_IgnoresGroupMacsAcrossMultipleIps_NoFalseSpoofWarning()
+    {
+        // STP/bridge (01-80-c2) and Cisco CDP (01-00-0c) are group/multicast MACs
+        // that legitimately appear against several IPs on a switched network.
+        // They must NOT be flagged as duplicate-MAC ARP spoofing.
+        var f = CheckArp(new NetworkState
+        {
+            ArpEntries = new()
+            {
+                new("10.0.0.1", "01-80-c2-00-00-00"),
+                new("10.0.0.2", "01-80-c2-00-00-00"),
+                new("10.0.0.3", "01-00-0c-cc-cc-cc"),
+                new("10.0.0.4", "01-00-0c-cc-cc-cc"),
+            },
+        });
+        Assert.Equal(Severity.Pass, f.Severity);
+        Assert.DoesNotContain("Duplicate MAC", f.Title);
+    }
+
+    [Fact]
     public void Arp_QueryFailed_PassesUnavailable()
     {
         var f = CheckArp(new NetworkState { ArpQueryFailed = true, ArpError = "access denied" });
@@ -504,11 +524,23 @@ public class NetworkPostureAnalyzerTests
     }
 
     [Theory]
-    [InlineData("ff-ff-ff-ff-ff-ff", true)]
-    [InlineData("01-00-5e-12-34-56", true)]
-    [InlineData("33-33-00-00-00-fb", true)]
-    [InlineData("aa-bb-cc-dd-ee-ff", false)]
+    [InlineData("ff-ff-ff-ff-ff-ff", true)]   // broadcast
+    [InlineData("01-00-5e-12-34-56", true)]   // IPv4 multicast
+    [InlineData("33-33-00-00-00-fb", true)]   // IPv6 multicast
+    [InlineData("01-80-c2-00-00-00", true)]   // IEEE 802.1D STP / bridge group
+    [InlineData("01-80-c2-00-00-0e", true)]   // LLDP
+    [InlineData("01-00-0c-cc-cc-cc", true)]   // Cisco CDP/VTP
+    [InlineData("09-00-2b-00-00-0f", true)]   // DEC group (odd first octet)
+    [InlineData("03-bf-12-34-56-78", true)]   // arbitrary odd first octet => group
+    [InlineData("01:80:c2:00:00:00", true)]   // colon-separated multicast
+    [InlineData("0180c2000000", true)]        // contiguous multicast
+    [InlineData("aa-bb-cc-dd-ee-ff", false)]  // locally-administered unicast
+    [InlineData("02-00-00-00-00-01", false)]  // locally-administered unicast (LSB of first octet = 0)
+    [InlineData("00-1a-2b-3c-4d-5e", false)]  // globally-unique unicast
+    [InlineData("AA-BB-CC-DD-EE-FF", false)]  // uppercase unicast
     [InlineData("", false)]
+    [InlineData("   ", false)]
+    [InlineData("not-a-mac", false)]          // unparseable first octet => not group
     public void IsBroadcastOrMulticastMac_Classifies(string mac, bool expected) =>
         Assert.Equal(expected, IsBroadcastOrMulticastMac(mac));
 

@@ -604,15 +604,54 @@ public static class NetworkPostureAnalyzer
     }
 
     /// <summary>
-    /// True for broadcast (ff-ff-...) and IPv4/IPv6 multicast (01-00-5e / 33-33)
-    /// MAC prefixes, which should never be treated as spoofing duplicates.
+    /// True for the broadcast address and for any group/multicast MAC, which
+    /// must never be treated as ARP-spoofing duplicates.
+    /// <para>
+    /// A MAC is group/multicast iff the least-significant bit of the FIRST octet
+    /// (the I/G bit) is set — i.e. the first hex byte is odd. This covers far more
+    /// than the two most common prefixes: besides IPv4 multicast (01-00-5e) and
+    /// IPv6 multicast (33-33), it correctly classifies IEEE 802.1 bridge/STP/LLDP
+    /// group addresses (01-80-c2-…), Cisco CDP/VTP/PVST (01-00-0c-…) and any other
+    /// odd-first-octet group MAC. These legitimately appear against multiple IPs
+    /// on a switched network, so the previous prefix-only check false-flagged them
+    /// as duplicate-MAC spoofing.
+    /// </para>
     /// </summary>
     public static bool IsBroadcastOrMulticastMac(string mac)
     {
         if (string.IsNullOrWhiteSpace(mac)) return false;
-        return mac.Equals("ff-ff-ff-ff-ff-ff", StringComparison.OrdinalIgnoreCase)
-            || mac.StartsWith("01-00-5e", StringComparison.OrdinalIgnoreCase)   // IPv4 multicast
-            || mac.StartsWith("33-33", StringComparison.OrdinalIgnoreCase);      // IPv6 multicast
+        if (mac.Equals("ff-ff-ff-ff-ff-ff", StringComparison.OrdinalIgnoreCase)) return true; // broadcast
+        // Group/multicast: I/G bit (LSB of the first octet) set ⇒ first byte is odd.
+        return TryGetFirstOctet(mac, out var first) && (first & 0x01) != 0;
+    }
+
+    /// <summary>
+    /// Parse the first octet of a MAC address. Tolerant of the formats that can
+    /// reach this code: hyphen- or colon-separated (aa-bb-… / aa:bb:…), a single
+    /// contiguous run of hex (aabbcc…), or dot groups (aabb.ccdd.…). Returns false
+    /// if no leading hex byte can be read.
+    /// </summary>
+    private static bool TryGetFirstOctet(string mac, out int value)
+    {
+        value = 0;
+        var trimmed = mac.Trim();
+        if (trimmed.Length == 0) return false;
+        // Take leading hex chars up to the first separator (- : .) or two chars.
+        int i = 0;
+        var hex = new char[2];
+        int n = 0;
+        while (i < trimmed.Length && n < 2)
+        {
+            char c = trimmed[i];
+            if (c == '-' || c == ':' || c == '.') break;
+            bool isHex = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+            if (!isHex) return false;
+            hex[n++] = c;
+            i++;
+        }
+        if (n == 0) return false;
+        return int.TryParse(new string(hex, 0, n), System.Globalization.NumberStyles.HexNumber,
+            System.Globalization.CultureInfo.InvariantCulture, out value);
     }
 
     // ── IPv6 ─────────────────────────────────────────────────────────────────────

@@ -109,6 +109,85 @@ Volume C: [OSDisk]
         Assert.Equal("XTS-AES 256", s.EncryptionMethod);
     }
 
+    // Regression: real `manage-bde -status` prints a single space after the colon
+    // ("Percentage Encrypted: 100.0%") and the conversion status can read "Encrypted"
+    // rather than "Fully Encrypted". The old spacing-brittle literals
+    // ("percentage encrypted:    100") never matched that, so a fully-encrypted,
+    // protected OS volume fell through to Partial ("encryption in progress").
+    [Fact]
+    public void ParseBitLocker_ManageBde100SingleSpace_NoFullyWord_Encrypted()
+    {
+        var output = @"
+Volume C: [OSDisk]
+    Conversion Status:    Encrypted
+    Percentage Encrypted: 100.0%
+    Encryption Method:    XTS-AES 256
+    Protection Status:    Protection On
+    Key Protectors:
+        TPM";
+        var s = EncryptionAnalyzer.ParseBitLockerStatus(output);
+        Assert.Equal(EncryptionAnalyzer.BitLockerStatus.Encrypted, s.Status);
+    }
+
+    // Regression: the old isNotEncrypted check did
+    // (Contains("encryptionpercentage") && Contains(": 0")), and the ": 0" matched any
+    // unrelated field (here WipePercentage : 0). A 45%-encrypting protected volume was
+    // therefore mis-reported NotEncrypted (Critical) instead of Partial.
+    [Fact]
+    public void ParseBitLocker_PartialWithUnrelatedZeroField_StaysPartial()
+    {
+        var output = "VolumeStatus          : EncryptionInProgress\n" +
+                     "EncryptionPercentage  : 45\n" +
+                     "WipePercentage        : 0\n" +
+                     "ProtectionStatus      : On\n" +
+                     "EncryptionMethod      : XtsAes256";
+        var s = EncryptionAnalyzer.ParseBitLockerStatus(output);
+        Assert.Equal(EncryptionAnalyzer.BitLockerStatus.Partial, s.Status);
+    }
+
+    // Regression: a fully-encrypted volume with an unrelated ": 0" field must stay
+    // Encrypted (not be dragged toward NotEncrypted by the old substring collision).
+    [Fact]
+    public void ParseBitLocker_FullyEncryptedWithUnrelatedZeroField_Encrypted()
+    {
+        var output = "VolumeStatus          : FullyEncrypted\n" +
+                     "EncryptionPercentage  : 100\n" +
+                     "WipePercentage        : 0\n" +
+                     "ProtectionStatus      : On\n" +
+                     "EncryptionMethod      : XtsAes256";
+        var s = EncryptionAnalyzer.ParseBitLockerStatus(output);
+        Assert.Equal(EncryptionAnalyzer.BitLockerStatus.Encrypted, s.Status);
+    }
+
+    // The numeric parse reads the FIRST token of the percentage field's value, so a
+    // mid-conversion drive at a non-round percentage is correctly Partial.
+    [Fact]
+    public void ParseBitLocker_ManageBde72Percent_Partial()
+    {
+        var output = @"
+    Conversion Status:    Encryption in Progress
+    Percentage Encrypted: 72.4%
+    Protection Status:    Protection On";
+        var s = EncryptionAnalyzer.ParseBitLockerStatus(output);
+        Assert.Equal(EncryptionAnalyzer.BitLockerStatus.Partial, s.Status);
+    }
+
+    [Theory]
+    [InlineData("100.0%", true, 100)]
+    [InlineData("100", true, 100)]
+    [InlineData("0.0%", true, 0)]
+    [InlineData("45", true, 45)]
+    [InlineData(" 72.4% ", true, 72.4)]
+    [InlineData("On", false, 0)]
+    [InlineData("", false, 0)]
+    [InlineData(null, false, 0)]
+    public void TryParseLeadingPercent_ParsesLeadingNumberOnly(string? value, bool ok, double expected)
+    {
+        var got = EncryptionAnalyzer.TryParseLeadingPercent(value, out var p);
+        Assert.Equal(ok, got);
+        if (ok) Assert.Equal(expected, p, 3);
+    }
+
     // ----------------------------------------------------------------------
     // BitLocker: IsSystemDrive + BuildBitLockerFinding severity
     // ----------------------------------------------------------------------

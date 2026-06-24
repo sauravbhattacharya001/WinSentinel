@@ -92,28 +92,63 @@ public static class EncryptionAnalyzer
 
         var lower = output.ToLowerInvariant();
 
+        // Parse each "<FieldName> [spaces] : <Value>" line into a name->value map
+        // (same per-line approach as ParseTpmPowerShell). Matching the WHOLE output
+        // for a bare ": 0" / ": 100" substring was a collision bug: a volume whose
+        // Get-BitLockerVolume output carried any unrelated field reading ": 0" (e.g.
+        // WipePercentage : 0) flipped isNotEncrypted true, so a 45%-encrypting
+        // protected drive was mis-reported NotEncrypted (Critical) instead of Partial.
+        // Reading the percentage as an actual NUMBER off its own field also fixes the
+        // spacing-brittle "percentage encrypted:    100" literals, which the real
+        // manage-bde output (single space: "Percentage Encrypted: 100.0%") never matched
+        // - a fully-encrypted OS volume only reached Encrypted by luck of a "fully
+        // encrypted" word, and a 100% drive whose status line omitted that word fell
+        // through to Partial.
+        var fields = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var line in output.Split('\n'))
+        {
+            var trimmed = line.Trim();
+            int colon = trimmed.IndexOf(':');
+            if (colon <= 0) continue;
+            var name = trimmed[..colon].TrimEnd();
+            var value = trimmed[(colon + 1)..].Trim();
+            if (name.Length > 0 && !fields.ContainsKey(name)) fields[name] = value;
+        }
+
+        // The encryption percentage lives on "Percentage Encrypted" (manage-bde) or
+        // "EncryptionPercentage" (Get-BitLockerVolume). Read the FIRST numeric token of
+        // that field's value so "100.0%", "100", "0.0%" and "45" all parse, and an
+        // unrelated ": 0" elsewhere can never be mistaken for the encryption percentage.
+        double? percent = null;
+        foreach (var key in new[] { "Percentage Encrypted", "EncryptionPercentage" })
+        {
+            if (fields.TryGetValue(key, out var raw) && TryParseLeadingPercent(raw, out var p))
+            {
+                percent = p;
+                break;
+            }
+        }
+
         bool isProtected = lower.Contains("protection on") ||
-                           (lower.Contains("protectionstatus") && lower.Contains(": on")) ||
-                           output.Contains("ProtectionStatus      : On", StringComparison.OrdinalIgnoreCase);
+                           (fields.TryGetValue("ProtectionStatus", out var ps) &&
+                            ps.StartsWith("On", StringComparison.OrdinalIgnoreCase)) ||
+                           (fields.TryGetValue("Protection Status", out var ps2) &&
+                            ps2.Contains("On", StringComparison.OrdinalIgnoreCase));
 
-        bool isFullyEncrypted = lower.Contains("percentage encrypted:    100") ||
-                                lower.Contains("percentage encrypted:   100") ||
-                                lower.Contains("fully encrypted") ||
-                                (lower.Contains("encryptionpercentage") && lower.Contains(": 100"));
+        bool isFullyEncrypted = percent.HasValue
+            ? percent.Value >= 100
+            : (lower.Contains("fully encrypted") && !lower.Contains("fully decrypted"));
 
-        bool isNotEncrypted = lower.Contains("fully decrypted") ||
-                              lower.Contains("percentage encrypted:    0.0%") ||
-                              lower.Contains("percentage encrypted:    0%") ||
-                              lower.Contains("percentage encrypted: 0.0%") ||
-                              lower.Contains("percentage encrypted: 0%") ||
-                              (lower.Contains("encryptionpercentage") && lower.Contains(": 0"));
+        bool isNotEncrypted = percent.HasValue
+            ? percent.Value <= 0
+            : lower.Contains("fully decrypted");
 
-        // A loose "percentage encrypted" match must not override an explicit
-        // decrypted / protection-off signal, otherwise a fully-decrypted volume
-        // would be misreported as partially encrypted.
+        // A drive between 0 and 100 percent (exclusive) is mid-conversion. When no
+        // percentage is present, fall back to the explicit "encryption in progress"
+        // wording. The fully-encrypted / fully-decrypted signals always take precedence.
         bool isPartiallyEncrypted = !isFullyEncrypted && !isNotEncrypted && (
-            lower.Contains("encryption in progress") ||
-            (lower.Contains("percentage encrypted") && !lower.Contains("percentage encrypted:    0")));
+            (percent.HasValue && percent.Value > 0 && percent.Value < 100) ||
+            (!percent.HasValue && lower.Contains("encryption in progress")));
 
         foreach (var method in KnownEncryptionMethods)
         {
@@ -136,6 +171,27 @@ public static class EncryptionAnalyzer
         else state.Status = BitLockerStatus.Unknown;
 
         return state;
+    }
+
+    /// <summary>
+    /// Parse the leading numeric token of a BitLocker percentage field value
+    /// (e.g. "100.0%", "100", "0.0%", "45") into a double in [0,100]. Returns false
+    /// when the value has no leading number. Scoped to a single field's value so an
+    /// unrelated ": 0" elsewhere in the output can never be read as the percentage.
+    /// </summary>
+    internal static bool TryParseLeadingPercent(string? value, out double percent)
+    {
+        percent = 0;
+        if (string.IsNullOrWhiteSpace(value)) return false;
+        var v = value.TrimStart();
+        int i = 0;
+        while (i < v.Length && (char.IsDigit(v[i]) || v[i] == '.')) i++;
+        if (i == 0) return false;
+        return double.TryParse(
+            v[..i],
+            System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture,
+            out percent);
     }
 
     /// <summary>True when the drive letter denotes the OS / system volume (C:).</summary>

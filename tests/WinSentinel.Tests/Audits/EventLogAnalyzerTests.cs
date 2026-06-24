@@ -230,6 +230,39 @@ public class EventLogAnalyzerTests
         Assert.False(EventLogAnalyzer.IsSuspiciousPowerShell(script));
     }
 
+    // The 'bypass' and 'hidden' tokens must only fire as the -ExecutionPolicy /
+    // -WindowStyle launch flags, never as bare substrings. These benign scripts all
+    // contain the literal word 'bypass' or 'hidden' (or the legitimate -Hidden
+    // switch) and previously produced a false-positive "suspicious PowerShell" finding.
+    [Theory]
+    [InlineData("Get-ChildItem -Hidden -Path C:\\Users")]
+    [InlineData("$hiddenFiles = Get-ChildItem -Force")]
+    [InlineData("# show hidden configuration values")]
+    [InlineData("Write-Host 'unhide the hidden folder'")]
+    [InlineData("Invoke-RestMethod 'https://api.example.com/bypass-cache'")]
+    [InlineData("$bypassList = @('a','b')")]
+    [InlineData("function Bypass-Cache { param($url) }")]
+    [InlineData("New-Item -Path C:\\hidden\\report.txt")]
+    public void IsSuspiciousPowerShell_BenignBypassHiddenSubstrings_ReturnFalse(string script)
+    {
+        Assert.False(EventLogAnalyzer.IsSuspiciousPowerShell(script));
+    }
+
+    // The flag forms (including PowerShell's abbreviated -ep / -w switches and the
+    // colon-separated -Switch:Value syntax) MUST still be detected.
+    [Theory]
+    [InlineData("powershell -ExecutionPolicy Bypass -File evil.ps1")]
+    [InlineData("powershell -ep bypass -nop -w hidden")]
+    [InlineData("pwsh -ExecutionPolicy:Bypass")]
+    [InlineData("powershell.exe -exec bypass")]
+    [InlineData("powershell -WindowStyle Hidden -Command $x")]
+    [InlineData("powershell -w Hidden -enc ABC")]
+    [InlineData("powershell /ExecutionPolicy Bypass")]
+    public void IsSuspiciousPowerShell_LaunchFlagForms_ReturnTrue(string script)
+    {
+        Assert.True(EventLogAnalyzer.IsSuspiciousPowerShell(script));
+    }
+
     [Fact]
     public void IsSuspiciousPowerShell_IsCaseInsensitive()
     {

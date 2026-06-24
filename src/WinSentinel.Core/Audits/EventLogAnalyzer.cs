@@ -64,7 +64,14 @@ public static class EventLogAnalyzer
     public static readonly Regex SuspiciousPowerShellPattern = new(
         @"(?i)(Invoke-Expression|IEX\s*\(|Invoke-WebRequest|DownloadString|DownloadFile|" +
         @"Net\.WebClient|Start-BitsTransfer|Invoke-Mimikatz|Invoke-Shellcode|" +
-        @"-enc\s|EncodedCommand|FromBase64String|bypass|hidden|" +
+        @"-enc\s|EncodedCommand|FromBase64String|" +
+        // -ExecutionPolicy Bypass / -ep:bypass / -exec bypass and -WindowStyle Hidden /
+        // -w hidden are the malware launch flags we care about. Match them only in that
+        // switch context ([-/] prefix + the ExecutionPolicy/WindowStyle switch), NOT as bare
+        // substrings: a script that merely contains the words "bypass" or "hidden" (a comment,
+        // a path, or the legitimate `Get-ChildItem -Hidden` switch) is not suspicious and was
+        // previously a guaranteed false positive.
+        @"[-/](?:ep|exec\w*)\b\s*:?\s*bypass|[-/](?:w|win\w*)\b\s*:?\s*hidden|" +
         @"Add-MpPreference\s+-ExclusionPath|Set-MpPreference\s+-DisableRealtimeMonitoring|" +
         @"New-Object\s+System\.Net\.Sockets\.TCPClient|Invoke-Command\s+-ComputerName)",
         RegexOptions.Compiled);

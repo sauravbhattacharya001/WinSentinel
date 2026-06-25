@@ -631,4 +631,74 @@ public class ComplianceMapperTests
         Assert.Contains(summary.FrameworkResults, f => f.FrameworkName == "SOC 2 Trust Services Criteria");
         Assert.Contains(summary.FrameworkResults, f => f.FrameworkName == "ASD Essential Eight");
     }
+
+    // ── Keyword matching is anchored to a word boundary (no mid-word false hits) ──
+    // The short stem keyword "os" (E8-6 Patch Operating Systems) used to match
+    // mid-word via a raw String.Contains, so an unrelated finding mentioning
+    // "host"/"closed" flipped that control from NotAssessed to a false Fail in the
+    // compliance report. These pin the boundary-anchored behaviour. (Note: the
+    // END of a keyword stays unanchored so stems keep working -- "update" still
+    // matches "updates" -- which means a keyword that is a genuine word-prefix,
+    // e.g. "key" in "keyring", still matches by design; only mid-word hits are
+    // suppressed.)
+
+    [Fact]
+    public void Keyword_Os_DoesNotMatchMidWord_Host()
+    {
+        // "System" is one of E8-6's categories, so the category gate passes; the
+        // text contains "os" only inside "host"/"closed" and no other E8-6 keyword.
+        var report = ReportWith(
+            Finding.Critical("Host service closed unexpectedly", "A host process was closed", "System"));
+        var e8 = _mapper.Evaluate(report, "essential8");
+        var e86 = e8.Controls.First(c => c.ControlId == "E8-6");
+        Assert.Equal(ControlStatus.NotAssessed, e86.Status);
+        Assert.Empty(e86.RelatedFindings);
+    }
+
+    [Fact]
+    public void Keyword_Os_StillMatchesWholeWordOs()
+    {
+        // A genuine OS-patch finding ("OS" at a word boundary) must still match E8-6.
+        var report = ReportWith(
+            Finding.Critical("OS build is out of support", "The OS has missing security rollups", "System"));
+        var e8 = _mapper.Evaluate(report, "essential8");
+        var e86 = e8.Controls.First(c => c.ControlId == "E8-6");
+        Assert.Equal(ControlStatus.Fail, e86.Status);
+        Assert.NotEmpty(e86.RelatedFindings);
+    }
+
+    [Fact]
+    public void Keyword_Key_StillMatchesWholeWordKey()
+    {
+        // Whole-word "key" must still match SC-12 (Cryptographic Key Management).
+        var report = ReportWith(
+            Finding.Critical("Weak signing key", "RSA key size is only 1024 bits", "Encryption"));
+        var nist = _mapper.Evaluate(report, "nist");
+        var sc12 = nist.Controls.First(c => c.ControlId == "SC-12");
+        Assert.Equal(ControlStatus.Fail, sc12.Status);
+    }
+
+    [Fact]
+    public void Keyword_StemMatchingPreserved_UpdateMatchesUpdates()
+    {
+        // Regression guard: the END of a keyword stays unanchored, so the "update"
+        // stem must keep matching "updates" (E8-2 Patch Applications).
+        var report = ReportWith(
+            Finding.Warning("Application updates pending", "12 third-party updates are pending", "Software"));
+        var e8 = _mapper.Evaluate(report, "essential8");
+        var e82 = e8.Controls.First(c => c.ControlId == "E8-2");
+        Assert.Equal(ControlStatus.Partial, e82.Status);
+    }
+
+    [Fact]
+    public void Keyword_HyphenatedPhrasePreserved_RealTimeMatches()
+    {
+        // A hyphenated keyword ("real-time") must still match: the char before it
+        // is a boundary, and the stem-style end keeps "real-time" -> "real-time".
+        var report = ReportWith(
+            Finding.Critical("Real-time protection disabled", "Defender real-time scanning is off", "Defender"));
+        var nist = _mapper.Evaluate(report, "nist");
+        var si3 = nist.Controls.First(c => c.ControlId == "SI-3");
+        Assert.Equal(ControlStatus.Fail, si3.Status);
+    }
 }

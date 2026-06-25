@@ -171,15 +171,44 @@ public class ComplianceMapper
             return false;
         }
 
-        // Match by keyword patterns in title or description
+        // Match by keyword patterns in title or description.
         if (control.Keywords.Count > 0)
         {
             var text = (finding.Title + " " + finding.Description).ToLowerInvariant();
-            return control.Keywords.Any(kw => text.Contains(kw.ToLowerInvariant()));
+            return control.Keywords.Any(kw => ContainsKeyword(text, kw.ToLowerInvariant()));
         }
 
         // Category-only match (no keywords = match all findings in those categories)
         return control.Categories.Count > 0;
+    }
+
+    /// <summary>
+    /// Substring match anchored to a word boundary at the START of the keyword.
+    /// Keywords are intentionally written as stems/prefixes (e.g. "update" must
+    /// match "updates", "remediat" must match "remediation"), so the END is left
+    /// unanchored. Anchoring only the start stops a short keyword such as "os"
+    /// (E8-6 Patch Operating Systems) from matching MID-word inside an unrelated
+    /// finding ("host", "closed") and flipping an otherwise NotAssessed control to
+    /// a false Fail/Pass in the compliance report. Phrase keywords with separators
+    /// ("real-time", "at rest", "two-factor") still match because the char before
+    /// the keyword is a boundary. A keyword that is a genuine word-prefix of a
+    /// longer word (e.g. "key" in "keyring") still matches by design -- only
+    /// mid-word occurrences are suppressed, not legitimate stem/prefix matches.
+    /// </summary>
+    private static bool ContainsKeyword(string text, string keyword)
+    {
+        if (string.IsNullOrEmpty(keyword)) return false;
+        int from = 0;
+        while (true)
+        {
+            int idx = text.IndexOf(keyword, from, StringComparison.Ordinal);
+            if (idx < 0) return false;
+            // A match qualifies only if the character immediately before it is a
+            // word boundary: the start of the string, or a non-alphanumeric char.
+            char prev = idx == 0 ? ' ' : text[idx - 1];
+            if (!char.IsLetterOrDigit(prev)) return true;
+            from = idx + 1;
+        }
     }
 
     // ── Framework Definitions ────────────────────────────────────────

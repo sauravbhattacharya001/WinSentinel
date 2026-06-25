@@ -273,7 +273,12 @@ public class FixEngine
 
     /// <summary>
     /// Determines if a command likely needs admin elevation.
-    /// Checks for known patterns that require HKLM writes, service changes, etc.
+    /// Checks for known patterns that require HKLM writes, service start/stop,
+    /// firewall/SMB/Defender/WinRM configuration, BitLocker (manage-bde), boot
+    /// configuration (bcdedit), optional-feature changes, and per-adapter network
+    /// settings. When this returns true and the current process is not already
+    /// elevated, <see cref="ExecuteFixAsync"/> relaunches the fix via UAC instead of
+    /// running it inline (where it would fail with access-denied).
     /// </summary>
     public static bool RequiresElevation(string command)
     {
@@ -283,18 +288,48 @@ public class FixEngine
         return lower.Contains("hklm:") ||
                lower.Contains("hkey_local_machine") ||
                lower.Contains("set-mppreference") ||
+               lower.Contains("add-mppreference") ||
+               lower.Contains("remove-mppreference") ||
                lower.Contains("update-mpsignature") ||
                lower.Contains("start-mpscan") ||
                lower.Contains("set-smbserverconfiguration") ||
                lower.Contains("disable-localuser") ||
                lower.Contains("enable-localuser") ||
                lower.Contains("net accounts") ||
+               // Any firewall mutation (advfirewall set/firewall, or the
+               // Set/New/Enable/Disable-NetFirewallRule cmdlets) writes machine
+               // policy and needs admin -- the old check only caught "netsh advfirewall".
                lower.Contains("netsh advfirewall") ||
+               lower.Contains("-netfirewallrule") ||
+               // netsh subcommands that change machine/adapter state (hosted network,
+               // teredo/interface tunnelling, deleting a saved WLAN profile). Plain
+               // read-only "netsh ... show" and "netsh wlan disconnect" do not need admin
+               // and are intentionally NOT matched here.
+               lower.Contains("netsh wlan set") ||
+               lower.Contains("netsh wlan delete") ||
+               lower.Contains("netsh interface") ||
                lower.Contains("manage-bde") ||
                lower.Contains("stop-service") ||
                lower.Contains("set-service") ||
+               lower.Contains("start-service") ||
+               lower.Contains("restart-service") ||
                lower.Contains("shutdown") ||
                lower.Contains("set-netconnectionprofile") ||
+               // Enabling/disabling an Optional Feature (e.g. removing the legacy
+               // PowerShell v2 engine: Disable-WindowsOptionalFeature ...V2Root)
+               // mutates the running OS image and requires elevation.
+               lower.Contains("-windowsoptionalfeature") ||
+               // bcdedit edits the Boot Configuration Data store (e.g. turning off
+               // test-signing) -- admin-only.
+               lower.Contains("bcdedit") ||
+               // WS-Management config (WinRM TrustedHosts, listeners) lives under the
+               // WSMan: drive and is writable only with admin rights.
+               lower.Contains("wsman:") ||
+               lower.Contains("set-wsmaninstance") ||
+               // Per-adapter NetBIOS-over-TCP/IP toggle via WMI
+               // (Win32_NetworkAdapterConfiguration.SetTcpipNetbios) needs admin.
+               lower.Contains("settcpipnetbios") ||
+               lower.Contains("win32_networkadapterconfiguration") ||
                lower.Contains("set-itemproperty -path 'hklm:") ||
                lower.Contains("new-item -path 'hklm:");
     }

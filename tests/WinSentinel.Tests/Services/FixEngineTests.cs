@@ -184,9 +184,30 @@ public class FixEngineTests
     [InlineData("Set-SmbServerConfiguration -EnableSMB1Protocol $false -Force", true)]
     [InlineData("manage-bde -on C:", true)]
     [InlineData("shutdown /r /t 60", true)]
+    // Newly-covered admin fix commands actually emitted by the audit analyzers.
+    // These previously fell through to inline (non-elevated) execution and failed
+    // silently with access-denied instead of prompting for elevation.
+    [InlineData("Disable-WindowsOptionalFeature -Online -FeatureName MicrosoftWindowsPowerShellV2Root -NoRestart", true)]
+    [InlineData("Set-Item WSMan:\\localhost\\Client\\TrustedHosts -Value '' -Force", true)]
+    [InlineData("Set-NetFirewallRule -Name 'WINRM-HTTP-In-TCP-PUBLIC' -Enabled False", true)]
+    [InlineData("bcdedit /set testsigning off", true)]
+    [InlineData("Add-MpPreference -ExclusionPath 'C:\\Temp'", true)]
+    [InlineData("Set-MpPreference -MAPSReporting Advanced", true)]
+    [InlineData("Get-CimInstance Win32_NetworkAdapterConfiguration -Filter 'IPEnabled=True' | ForEach-Object { $_.SetTcpipNetbios(2) }", true)]
+    [InlineData("netsh interface teredo set state disabled", true)]
+    [InlineData("netsh wlan set hostednetwork mode=disallow", true)]
+    [InlineData("netsh wlan delete profile name=\"Evil\"", true)]
+    [InlineData("Set-Service RemoteRegistry -StartupType Disabled", true)]
+    [InlineData("Start-Service Sense", true)]
+    [InlineData("New-Item -Path 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\DNSClient' -Force", true)]
     [InlineData("Write-Output 'hello'", false)]
     [InlineData("Get-Process | Format-Table", false)]
     [InlineData("Set-ItemProperty -Path 'HKCU:\\SOFTWARE\\Test' -Name 'Value' -Value 0", false)]
+    // Read-only / non-admin commands must NOT be flagged as needing elevation,
+    // otherwise every fix would needlessly trigger a UAC prompt.
+    [InlineData("netsh wlan disconnect", false)]
+    [InlineData("netsh wlan show profiles", false)]
+    [InlineData("Get-MpComputerStatus | Select-Object AMServiceEnabled", false)]
     [InlineData("explorer.exe shell:startup", false)]
     [InlineData("Start-Process ms-settings:windowsupdate", false)]
     [InlineData("", false)]

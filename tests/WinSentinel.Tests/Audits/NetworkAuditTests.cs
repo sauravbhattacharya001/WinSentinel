@@ -459,3 +459,127 @@ public class NetworkAuditTests : IAsyncLifetime
         }
     }
 }
+
+/// <summary>
+/// Pure unit tests for <see cref="NetworkAudit"/>'s <c>arp -a</c> line parsing
+/// (<see cref="NetworkAudit.TryParseArpLine"/> and its IPv4/MAC validators). These
+/// run without touching the host ARP table, so they can exercise the header /
+/// interface / malformed-line edge cases that the live integration tests above
+/// cannot reach.
+/// </summary>
+public class NetworkAuditArpParsingTests
+{
+    [Theory]
+    [InlineData("  192.168.1.1          aa-bb-cc-dd-ee-ff     dynamic", "192.168.1.1", "aa-bb-cc-dd-ee-ff")]
+    [InlineData("10.0.0.5   00-11-22-33-44-55   static", "10.0.0.5", "00-11-22-33-44-55")]
+    [InlineData("224.0.0.22            01-00-5e-00-00-16     static", "224.0.0.22", "01-00-5e-00-00-16")]
+    [InlineData("255.255.255.255       ff-ff-ff-ff-ff-ff     static", "255.255.255.255", "ff-ff-ff-ff-ff-ff")]
+    public void TryParseArpLine_ParsesRealEntries(string line, string expectedIp, string expectedMac)
+    {
+        Assert.True(NetworkAudit.TryParseArpLine(line, out var entry));
+        Assert.Equal(expectedIp, entry.Ip);
+        Assert.Equal(expectedMac, entry.Mac);
+    }
+
+    [Theory]
+    // The "Interface:" banner that precedes each adapter's table. Its IP sits in the
+    // SECOND column, so the old positional heuristic only rejected it by luck; the
+    // structural check rejects it because column 0 ("Interface:") is not a dotted-quad.
+    [InlineData("Interface: 192.168.1.5 --- 0x5")]
+    // The English column header.
+    [InlineData("  Internet Address      Physical Address      Type")]
+    // A localized column header whose second column is a hyphenated word: the OLD
+    // heuristic (col1 contains '-' && length >= 17) would have ingested this as a
+    // bogus ARP entry; structural MAC validation rejects it.
+    [InlineData("  Adresse-Internet      Adresse-physique-ici   Typ")]
+    // Incomplete / unresolved entries.
+    [InlineData("  192.168.1.99         incomplete")]
+    [InlineData("  192.168.1.42")]
+    // Blank / whitespace.
+    [InlineData("")]
+    [InlineData("     ")]
+    public void TryParseArpLine_RejectsNonEntries(string line)
+    {
+        Assert.False(NetworkAudit.TryParseArpLine(line, out _));
+    }
+
+    [Fact]
+    public void TryParseArpLine_RejectsNull()
+    {
+        Assert.False(NetworkAudit.TryParseArpLine(null, out _));
+    }
+
+    [Theory]
+    [InlineData("0.0.0.0")]
+    [InlineData("192.168.1.1")]
+    [InlineData("255.255.255.255")]
+    [InlineData("8.8.8.8")]
+    public void IsIPv4DottedQuad_AcceptsValid(string ip) =>
+        Assert.True(NetworkAudit.IsIPv4DottedQuad(ip));
+
+    [Theory]
+    [InlineData("256.1.1.1")]      // octet > 255
+    [InlineData("192.168.1")]       // only three octets
+    [InlineData("192.168.1.1.1")]   // five octets
+    [InlineData("192.168.1.")]      // trailing empty octet
+    [InlineData("Interface:")]      // header token
+    [InlineData("1.2.3.x")]         // non-numeric octet
+    [InlineData("fe80::1")]         // IPv6
+    [InlineData("")]
+    public void IsIPv4DottedQuad_RejectsInvalid(string ip) =>
+        Assert.False(NetworkAudit.IsIPv4DottedQuad(ip));
+
+    [Theory]
+    [InlineData("aa-bb-cc-dd-ee-ff")]
+    [InlineData("00-11-22-33-44-55")]
+    [InlineData("FF-FF-FF-FF-FF-FF")]
+    [InlineData("01-00-5E-00-00-16")]
+    public void IsMacAddress_AcceptsValid(string mac) =>
+        Assert.True(NetworkAudit.IsMacAddress(mac));
+
+    [Theory]
+    [InlineData("aa-bb-cc-dd-ee")]        // only five octets
+    [InlineData("aa-bb-cc-dd-ee-ff-00")]  // seven octets
+    [InlineData("aabb-cc-dd-ee-ff")]      // wrong group width
+    [InlineData("aa:bb:cc:dd:ee:ff")]     // colon-separated (not Windows arp form)
+    [InlineData("gg-bb-cc-dd-ee-ff")]     // non-hex digit
+    [InlineData("incomplete")]
+    [InlineData("Physical-Address-Here-X")] // hyphenated non-MAC word >= 17 chars
+    [InlineData("")]
+    public void IsMacAddress_RejectsInvalid(string mac) =>
+        Assert.False(NetworkAudit.IsMacAddress(mac));
+
+    [Fact]
+    public void TryParseArpLine_FullTableSample_ExtractsOnlyRealRows()
+    {
+        // A representative multi-interface `arp -a` capture: two banner lines, two
+        // column headers, real unicast/multicast/broadcast rows, and an incomplete row.
+        var sample = string.Join("\n", new[]
+        {
+            "",
+            "Interface: 192.168.1.5 --- 0x5",
+            "  Internet Address      Physical Address      Type",
+            "  192.168.1.1           aa-bb-cc-dd-ee-ff     dynamic",
+            "  192.168.1.20          11-22-33-44-55-66     dynamic",
+            "  192.168.1.99          incomplete",
+            "  224.0.0.22            01-00-5e-00-00-16     static",
+            "  255.255.255.255       ff-ff-ff-ff-ff-ff     static",
+            "",
+            "Interface: 10.0.0.8 --- 0x9",
+            "  Internet Address      Physical Address      Type",
+            "  10.0.0.1              de-ad-be-ef-00-01     dynamic",
+        });
+
+        var parsed = sample
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(l => NetworkAudit.TryParseArpLine(l, out var e) ? e : null)
+            .Where(e => e != null)
+            .ToList();
+
+        // 5 real rows; both banners, both headers and the incomplete row are dropped.
+        Assert.Equal(5, parsed.Count);
+        Assert.DoesNotContain(parsed, e => e!.Ip == "192.168.1.99"); // incomplete dropped
+        Assert.Contains(parsed, e => e!.Ip == "192.168.1.1" && e.Mac == "aa-bb-cc-dd-ee-ff");
+        Assert.Contains(parsed, e => e!.Ip == "10.0.0.1" && e.Mac == "de-ad-be-ef-00-01");
+    }
+}

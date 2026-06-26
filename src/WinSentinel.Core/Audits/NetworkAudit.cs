@@ -246,18 +246,81 @@ public class NetworkAudit : AuditModuleBase
 
         foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
-            // ARP table lines look like: "  192.168.1.1          aa-bb-cc-dd-ee-ff     dynamic"
-            var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length >= 3)
+            if (TryParseArpLine(line, out var entry))
+                state.ArpEntries.Add(entry);
+        }
+    }
+
+    /// <summary>
+    /// Parse a single line of <c>arp -a</c> output into an <see cref="NetworkPostureAnalyzer.ArpEntry"/>.
+    /// Returns false for anything that is not a real IPv4+MAC row.
+    ///
+    /// <para>This is structural validation rather than the old positional heuristic
+    /// (<c>parts[0].Contains('.') &amp;&amp; parts[1].Contains('-') &amp;&amp; parts[1].Length &gt;= 17</c>),
+    /// which only rejected the <c>Interface: 192.168.1.5 --- 0x5</c> header and the
+    /// <c>Internet Address / Physical Address / Type</c> column header by the accident of
+    /// where their dotted/hyphenated tokens happened to land. That heuristic was both too
+    /// permissive (any &gt;=17-char token containing a '-' in column 2 was accepted as a MAC,
+    /// so a localized header whose second column carries a hyphenated word would be ingested
+    /// as a bogus ARP entry and could even manufacture a phantom "duplicate MAC" spoofing
+    /// alert) and locale-fragile. We now require column 0 to be a real dotted-quad IPv4
+    /// address and column 1 to be a real 6-octet MAC (<c>xx-xx-xx-xx-xx-xx</c>), so header /
+    /// interface lines are rejected by what they are, not by luck — on any Windows display
+    /// language.</para>
+    /// </summary>
+    internal static bool TryParseArpLine(string? line, out NetworkPostureAnalyzer.ArpEntry entry)
+    {
+        entry = new NetworkPostureAnalyzer.ArpEntry();
+        if (string.IsNullOrWhiteSpace(line)) return false;
+
+        // ARP table rows look like: "  192.168.1.1          aa-bb-cc-dd-ee-ff     dynamic"
+        var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 3) return false; // need IP, MAC, and a Type column
+
+        var ip = parts[0];
+        var mac = parts[1];
+        if (!IsIPv4DottedQuad(ip)) return false;
+        if (!IsMacAddress(mac)) return false;
+
+        entry = new NetworkPostureAnalyzer.ArpEntry(ip, mac);
+        return true;
+    }
+
+    /// <summary>True only for a well-formed dotted-quad IPv4 address (each octet 0-255).</summary>
+    internal static bool IsIPv4DottedQuad(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return false;
+        var octets = value.Split('.');
+        if (octets.Length != 4) return false;
+        foreach (var octet in octets)
+        {
+            if (octet.Length == 0 || octet.Length > 3) return false;
+            foreach (var c in octet) if (c < '0' || c > '9') return false;
+            if (!int.TryParse(octet, out var n) || n < 0 || n > 255) return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// True only for a 6-octet MAC in Windows <c>arp -a</c> form: six hyphen-separated
+    /// pairs of hex digits (e.g. <c>aa-bb-cc-dd-ee-ff</c>). Rejects partial/incomplete
+    /// entries and any hyphenated non-MAC token.
+    /// </summary>
+    internal static bool IsMacAddress(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return false;
+        var groups = value.Split('-');
+        if (groups.Length != 6) return false;
+        foreach (var g in groups)
+        {
+            if (g.Length != 2) return false;
+            foreach (var c in g)
             {
-                var ip = parts[0];
-                var mac = parts[1];
-                if (ip.Contains('.') && mac.Contains('-') && mac.Length >= 17)
-                {
-                    state.ArpEntries.Add(new NetworkPostureAnalyzer.ArpEntry(ip, mac));
-                }
+                bool isHex = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+                if (!isHex) return false;
             }
         }
+        return true;
     }
 
     private async Task CollectIPv6(NetworkState state, CancellationToken ct)

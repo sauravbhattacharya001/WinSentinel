@@ -68,8 +68,12 @@ public class AppSecurityAudit : IAuditModule
             "Java 7 is end-of-life and has numerous unpatched CVEs.",
             Severity.Critical),
 
-        // Java 8 old builds (below 8u401)
-        new("Java 8 (old build)", new Regex(@"Java.*\b8\s+Update\s+([1-3]\d{0,2}|40[0-0]?)\b", RegexOptions.IgnoreCase),
+        // Java 8 old builds (below 8u401). The update number is matched as 1-400
+        // precisely: 400 | 100-399 | 10-99 | 1-9. The previous pattern
+        // (`[1-3]\d{0,2}|40[0-0]?`) silently missed every old build whose update
+        // number started with 4-9 below 401 (e.g. 8u45, 8u51, 8u60, 8u66, 8u71,
+        // 8u91) — all genuinely vulnerable — while 8u401+ correctly stays unmatched.
+        new("Java 8 (old build)", new Regex(@"Java.*\b8\s+Update\s+(400|[1-3]\d\d|[1-9]\d|[1-9])\b", RegexOptions.IgnoreCase),
             "This version of Java 8 is outdated and has known security vulnerabilities. Update to the latest Java 8 or migrate to Java 17+.",
             Severity.Warning),
 
@@ -246,6 +250,30 @@ public class AppSecurityAudit : IAuditModule
     #endregion
 
     #region EOL Software Detection
+
+    /// <summary>
+    /// Result of an EOL-pattern match for a single program display name.
+    /// </summary>
+    public readonly record struct EolMatch(string Name, string Reason, Severity Severity);
+
+    /// <summary>
+    /// Classifies a program display name against the end-of-life / deprecated
+    /// software patterns, returning the FIRST matching pattern (in declaration
+    /// order) or <c>null</c> when nothing matches. This is the single source of
+    /// truth used by <see cref="CheckEolSoftware"/>; it is exposed so the EOL
+    /// regexes (e.g. the Java 8 build-number bounds) can be unit tested without
+    /// touching the registry.
+    /// </summary>
+    public static EolMatch? MatchEolPattern(string? displayName)
+    {
+        if (string.IsNullOrWhiteSpace(displayName)) return null;
+        foreach (var pattern in EolPatterns)
+        {
+            if (pattern.Regex.IsMatch(displayName))
+                return new EolMatch(pattern.Name, pattern.Reason, pattern.Severity);
+        }
+        return null;
+    }
 
     private static void CheckEolSoftware(AuditResult result, List<InstalledProgram> programs)
     {

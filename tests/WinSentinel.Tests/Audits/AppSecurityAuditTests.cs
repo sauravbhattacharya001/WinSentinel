@@ -284,4 +284,93 @@ public class AppSecurityAuditTests
     }
 
     #endregion
+
+    #region EOL Pattern Matching (Java 8 build-number bounds + general)
+
+    // Java 8 builds below 8u401 must be flagged as outdated. The previous regex
+    // (`[1-3]\d{0,2}|40[0-0]?`) silently MISSED every old build whose update
+    // number started with 4-9 below 401 (8u45, 8u51, 8u60, 8u66, 8u71, 8u91, ...)
+    // — all real, vulnerable releases. These are the regression cases.
+    [Theory]
+    [InlineData("Java 8 Update 1")]
+    [InlineData("Java 8 Update 45")]   // was missed by the old pattern
+    [InlineData("Java 8 Update 51")]   // was missed
+    [InlineData("Java 8 Update 60")]   // was missed
+    [InlineData("Java 8 Update 66")]   // was missed
+    [InlineData("Java 8 Update 71")]   // was missed
+    [InlineData("Java 8 Update 91")]   // was missed
+    [InlineData("Java 8 Update 202")]
+    [InlineData("Java 8 Update 351")]
+    [InlineData("Java 8 Update 392")]
+    [InlineData("Java 8 Update 400")]  // inclusive upper bound (<401)
+    [InlineData("Java(TM) SE Development Kit 8 Update 202 (64-bit)")]
+    [InlineData("Java SE Runtime Environment 8 Update 91 (64-bit)")]
+    public void MatchEolPattern_OldJava8Build_IsFlaggedAsWarning(string displayName)
+    {
+        var match = AppSecurityAudit.MatchEolPattern(displayName);
+
+        Assert.NotNull(match);
+        Assert.Equal("Java 8 (old build)", match!.Value.Name);
+        Assert.Equal(Severity.Warning, match.Value.Severity);
+    }
+
+    // 8u401 and above are the current/safe builds — they must NOT match the
+    // "old build" pattern (no false positive on patched Java 8).
+    [Theory]
+    [InlineData("Java 8 Update 401")]
+    [InlineData("Java 8 Update 411")]
+    [InlineData("Java 8 Update 451")]
+    [InlineData("Java 8 Update 999")]
+    [InlineData("Java SE Runtime Environment 8 Update 401 (64-bit)")]
+    public void MatchEolPattern_CurrentJava8Build_IsNotFlaggedAsOldBuild(string displayName)
+    {
+        var match = AppSecurityAudit.MatchEolPattern(displayName);
+
+        // Either no match at all, or (defensively) not the "old build" pattern.
+        if (match is not null)
+            Assert.NotEqual("Java 8 (old build)", match.Value.Name);
+    }
+
+    // Exhaustive bound check: "Java 8 Update N" must be flagged iff N <= 400.
+    [Fact]
+    public void MatchEolPattern_Java8UpdateNumber_FlaggedIffBelow401()
+    {
+        for (int n = 1; n <= 600; n++)
+        {
+            var match = AppSecurityAudit.MatchEolPattern($"Java 8 Update {n}");
+            bool isOldBuild = match is not null && match.Value.Name == "Java 8 (old build)";
+            bool shouldFlag = n <= 400;
+            Assert.True(isOldBuild == shouldFlag,
+                $"Java 8 Update {n}: flagged-as-old-build={isOldBuild}, expected={shouldFlag}");
+        }
+    }
+
+    [Theory]
+    [InlineData("Adobe Flash Player 32 ActiveX", "Adobe Flash Player", Severity.Critical)]
+    [InlineData("Python 2.7.18", "Python 2", Severity.Critical)]
+    [InlineData("Internet Explorer", "Internet Explorer", Severity.Warning)]
+    [InlineData("Microsoft Silverlight", "Microsoft Silverlight", Severity.Critical)]
+    public void MatchEolPattern_KnownEolSoftware_MatchesExpectedPattern(
+        string displayName, string expectedName, Severity expectedSeverity)
+    {
+        var match = AppSecurityAudit.MatchEolPattern(displayName);
+
+        Assert.NotNull(match);
+        Assert.Equal(expectedName, match!.Value.Name);
+        Assert.Equal(expectedSeverity, match.Value.Severity);
+    }
+
+    [Theory]
+    [InlineData("Java 17 (64-bit)")]      // current LTS, not EOL
+    [InlineData("Google Chrome")]
+    [InlineData("7-Zip 24.09")]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void MatchEolPattern_SafeOrEmpty_ReturnsNull(string? displayName)
+    {
+        Assert.Null(AppSecurityAudit.MatchEolPattern(displayName));
+    }
+
+    #endregion
 }

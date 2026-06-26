@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Sockets;
 using WinSentinel.Core.Helpers;
 using WinSentinel.Core.Models;
 using NetworkState = WinSentinel.Core.Audits.NetworkPostureAnalyzer.NetworkState;
@@ -332,8 +334,9 @@ public class NetworkAudit : AuditModuleBase
 
         state.GlobalIPv6Addresses = output
             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Where(l => l.Contains('|'))
-            .Select(l => l.Split('|')[0])
+            .Select(l => TryParseGlobalIPv6Line(l, out var addr) ? addr : null)
+            .Where(addr => addr != null)
+            .Select(addr => addr!)
             .ToList();
 
         var tunnelingOutput = await ShellHelper.RunNetshAsync("interface teredo show state", ct);
@@ -344,16 +347,77 @@ public class NetworkAudit : AuditModuleBase
                 var line = rawLine.Trim();
                 if (line.StartsWith("Type", StringComparison.OrdinalIgnoreCase))
                 {
-                    var typeValue = AfterColon(line);
-                    if (typeValue != null &&
-                        !typeValue.Equals("disabled", StringComparison.OrdinalIgnoreCase) &&
-                        !typeValue.Equals("default", StringComparison.OrdinalIgnoreCase))
+                    if (IsTeredoActiveState(AfterColon(line)))
                     {
                         state.TeredoActive = true;
                     }
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Parses one line of the IPv6 collector's pipe-delimited PowerShell output
+    /// (<c>address|interfaceAlias|prefixOrigin</c>) and returns the address only when
+    /// column 0 is a genuine, routable global IPv6 address. Rejects malformed lines,
+    /// non-IPv6 / non-parseable column-0 tokens, and non-global scopes (link-local
+    /// <c>fe80::/10</c>, loopback <c>::1</c>, unspecified <c>::</c>, multicast
+    /// <c>ff00::/8</c>) by <em>structure</em>, so a localized header or stray output
+    /// line can never be ingested as a bogus "global IPv6 address" finding.
+    /// </summary>
+    internal static bool TryParseGlobalIPv6Line(string? line, out string address)
+    {
+        address = string.Empty;
+        if (string.IsNullOrWhiteSpace(line)) return false;
+        var trimmed = line.Trim();
+        if (!trimmed.Contains('|')) return false;
+
+        var candidate = trimmed.Split('|')[0].Trim();
+        if (!IsGlobalIPv6Address(candidate)) return false;
+
+        address = candidate;
+        return true;
+    }
+
+    /// <summary>
+    /// True only for a syntactically valid IPv6 address that is also <em>global</em>:
+    /// not loopback (<c>::1</c>), not the unspecified address (<c>::</c>), not
+    /// link-local (<c>fe80::/10</c>), and not multicast (<c>ff00::/8</c>). Uses
+    /// <see cref="IPAddress.TryParse(string, out IPAddress)"/> + address-family /
+    /// scope flags rather than string matching, so it is locale- and format-robust.
+    /// </summary>
+    internal static bool IsGlobalIPv6Address(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return false;
+        // Reject any zone/scope suffix (e.g. "fe80::1%eth0") explicitly so we never
+        // accept a scoped link-local that happens to parse.
+        if (value.Contains('%')) return false;
+        if (!IPAddress.TryParse(value, out var ip)) return false;
+        if (ip.AddressFamily != AddressFamily.InterNetworkV6) return false;
+        if (IPAddress.IsLoopback(ip)) return false;                 // ::1
+        if (ip.IsIPv6LinkLocal) return false;                       // fe80::/10
+        if (ip.IsIPv6Multicast) return false;                       // ff00::/8
+        if (ip.Equals(IPAddress.IPv6Any)) return false;             // ::
+        return true;
+    }
+
+    /// <summary>
+    /// Classifies the <c>Type:</c> value from <c>netsh interface teredo show state</c>.
+    /// Teredo is only "active" for client-class states (<c>client</c>,
+    /// <c>enterpriseclient</c>) or an explicit relay/server role; <c>disabled</c>,
+    /// <c>default</c>, <c>offline</c>, <c>dormant</c>, blank and unknown values are
+    /// treated as inactive. Matching specific active states (rather than "anything
+    /// not disabled/default") prevents a stray/localized token from manufacturing a
+    /// phantom Teredo-active warning.
+    /// </summary>
+    internal static bool IsTeredoActiveState(string? typeValue)
+    {
+        if (string.IsNullOrWhiteSpace(typeValue)) return false;
+        var v = typeValue.Trim();
+        return v.Equals("client", StringComparison.OrdinalIgnoreCase)
+            || v.Equals("enterpriseclient", StringComparison.OrdinalIgnoreCase)
+            || v.Equals("relay", StringComparison.OrdinalIgnoreCase)
+            || v.Equals("server", StringComparison.OrdinalIgnoreCase);
     }
 
     // ── Collection helpers ──────────────────────────────────────

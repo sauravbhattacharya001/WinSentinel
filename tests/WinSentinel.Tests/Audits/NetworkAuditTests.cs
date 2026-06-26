@@ -583,3 +583,146 @@ public class NetworkAuditArpParsingTests
         Assert.Contains(parsed, e => e!.Ip == "10.0.0.1" && e.Mac == "de-ad-be-ef-00-01");
     }
 }
+
+/// <summary>
+/// Host-independent unit tests for the IPv6 collector's pure parsing seams
+/// (<see cref="NetworkAudit.TryParseGlobalIPv6Line"/>, <see cref="NetworkAudit.IsGlobalIPv6Address"/>,
+/// and <see cref="NetworkAudit.IsTeredoActiveState"/>). These do not run a live audit; they
+/// validate that only genuine, routable global IPv6 addresses survive parsing and that
+/// Teredo is reported active only for client/relay/server states. This guards a real
+/// false-positive class: before structural validation, any pipe-delimited output line
+/// (incl. a localized header) could be ingested as a bogus "global IPv6 address", and the
+/// old "anything not disabled/default" Teredo check could manufacture a phantom warning.
+/// </summary>
+public class NetworkAuditIPv6ParsingTests
+{
+    // ── TryParseGlobalIPv6Line: real rows ──────────────────────────────
+
+    [Theory]
+    [InlineData("2001:db8::1|Ethernet|Manual", "2001:db8::1")]
+    [InlineData("2606:4700:4700::1111|Wi-Fi|Dhcp", "2606:4700:4700::1111")]
+    [InlineData("  2001:0db8:85a3:0000:0000:8a2e:0370:7334 | Ethernet 2 | RouterAdvertisement ", "2001:0db8:85a3:0000:0000:8a2e:0370:7334")]
+    [InlineData("2a00:1450:4009:80f::200e|Ethernet|Manual", "2a00:1450:4009:80f::200e")]
+    public void TryParseGlobalIPv6Line_ParsesRealRows(string line, string expected)
+    {
+        Assert.True(NetworkAudit.TryParseGlobalIPv6Line(line, out var addr));
+        Assert.Equal(expected, addr);
+    }
+
+    // ── TryParseGlobalIPv6Line: lines that must be rejected ─────────────
+
+    [Theory]
+    [InlineData("")]                                              // blank
+    [InlineData("   ")]                                           // whitespace
+    [InlineData("IPAddress InterfaceAlias PrefixOrigin")]        // header, no pipe
+    [InlineData("Adresse|Schnittstelle|Ursprung")]              // localized header -> col0 not an IPv6 addr
+    [InlineData("fe80::1|Ethernet|LinkLayerAddress")]           // link-local must be dropped
+    [InlineData("fe80::1%eth0|Ethernet|Manual")]               // scoped link-local
+    [InlineData("::1|Loopback Pseudo-Interface 1|WellKnown")]   // loopback
+    [InlineData("::|Ethernet|WellKnown")]                       // unspecified
+    [InlineData("ff02::1|Ethernet|WellKnown")]                  // multicast
+    [InlineData("192.168.1.5|Ethernet|Manual")]                // IPv4 in col0
+    [InlineData("not-an-address|Ethernet|Manual")]             // garbage col0
+    [InlineData("2001:db8::1")]                                  // no pipe delimiter at all
+    public void TryParseGlobalIPv6Line_RejectsNonGlobalOrMalformed(string line)
+    {
+        Assert.False(NetworkAudit.TryParseGlobalIPv6Line(line, out var addr));
+        Assert.Equal(string.Empty, addr);
+    }
+
+    [Fact]
+    public void TryParseGlobalIPv6Line_RejectsNull()
+    {
+        Assert.False(NetworkAudit.TryParseGlobalIPv6Line(null, out var addr));
+        Assert.Equal(string.Empty, addr);
+    }
+
+    // ── IsGlobalIPv6Address validator ──────────────────────────────────
+
+    [Theory]
+    [InlineData("2001:db8::1")]
+    [InlineData("2606:4700:4700::1111")]
+    [InlineData("2a00:1450:4009:80f::200e")]
+    [InlineData("fd00::1")]   // unique-local (fc00::/7) is still a routable non-link-local addr we surface
+    public void IsGlobalIPv6Address_AcceptsGlobal(string addr) =>
+        Assert.True(NetworkAudit.IsGlobalIPv6Address(addr));
+
+    [Theory]
+    [InlineData("::1")]                 // loopback
+    [InlineData("::")]                  // unspecified
+    [InlineData("fe80::1")]             // link-local
+    [InlineData("fe80::abcd:1234")]     // link-local
+    [InlineData("ff02::1")]             // multicast
+    [InlineData("ff00::")]              // multicast base
+    [InlineData("192.168.1.1")]         // IPv4, wrong family
+    [InlineData("10.0.0.1")]            // IPv4, wrong family
+    [InlineData("hello")]               // garbage
+    [InlineData("")]                    // empty
+    [InlineData("   ")]                 // whitespace
+    [InlineData("2001:db8::1%5")]       // zone-scoped suffix rejected
+    public void IsGlobalIPv6Address_RejectsNonGlobal(string addr) =>
+        Assert.False(NetworkAudit.IsGlobalIPv6Address(addr));
+
+    [Fact]
+    public void IsGlobalIPv6Address_RejectsNull() =>
+        Assert.False(NetworkAudit.IsGlobalIPv6Address(null));
+
+    // ── IsTeredoActiveState classifier ─────────────────────────────────
+
+    [Theory]
+    [InlineData("client")]
+    [InlineData("enterpriseclient")]
+    [InlineData("CLIENT")]              // case-insensitive
+    [InlineData(" relay ")]             // trimmed
+    [InlineData("server")]
+    public void IsTeredoActiveState_TrueForActiveStates(string typeValue) =>
+        Assert.True(NetworkAudit.IsTeredoActiveState(typeValue));
+
+    [Theory]
+    [InlineData("disabled")]
+    [InlineData("default")]
+    [InlineData("offline")]
+    [InlineData("dormant")]
+    [InlineData("probe")]               // transient, not yet a client
+    [InlineData("qualified")]           // not one of our recognized active tokens
+    [InlineData("deaktiviert")]         // localized 'disabled' -> not matched -> inactive (safe default)
+    [InlineData("")]
+    [InlineData("   ")]
+    public void IsTeredoActiveState_FalseForInactiveOrUnknown(string typeValue) =>
+        Assert.False(NetworkAudit.IsTeredoActiveState(typeValue));
+
+    [Fact]
+    public void IsTeredoActiveState_FalseForNull() =>
+        Assert.False(NetworkAudit.IsTeredoActiveState(null));
+
+    // ── Full pipe-delimited collector sample (structure end-to-end) ─────
+
+    [Fact]
+    public void GlobalIPv6_FullSample_KeepsOnlyGlobalAddresses()
+    {
+        // Mirrors the IPv6 collector's PowerShell output plus noise a localized or
+        // misbehaving host might emit. Only the two genuine global addresses survive.
+        var sample = string.Join("\n", new[]
+        {
+            "",
+            "IPAddress|InterfaceAlias|PrefixOrigin",        // header line
+            "2001:db8:abcd:12::1|Ethernet|RouterAdvertisement",
+            "fe80::1cad:42ff:fe00:1|Ethernet|WellKnown",   // link-local -> dropped
+            "::1|Loopback Pseudo-Interface 1|WellKnown",   // loopback -> dropped
+            "2606:4700:4700::1001|Wi-Fi|Manual",
+            "ff02::fb|Wi-Fi|WellKnown",                     // multicast -> dropped
+            "garbage line with | pipe but no address",     // junk col0 -> dropped
+        });
+
+        var parsed = sample
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(l => NetworkAudit.TryParseGlobalIPv6Line(l, out var a) ? a : null)
+            .Where(a => a != null)
+            .ToList();
+
+        Assert.Equal(2, parsed.Count);
+        Assert.Contains("2001:db8:abcd:12::1", parsed);
+        Assert.Contains("2606:4700:4700::1001", parsed);
+        Assert.DoesNotContain("::1", parsed);
+    }
+}

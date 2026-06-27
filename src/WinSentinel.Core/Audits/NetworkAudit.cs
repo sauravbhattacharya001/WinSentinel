@@ -163,15 +163,21 @@ public class NetworkAudit : AuditModuleBase
         var output = await ShellHelper.RunPowerShellAsync(
             @"(Get-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name 'fDenyTSConnections' -ErrorAction SilentlyContinue).fDenyTSConnections", ct);
 
-        // fDenyTSConnections == 0 means RDP is enabled.
-        state.RdpEnabled = output.Trim() == "0";
+        // fDenyTSConnections == 0 means RDP is enabled. Parse defensively: only a
+        // clean lone DWORD counts (see IsRdpEnabledFromDeny) so a noisy/multi-line
+        // PowerShell blob can't be misread as "0" and report RDP exposed when it
+        // isn't (or vice-versa).
+        state.RdpEnabled = IsRdpEnabledFromDeny(output);
 
         if (state.RdpEnabled)
         {
             var nla = await ShellHelper.RunPowerShellAsync(
                 @"(Get-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name 'UserAuthentication' -ErrorAction SilentlyContinue).UserAuthentication", ct);
-            // UserAuthentication == 0 means NLA is disabled.
-            state.RdpNlaEnabled = nla.Trim() != "0";
+            // UserAuthentication == 1 means NLA is enabled. Fail SAFE: NLA counts as
+            // enabled ONLY for a clean lone "1"; a clean "0" or any unreadable/garbage
+            // output is treated as NOT enabled, so a failed registry read surfaces the
+            // "RDP without NLA" exposure rather than silently suppressing it.
+            state.RdpNlaEnabled = IsNlaEnabledFromValue(nla);
         }
     }
 
@@ -472,14 +478,74 @@ public class NetworkAudit : AuditModuleBase
 
     // ── Collection helpers ──────────────────────────────────────
 
-    /// <summary>Parses a PowerShell boolean string ("True"/"False") into a Toggle.</summary>
-    private static Toggle ParseToggle(string raw)
+    /// <summary>
+    /// Parses a PowerShell boolean string ("True"/"False") into a <see cref="Toggle"/>,
+    /// tolerating noisy / multi-line output. Plain <c>raw.Trim() == "True"</c> failed
+    /// whenever the value was preceded or followed by another line -- a CIM/WMI
+    /// warning, a verbose banner, or the <c>'ERROR'</c> catch sentinel emitted
+    /// alongside the value -- silently degrading a known True/False to Unknown.
+    /// This scans the output and returns the toggle for the first line that is
+    /// EXACTLY a boolean token (case-insensitive); any other line (including the
+    /// 'ERROR' sentinel) is ignored. Returns <see cref="Toggle.Unknown"/> when no
+    /// such line is present.
+    /// </summary>
+    internal static Toggle ParseToggle(string? raw)
     {
-        var t = raw.Trim();
-        if (t.Equals("True", StringComparison.OrdinalIgnoreCase)) return Toggle.Enabled;
-        if (t.Equals("False", StringComparison.OrdinalIgnoreCase)) return Toggle.Disabled;
+        if (string.IsNullOrWhiteSpace(raw)) return Toggle.Unknown;
+        foreach (var line in raw.Split('\n'))
+        {
+            var t = line.Trim();
+            if (t.Length == 0) continue;
+            if (t.Equals("True", StringComparison.OrdinalIgnoreCase)) return Toggle.Enabled;
+            if (t.Equals("False", StringComparison.OrdinalIgnoreCase)) return Toggle.Disabled;
+        }
         return Toggle.Unknown;
     }
+
+    /// <summary>
+    /// Parses a single registry DWORD value from PowerShell output. Accepts ONLY a
+    /// clean lone non-negative integer (optionally surrounded by whitespace / blank
+    /// lines); rejects multi-valued output, hex, signs, and any line containing
+    /// non-digit noise. This is the trust gate behind the RDP flag readers so a
+    /// noisy blob can never be coerced into a security-relevant 0/1.
+    /// </summary>
+    internal static bool TryParseRegistryDword(string? raw, out int value)
+    {
+        value = 0;
+        if (string.IsNullOrWhiteSpace(raw)) return false;
+        string? token = null;
+        foreach (var line in raw.Split('\n'))
+        {
+            var t = line.Trim();
+            if (t.Length == 0) continue;
+            if (token != null) return false; // more than one non-blank line -> ambiguous
+            token = t;
+        }
+        if (token == null) return false;
+        // Digits only (no sign, no hex, no decimal, no embedded space).
+        foreach (var c in token)
+        {
+            if (c < '0' || c > '9') return false;
+        }
+        return int.TryParse(token, out value);
+    }
+
+    /// <summary>
+    /// True only when <c>fDenyTSConnections</c> output is a clean lone <c>0</c>
+    /// (RDP enabled). Any other value, missing key, or noisy output -> false
+    /// (RDP treated as not enabled).
+    /// </summary>
+    internal static bool IsRdpEnabledFromDeny(string? raw)
+        => TryParseRegistryDword(raw, out var v) && v == 0;
+
+    /// <summary>
+    /// True only when the <c>UserAuthentication</c> output is a clean lone <c>1</c>
+    /// (NLA enabled). Fails SAFE: a clean <c>0</c> OR any unreadable / multi-line /
+    /// non-numeric output returns false, so a failed registry read surfaces the
+    /// "RDP without NLA" exposure instead of hiding it.
+    /// </summary>
+    internal static bool IsNlaEnabledFromValue(string? raw)
+        => TryParseRegistryDword(raw, out var v) && v == 1;
 
     /// <summary>Returns the trimmed text after the first ':' in a line, or null.</summary>
     private static string? AfterColon(string line)

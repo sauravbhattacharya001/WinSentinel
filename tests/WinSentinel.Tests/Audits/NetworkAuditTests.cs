@@ -1,5 +1,6 @@
 using WinSentinel.Core.Audits;
 using WinSentinel.Core.Models;
+using Toggle = WinSentinel.Core.Audits.NetworkPostureAnalyzer.Toggle;
 
 namespace WinSentinel.Tests.Audits;
 
@@ -854,3 +855,173 @@ public class NetworkAuditIPv6ParsingTests
         Assert.DoesNotContain(parsed, p => p!.ProcessName == "noise");
     }
 }
+
+/// <summary>
+/// Host-independent tests for the SMB toggle and RDP registry-flag parsers in
+/// <see cref="NetworkAudit"/> (<see cref="NetworkAudit.ParseToggle"/>,
+/// <see cref="NetworkAudit.TryParseRegistryDword"/>,
+/// <see cref="NetworkAudit.IsRdpEnabledFromDeny"/>,
+/// <see cref="NetworkAudit.IsNlaEnabledFromValue"/>). These collectors read
+/// True/False and DWORD values out of PowerShell output; the parsers must ignore
+/// noisy/multi-line output and FAIL SAFE for NLA so a failed read surfaces the
+/// RDP exposure rather than hiding it. No live PowerShell is invoked.
+/// </summary>
+public class NetworkAuditSmbRdpParsingTests
+{
+    // ── ParseToggle: clean and noisy boolean output ────────────────────
+
+    [Theory]
+    [InlineData("True", Toggle.Enabled)]
+    [InlineData("False", Toggle.Disabled)]
+    [InlineData("  true  ", Toggle.Enabled)]          // surrounding whitespace
+    [InlineData("FALSE", Toggle.Disabled)]            // case-insensitive
+    [InlineData("\r\nTrue\r\n", Toggle.Enabled)]      // CRLF padded
+    public void ParseToggle_ParsesCleanBooleans(string raw, Toggle expected)
+    {
+        Assert.Equal(expected, NetworkAudit.ParseToggle(raw));
+    }
+
+    [Theory]
+    // A CIM/WMI warning or verbose banner preceding the value used to degrade the
+    // whole blob to Unknown; now the genuine boolean line is found.
+    [InlineData("WARNING: An unexpected provider error occurred.\nTrue", Toggle.Enabled)]
+    [InlineData("VERBOSE: connecting...\nFalse\n", Toggle.Disabled)]
+    [InlineData("\n\nTrue", Toggle.Enabled)]
+    public void ParseToggle_FindsBooleanAmidNoise(string raw, Toggle expected)
+    {
+        Assert.Equal(expected, NetworkAudit.ParseToggle(raw));
+    }
+
+    [Theory]
+    [InlineData("ERROR")]                              // the catch sentinel -> Unknown, not a boolean
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("Truthy")]                             // not exactly True
+    [InlineData("yes")]                                // not a .NET boolean token
+    [InlineData("1")]                                  // numeric, not True/False
+    [InlineData("True False")]                         // ambiguous single line -> no exact token
+    public void ParseToggle_ReturnsUnknownForNonBoolean(string raw)
+    {
+        Assert.Equal(Toggle.Unknown, NetworkAudit.ParseToggle(raw));
+    }
+
+    [Fact]
+    public void ParseToggle_ReturnsUnknownForNull() =>
+        Assert.Equal(Toggle.Unknown, NetworkAudit.ParseToggle(null));
+
+    // ── TryParseRegistryDword: only a clean lone DWORD is trusted ───────
+
+    [Theory]
+    [InlineData("0", 0)]
+    [InlineData("1", 1)]
+    [InlineData("  2 ", 2)]                            // whitespace trimmed
+    [InlineData("\r\n1\r\n", 1)]                       // blank lines around the value
+    [InlineData("4294967", 4294967)]                  // large in-range int
+    public void TryParseRegistryDword_AcceptsCleanLoneInteger(string raw, int expected)
+    {
+        Assert.True(NetworkAudit.TryParseRegistryDword(raw, out var v));
+        Assert.Equal(expected, v);
+    }
+
+    [Theory]
+    [InlineData("")]                                   // empty
+    [InlineData("   ")]                                // whitespace
+    [InlineData("-1")]                                 // sign rejected
+    [InlineData("0x1")]                                // hex rejected
+    [InlineData("1.0")]                                // decimal rejected
+    [InlineData("1 0")]                                // embedded space
+    [InlineData("0\n1")]                               // two values -> ambiguous
+    [InlineData("True")]                               // non-numeric
+    [InlineData("99999999999999999999")]              // overflows int
+    [InlineData("WARNING: x\n0")]                       // noise line + value -> ambiguous, rejected
+    public void TryParseRegistryDword_RejectsNoisyOrNonNumeric(string raw)
+    {
+        Assert.False(NetworkAudit.TryParseRegistryDword(raw, out var v));
+        Assert.Equal(0, v);
+    }
+
+    [Fact]
+    public void TryParseRegistryDword_RejectsNull() =>
+        Assert.False(NetworkAudit.TryParseRegistryDword(null, out _));
+
+    // ── IsRdpEnabledFromDeny: fDenyTSConnections == clean 0 ─────────────
+
+    [Theory]
+    [InlineData("0", true)]                            // RDP enabled
+    [InlineData(" 0 ", true)]
+    [InlineData("1", false)]                           // RDP denied
+    [InlineData("", false)]                            // missing key -> not enabled
+    [InlineData("   ", false)]
+    [InlineData("0\n0", false)]                        // ambiguous multi-value -> not enabled
+    [InlineData("WARNING\n0", false)]                  // noisy -> not coerced to enabled
+    [InlineData("0x0", false)]                         // hex not trusted
+    public void IsRdpEnabledFromDeny_OnlyTrueForCleanZero(string raw, bool expected)
+    {
+        Assert.Equal(expected, NetworkAudit.IsRdpEnabledFromDeny(raw));
+    }
+
+    [Fact]
+    public void IsRdpEnabledFromDeny_NullIsNotEnabled() =>
+        Assert.False(NetworkAudit.IsRdpEnabledFromDeny(null));
+
+    // ── IsNlaEnabledFromValue: fails SAFE (only clean 1 == enabled) ─────
+
+    [Theory]
+    [InlineData("1", true)]                            // NLA enabled
+    [InlineData(" 1 ", true)]
+    [InlineData("0", false)]                           // NLA explicitly disabled -> exposure
+    public void IsNlaEnabledFromValue_TrueOnlyForCleanOne(string raw, bool expected)
+    {
+        Assert.Equal(expected, NetworkAudit.IsNlaEnabledFromValue(raw));
+    }
+
+    [Theory]
+    // The critical fail-safe direction: an unreadable / missing / noisy NLA value
+    // must NOT be treated as enabled, so the "RDP without NLA" warning still fires.
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("WARNING: registry read failed")]
+    [InlineData("1\n1")]                               // ambiguous multi-value
+    [InlineData("enabled")]                            // non-numeric
+    [InlineData("0x1")]                                // hex not trusted
+    public void IsNlaEnabledFromValue_UnreadableIsNotEnabled(string raw)
+    {
+        Assert.False(NetworkAudit.IsNlaEnabledFromValue(raw));
+    }
+
+    [Fact]
+    public void IsNlaEnabledFromValue_NullIsNotEnabled() =>
+        Assert.False(NetworkAudit.IsNlaEnabledFromValue(null));
+
+    // ── Regression: pins the security-relevant behaviour CHANGE ────────
+
+    [Fact]
+    public void IsNlaEnabledFromValue_FailsSafe_WhereOldTrimCheckDidNot()
+    {
+        // The old collector computed NLA as `nla.Trim() != "0"`, so an EMPTY value
+        // (registry read failed / key missing) evaluated to true and silently
+        // marked NLA as enabled -- suppressing the "RDP without NLA" exposure. The
+        // hardened reader treats only a clean "1" as enabled, so the same input now
+        // fails safe and the exposure is surfaced.
+        const string unreadable = "";
+        bool oldResult = unreadable.Trim() != "0";              // legacy logic
+        Assert.True(oldResult);                                 // old: NLA assumed ENABLED (the bug)
+        Assert.False(NetworkAudit.IsNlaEnabledFromValue(unreadable)); // new: NOT enabled (fail safe)
+    }
+
+    [Fact]
+    public void ParseToggle_FindsValue_WhereOldWholeBlobTrimDidNot()
+    {
+        // The old ParseToggle did `raw.Trim()` over the WHOLE blob, so a warning
+        // line ahead of the value degraded a known True/False to Unknown.
+        const string noisy = "WARNING: An unexpected provider error occurred.\nTrue";
+        var oldResult = noisy.Trim().Equals("True", StringComparison.OrdinalIgnoreCase)
+            ? Toggle.Enabled
+            : noisy.Trim().Equals("False", StringComparison.OrdinalIgnoreCase)
+                ? Toggle.Disabled
+                : Toggle.Unknown;
+        Assert.Equal(Toggle.Unknown, oldResult);                // old: degraded to Unknown
+        Assert.Equal(Toggle.Enabled, NetworkAudit.ParseToggle(noisy)); // new: finds the real value
+    }
+}
+

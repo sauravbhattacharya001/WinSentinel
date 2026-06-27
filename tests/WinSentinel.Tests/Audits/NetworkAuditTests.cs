@@ -725,4 +725,132 @@ public class NetworkAuditIPv6ParsingTests
         Assert.Contains("2606:4700:4700::1001", parsed);
         Assert.DoesNotContain("::1", parsed);
     }
+
+    // ── TryParseListeningPortLine: rows that must parse ─────────────────
+
+    [Theory]
+    [InlineData("445|System", 445, "System")]
+    [InlineData("49664|svchost", 49664, "svchost")]
+    [InlineData("  3389 | TermService ", 3389, "TermService")]     // surrounding whitespace trimmed
+    [InlineData("1|wininit", 1, "wininit")]                          // lowest valid port
+    [InlineData("65535|app", 65535, "app")]                          // highest valid port
+    [InlineData("80|svc|extra", 80, "svc")]                          // trailing column ignored
+    public void TryParseListeningPortLine_ParsesRealRows(string line, int expectedPort, string expectedProc)
+    {
+        Assert.True(NetworkAudit.TryParseListeningPortLine(line, out var p));
+        Assert.Equal(expectedPort, p.Port);
+        Assert.Equal(expectedProc, p.ProcessName);
+    }
+
+    [Fact]
+    public void TryParseListeningPortLine_BlankOwner_NormalizedToUnknown()
+    {
+        // A process that exited between Get-NetTCPConnection and Get-Process yields "445|".
+        Assert.True(NetworkAudit.TryParseListeningPortLine("445|", out var p));
+        Assert.Equal(445, p.Port);
+        Assert.Equal("unknown", p.ProcessName);
+    }
+
+    [Fact]
+    public void TryParseListeningPortLine_WhitespaceOwner_NormalizedToUnknown()
+    {
+        Assert.True(NetworkAudit.TryParseListeningPortLine("445|   ", out var p));
+        Assert.Equal("unknown", p.ProcessName);
+    }
+
+    // ── TryParseListeningPortLine: lines that must be rejected ──────────
+
+    [Theory]
+    [InlineData("")]                                   // blank
+    [InlineData("   ")]                                // whitespace
+    [InlineData("LocalPort OwningProcess")]            // header, no pipe
+    [InlineData("LocalPort|OwningProcess")]            // header WITH pipe -> col0 not numeric
+    [InlineData("Port|Prozess")]                       // localized header
+    [InlineData("445")]                                // no pipe delimiter at all
+    [InlineData("0|System")]                           // port 0 invalid
+    [InlineData("-1|System")]                          // negative
+    [InlineData("65536|System")]                       // above max
+    [InlineData("999999|System")]                      // way above max (e.g. a stray year/number)
+    [InlineData("0x1f|System")]                        // hex token rejected
+    [InlineData("5e3|System")]                         // scientific notation rejected
+    [InlineData("abc|System")]                         // non-numeric port
+    [InlineData("44 5|System")]                        // embedded space -> not digits-only
+    public void TryParseListeningPortLine_RejectsMalformed(string line)
+    {
+        Assert.False(NetworkAudit.TryParseListeningPortLine(line, out var p));
+        Assert.Equal(0, p.Port);
+    }
+
+    [Fact]
+    public void TryParseListeningPortLine_RejectsNull()
+    {
+        Assert.False(NetworkAudit.TryParseListeningPortLine(null, out var p));
+        Assert.Equal(0, p.Port);
+    }
+
+    // ── IsValidTcpPort validator ───────────────────────────────────────
+
+    [Theory]
+    [InlineData("1", 1)]
+    [InlineData("80", 80)]
+    [InlineData("65535", 65535)]
+    public void IsValidTcpPort_AcceptsInRange(string value, int expected)
+    {
+        Assert.True(NetworkAudit.IsValidTcpPort(value, out var port));
+        Assert.Equal(expected, port);
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("-1")]
+    [InlineData("65536")]
+    [InlineData("100000")]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("abc")]
+    [InlineData("0x50")]
+    [InlineData("8.0")]
+    public void IsValidTcpPort_RejectsOutOfRangeOrNonNumeric(string value)
+    {
+        Assert.False(NetworkAudit.IsValidTcpPort(value, out var port));
+        Assert.Equal(0, port);
+    }
+
+    [Fact]
+    public void IsValidTcpPort_RejectsNull() =>
+        Assert.False(NetworkAudit.IsValidTcpPort(null, out _));
+
+    // ── Full pipe-delimited collector sample (structure end-to-end) ─────
+
+    [Fact]
+    public void ListeningPorts_FullSample_KeepsOnlyValidPortRows()
+    {
+        // Mirrors the listening-ports collector output plus noise a localized or
+        // misbehaving host might emit. Only the genuine port|process rows survive,
+        // and an exited owner is labeled "unknown".
+        var sample = string.Join("\n", new[]
+        {
+            "",
+            "LocalPort|OwningProcess",          // header -> dropped (col0 not numeric)
+            "135|svchost",
+            "445|System",
+            "3389|",                            // exited owner -> kept as "unknown"
+            "0|bogus",                          // port 0 -> dropped
+            "999999|noise",                     // out-of-range -> dropped
+            "garbage line with no pipe",        // junk -> dropped
+        });
+
+        var parsed = sample
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(l => NetworkAudit.TryParseListeningPortLine(l, out var p) ? p : null)
+            .Where(p => p != null)
+            .ToList();
+
+        Assert.Equal(3, parsed.Count);
+        Assert.Contains(parsed, p => p!.Port == 135 && p.ProcessName == "svchost");
+        Assert.Contains(parsed, p => p!.Port == 445 && p.ProcessName == "System");
+        Assert.Contains(parsed, p => p!.Port == 3389 && p.ProcessName == "unknown");
+        Assert.DoesNotContain(parsed, p => p!.Port == 0);
+        Assert.DoesNotContain(parsed, p => p!.ProcessName == "noise");
+    }
 }

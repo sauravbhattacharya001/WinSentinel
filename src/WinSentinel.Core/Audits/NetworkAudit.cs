@@ -83,12 +83,62 @@ public class NetworkAudit : AuditModuleBase
 
         foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
-            var parts = line.Split('|');
-            if (parts.Length >= 2 && int.TryParse(parts[0], out int port))
+            if (TryParseListeningPortLine(line, out var listeningPort))
             {
-                state.ListeningPorts.Add(new NetworkPostureAnalyzer.ListeningPort(port, parts[1]));
+                state.ListeningPorts.Add(listeningPort);
             }
         }
+    }
+
+    /// <summary>
+    /// Parse a single line of the listening-ports collector's pipe-delimited PowerShell
+    /// output (<c>'{0}|{1}' -f $_.LocalPort, $proc.ProcessName</c>) into a
+    /// <see cref="NetworkPostureAnalyzer.ListeningPort"/>. Returns false for anything
+    /// that is not a real <c>port|process</c> row.
+    ///
+    /// <para>The previous inline parse accepted column 0 as a port whenever
+    /// <see cref="int.TryParse(string, out int)"/> succeeded, with no range check, and
+    /// stored column 1 verbatim. That was both too permissive and locale-fragile:
+    /// a stray header/diagnostic line (or a localized <c>Get-NetTCPConnection</c> banner)
+    /// whose first token happened to be numeric — e.g. a year, a PID, <c>0</c>, or an
+    /// out-of-range <c>999999</c> — was ingested as a bogus "listening port", which then
+    /// feeds the open-port exposure analysis and can manufacture a phantom finding. And
+    /// when the owning process had exited between enumeration and <c>Get-Process</c> the
+    /// line came through as <c>445|</c>, storing a port with a blank owner. We now require
+    /// column 0 to be a genuine TCP port (1–65535) by structure and normalize a
+    /// missing/blank process name to <c>"unknown"</c>, so junk lines are rejected for what
+    /// they are — on any Windows display language — and a real port always carries a
+    /// non-empty owner label.</para>
+    /// </summary>
+    internal static bool TryParseListeningPortLine(string? line, out NetworkPostureAnalyzer.ListeningPort port)
+    {
+        port = new NetworkPostureAnalyzer.ListeningPort();
+        if (string.IsNullOrWhiteSpace(line)) return false;
+
+        // Rows look like "445|System" or "49664|svchost"; an exited owner yields "445|".
+        var parts = line.Split('|');
+        if (parts.Length < 2) return false; // need both a port and a (possibly empty) owner column
+
+        if (!IsValidTcpPort(parts[0].Trim(), out int portNumber)) return false;
+
+        var processName = parts[1].Trim();
+        if (processName.Length == 0) processName = "unknown";
+
+        port = new NetworkPostureAnalyzer.ListeningPort(portNumber, processName);
+        return true;
+    }
+
+    /// <summary>True only for a valid, in-range TCP port number (1-65535). Rejects
+    /// non-numeric tokens, 0, negatives, and anything above 65535.</summary>
+    internal static bool IsValidTcpPort(string? value, out int port)
+    {
+        port = 0;
+        if (string.IsNullOrWhiteSpace(value)) return false;
+        foreach (var c in value) if (c < '0' || c > '9') return false; // digits only (rejects '-1', '5e3', '0x1f')
+        if (!int.TryParse(value, out var n)) return false;
+        if (n < 1 || n > 65535) return false;
+        port = n;
+        return true;
     }
 
     private async Task CollectSmb(NetworkState state, CancellationToken ct)

@@ -1025,3 +1025,118 @@ public class NetworkAuditSmbRdpParsingTests
     }
 }
 
+/// <summary>
+/// Host-independent tests for the LLMNR (EnableMulticast GPO) and NetBIOS-over-
+/// TCP/IP option parsers in <see cref="NetworkAudit"/>. These exercise the pure
+/// seams (ClassifyLlmnrValue, IsNetBiosEnabledFromOption) directly, so they run
+/// anywhere without touching the registry or CIM. Both fail SAFE: an unreadable
+/// or noisy value surfaces the name-resolution-poisoning exposure (LLMNR not
+/// Disabled / NetBIOS counted as enabled) rather than hiding it.
+/// </summary>
+public class NetworkAuditLlmnrNetBiosParsingTests
+{
+    // ── ClassifyLlmnrValue ─────────────────────────────────────────────
+
+    [Fact]
+    public void ClassifyLlmnr_CleanZero_IsDisabled() =>
+        Assert.Equal(Toggle.Disabled, NetworkAudit.ClassifyLlmnrValue("0"));
+
+    [Theory]
+    [InlineData(" 0 ")]            // surrounding whitespace
+    [InlineData("0\n")]           // trailing newline (typical PowerShell output)
+    [InlineData("\n0\n")]         // blank lines around the value
+    public void ClassifyLlmnr_CleanZeroWithWhitespace_IsDisabled(string raw) =>
+        Assert.Equal(Toggle.Disabled, NetworkAudit.ClassifyLlmnrValue(raw));
+
+    [Theory]
+    [InlineData("1")]             // explicitly enabled
+    [InlineData("NOT_SET")]       // key absent
+    [InlineData("not_set")]       // case-insensitive sentinel
+    [InlineData("ERROR")]         // reader catch sentinel
+    public void ClassifyLlmnr_EnabledOrUnknownTokens_AreEnabled(string raw) =>
+        Assert.Equal(Toggle.Enabled, NetworkAudit.ClassifyLlmnrValue(raw));
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("garbage")]       // unrecognised single token
+    [InlineData("2")]            // not a valid EnableMulticast value -> not "disabled"
+    [InlineData("00")]           // not exactly "0"
+    public void ClassifyLlmnr_MissingOrUnrecognised_FailSafeEnabled(string? raw) =>
+        Assert.Equal(Toggle.Enabled, NetworkAudit.ClassifyLlmnrValue(raw));
+
+    [Fact]
+    public void ClassifyLlmnr_NoisyPrefixThenZero_IsDisabled()
+    {
+        // A CIM/registry warning ahead of the real value must NOT defeat the
+        // disabled verdict -- the scanner finds the first recognised token line.
+        const string noisy = "WARNING: Get-ItemProperty provider error\n0";
+        Assert.Equal(Toggle.Disabled, NetworkAudit.ClassifyLlmnrValue(noisy));
+    }
+
+    [Fact]
+    public void ClassifyLlmnr_NoisyPrefixThenOne_IsEnabled()
+    {
+        const string noisy = "WARNING: verbose banner\n1";
+        Assert.Equal(Toggle.Enabled, NetworkAudit.ClassifyLlmnrValue(noisy));
+    }
+
+    // ── IsNetBiosEnabledFromOption ─────────────────────────────────────
+
+    [Theory]
+    [InlineData("0")]             // default: enabled via DHCP
+    [InlineData("1")]             // explicitly enabled
+    [InlineData(" 1 ")]           // whitespace tolerated by the clean-int gate
+    public void NetBios_EnabledOptions_AreEnabled(string opt) =>
+        Assert.True(NetworkAudit.IsNetBiosEnabledFromOption(opt));
+
+    [Theory]
+    [InlineData("2")]             // the only "disabled"
+    [InlineData(" 2 ")]
+    [InlineData("2\n")]
+    public void NetBios_CleanTwo_IsDisabled(string opt) =>
+        Assert.False(NetworkAudit.IsNetBiosEnabledFromOption(opt));
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("  ")]
+    [InlineData("2.0")]          // decimal -> not a clean DWORD
+    [InlineData("0x2")]          // hex -> not trusted
+    [InlineData("-2")]           // signed -> rejected by the clean-int gate
+    [InlineData("disabled")]     // non-numeric noise
+    [InlineData("2 extra")]      // multi-token
+    public void NetBios_UnparseableOrNoisy_FailSafeEnabled(string? opt) =>
+        Assert.True(NetworkAudit.IsNetBiosEnabledFromOption(opt));
+
+    // ── Regression: pin the security-relevant behaviour CHANGE ─────────
+
+    [Fact]
+    public void ClassifyLlmnr_NoisyZero_DisabledWhereOldWholeBlobTrimWasEnabled()
+    {
+        // The old collector did `llmnrOutput.Trim() == "0"` over the WHOLE blob,
+        // so a prepended warning line made a genuinely-disabled (0) value read as
+        // ENABLED -- a false LLMNR-poisoning Warning. The hardened classifier scans
+        // for the real token line and correctly reports Disabled.
+        const string noisy = "WARNING: An unexpected provider error occurred.\n0";
+        var oldResult = noisy.Trim() == "0" ? Toggle.Disabled : Toggle.Enabled;
+        Assert.Equal(Toggle.Enabled, oldResult);                              // old: mis-read as Enabled
+        Assert.Equal(Toggle.Disabled, NetworkAudit.ClassifyLlmnrValue(noisy)); // new: correct Disabled
+    }
+
+    [Fact]
+    public void NetBios_GarbageOption_EnabledWhereOldEqualityCheckDroppedIt()
+    {
+        // The old collector added an adapter only when the option was exactly "0"
+        // or "1"; ANY other value (including garbage like "2.0") fell through and
+        // was silently treated as disabled -- suppressing the NBT-NS exposure for a
+        // malformed value. The hardened reader fails safe and surfaces it.
+        const string garbage = "2.0";
+        var opt = garbage.Trim();
+        bool oldEnabled = opt == "0" || opt == "1";                      // legacy logic
+        Assert.False(oldEnabled);                                        // old: dropped (assumed disabled)
+        Assert.True(NetworkAudit.IsNetBiosEnabledFromOption(garbage));   // new: surfaced (fail safe)
+    }
+}
+

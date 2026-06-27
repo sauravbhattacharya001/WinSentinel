@@ -262,28 +262,33 @@ public class NetworkAudit : AuditModuleBase
                 if ($key) { $key.EnableMulticast } else { 'NOT_SET' }
             } catch { 'ERROR' }", ct);
 
-        // Only an explicit 0 counts as disabled; everything else (1 / NOT_SET / ERROR)
-        // is treated as "enabled or unknown" => Warning, matching the original audit.
-        state.Llmnr = llmnrOutput.Trim() == "0" ? Toggle.Disabled : Toggle.Enabled;
+        // Decide LLMNR from the first recognised token line, tolerating a
+        // prepended CIM/registry warning or banner that a whole-blob Trim()=="0"
+        // would have mis-read as enabled. 0 => Disabled; 1/NOT_SET/ERROR/none =>
+        // Enabled (the analyzer only passes on Disabled, so unknown still warns).
+        state.Llmnr = ClassifyLlmnrValue(llmnrOutput);
 
         var netbiosOutput = await ShellHelper.RunPowerShellAsync(
             @"Get-CimInstance Win32_NetworkAdapterConfiguration -Filter 'IPEnabled=True' |
               ForEach-Object { '{0}|{1}' -f $_.Description, $_.TcpipNetbiosOptions }", ct);
 
         var netbiosLines = netbiosOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        state.NetBiosAdapterCount = netbiosLines.Length;
 
         foreach (var line in netbiosLines)
         {
             var parts = line.Split('|');
-            if (parts.Length >= 2)
+            // Only count lines that actually look like an adapter row (Description|
+            // Options); a stray CIM warning without a '|' must not inflate the
+            // adapter count (which gates the "all adapters disabled" Pass message).
+            if (parts.Length < 2) continue;
+            state.NetBiosAdapterCount++;
+            // TcpipNetbiosOptions: 0 = Default (enabled via DHCP), 1 = Enabled,
+            // 2 = Disabled. IsNetBiosEnabledFromOption fails SAFE -- a clean 2 is
+            // the only "disabled"; a garbage value is treated as enabled so the
+            // adapter still surfaces rather than being silently dropped.
+            if (IsNetBiosEnabledFromOption(parts[1]))
             {
-                var option = parts[1].Trim();
-                // TcpipNetbiosOptions: 0 = Default (enabled via DHCP), 1 = Enabled, 2 = Disabled
-                if (option == "0" || option == "1")
-                {
-                    state.NetBiosEnabledAdapters.Add(parts[0]);
-                }
+                state.NetBiosEnabledAdapters.Add(parts[0]);
             }
         }
     }
@@ -546,6 +551,54 @@ public class NetworkAudit : AuditModuleBase
     /// </summary>
     internal static bool IsNlaEnabledFromValue(string? raw)
         => TryParseRegistryDword(raw, out var v) && v == 1;
+
+    /// <summary>
+    /// Classifies the <c>EnableMulticast</c> (LLMNR GPO) reader output into a
+    /// <see cref="Toggle"/>. The reader emits one of <c>0</c> / <c>1</c> /
+    /// <c>NOT_SET</c> / <c>ERROR</c>, but a prepended CIM/registry warning or
+    /// verbose banner line would make a whole-blob <c>Trim() == "0"</c> test
+    /// mis-read a genuinely-disabled (<c>0</c>) value as enabled. Instead, scan
+    /// for the FIRST line that is exactly a recognised token and decide from it,
+    /// ignoring surrounding noise: a clean lone <c>0</c> =&gt; Disabled, a clean
+    /// lone <c>1</c> =&gt; Enabled. <c>NOT_SET</c> / <c>ERROR</c> / no recognised
+    /// line =&gt; Enabled, preserving the original audit's conservative "warn on
+    /// anything other than explicit 0" stance (the analyzer only emits Pass for
+    /// Toggle.Disabled, so unknown safely surfaces the LLMNR-poisoning exposure).
+    /// </summary>
+    internal static Toggle ClassifyLlmnrValue(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return Toggle.Enabled;
+        foreach (var line in raw.Split('\n'))
+        {
+            var t = line.Trim();
+            if (t.Length == 0) continue;
+            if (t == "0") return Toggle.Disabled;
+            if (t == "1") return Toggle.Enabled;
+            if (t.Equals("NOT_SET", StringComparison.OrdinalIgnoreCase)) return Toggle.Enabled;
+            if (t.Equals("ERROR", StringComparison.OrdinalIgnoreCase)) return Toggle.Enabled;
+            // Unrecognised noise line (e.g. a CIM warning): skip and keep scanning
+            // for the real token line rather than letting it decide the verdict.
+        }
+        return Toggle.Enabled; // no recognised token -> treat as enabled/unknown (warn)
+    }
+
+    /// <summary>
+    /// True when an adapter's <c>TcpipNetbiosOptions</c> value means NetBIOS over
+    /// TCP/IP is still ENABLED on that adapter (0 = default/DHCP-enabled, 1 =
+    /// explicitly enabled; 2 = disabled). Fails SAFE: only a clean lone <c>2</c>
+    /// counts as disabled -- a clean <c>0</c>/<c>1</c> OR any unparseable value
+    /// (multi-token, hex, decimal, signed, empty, or noisy) is treated as enabled
+    /// so a malformed value surfaces the NBT-NS poisoning exposure instead of
+    /// silently dropping the adapter (the old <c>== "0" || == "1"</c> test
+    /// classified every non-0/1 value, including garbage, as disabled).
+    /// </summary>
+    internal static bool IsNetBiosEnabledFromOption(string? option)
+    {
+        // A clean lone non-negative DWORD equal to 2 is the ONLY "disabled".
+        if (TryParseRegistryDword(option, out var v)) return v != 2;
+        // Unparseable / noisy / missing -> fail safe to enabled (surface it).
+        return true;
+    }
 
     /// <summary>Returns the trimmed text after the first ':' in a line, or null.</summary>
     private static string? AfterColon(string line)

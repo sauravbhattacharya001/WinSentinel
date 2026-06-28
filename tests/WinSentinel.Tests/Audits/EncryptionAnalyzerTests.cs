@@ -1,4 +1,5 @@
 using WinSentinel.Core.Audits;
+using WinSentinel.Core.Helpers;
 using WinSentinel.Core.Models;
 
 namespace WinSentinel.Tests.Audits;
@@ -571,6 +572,14 @@ ManufacturerVersionFull20       : 7.2.2.0";
         Assert.Contains("Weak Cipher Suites", f.Title);
     }
 
+    // The weak-cipher warning must offer a fix that opens the Group Policy editor.
+    [Fact]
+    public void BuildCipherSuite_Weak_HasGroupPolicyFix()
+    {
+        var f = EncryptionAnalyzer.BuildCipherSuiteFinding("TLS_RSA_WITH_RC4_128_SHA,TLS_AES_256_GCM_SHA384");
+        Assert.Equal(EncryptionAnalyzer.OpenGroupPolicyFix, f.FixCommand);
+    }
+
     [Fact]
     public void BuildCipherSuite_AllStrong_IsPass()
     {
@@ -714,6 +723,35 @@ ManufacturerVersionFull20       : 7.2.2.0";
         Assert.DoesNotContain(findings, f => f.Severity == Severity.Pass);
     }
 
+    // Every certificate-store warning must carry an actionable fix that opens the
+    // certificate manager so the user can remove/renew (auto-deleting certs is unsafe).
+    [Fact]
+    public void BuildCertFindings_EveryWarning_HasCertManagerFix()
+    {
+        var certs = new[]
+        {
+            Cert(Now.AddDays(-1), name: "expired"),
+            Cert(Now.AddDays(5), name: "soon"),
+            Cert(Now.AddYears(1), bits: 1024, name: "weakkey"),
+            Cert(Now.AddYears(1), sig: "sha1RSA", name: "weaksig"),
+        };
+        var s = EncryptionAnalyzer.ClassifyCertificates(certs, Now);
+        var findings = EncryptionAnalyzer.BuildCertificateFindings(s);
+        Assert.Equal(4, findings.Count);
+        Assert.All(findings, f =>
+            Assert.Equal(EncryptionAnalyzer.OpenCertManagerFix, f.FixCommand));
+    }
+
+    // A clean store's single Pass must NOT advertise a fix command (nothing to fix).
+    [Fact]
+    public void BuildCertFindings_CleanPass_HasNoFix()
+    {
+        var s = EncryptionAnalyzer.ClassifyCertificates(new[] { Cert(Now.AddYears(2)) }, Now);
+        var findings = EncryptionAnalyzer.BuildCertificateFindings(s);
+        Assert.Single(findings);
+        Assert.True(string.IsNullOrEmpty(findings[0].FixCommand));
+    }
+
     // ----------------------------------------------------------------------
     // Trusted root store
     // ----------------------------------------------------------------------
@@ -741,6 +779,50 @@ ManufacturerVersionFull20       : 7.2.2.0";
         var f = EncryptionAnalyzer.BuildTrustedRootFinding(4, 4, names);
         Assert.Equal(Severity.Warning, f.Severity);
         Assert.Contains("Suspicious", f.Title);
+    }
+
+    // The suspicious-root warning must offer the certificate-manager fix; the
+    // benign Info/Pass variants must not (nothing actionable).
+    [Fact]
+    public void BuildTrustedRoot_SuspiciousWarning_HasCertManagerFix()
+    {
+        var f = EncryptionAnalyzer.BuildTrustedRootFinding(4, 4, new[] { "a", "b", "c", "d" });
+        Assert.Equal(EncryptionAnalyzer.OpenCertManagerFix, f.FixCommand);
+    }
+
+    [Fact]
+    public void BuildTrustedRoot_InfoAndPass_HaveNoFix()
+    {
+        var info = EncryptionAnalyzer.BuildTrustedRootFinding(2, 2, new[] { "Fiddler Root", "mitmproxy" });
+        var pass = EncryptionAnalyzer.BuildTrustedRootFinding(0, 0, null);
+        Assert.True(string.IsNullOrEmpty(info.FixCommand));
+        Assert.True(string.IsNullOrEmpty(pass.FixCommand));
+    }
+
+    // ----------------------------------------------------------------------
+    // Fix-command safety: every encryption fix payload must actually be
+    // executable by FixEngine, i.e. it must pass InputSanitizer.CheckDangerousCommand
+    // (which blocks pipes, semicolons, sub-expressions, Start-Process shell launches,
+    // etc.). A fix that is silently blocked is worse than no fix at all - the WPF /
+    // CLI Fix button would appear available but always fail. These bare MMC snap-in
+    // names are the safe form; this pins that they stay safe.
+    // ----------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("certmgr.msc")]
+    [InlineData("gpedit.msc")]
+    public void EncryptionFixCommands_AreNotBlockedBySafetyCheck(string fixCommand)
+    {
+        Assert.Null(InputSanitizer.CheckDangerousCommand(fixCommand));
+    }
+
+    [Fact]
+    public void EncryptionFixConstants_MatchExpectedSnapIns()
+    {
+        Assert.Equal("certmgr.msc", EncryptionAnalyzer.OpenCertManagerFix);
+        Assert.Equal("gpedit.msc", EncryptionAnalyzer.OpenGroupPolicyFix);
+        Assert.Null(InputSanitizer.CheckDangerousCommand(EncryptionAnalyzer.OpenCertManagerFix));
+        Assert.Null(InputSanitizer.CheckDangerousCommand(EncryptionAnalyzer.OpenGroupPolicyFix));
     }
 
     [Fact]

@@ -54,6 +54,28 @@ public static class EncryptionAnalyzer
     /// <summary>Weak certificate signature-algorithm tokens.</summary>
     public static readonly IReadOnlyList<string> WeakSignatureTokens = new[] { "SHA1", "MD5", "MD2" };
 
+    /// <summary>
+    /// Fix command that opens the per-user certificate manager (Personal + Trusted Root
+    /// stores). Certificate removal / renewal is deliberately NOT automated - deleting a
+    /// cert can break signing, EFS, or client-auth - so the actionable fix is to open the
+    /// console where the user can review and remove/renew. A bare MMC snap-in name is the
+    /// safest possible fix payload: it contains no pipe, semicolon, sub-expression, or
+    /// shell-launch token, so it passes <see cref="Helpers.InputSanitizer.CheckDangerousCommand"/>
+    /// (whereas a <c>Start-Process 'certmgr.msc'</c> wrapper would be blocked as a shell launch).
+    /// </summary>
+    public const string OpenCertManagerFix = "certmgr.msc";
+
+    /// <summary>
+    /// Fix command that opens the Local Group Policy Editor so the user can correct the
+    /// SSL Cipher Suite Order policy (Computer Configuration &gt; Administrative Templates &gt;
+    /// Network &gt; SSL Configuration Settings). Rewriting the raw
+    /// <c>...\Cryptography\Configuration\SSL\00010002</c> Functions value automatically is
+    /// risky (a malformed list disables TLS entirely), so the fix opens the policy editor.
+    /// Like <see cref="OpenCertManagerFix"/> this is a bare snap-in name that passes the
+    /// command-safety check.
+    /// </summary>
+    public const string OpenGroupPolicyFix = "gpedit.msc";
+
     // === BitLocker =========================================================
 
     /// <summary>Normalized result of parsing a single drive's BitLocker status text.</summary>
@@ -528,7 +550,8 @@ public static class EncryptionAnalyzer
                 $"Weak Cipher Suites Configured ({weak.Count})",
                 $"Found {weak.Count} weak cipher suite(s) in the configured order: {string.Join(", ", weak.Take(5))}. These use broken cryptographic algorithms.",
                 Category,
-                "Remove weak cipher suites (RC4, DES, NULL, EXPORT, MD5) from the cipher suite order via Group Policy or registry.");
+                "Remove weak cipher suites (RC4, DES, NULL, EXPORT, MD5) from the cipher suite order via Group Policy or registry.",
+                OpenGroupPolicyFix);
         }
 
         return Finding.Pass(
@@ -638,7 +661,8 @@ public static class EncryptionAnalyzer
                 $"Expired Certificates ({summary.Expired})",
                 $"Found {summary.Expired} expired certificate(s) in personal store. Expired certificates should be removed or renewed.",
                 Category,
-                "Remove expired certificates from the personal certificate store: certmgr.msc."));
+                "Remove expired certificates from the personal certificate store: certmgr.msc.",
+                OpenCertManagerFix));
         }
         if (summary.ExpiringSoon > 0)
         {
@@ -646,7 +670,8 @@ public static class EncryptionAnalyzer
                 $"Certificates Expiring Soon ({summary.ExpiringSoon})",
                 $"Found {summary.ExpiringSoon} certificate(s) expiring within {ExpiringSoonDays} days. Renew or replace them before they expire.",
                 Category,
-                "Renew certificates before they expire to avoid service disruptions."));
+                "Renew certificates before they expire to avoid service disruptions.",
+                OpenCertManagerFix));
         }
         if (summary.WeakKey > 0)
         {
@@ -654,7 +679,8 @@ public static class EncryptionAnalyzer
                 $"Weak Certificate Keys ({summary.WeakKey})",
                 $"Found {summary.WeakKey} certificate(s) with RSA key size below {MinAcceptableRsaKeyBits} bits. These are considered cryptographically weak.",
                 Category,
-                "Replace certificates with RSA 2048-bit or stronger keys. Consider ECDSA P-256 or higher for new certificates."));
+                "Replace certificates with RSA 2048-bit or stronger keys. Consider ECDSA P-256 or higher for new certificates.",
+                OpenCertManagerFix));
         }
         if (summary.WeakSignature > 0)
         {
@@ -662,7 +688,8 @@ public static class EncryptionAnalyzer
                 $"Weak Signature Algorithms ({summary.WeakSignature})",
                 $"Found {summary.WeakSignature} certificate(s) using SHA1, MD5, or MD2 signature algorithms. These are considered insecure.",
                 Category,
-                "Replace certificates signed with SHA1/MD5 with SHA-256 or stronger algorithms."));
+                "Replace certificates signed with SHA1/MD5 with SHA-256 or stronger algorithms.",
+                OpenCertManagerFix));
         }
 
         if (summary.IsClean)
@@ -698,7 +725,8 @@ public static class EncryptionAnalyzer
                 $"Suspicious Trusted Root Certificates ({selfSignedCount})",
                 $"Found {selfSignedCount} self-signed certificate(s) in the Current User trusted root store: {string.Join("; ", names.Take(5))}. These could be from MITM proxies, adware, or debugging tools.",
                 Category,
-                "Review user-level trusted root certificates via certmgr.msc. Remove any that are not recognized.");
+                "Review user-level trusted root certificates via certmgr.msc. Remove any that are not recognized.",
+                OpenCertManagerFix);
         }
 
         if (selfSignedCount > 0)

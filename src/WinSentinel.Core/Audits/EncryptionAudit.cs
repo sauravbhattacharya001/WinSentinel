@@ -793,8 +793,13 @@ public class EncryptionAudit : AuditModuleBase
                     "Credential Guard Configured but Not Running",
                     $"Credential Guard is configured (LsaCfgFlags: {lsaCfg}, VBS: {vbsStatus}) but is not currently running. A reboot may be required, or hardware requirements may not be met.",
                     Category,
-                    "Ensure UEFI Secure Boot, virtualization extensions, and TPM 2.0 are available. Reboot the system.",
-                    "powershell -Command \"Set-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\LSA' -Name 'LsaCfgFlags' -Value 1 -Type DWord; Set-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\DeviceGuard' -Name 'EnableVirtualizationBasedSecurity' -Value 1 -Type DWord\""));
+                    "Ensure UEFI Secure Boot, virtualization extensions, and TPM 2.0 are available, then reboot. To force-enable: set HKLM\\SYSTEM\\CurrentControlSet\\Control\\LSA\\LsaCfgFlags=1 (the fix below) and HKLM\\SYSTEM\\CurrentControlSet\\Control\\DeviceGuard\\EnableVirtualizationBasedSecurity=1.",
+                    // Single sanitizer-safe command. The previous two-statement
+                    // "Set-ItemProperty ...; Set-ItemProperty ..." form was rejected by
+                    // InputSanitizer.CheckDangerousCommand (semicolon chaining), so FixEngine
+                    // refused to run it. LsaCfgFlags is the Credential Guard enable flag; the
+                    // companion VBS value is documented in the remediation text above.
+                    "reg add \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\LSA\" /v LsaCfgFlags /t REG_DWORD /d 1 /f"));
             }
             else
             {

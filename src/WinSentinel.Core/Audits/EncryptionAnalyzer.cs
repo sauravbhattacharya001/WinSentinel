@@ -471,7 +471,12 @@ public static class EncryptionAnalyzer
             Severity = protocol.Contains("SSL", StringComparison.OrdinalIgnoreCase) ? Severity.Critical : Severity.Warning,
             Category = Category,
             Remediation = $"Disable {protocol} via registry or Group Policy. Path: {schannelPath}\\{protocol}",
-            FixCommand = $"powershell -Command \"New-Item 'HKLM:\\{schannelPath}\\{protocol}\\Client' -Force | Out-Null; Set-ItemProperty -Path 'HKLM:\\{schannelPath}\\{protocol}\\Client' -Name 'Enabled' -Value 0 -Type DWord\""
+            // Single safe command (creates the key if missing and sets the value).
+            // The previous "New-Item ... | Out-Null; Set-ItemProperty ..." form was
+            // rejected by InputSanitizer.CheckDangerousCommand (semicolon chaining +
+            // pipe-to-shell), so the Fix button could never run. reg.exe creates the
+            // full key path and the value atomically with no separators.
+            FixCommand = $"reg add \"HKLM\\{schannelPath}\\{protocol}\\Client\" /v Enabled /t REG_DWORD /d 0 /f"
         };
     }
 

@@ -300,8 +300,12 @@ public static class NetworkPostureAnalyzer
                 "WinRM Service Running",
                 "Windows Remote Management (WinRM) service is running. This allows remote PowerShell sessions.",
                 Category,
-                "Disable WinRM if remote management is not needed.",
-                "Stop-Service WinRM; Set-Service WinRM -StartupType Disabled");
+                "Disable WinRM if remote management is not needed: stop it now with `Stop-Service WinRM`, then disable startup (the fix below) so it stays off after reboot.",
+                // Single sanitizer-safe command. The previous "Stop-Service WinRM; Set-Service
+                // WinRM ..." form was rejected by InputSanitizer.CheckDangerousCommand (semicolon
+                // chaining), so FixEngine refused to run it. -StartupType Disabled is the durable
+                // fix; stopping the live instance is covered in the remediation text above.
+                "Set-Service WinRM -StartupType Disabled");
         }
 
         return Finding.Pass(
@@ -514,7 +518,11 @@ public static class NetworkPostureAnalyzer
                 "to capture NTLMv2 hashes (tools like Responder/Inveigh). This is one of the most common internal network attack vectors.",
                 Category,
                 "Disable LLMNR via Group Policy: Computer Configuration > Administrative Templates > Network > DNS Client > Turn Off Multicast Name Resolution.",
-                @"New-Item -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\DNSClient' -Force | Out-Null; Set-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\DNSClient' -Name 'EnableMulticast' -Value 0"));
+                // Single reg.exe command (creates the key path + sets the value).
+                // The old "New-Item ... | Out-Null; Set-ItemProperty ..." form was
+                // rejected by InputSanitizer.CheckDangerousCommand (semicolon chaining),
+                // so the Fix button never executed.
+                @"reg add ""HKLM\SOFTWARE\Policies\Microsoft\Windows NT\DNSClient"" /v EnableMulticast /t REG_DWORD /d 0 /f"));
         }
 
         // NetBIOS over TCP/IP

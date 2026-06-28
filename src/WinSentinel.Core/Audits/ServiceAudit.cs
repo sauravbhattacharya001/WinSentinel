@@ -490,8 +490,13 @@ public class ServiceAudit : IAuditModule
                     $"The {friendlyName} ({serviceName}) service is disabled. " +
                     "This reduces system security posture significantly.",
                     Category,
-                    $"Enable the service: Set-Service -Name {serviceName} -StartupType Automatic",
-                    $"sc config {serviceName} start= auto && sc start {serviceName}"));
+                    $"Enable the service: Set-Service -Name {serviceName} -StartupType Automatic, then start it.",
+                    // Single sanitizer-safe command: -StartupType Automatic re-enables the
+                    // service and -Status Running starts it in one call. The previous
+                    // "sc config ... start= auto && sc start ..." form chained two commands
+                    // with &&, which InputSanitizer.CheckDangerousCommand rejects, so the Fix
+                    // button could never run.
+                    $"Set-Service -Name {serviceName} -StartupType Automatic -Status Running"));
             }
             else if (svc.Status.Equals("Stopped", StringComparison.OrdinalIgnoreCase) &&
                      (svc.StartType.Equals("Auto", StringComparison.OrdinalIgnoreCase) ||

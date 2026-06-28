@@ -242,7 +242,11 @@ public class PrivacyAudit : IAuditModule
                     "Windows may show feedback prompts periodically. Consider disabling for a less intrusive experience.",
                     Category,
                     "Disable feedback prompts.",
-                    @"New-Item -Path 'HKCU:\SOFTWARE\Microsoft\Siuf\Rules' -Force | Out-Null; Set-ItemProperty -Path 'HKCU:\SOFTWARE\Microsoft\Siuf\Rules' -Name 'NumberOfSIUFInPeriod' -Value 0"));
+                    // Single reg.exe command (creates the key path + sets the value).
+                    // The old "New-Item ... | Out-Null; Set-ItemProperty ..." form was
+                    // rejected by InputSanitizer.CheckDangerousCommand (semicolon chaining),
+                    // so the Fix action never executed.
+                    @"reg add ""HKCU\SOFTWARE\Microsoft\Siuf\Rules"" /v NumberOfSIUFInPeriod /t REG_DWORD /d 0 /f"));
             }
         }
         catch
@@ -315,8 +319,13 @@ public class PrivacyAudit : IAuditModule
                     "Activity History Sync Enabled",
                     "Windows activity history is being collected and may be synced to Microsoft. This includes apps used, files opened, and websites visited.",
                     Category,
-                    "Disable activity history sync: Settings > Privacy > Activity history.",
-                    @"Set-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\System' -Name 'PublishUserActivities' -Value 0; Set-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\System' -Name 'UploadUserActivities' -Value 0"));
+                    "Disable activity history sync (Settings > Privacy > Activity history). Policy fix: set both PublishUserActivities=0 (the fix below) and UploadUserActivities=0 under HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\System.",
+                    // Single sanitizer-safe command. The previous two-statement
+                    // "Set-ItemProperty ...; Set-ItemProperty ..." form was rejected by
+                    // InputSanitizer.CheckDangerousCommand (semicolon chaining), so the Fix
+                    // button never ran. PublishUserActivities is the primary toggle; the
+                    // companion UploadUserActivities value is documented in the remediation text.
+                    @"reg add ""HKLM\SOFTWARE\Policies\Microsoft\Windows\System"" /v PublishUserActivities /t REG_DWORD /d 0 /f"));
             }
             else
             {

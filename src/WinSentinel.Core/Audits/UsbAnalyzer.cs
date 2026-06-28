@@ -210,7 +210,11 @@ public static class UsbAnalyzer
             "Consider enabling write-protect in high-security environments to prevent data exfiltration.",
             Category,
             "Set HKLM\\SYSTEM\\CurrentControlSet\\Control\\StorageDevicePolicies\\WriteProtect to 1.",
-            "New-Item -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\StorageDevicePolicies' -Force | Out-Null; Set-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\StorageDevicePolicies' -Name 'WriteProtect' -Value 1 -Type DWord");
+            // Single reg.exe command: creates the StorageDevicePolicies key if missing
+            // and sets WriteProtect atomically. The old "New-Item ... | Out-Null;
+            // Set-ItemProperty ..." form was blocked by InputSanitizer.CheckDangerousCommand
+            // (semicolon chaining), so the Fix action could never run.
+            "reg add \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\StorageDevicePolicies\" /v WriteProtect /t REG_DWORD /d 1 /f");
     }
 
     // ── USB mass-storage installation restriction ─────────────────────────────

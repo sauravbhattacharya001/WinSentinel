@@ -696,7 +696,10 @@ public class RemoteAccessAudit : IAuditModule
                 "This can be exploited for reconnaissance and lateral movement.",
                 cat,
                 "Disable: Stop-Service RemoteRegistry; Set-Service RemoteRegistry -StartupType Disabled",
-                "Stop-Service RemoteRegistry; Set-Service RemoteRegistry -StartupType Disabled"));
+                // Single sanitizer-safe command (the semicolon-chained form was blocked by
+                // InputSanitizer.CheckDangerousCommand, so the Fix button never ran). Disabling
+                // startup is the durable fix; the remediation text covers stopping it now.
+                "Set-Service RemoteRegistry -StartupType Disabled"));
         }
         else if (state.RemoteRegistryStartType != "Disabled")
         {
@@ -741,7 +744,10 @@ public class RemoteAccessAudit : IAuditModule
                 cat,
                 "Disable: Stop-Service TlntSvr; Set-Service TlntSvr -StartupType Disabled; " +
                 "Optionally uninstall: dism /online /disable-feature /featurename:TelnetServer",
-                "Stop-Service TlntSvr; Set-Service TlntSvr -StartupType Disabled"));
+                // Single sanitizer-safe command (the semicolon-chained form was blocked by
+                // InputSanitizer.CheckDangerousCommand, so the Fix button never ran). Disabling
+                // startup is the durable fix; the remediation text covers stopping it now.
+                "Set-Service TlntSvr -StartupType Disabled"));
         }
         else
         {

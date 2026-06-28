@@ -442,7 +442,11 @@ public static class EventLogAnalyzer
             "PowerShell Script Block Logging is not enabled. Malicious PowerShell commands will not be recorded in event logs, making it difficult to detect living-off-the-land attacks.",
             Category,
             "Enable Script Block Logging via Group Policy: Computer Configuration → Administrative Templates → Windows Components → Windows PowerShell → Turn on PowerShell Script Block Logging.",
-            "powershell -Command \"New-Item -Path 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell\\ScriptBlockLogging' -Force | Out-Null; Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell\\ScriptBlockLogging' -Name 'EnableScriptBlockLogging' -Value 1 -Type DWord\"");
+            // Single reg.exe command: creates the key path if missing and sets the
+            // value atomically. The old "New-Item ... | Out-Null; Set-ItemProperty ..."
+            // form was blocked by InputSanitizer.CheckDangerousCommand (semicolon +
+            // pipe-to-shell), so FixEngine refused to run it.
+            "reg add \"HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\PowerShell\\ScriptBlockLogging\" /v EnableScriptBlockLogging /t REG_DWORD /d 1 /f");
 
     /// <summary>
     /// Classify suspicious-PowerShell analysis. &gt;5 =&gt; Critical, 1-5 =&gt; Warning, 0 with events =&gt; Pass.

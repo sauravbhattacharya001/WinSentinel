@@ -410,8 +410,7 @@ public class EncryptionAudit : AuditModuleBase
                     $"Expired Certificates ({expiredCount})",
                     $"Found {expiredCount} expired certificate(s) in personal store. Expired certificates should be removed or renewed.",
                     Category,
-                    "Remove expired certificates from the personal certificate store: certmgr.msc → Personal → Certificates.",
-                    "powershell -Command \"Get-ChildItem Cert:\\CurrentUser\\My | Where-Object { $_.NotAfter -lt (Get-Date) } | Format-List Subject, NotAfter\""));
+                    "Remove expired certificates from the personal certificate store: certmgr.msc → Personal → Certificates. To list them first: Get-ChildItem Cert:\\CurrentUser\\My | Where-Object { $_.NotAfter -lt (Get-Date) } | Format-List Subject, NotAfter"));
             }
 
             if (expiringSoonCount > 0)
@@ -502,8 +501,7 @@ public class EncryptionAudit : AuditModuleBase
                         $"Suspicious Trusted Root Certificates ({suspiciousCount})",
                         $"Found {suspiciousCount} self-signed certificate(s) in the Current User trusted root store: {string.Join("; ", suspiciousCerts.Take(5))}. These could be from MITM proxies, adware, or debugging tools.",
                         Category,
-                        "Review user-level trusted root certificates via certmgr.msc → Trusted Root Certification Authorities. Remove any that are not recognized.",
-                        "powershell -Command \"Get-ChildItem Cert:\\CurrentUser\\Root | Format-List Subject, Issuer, NotAfter\""));
+                        "Review user-level trusted root certificates via certmgr.msc → Trusted Root Certification Authorities. Remove any that are not recognized. To list them first: Get-ChildItem Cert:\\CurrentUser\\Root | Format-List Subject, Issuer, NotAfter"));
                 }
                 else if (suspiciousCount > 0)
                 {

@@ -90,8 +90,7 @@ public class StartupAudit : AuditModuleBase
                 $"Suspicious Startup Entries ({suspiciousEntries.Count})",
                 $"Potentially suspicious startup registry entries found: {string.Join("; ", suspiciousEntries.Take(5))}",
                 Category,
-                "Review these startup entries. Malware commonly uses registry run keys for persistence.",
-                @"Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run','HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run' | Format-List"));
+                @"Review these startup entries. Malware commonly uses registry run keys for persistence. To list them: Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run','HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run' | Format-List"));
         }
     }
 
@@ -157,8 +156,7 @@ public class StartupAudit : AuditModuleBase
                 $"Many Non-Microsoft Scheduled Tasks ({tasks.Count})",
                 $"Found {tasks.Count} non-Microsoft scheduled tasks. Review for potential persistence mechanisms.",
                 Category,
-                "Review scheduled tasks: Get-ScheduledTask | Where-Object { $_.TaskPath -notmatch '\\\\Microsoft\\\\' }",
-                "Get-ScheduledTask | Where-Object { $_.State -eq 'Ready' -and $_.TaskPath -notmatch '\\\\Microsoft\\\\' } | Format-Table TaskName, TaskPath, State"));
+                "Review scheduled tasks: Get-ScheduledTask | Where-Object { $_.State -eq 'Ready' -and $_.TaskPath -notmatch '\\\\Microsoft\\\\' } | Format-Table TaskName, TaskPath, State"));
         }
         else
         {
@@ -186,8 +184,7 @@ public class StartupAudit : AuditModuleBase
                 $"Suspicious Scheduled Task Actions ({suspicious.Count})",
                 $"Scheduled tasks with suspicious actions (temp dirs, encoded commands): {string.Join("; ", suspicious.Take(5))}",
                 Category,
-                "Investigate these scheduled tasks for potential malware persistence.",
-                "Get-ScheduledTask | Where-Object { $_.State -eq 'Ready' } | ForEach-Object { $t = $_; $_.Actions | Where-Object { $_.Execute -match 'Temp|AppData|cmd\\.exe|powershell.*-enc' } | ForEach-Object { [PSCustomObject]@{Task=$t.TaskName;Action=$_.Execute} } } | Format-Table"));
+                "Investigate these scheduled tasks for potential malware persistence (open Task Scheduler: taskschd.msc, or list actions: Get-ScheduledTask | Where-Object { $_.State -eq 'Ready' } | ForEach-Object { $_.Actions } | Format-Table)."));
         }
     }
 

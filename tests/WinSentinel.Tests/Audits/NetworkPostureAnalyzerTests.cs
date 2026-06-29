@@ -1,4 +1,5 @@
 using WinSentinel.Core.Audits;
+using WinSentinel.Core.Helpers;
 using WinSentinel.Core.Models;
 using static WinSentinel.Core.Audits.NetworkPostureAnalyzer;
 
@@ -136,11 +137,32 @@ public class NetworkPostureAnalyzerTests
     }
 
     [Fact]
-    public void Ports_FixCommandPresentOnHighRiskWarning()
+    public void Ports_HighRiskWarning_HasNoFixCommandButGivesInvestigativeGuidance()
     {
+        // A high-risk listening port has no single safe auto-fix (which service to
+        // stop is a human decision), so the warning must NOT carry a FixCommand -
+        // the old investigative "Get-NetTCPConnection ... | Format-Table" string
+        // tripped InputSanitizer (calculated-property ';' + pipe), shipping a Fix
+        // button that always failed with "Command blocked by safety check". The
+        // listing now lives in the human-readable remediation text instead.
         var f = CheckListeningPorts(new NetworkState { ListeningPorts = new() { Port(445) } });
         var w = f.Single(x => x.Severity == Severity.Warning);
-        Assert.False(string.IsNullOrWhiteSpace(w.FixCommand));
+
+        Assert.True(string.IsNullOrWhiteSpace(w.FixCommand),
+            "High-risk-ports warning must not advertise an (un-runnable) FixCommand.");
+        Assert.False(string.IsNullOrWhiteSpace(w.Remediation));
+        Assert.Contains("Get-NetTCPConnection", w.Remediation);
+    }
+
+    [Fact]
+    public void Ports_HighRiskWarning_AnyFixCommandWouldSurviveSanitizer()
+    {
+        // Belt-and-braces: even if a FixCommand is ever re-introduced here, it must
+        // pass the exact safety check FixEngine runs before executing a fix.
+        var f = CheckListeningPorts(new NetworkState { ListeningPorts = new() { Port(445) } });
+        var w = f.Single(x => x.Severity == Severity.Warning);
+        if (!string.IsNullOrWhiteSpace(w.FixCommand))
+            Assert.Null(InputSanitizer.CheckDangerousCommand(w.FixCommand));
     }
 
     // ---- SMB -----------------------------------------------------------------

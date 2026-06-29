@@ -181,8 +181,15 @@ public static class NetworkPostureAnalyzer
                 $"High-Risk Ports Listening ({highRisk.Count})",
                 $"The following high-risk ports are open and listening: {string.Join(", ", highRisk)}",
                 Category,
-                "Review each listening service and disable any that are not needed. Block unused ports in the firewall.",
-                "Get-NetTCPConnection -State Listen | Select-Object LocalPort, OwningProcess, @{N='Process';E={(Get-Process -Id $_.OwningProcess -EA SilentlyContinue).ProcessName}} | Sort-Object LocalPort | Format-Table"));
+                // No FixCommand: which listening service to stop is a human judgement
+                // call (closing a port may break a needed service), so there is no
+                // single safe auto-fix. The investigative command lives in the
+                // remediation text instead of as an (un-runnable) FixCommand - the
+                // pipeline + calculated-property ';' tripped InputSanitizer, making
+                // the "Fix" button a guaranteed-to-fail dead button.
+                "Review each listening service and disable any that are not needed, then block " +
+                "unused ports in the firewall. List the owning processes with: " +
+                "Get-NetTCPConnection -State Listen | Select-Object LocalPort, OwningProcess | Sort-Object LocalPort"));
         }
         else
         {

@@ -238,8 +238,9 @@ public class BluetoothAudit : IAuditModule
                 "Bluetooth Radio Enabled",
                 "Bluetooth radio is currently enabled. Disable when not in use to reduce attack surface (BlueBorne, BlueSmack).",
                 cat,
-                "Disable Bluetooth in Settings > Bluetooth & devices when not actively using it.",
-                "powershell -Command \"Get-PnpDevice -Class Bluetooth | Where-Object { $_.FriendlyName -like '*Radio*' } | Disable-PnpDevice -Confirm:$false\""));
+                "Disable Bluetooth in Settings > Bluetooth & devices when not actively using it. " +
+                "To disable the radio device directly, open Device Manager > Bluetooth, right-click the " +
+                "Bluetooth radio/adapter, and choose Disable device."));
         }
         else
         {
@@ -322,8 +323,8 @@ public class BluetoothAudit : IAuditModule
                     "The Bluetooth Support Service (bthserv) is running even though the radio is disabled. " +
                     "This service can be stopped to further reduce attack surface.",
                     cat,
-                    "Stop and disable the service: Stop-Service bthserv; Set-Service bthserv -StartupType Disabled",
-                    "powershell -Command \"Stop-Service bthserv; Set-Service bthserv -StartupType Disabled\""));
+                    "Stop and disable the service: Set-Service bthserv -StartupType Disabled -Status Stopped",
+                    "powershell -Command \"Set-Service -Name bthserv -StartupType Disabled -Status Stopped\""));
                 break;
 
             case ServiceRunState.Disabled:

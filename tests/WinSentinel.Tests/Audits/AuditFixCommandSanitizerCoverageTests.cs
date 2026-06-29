@@ -22,13 +22,18 @@ namespace WinSentinel.Tests.Audits;
 /// safety check" — strictly worse than emitting no fix at all. Five such dead buttons
 /// had to be repaired in earlier releases.
 ///
-/// This test drives the three biggest fix-command-bearing analyzers
-/// (<see cref="NetworkPostureAnalyzer"/>, <see cref="PowerShellSecurityAnalyzer"/>,
-/// <see cref="UsbAnalyzer"/>) with worst-case synthetic state that forces every
-/// remediation branch to fire, then asserts that none of the resulting
-/// <c>FixCommand</c> strings are rejected by the sanitizer. The worst-case state is
-/// also asserted to actually yield fix commands, so the guard can never silently pass
-/// on an empty set.
+/// This test drives the fix-command-bearing analyzers with worst-case synthetic
+/// state that forces every remediation branch to fire, then asserts that none of the
+/// resulting <c>FixCommand</c> strings are rejected by the sanitizer. The worst-case
+/// state is also asserted to actually yield fix commands, so the guard can never
+/// silently pass on an empty set.
+///
+/// Covered analyzers (i.e. the ones that actually emit <c>FixCommand</c> strings):
+/// <see cref="NetworkPostureAnalyzer"/>, <see cref="PowerShellSecurityAnalyzer"/>,
+/// <see cref="UsbAnalyzer"/>, <see cref="BluetoothAudit"/>, and the certificate-store
+/// findings of <see cref="EncryptionAnalyzer"/>. (Browser/Defender/EventLog/Identity
+/// analyzers emit guidance-only findings with no executable fix, so there is nothing
+/// to guard there.)
 /// </summary>
 public class AuditFixCommandSanitizerCoverageTests
 {
@@ -141,5 +146,49 @@ public class AuditFixCommandSanitizerCoverageTests
         var findings = UsbAnalyzer.Analyze(state);
         // AutoRun + AutoPlay + write-protect are the three real executable fixes.
         AssertAllFixCommandsSanitizerSafe(findings, minExpected: 3);
+    }
+
+    [Fact]
+    public void BluetoothAudit_AllFixCommands_SurviveSanitizer()
+    {
+        // Worst-case Bluetooth posture: radio present but disabled with the support
+        // service still running ("Service Running Without Radio" warning + its fix).
+        // BluetoothAudit uses the instance AnalyzeState(state, result) shape rather
+        // than a static Analyze(state), so build a result and read its findings.
+        var audit = new BluetoothAudit();
+        var result = new WinSentinel.Core.Models.AuditResult
+        {
+            ModuleName = audit.Name,
+            Category = audit.Category,
+        };
+        var state = new BluetoothAudit.BluetoothState
+        {
+            RadioPresent = true,
+            RadioEnabled = false,
+            BluetoothServiceState = BluetoothAudit.ServiceRunState.Running,
+        };
+
+        audit.AnalyzeState(state, result);
+        // The bthserv stop+disable fix is the one executable remediation in this state.
+        AssertAllFixCommandsSanitizerSafe(result.Findings, minExpected: 1);
+    }
+
+    [Fact]
+    public void EncryptionAnalyzer_CertificateFixCommands_SurviveSanitizer()
+    {
+        // Worst-case personal certificate store: every problem category present so
+        // each warning branch (and its FixCommand) in BuildCertificateFindings fires.
+        var summary = new EncryptionAnalyzer.CertStoreSummary
+        {
+            Total = 4,
+            Expired = 1,
+            ExpiringSoon = 1,
+            WeakKey = 1,
+            WeakSignature = 1,
+        };
+
+        var findings = EncryptionAnalyzer.BuildCertificateFindings(summary);
+        // expired + expiring-soon + weak-key + weak-signature ⇒ 4 fix commands.
+        AssertAllFixCommandsSanitizerSafe(findings, minExpected: 4);
     }
 }

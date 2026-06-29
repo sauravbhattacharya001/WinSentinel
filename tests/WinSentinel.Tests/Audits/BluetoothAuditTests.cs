@@ -1,4 +1,5 @@
 using WinSentinel.Core.Audits;
+using WinSentinel.Core.Helpers;
 using WinSentinel.Core.Models;
 using static WinSentinel.Core.Audits.BluetoothAudit;
 
@@ -769,15 +770,22 @@ public class BluetoothAuditTests
     }
 
     [Fact]
-    public void RadioEnabled_HasFixCommand()
+    public void RadioEnabled_NoFixCommand_GuidanceInRemediation()
     {
+        // Disabling "the" Bluetooth radio is a user judgment call (which adapter,
+        // and whether Bluetooth is wanted at all), and the only reliable PnP query
+        // requires a Where-Object pipe that the FixEngine sanitizer always rejects
+        // as "piped shell execution" - i.e. it would be a dead Fix button. So this
+        // finding intentionally carries no FixCommand; the actionable steps live in
+        // the human-readable remediation text instead.
         var state = MakeSecureState();
         state.RadioEnabled = true;
         var result = MakeResult();
         _audit.AnalyzeState(state, result);
 
         var finding = result.Findings.First(f => f.Title == "Bluetooth Radio Enabled");
-        Assert.False(string.IsNullOrWhiteSpace(finding.FixCommand));
+        Assert.True(string.IsNullOrWhiteSpace(finding.FixCommand));
+        Assert.Contains("Device Manager", finding.Remediation);
     }
 
     [Fact]
@@ -791,6 +799,9 @@ public class BluetoothAuditTests
 
         var finding = result.Findings.First(f => f.Title == "Bluetooth Service Running Without Radio");
         Assert.False(string.IsNullOrWhiteSpace(finding.FixCommand));
+        // Must survive the exact safety check FixEngine runs before executing it,
+        // otherwise the Fix button is dead (always "Command blocked by safety check").
+        Assert.Null(InputSanitizer.CheckDangerousCommand(finding.FixCommand));
     }
 
     [Fact]

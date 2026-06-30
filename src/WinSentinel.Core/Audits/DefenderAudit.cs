@@ -10,7 +10,7 @@ public class DefenderAudit : AuditModuleBase
 {
     public override string Name => "Defender Audit";
     public override string Category => "Defender";
-    public override string Description => "Checks Windows Defender status, real-time protection, antivirus definition freshness, and Attack Surface Reduction (ASR) rules.";
+    public override string Description => "Checks Windows Defender status, real-time protection, antivirus definition freshness, Attack Surface Reduction (ASR) rules, and Controlled Folder Access (anti-ransomware).";
 
     protected override async Task ExecuteAuditAsync(AuditResult result, CancellationToken cancellationToken)
     {
@@ -20,6 +20,7 @@ public class DefenderAudit : AuditModuleBase
         await CheckTamperProtection(result, cancellationToken);
         await CheckQuickScanAge(result, cancellationToken);
         await CheckAttackSurfaceReduction(result, cancellationToken);
+        await CheckControlledFolderAccess(result, cancellationToken);
     }
 
     private async Task CheckRealTimeProtection(AuditResult result, CancellationToken ct)
@@ -85,6 +86,19 @@ public class DefenderAudit : AuditModuleBase
             (managedOutput ?? string.Empty).Trim(), "False", StringComparison.OrdinalIgnoreCase);
 
         var finding = AttackSurfaceReductionAnalyzer.BuildAsrFinding(idsOutput, actionsOutput, defenderManaged);
+        if (finding != null) result.Findings.Add(finding);
+    }
+
+    private async Task CheckControlledFolderAccess(AuditResult result, CancellationToken ct)
+    {
+        // (Get-MpPreference).EnableControlledFolderAccess returns an int/enum:
+        // 0 Disabled, 1 Enabled(Block), 2 Audit, 3 BlockDiskOnly, 4 AuditDiskOnly.
+        // Pure classification (incl. the safe Set-MpPreference fix) lives in the
+        // analyzer; an unparseable value yields no finding.
+        var output = await ShellHelper.RunPowerShellAsync(
+            "(Get-MpPreference).EnableControlledFolderAccess", ct);
+
+        var finding = DefenderAnalyzer.BuildControlledFolderAccessFinding(output);
         if (finding != null) result.Findings.Add(finding);
     }
 }

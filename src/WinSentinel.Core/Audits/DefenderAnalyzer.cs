@@ -188,6 +188,120 @@ public static class DefenderAnalyzer
     }
 
     // ──────────────────────────────────────────────────────────────────────
+    // Controlled Folder Access (anti-ransomware) — value is
+    // (Get-MpPreference).EnableControlledFolderAccess (int):
+    //   0 = Disabled, 1 = Enabled (Block), 2 = Audit Mode,
+    //   3 = Block disk-modification only, 4 = Audit disk-modification only.
+    // Block (1) is the hardened posture; everything else leaves protected
+    // folders writable by untrusted apps (or only logs), so it's a Warning.
+    // Unparseable output => no finding (third-party AV / indeterminate), matching
+    // the MAPS/Tamper convention.
+    // ──────────────────────────────────────────────────────────────────────
+
+    /// <summary>Controlled Folder Access fully blocks untrusted writes (hardened).</summary>
+    public const int CfaBlock = 1;
+
+    /// <summary>Controlled Folder Access is disabled.</summary>
+    public const int CfaDisabled = 0;
+
+    /// <summary>Controlled Folder Access only audits (logs, does not block).</summary>
+    public const int CfaAudit = 2;
+
+    /// <summary>CFA blocks disk-sector modification only (partial protection).</summary>
+    public const int CfaBlockDiskOnly = 3;
+
+    /// <summary>CFA audits disk-sector modification only (partial, log-only).</summary>
+    public const int CfaAuditDiskOnly = 4;
+
+    /// <summary>
+    /// Parse the <c>EnableControlledFolderAccess</c> value. Returns the integer
+    /// state, or <c>null</c> when the output is not an integer. PowerShell can
+    /// render the enum either numerically or as its name (e.g. "Enabled",
+    /// "Disabled", "AuditMode"), so we accept both spellings.
+    /// </summary>
+    public static int? ParseControlledFolderAccess(string? output)
+    {
+        var t = (output ?? string.Empty).Trim();
+        if (t.Length == 0) return null;
+        if (int.TryParse(t, NumberStyles.Integer, CultureInfo.InvariantCulture, out var level))
+            return level;
+        // Tolerate the named enum members Get-MpPreference may emit.
+        return t.ToLowerInvariant() switch
+        {
+            "disabled" => CfaDisabled,
+            "enabled" or "block" => CfaBlock,
+            "auditmode" or "audit" => CfaAudit,
+            "blockdiskmodificationonly" => CfaBlockDiskOnly,
+            "auditdiskmodificationonly" => CfaAuditDiskOnly,
+            _ => (int?)null,
+        };
+    }
+
+    /// <summary>
+    /// Build the Controlled Folder Access finding from the raw
+    /// <c>EnableControlledFolderAccess</c> value. Returns <c>null</c> when the
+    /// value is not parseable (the audit emits no finding). The remediation is a
+    /// single non-chained <c>Set-MpPreference</c> so it passes the FixEngine
+    /// sanitizer and is a real one-click Fix.
+    /// </summary>
+    public static Finding? BuildControlledFolderAccessFinding(string? cfaOutput)
+        => BuildControlledFolderAccessFinding(ParseControlledFolderAccess(cfaOutput));
+
+    /// <inheritdoc cref="BuildControlledFolderAccessFinding(string?)"/>
+    public static Finding? BuildControlledFolderAccessFinding(int? cfaState)
+    {
+        if (cfaState is null) return null;
+
+        // Safe one-click remediation: enable CFA in Block mode. Lone
+        // Set-MpPreference, no ; | $() backticks Start-Process -> sanitizer-safe.
+        const string fix = "Set-MpPreference -EnableControlledFolderAccess Enabled";
+
+        switch (cfaState)
+        {
+            case CfaBlock:
+                return Finding.Pass(
+                    "Controlled Folder Access Enabled",
+                    "Controlled Folder Access is enabled in Block mode, protecting your folders from ransomware and untrusted applications.",
+                    Category);
+
+            case CfaDisabled:
+                return Finding.Warning(
+                    "Controlled Folder Access Disabled",
+                    "Controlled Folder Access is disabled. Ransomware and other untrusted apps can modify files in protected folders (Documents, Pictures, etc.).",
+                    Category,
+                    "Enable Controlled Folder Access to block unauthorized changes to protected folders.",
+                    fix);
+
+            case CfaAudit:
+            case CfaAuditDiskOnly:
+                return Finding.Warning(
+                    "Controlled Folder Access In Audit Mode",
+                    "Controlled Folder Access is in Audit mode: unauthorized changes to protected folders are logged but NOT blocked.",
+                    Category,
+                    "Switch Controlled Folder Access to Block mode to actively prevent ransomware-style file changes.",
+                    fix);
+
+            case CfaBlockDiskOnly:
+                return Finding.Warning(
+                    "Controlled Folder Access Limited To Disk Sectors",
+                    "Controlled Folder Access only blocks raw disk-sector modification, not file-level changes to protected folders by untrusted apps.",
+                    Category,
+                    "Switch Controlled Folder Access to full Block mode for complete protected-folder coverage.",
+                    fix);
+
+            default:
+                // Unknown positive state: surface it without a misleading verdict
+                // rather than guess. Still actionable via the fix.
+                return Finding.Warning(
+                    "Controlled Folder Access Not Fully Enabled",
+                    $"Controlled Folder Access is in an unrecognized state ({cfaState}); it is not confirmed to be in Block mode.",
+                    Category,
+                    "Set Controlled Folder Access to Block mode.",
+                    fix);
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
     // Timestamp parsing — shared by definition-freshness and quick-scan checks.
     // ──────────────────────────────────────────────────────────────────────
 

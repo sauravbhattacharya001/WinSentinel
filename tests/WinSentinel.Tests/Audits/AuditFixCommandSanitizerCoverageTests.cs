@@ -31,9 +31,10 @@ namespace WinSentinel.Tests.Audits;
 /// Covered analyzers (i.e. the ones that actually emit <c>FixCommand</c> strings):
 /// <see cref="NetworkPostureAnalyzer"/>, <see cref="PowerShellSecurityAnalyzer"/>,
 /// <see cref="UsbAnalyzer"/>, <see cref="BluetoothAudit"/>, the certificate-store
-/// findings of <see cref="EncryptionAnalyzer"/>, and the ASR roll-up of
-/// <see cref="AttackSurfaceReductionAnalyzer"/>. (Browser/EventLog/Identity and the
-/// non-ASR Defender analyzers emit guidance-only findings with no executable fix, so
+/// findings of <see cref="EncryptionAnalyzer"/>, the ASR roll-up of
+/// <see cref="AttackSurfaceReductionAnalyzer"/>, and the Controlled Folder Access
+/// finding of <see cref="DefenderAnalyzer"/>. (Browser/EventLog/Identity and the
+/// other Defender analyzers emit guidance-only findings with no executable fix, so
 /// there is nothing to guard there.)
 /// </summary>
 public class AuditFixCommandSanitizerCoverageTests
@@ -199,6 +200,20 @@ public class AuditFixCommandSanitizerCoverageTests
         // Worst-case ASR posture: no rules configured at all → the Critical
         // "ASR disabled" branch fires and attaches the enable-all fix command.
         var finding = AttackSurfaceReductionAnalyzer.BuildAsrFinding(null, null);
+        Assert.NotNull(finding);
+        AssertAllFixCommandsSanitizerSafe(new[] { finding! }, minExpected: 1);
+    }
+
+    [Theory]
+    [InlineData(DefenderAnalyzer.CfaDisabled)]       // Warning + fix
+    [InlineData(DefenderAnalyzer.CfaAudit)]          // Warning + fix
+    [InlineData(DefenderAnalyzer.CfaBlockDiskOnly)]  // Warning + fix
+    [InlineData(DefenderAnalyzer.CfaAuditDiskOnly)]  // Warning + fix
+    public void DefenderAnalyzer_ControlledFolderAccessFix_SurvivesSanitizer(int cfaState)
+    {
+        // Every non-Block CFA state attaches the Set-MpPreference enable fix; prove
+        // it survives the sanitizer so the Fix button is real, not dead.
+        var finding = DefenderAnalyzer.BuildControlledFolderAccessFinding(cfaState);
         Assert.NotNull(finding);
         AssertAllFixCommandsSanitizerSafe(new[] { finding! }, minExpected: 1);
     }

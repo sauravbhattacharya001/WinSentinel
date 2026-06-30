@@ -355,4 +355,98 @@ public class DefenderAnalyzerTests
             Assert.False(string.IsNullOrWhiteSpace(f.Description));
         }
     }
+
+    // ───────────────────────────────────────────────────────
+    // Controlled Folder Access (EnableControlledFolderAccess)
+    // ───────────────────────────────────────────────────────
+
+    [Theory]
+    [InlineData("1", DefenderAnalyzer.CfaBlock)]
+    [InlineData("0", DefenderAnalyzer.CfaDisabled)]
+    [InlineData("2", DefenderAnalyzer.CfaAudit)]
+    [InlineData("3", DefenderAnalyzer.CfaBlockDiskOnly)]
+    [InlineData("4", DefenderAnalyzer.CfaAuditDiskOnly)]
+    [InlineData("  1  ", DefenderAnalyzer.CfaBlock)]
+    [InlineData("Enabled", DefenderAnalyzer.CfaBlock)]
+    [InlineData("Block", DefenderAnalyzer.CfaBlock)]
+    [InlineData("Disabled", DefenderAnalyzer.CfaDisabled)]
+    [InlineData("AuditMode", DefenderAnalyzer.CfaAudit)]
+    [InlineData("audit", DefenderAnalyzer.CfaAudit)]
+    [InlineData("BlockDiskModificationOnly", DefenderAnalyzer.CfaBlockDiskOnly)]
+    [InlineData("AuditDiskModificationOnly", DefenderAnalyzer.CfaAuditDiskOnly)]
+    public void ParseControlledFolderAccess_ParsesNumericAndNamedStates(string raw, int expected)
+    {
+        Assert.Equal(expected, DefenderAnalyzer.ParseControlledFolderAccess(raw));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("Yes")]
+    [InlineData("on")]
+    [InlineData(null)]
+    public void ParseControlledFolderAccess_ReturnsNullForUnparseable(string? raw)
+    {
+        Assert.Null(DefenderAnalyzer.ParseControlledFolderAccess(raw));
+    }
+
+    [Fact]
+    public void ControlledFolderAccess_Block_IsPass_WithNoFix()
+    {
+        var f = DefenderAnalyzer.BuildControlledFolderAccessFinding("1");
+        Assert.NotNull(f);
+        Assert.Equal(Severity.Pass, f!.Severity);
+        Assert.Equal(Cat, f.Category);
+        // A Pass needs no remediation.
+        Assert.True(string.IsNullOrWhiteSpace(f.FixCommand));
+    }
+
+    [Fact]
+    public void ControlledFolderAccess_Disabled_IsWarning_WithEnableFix()
+    {
+        var f = DefenderAnalyzer.BuildControlledFolderAccessFinding("0");
+        Assert.NotNull(f);
+        Assert.Equal(Severity.Warning, f!.Severity);
+        Assert.Contains("Disabled", f.Title);
+        Assert.Equal("Set-MpPreference -EnableControlledFolderAccess Enabled", f.FixCommand);
+    }
+
+    [Theory]
+    [InlineData(DefenderAnalyzer.CfaAudit)]
+    [InlineData(DefenderAnalyzer.CfaAuditDiskOnly)]
+    public void ControlledFolderAccess_AuditModes_AreWarning_WithEnableFix(int state)
+    {
+        var f = DefenderAnalyzer.BuildControlledFolderAccessFinding(state);
+        Assert.NotNull(f);
+        Assert.Equal(Severity.Warning, f!.Severity);
+        Assert.Equal("Set-MpPreference -EnableControlledFolderAccess Enabled", f.FixCommand);
+    }
+
+    [Fact]
+    public void ControlledFolderAccess_BlockDiskOnly_IsWarning_WithEnableFix()
+    {
+        var f = DefenderAnalyzer.BuildControlledFolderAccessFinding(DefenderAnalyzer.CfaBlockDiskOnly);
+        Assert.NotNull(f);
+        Assert.Equal(Severity.Warning, f!.Severity);
+        Assert.Equal("Set-MpPreference -EnableControlledFolderAccess Enabled", f.FixCommand);
+    }
+
+    [Fact]
+    public void ControlledFolderAccess_Unparseable_EmitsNoFinding()
+    {
+        // Mirrors the MAPS/Tamper "stay silent when indeterminate" convention.
+        Assert.Null(DefenderAnalyzer.BuildControlledFolderAccessFinding(""));
+        Assert.Null(DefenderAnalyzer.BuildControlledFolderAccessFinding("third-party-av"));
+        Assert.Null(DefenderAnalyzer.BuildControlledFolderAccessFinding((int?)null));
+    }
+
+    [Fact]
+    public void ControlledFolderAccess_UnknownPositiveState_IsWarning_NotMislabeledPass()
+    {
+        // A future/unrecognized positive enum value must not be reported as Block/Pass.
+        var f = DefenderAnalyzer.BuildControlledFolderAccessFinding(99);
+        Assert.NotNull(f);
+        Assert.Equal(Severity.Warning, f!.Severity);
+        Assert.Equal("Set-MpPreference -EnableControlledFolderAccess Enabled", f.FixCommand);
+    }
 }

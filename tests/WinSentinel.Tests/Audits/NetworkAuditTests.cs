@@ -437,10 +437,23 @@ public class NetworkAuditTests : IAsyncLifetime
 
         foreach (var finding in actionable)
         {
+            // Every actionable finding MUST carry human-readable remediation guidance.
             Assert.False(string.IsNullOrWhiteSpace(finding.Remediation),
                 $"Actionable finding '{finding.Title}' (severity={finding.Severity}) must have remediation");
-            Assert.False(string.IsNullOrWhiteSpace(finding.FixCommand),
-                $"Actionable finding '{finding.Title}' (severity={finding.Severity}) should have a fix command");
+
+            // A FixCommand (one-click auto-fix) is NOT required for every actionable
+            // finding: some remediations are an inherent human-judgement call with no
+            // single safe auto-fix (e.g. "High-Risk Ports Listening" - which listening
+            // service to stop depends on what the box is for, and the only safe action
+            // is to investigate, so the owning-process query lives in Remediation text
+            // rather than as an un-runnable FixCommand). When a FixCommand IS present it
+            // must be non-empty/non-whitespace; absence is allowed for these cases.
+            if (finding.FixCommand != null)
+            {
+                Assert.False(string.IsNullOrWhiteSpace(finding.FixCommand),
+                    $"Finding '{finding.Title}' has a non-null but blank FixCommand; " +
+                    "use null to mean 'no auto-fix', never an empty/whitespace string.");
+            }
         }
     }
 

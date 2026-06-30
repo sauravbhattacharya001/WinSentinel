@@ -30,10 +30,11 @@ namespace WinSentinel.Tests.Audits;
 ///
 /// Covered analyzers (i.e. the ones that actually emit <c>FixCommand</c> strings):
 /// <see cref="NetworkPostureAnalyzer"/>, <see cref="PowerShellSecurityAnalyzer"/>,
-/// <see cref="UsbAnalyzer"/>, <see cref="BluetoothAudit"/>, and the certificate-store
-/// findings of <see cref="EncryptionAnalyzer"/>. (Browser/Defender/EventLog/Identity
-/// analyzers emit guidance-only findings with no executable fix, so there is nothing
-/// to guard there.)
+/// <see cref="UsbAnalyzer"/>, <see cref="BluetoothAudit"/>, the certificate-store
+/// findings of <see cref="EncryptionAnalyzer"/>, and the ASR roll-up of
+/// <see cref="AttackSurfaceReductionAnalyzer"/>. (Browser/EventLog/Identity and the
+/// non-ASR Defender analyzers emit guidance-only findings with no executable fix, so
+/// there is nothing to guard there.)
 /// </summary>
 public class AuditFixCommandSanitizerCoverageTests
 {
@@ -190,5 +191,15 @@ public class AuditFixCommandSanitizerCoverageTests
         var findings = EncryptionAnalyzer.BuildCertificateFindings(summary);
         // expired + expiring-soon + weak-key + weak-signature ⇒ 4 fix commands.
         AssertAllFixCommandsSanitizerSafe(findings, minExpected: 4);
+    }
+
+    [Fact]
+    public void AttackSurfaceReductionAnalyzer_AllFixCommands_SurviveSanitizer()
+    {
+        // Worst-case ASR posture: no rules configured at all → the Critical
+        // "ASR disabled" branch fires and attaches the enable-all fix command.
+        var finding = AttackSurfaceReductionAnalyzer.BuildAsrFinding(null, null);
+        Assert.NotNull(finding);
+        AssertAllFixCommandsSanitizerSafe(new[] { finding! }, minExpected: 1);
     }
 }

@@ -254,7 +254,7 @@ cd src\WinSentinel.Installer
 |:---:|:---|:---|
 | 1 | 🔥 **Firewall** | All profile states, rule analysis, dangerous port exposure (RDP 3389, SMB 445, Telnet 23) |
 | 2 | 🔄 **Updates** | Windows Update service, pending updates, last install date, update source config |
-| 3 | 🛡️ **Defender** | Real-time protection, cloud protection, behavior monitoring, definition age, tamper protection |
+| 3 | 🛡️ **Defender** | Real-time protection, cloud protection, behavior monitoring, definition age, tamper protection, Attack Surface Reduction (ASR) rules |
 | 4 | 👤 **Accounts** | Local users, admin audit, password policies, guest account, empty passwords |
 | 5 | 🌐 **Network** | Open ports, SMB/RDP exposure, LLMNR/NetBIOS poisoning, Wi-Fi security, ARP, IPv6 |
 | 6 | ⚙️ **Processes** | Unsigned executables, suspicious paths, high-privilege monitoring |

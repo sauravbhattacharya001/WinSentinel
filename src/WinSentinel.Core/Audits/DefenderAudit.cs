@@ -10,7 +10,7 @@ public class DefenderAudit : AuditModuleBase
 {
     public override string Name => "Defender Audit";
     public override string Category => "Defender";
-    public override string Description => "Checks Windows Defender status, real-time protection, and antivirus definition freshness.";
+    public override string Description => "Checks Windows Defender status, real-time protection, antivirus definition freshness, and Attack Surface Reduction (ASR) rules.";
 
     protected override async Task ExecuteAuditAsync(AuditResult result, CancellationToken cancellationToken)
     {
@@ -19,6 +19,7 @@ public class DefenderAudit : AuditModuleBase
         await CheckCloudProtection(result, cancellationToken);
         await CheckTamperProtection(result, cancellationToken);
         await CheckQuickScanAge(result, cancellationToken);
+        await CheckAttackSurfaceReduction(result, cancellationToken);
     }
 
     private async Task CheckRealTimeProtection(AuditResult result, CancellationToken ct)
@@ -63,6 +64,27 @@ public class DefenderAudit : AuditModuleBase
             "(Get-MpComputerStatus).QuickScanEndTime.ToString('yyyy-MM-dd HH:mm:ss')", ct);
 
         var finding = DefenderAnalyzer.BuildQuickScanFinding(output, DateTime.Now);
+        if (finding != null) result.Findings.Add(finding);
+    }
+
+    private async Task CheckAttackSurfaceReduction(AuditResult result, CancellationToken ct)
+    {
+        // Get-MpPreference exposes two parallel arrays (rule GUIDs and their
+        // actions). Emit them as comma-joined lines so the pure analyzer can pair
+        // them positionally. The leading marker lets us tell "Defender answered
+        // with no rules configured" apart from "Defender/Get-MpPreference is not
+        // available" (third-party AV) — only the latter suppresses the finding.
+        var idsOutput = await ShellHelper.RunPowerShellAsync(
+            "(Get-MpPreference).AttackSurfaceReductionRules_Ids -join ','", ct);
+        var actionsOutput = await ShellHelper.RunPowerShellAsync(
+            "(Get-MpPreference).AttackSurfaceReductionRules_Actions -join ','", ct);
+        var managedOutput = await ShellHelper.RunPowerShellAsync(
+            "if (Get-Command Get-MpPreference -ErrorAction SilentlyContinue) { 'True' } else { 'False' }", ct);
+
+        var defenderManaged = !string.Equals(
+            (managedOutput ?? string.Empty).Trim(), "False", StringComparison.OrdinalIgnoreCase);
+
+        var finding = AttackSurfaceReductionAnalyzer.BuildAsrFinding(idsOutput, actionsOutput, defenderManaged);
         if (finding != null) result.Findings.Add(finding);
     }
 }

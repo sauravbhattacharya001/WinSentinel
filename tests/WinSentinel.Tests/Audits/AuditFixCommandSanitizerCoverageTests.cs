@@ -217,4 +217,16 @@ public class AuditFixCommandSanitizerCoverageTests
         Assert.NotNull(finding);
         AssertAllFixCommandsSanitizerSafe(new[] { finding! }, minExpected: 1);
     }
+
+    [Theory]
+    [InlineData(DefenderAnalyzer.PuaDisabled)]  // Warning + fix
+    [InlineData(DefenderAnalyzer.PuaAudit)]     // Warning + fix
+    public void DefenderAnalyzer_PuaProtectionFix_SurvivesSanitizer(int puaState)
+    {
+        // Every non-Block PUA state attaches the Set-MpPreference -PUAProtection
+        // enable fix; prove it survives the sanitizer so the Fix button is real.
+        var finding = DefenderAnalyzer.BuildPuaProtectionFinding(puaState);
+        Assert.NotNull(finding);
+        AssertAllFixCommandsSanitizerSafe(new[] { finding! }, minExpected: 1);
+    }
 }

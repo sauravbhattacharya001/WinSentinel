@@ -10,7 +10,7 @@ public class DefenderAudit : AuditModuleBase
 {
     public override string Name => "Defender Audit";
     public override string Category => "Defender";
-    public override string Description => "Checks Windows Defender status, real-time protection, antivirus definition freshness, Attack Surface Reduction (ASR) rules, and Controlled Folder Access (anti-ransomware).";
+    public override string Description => "Checks Windows Defender status, real-time protection, antivirus definition freshness, Attack Surface Reduction (ASR) rules, Controlled Folder Access (anti-ransomware), and PUA (potentially-unwanted application) protection.";
 
     protected override async Task ExecuteAuditAsync(AuditResult result, CancellationToken cancellationToken)
     {
@@ -21,6 +21,7 @@ public class DefenderAudit : AuditModuleBase
         await CheckQuickScanAge(result, cancellationToken);
         await CheckAttackSurfaceReduction(result, cancellationToken);
         await CheckControlledFolderAccess(result, cancellationToken);
+        await CheckPuaProtection(result, cancellationToken);
     }
 
     private async Task CheckRealTimeProtection(AuditResult result, CancellationToken ct)
@@ -99,6 +100,19 @@ public class DefenderAudit : AuditModuleBase
             "(Get-MpPreference).EnableControlledFolderAccess", ct);
 
         var finding = DefenderAnalyzer.BuildControlledFolderAccessFinding(output);
+        if (finding != null) result.Findings.Add(finding);
+    }
+
+    private async Task CheckPuaProtection(AuditResult result, CancellationToken ct)
+    {
+        // (Get-MpPreference).PUAProtection returns an int/enum:
+        // 0 Disabled, 1 Enabled(Block), 2 AuditMode. Pure classification (incl.
+        // the safe Set-MpPreference fix) lives in the analyzer; an unparseable
+        // value yields no finding (third-party AV / indeterminate).
+        var output = await ShellHelper.RunPowerShellAsync(
+            "(Get-MpPreference).PUAProtection", ct);
+
+        var finding = DefenderAnalyzer.BuildPuaProtectionFinding(output);
         if (finding != null) result.Findings.Add(finding);
     }
 }

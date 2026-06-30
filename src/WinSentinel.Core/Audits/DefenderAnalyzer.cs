@@ -302,6 +302,101 @@ public static class DefenderAnalyzer
     }
 
     // ──────────────────────────────────────────────────────────────────────
+    // Potentially Unwanted Application (PUA) protection — value is
+    // (Get-MpPreference).PUAProtection (int):
+    //   0 = Disabled (Off), 1 = Enabled (Block), 2 = Audit Mode (log-only).
+    // Block (1) is the hardened posture; Disabled leaves adware/bundleware/
+    // crypto-miners/"system optimizers" unblocked, and Audit mode only logs them.
+    // Unparseable output => no finding (third-party AV / indeterminate), matching
+    // the MAPS/CFA convention.
+    // ──────────────────────────────────────────────────────────────────────
+
+    /// <summary>PUA protection actively blocks potentially-unwanted apps (hardened).</summary>
+    public const int PuaBlock = 1;
+
+    /// <summary>PUA protection is disabled.</summary>
+    public const int PuaDisabled = 0;
+
+    /// <summary>PUA protection only audits (logs, does not block).</summary>
+    public const int PuaAudit = 2;
+
+    /// <summary>
+    /// Parse the <c>PUAProtection</c> value. Returns the integer state, or
+    /// <c>null</c> when the output is not parseable. PowerShell may render the
+    /// enum either numerically or as its name (e.g. "Enabled", "Disabled",
+    /// "AuditMode"), so we accept both spellings.
+    /// </summary>
+    public static int? ParsePuaProtection(string? output)
+    {
+        var t = (output ?? string.Empty).Trim();
+        if (t.Length == 0) return null;
+        if (int.TryParse(t, NumberStyles.Integer, CultureInfo.InvariantCulture, out var level))
+            return level;
+        // Tolerate the named enum members Get-MpPreference may emit.
+        return t.ToLowerInvariant() switch
+        {
+            "disabled" or "off" => PuaDisabled,
+            "enabled" or "block" or "on" => PuaBlock,
+            "auditmode" or "audit" => PuaAudit,
+            _ => (int?)null,
+        };
+    }
+
+    /// <summary>
+    /// Build the PUA-protection finding from the raw <c>PUAProtection</c> value.
+    /// Returns <c>null</c> when the value is not parseable (the audit emits no
+    /// finding). The remediation is a single non-chained <c>Set-MpPreference</c>
+    /// so it passes the FixEngine sanitizer and is a real one-click Fix.
+    /// </summary>
+    public static Finding? BuildPuaProtectionFinding(string? puaOutput)
+        => BuildPuaProtectionFinding(ParsePuaProtection(puaOutput));
+
+    /// <inheritdoc cref="BuildPuaProtectionFinding(string?)"/>
+    public static Finding? BuildPuaProtectionFinding(int? puaState)
+    {
+        if (puaState is null) return null;
+
+        // Safe one-click remediation: enable PUA protection in Block mode. Lone
+        // Set-MpPreference, no ; | $() backticks Start-Process -> sanitizer-safe.
+        const string fix = "Set-MpPreference -PUAProtection Enabled";
+
+        switch (puaState)
+        {
+            case PuaBlock:
+                return Finding.Pass(
+                    "PUA Protection Enabled",
+                    "Potentially Unwanted Application (PUA) protection is enabled in Block mode, blocking adware, bundleware, and other low-reputation software.",
+                    Category);
+
+            case PuaDisabled:
+                return Finding.Warning(
+                    "PUA Protection Disabled",
+                    "Potentially Unwanted Application (PUA) protection is disabled. Adware, bundleware, crypto-miners, and bogus \"system optimizers\" can install and run unblocked.",
+                    Category,
+                    "Enable PUA protection in Block mode to stop potentially-unwanted software.",
+                    fix);
+
+            case PuaAudit:
+                return Finding.Warning(
+                    "PUA Protection In Audit Mode",
+                    "Potentially Unwanted Application (PUA) protection is in Audit mode: unwanted software is logged but NOT blocked.",
+                    Category,
+                    "Switch PUA protection to Block mode to actively stop potentially-unwanted software.",
+                    fix);
+
+            default:
+                // Unknown positive state: surface it without a misleading verdict
+                // rather than guess. Still actionable via the fix.
+                return Finding.Warning(
+                    "PUA Protection Not Fully Enabled",
+                    $"Potentially Unwanted Application (PUA) protection is in an unrecognized state ({puaState}); it is not confirmed to be in Block mode.",
+                    Category,
+                    "Set PUA protection to Block mode.",
+                    fix);
+        }
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
     // Timestamp parsing — shared by definition-freshness and quick-scan checks.
     // ──────────────────────────────────────────────────────────────────────
 

@@ -449,4 +449,87 @@ public class DefenderAnalyzerTests
         Assert.Equal(Severity.Warning, f!.Severity);
         Assert.Equal("Set-MpPreference -EnableControlledFolderAccess Enabled", f.FixCommand);
     }
+
+    // ─────────────────────────────────────────────
+    // PUA protection (PUAProtection)
+    // ─────────────────────────────────────────────
+
+    [Theory]
+    [InlineData("1", DefenderAnalyzer.PuaBlock)]
+    [InlineData("0", DefenderAnalyzer.PuaDisabled)]
+    [InlineData("2", DefenderAnalyzer.PuaAudit)]
+    [InlineData("  1  ", DefenderAnalyzer.PuaBlock)]
+    [InlineData("Enabled", DefenderAnalyzer.PuaBlock)]
+    [InlineData("Block", DefenderAnalyzer.PuaBlock)]
+    [InlineData("on", DefenderAnalyzer.PuaBlock)]
+    [InlineData("Disabled", DefenderAnalyzer.PuaDisabled)]
+    [InlineData("off", DefenderAnalyzer.PuaDisabled)]
+    [InlineData("AuditMode", DefenderAnalyzer.PuaAudit)]
+    [InlineData("audit", DefenderAnalyzer.PuaAudit)]
+    public void ParsePuaProtection_ParsesNumericAndNamedStates(string raw, int expected)
+    {
+        Assert.Equal(expected, DefenderAnalyzer.ParsePuaProtection(raw));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("Yes")]
+    [InlineData("enable")]
+    [InlineData(null)]
+    public void ParsePuaProtection_ReturnsNullForUnparseable(string? raw)
+    {
+        Assert.Null(DefenderAnalyzer.ParsePuaProtection(raw));
+    }
+
+    [Fact]
+    public void PuaProtection_Block_IsPass_WithNoFix()
+    {
+        var f = DefenderAnalyzer.BuildPuaProtectionFinding("1");
+        Assert.NotNull(f);
+        Assert.Equal(Severity.Pass, f!.Severity);
+        Assert.Equal(Cat, f.Category);
+        Assert.Contains("Enabled", f.Title);
+        // A Pass needs no remediation.
+        Assert.True(string.IsNullOrWhiteSpace(f.FixCommand));
+    }
+
+    [Fact]
+    public void PuaProtection_Disabled_IsWarning_WithEnableFix()
+    {
+        var f = DefenderAnalyzer.BuildPuaProtectionFinding("0");
+        Assert.NotNull(f);
+        Assert.Equal(Severity.Warning, f!.Severity);
+        Assert.Contains("Disabled", f.Title);
+        Assert.Equal("Set-MpPreference -PUAProtection Enabled", f.FixCommand);
+    }
+
+    [Fact]
+    public void PuaProtection_AuditMode_IsWarning_WithEnableFix()
+    {
+        var f = DefenderAnalyzer.BuildPuaProtectionFinding(DefenderAnalyzer.PuaAudit);
+        Assert.NotNull(f);
+        Assert.Equal(Severity.Warning, f!.Severity);
+        Assert.Contains("Audit", f.Title);
+        Assert.Equal("Set-MpPreference -PUAProtection Enabled", f.FixCommand);
+    }
+
+    [Fact]
+    public void PuaProtection_Unparseable_EmitsNoFinding()
+    {
+        // Mirrors the MAPS/CFA "stay silent when indeterminate" convention.
+        Assert.Null(DefenderAnalyzer.BuildPuaProtectionFinding(""));
+        Assert.Null(DefenderAnalyzer.BuildPuaProtectionFinding("third-party-av"));
+        Assert.Null(DefenderAnalyzer.BuildPuaProtectionFinding((int?)null));
+    }
+
+    [Fact]
+    public void PuaProtection_UnknownPositiveState_IsWarning_NotMislabeledPass()
+    {
+        // A future/unrecognized positive enum value must not be reported as Block/Pass.
+        var f = DefenderAnalyzer.BuildPuaProtectionFinding(99);
+        Assert.NotNull(f);
+        Assert.Equal(Severity.Warning, f!.Severity);
+        Assert.Equal("Set-MpPreference -PUAProtection Enabled", f.FixCommand);
+    }
 }

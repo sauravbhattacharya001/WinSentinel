@@ -860,4 +860,102 @@ public class RemoteAccessAuditTests
         var finding = result.Findings.First(f => f.Title.Contains("Unencrypted Traffic"));
         Assert.False(string.IsNullOrWhiteSpace(finding.Remediation));
     }
+
+    // --- WinRM CredSSP + TrustedHosts ---
+
+    [Fact]
+    public void WinRmServiceCredSsp_WarningFinding()
+    {
+        var state = MakeSecureState();
+        state.WinRmRunning = true;
+        state.WinRmServiceCredSspEnabled = true;
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.Contains(result.Findings,
+            f => f.Title.Contains("CredSSP Authentication Accepted (Service)") && f.Severity == Severity.Warning);
+    }
+
+    [Fact]
+    public void WinRmClientCredSsp_WarningFinding()
+    {
+        var state = MakeSecureState();
+        state.WinRmRunning = true;
+        state.WinRmClientCredSspEnabled = true;
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.Contains(result.Findings,
+            f => f.Title.Contains("CredSSP Authentication Enabled (Client)") && f.Severity == Severity.Warning);
+    }
+
+    [Fact]
+    public void WinRmServiceCredSsp_HasRemediation()
+    {
+        var state = MakeSecureState();
+        state.WinRmRunning = true;
+        state.WinRmServiceCredSspEnabled = true;
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        var finding = result.Findings.First(f => f.Title.Contains("CredSSP Authentication Accepted (Service)"));
+        Assert.False(string.IsNullOrWhiteSpace(finding.Remediation));
+    }
+
+    [Fact]
+    public void WinRmCredSsp_NotFlaggedWhenDisabled()
+    {
+        var state = MakeSecureState();
+        state.WinRmRunning = true; // running but no CredSSP
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.DoesNotContain(result.Findings, f => f.Title.Contains("CredSSP"));
+    }
+
+    [Fact]
+    public void WinRmCredSsp_NotEvaluatedWhenWinRmStopped()
+    {
+        // CredSSP/TrustedHosts checks live inside the WinRM-running branch; if WinRM is not
+        // running they should never fire even if the (stale) state flags are set.
+        var state = MakeSecureState();
+        state.WinRmRunning = false;
+        state.WinRmServiceCredSspEnabled = true;
+        state.WinRmClientCredSspEnabled = true;
+        state.WinRmTrustedHosts = "*";
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.DoesNotContain(result.Findings, f => f.Title.Contains("CredSSP") || f.Title.Contains("TrustedHosts"));
+    }
+
+    [Fact]
+    public void WinRmTrustedHostsWildcard_WarningFinding()
+    {
+        var state = MakeSecureState();
+        state.WinRmRunning = true;
+        state.WinRmTrustedHosts = "*";
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.Contains(result.Findings,
+            f => f.Title.Contains("TrustedHosts Set to Wildcard") && f.Severity == Severity.Warning);
+    }
+
+    [Fact]
+    public void WinRmTrustedHostsScoped_InfoFinding()
+    {
+        var state = MakeSecureState();
+        state.WinRmRunning = true;
+        state.WinRmTrustedHosts = "server01,server02";
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.Contains(result.Findings,
+            f => f.Title.Contains("TrustedHosts Configured") && f.Severity == Severity.Info);
+    }
+
+    [Fact]
+    public void WinRmTrustedHostsEmpty_NoFinding()
+    {
+        var state = MakeSecureState();
+        state.WinRmRunning = true;
+        state.WinRmTrustedHosts = "";
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.DoesNotContain(result.Findings, f => f.Title.Contains("TrustedHosts"));
+    }
 }

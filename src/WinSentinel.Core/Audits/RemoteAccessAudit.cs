@@ -10,7 +10,7 @@ namespace WinSentinel.Core.Audits;
 /// - SSH server exposure without key-only auth
 /// - VNC/TeamViewer/AnyDesk/other remote tools running with weak config
 /// - Remote Desktop Users group membership
-/// - WinRM/PSRemoting exposure
+/// - WinRM/PSRemoting exposure (unencrypted traffic, Basic auth, CredSSP delegation, wildcard TrustedHosts)
 /// - Remote Registry service enabled
 /// - Remote Assistance enabled
 /// </summary>
@@ -167,6 +167,15 @@ public class RemoteAccessAudit : IAuditModule
 
         /// <summary>Whether WinRM allows basic authentication.</summary>
         public bool WinRmBasicAuthEnabled { get; set; }
+
+        /// <summary>Whether the WinRM service accepts CredSSP authentication (delegates caller credentials to this host).</summary>
+        public bool WinRmServiceCredSspEnabled { get; set; }
+
+        /// <summary>Whether the WinRM client is allowed to use CredSSP when connecting out (delegates our credentials to the remote host).</summary>
+        public bool WinRmClientCredSspEnabled { get; set; }
+
+        /// <summary>Raw WinRM client TrustedHosts value (empty = none, "*" = trust any host).</summary>
+        public string WinRmTrustedHosts { get; set; } = string.Empty;
 
         /// <summary>Whether Remote Registry service is running.</summary>
         public bool RemoteRegistryRunning { get; set; }
@@ -336,6 +345,22 @@ public class RemoteAccessAudit : IAuditModule
                 {
                     state.WinRmAllowUnencrypted = winrmConfig.Contains("AllowUnencrypted = true", StringComparison.OrdinalIgnoreCase);
                     state.WinRmBasicAuthEnabled = winrmConfig.Contains("Basic = true", StringComparison.OrdinalIgnoreCase);
+                    state.WinRmServiceCredSspEnabled = winrmConfig.Contains("CredSSP = true", StringComparison.OrdinalIgnoreCase);
+                }
+
+                // WinRM client-side auth + TrustedHosts (governs OUTBOUND connections from this host).
+                var winrmClient = await ShellHelper.RunPowerShellAsync(
+                    "winrm get winrm/config/client 2>$null", ct);
+                if (!string.IsNullOrWhiteSpace(winrmClient))
+                {
+                    state.WinRmClientCredSspEnabled = winrmClient.Contains("CredSSP = true", StringComparison.OrdinalIgnoreCase);
+
+                    // TrustedHosts appears inline in the client config, e.g. "TrustedHosts = *".
+                    var thMatch = System.Text.RegularExpressions.Regex.Match(
+                        winrmClient, @"TrustedHosts\s*=\s*(?<val>.*)",
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    if (thMatch.Success)
+                        state.WinRmTrustedHosts = thMatch.Groups["val"].Value.Trim();
                 }
 
                 var listeners = await ShellHelper.RunPowerShellAsync(
@@ -670,6 +695,57 @@ public class RemoteAccessAudit : IAuditModule
                 "Use Kerberos or certificate-based authentication instead.",
                 cat,
                 "Disable: winrm set winrm/config/service/auth @{Basic=\"false\"}"));
+        }
+
+        // CredSSP: the WinRM SERVICE accepting CredSSP means callers can delegate their credentials
+        // TO this host in a reusable form (they end up cached in LSASS here) — a lateral-movement /
+        // credential-theft enabler (MITRE ATT&CK T1021.006). Distinct from the CredSSP encryption-
+        // oracle patch level tracked by the Group Policy module.
+        if (state.WinRmServiceCredSspEnabled)
+        {
+            result.Findings.Add(Finding.Warning("WinRM: CredSSP Authentication Accepted (Service)",
+                "The WinRM service accepts CredSSP authentication. CredSSP delegates the connecting user's " +
+                "credentials to this machine in a reusable form (they are exposed in memory here), which " +
+                "an attacker who compromises this host can harvest for lateral movement. Prefer Kerberos.",
+                cat,
+                "Disable unless explicitly required (e.g. certain double-hop scenarios): " +
+                "winrm set winrm/config/service/auth @{CredSSP=\"false\"}"));
+        }
+
+        // CredSSP on the CLIENT means WE delegate OUR credentials to whatever host we connect to,
+        // where they are cached — if that remote host is compromised our credentials are stolen.
+        if (state.WinRmClientCredSspEnabled)
+        {
+            result.Findings.Add(Finding.Warning("WinRM: CredSSP Authentication Enabled (Client)",
+                "The WinRM client is configured to use CredSSP for outbound connections. This delegates " +
+                "your credentials to the remote host, where they are cached — if that host is compromised, " +
+                "your credentials can be stolen and reused. Only enable CredSSP for specific, trusted hosts.",
+                cat,
+                "Disable: winrm set winrm/config/client/auth @{CredSSP=\"false\"} " +
+                "(and clear delegation policy under Computer Configuration > Administrative Templates > " +
+                "System > Credentials Delegation > 'Allow delegating fresh credentials')"));
+        }
+
+        // TrustedHosts governs which remote hosts this machine will connect to over WinRM when
+        // Kerberos is unavailable (e.g. workgroup/IP). A wildcard means we trust ANY host, which
+        // defeats server authentication and enables man-in-the-middle / credential relay.
+        var trustedHosts = state.WinRmTrustedHosts?.Trim() ?? string.Empty;
+        if (trustedHosts == "*")
+        {
+            result.Findings.Add(Finding.Warning("WinRM: TrustedHosts Set to Wildcard (*)",
+                "The WinRM client TrustedHosts list is set to '*', meaning this machine will connect to " +
+                "ANY remote host over WinRM without verifying its identity. This defeats server " +
+                "authentication and exposes outbound sessions to man-in-the-middle and credential relay.",
+                cat,
+                "Restrict to an explicit, minimal list of hostnames/IPs: " +
+                "Set-Item WSMan:\\localhost\\Client\\TrustedHosts -Value 'host1,host2' -Force " +
+                "(or clear it entirely with -Value '' if not needed)."));
+        }
+        else if (!string.IsNullOrEmpty(trustedHosts))
+        {
+            result.Findings.Add(Finding.Info("WinRM: TrustedHosts Configured",
+                $"WinRM client TrustedHosts is scoped to specific host(s): {trustedHosts}. " +
+                "Confirm each entry is still required.", cat));
         }
 
         if (state.WinRmHttpListenerEnabled && !state.WinRmHttpsListenerEnabled)

@@ -46,6 +46,39 @@ public static class PowerShellSecurityAnalyzer
     private const string UndefinedPolicy = "Undefined";
 
     /// <summary>
+    /// Regex-free substrings that, when present in a PowerShell profile script, are
+    /// strong indicators of malicious content (download cradles, in-memory execution,
+    /// AMSI/logging tampering, obfuscation). Each entry pairs the token that is
+    /// matched (case-insensitively) with a short human explanation shown in the
+    /// finding. Order is the reporting order.
+    /// </summary>
+    public static readonly IReadOnlyList<(string Token, string Reason)> SuspiciousProfilePatterns =
+        new List<(string, string)>
+        {
+            ("iex",                        "Invoke-Expression (iex) runs arbitrary strings as code"),
+            ("invoke-expression",          "Invoke-Expression runs arbitrary strings as code"),
+            ("downloadstring",             "Net.WebClient.DownloadString download cradle"),
+            ("downloadfile",               "Net.WebClient.DownloadFile download cradle"),
+            ("invoke-webrequest",          "remote payload fetch (Invoke-WebRequest)"),
+            ("invoke-restmethod",          "remote payload fetch (Invoke-RestMethod)"),
+            ("start-bitstransfer",         "remote payload fetch via BITS"),
+            ("frombase64string",           "base64-encoded payload decode"),
+            ("-encodedcommand",            "launches a hidden base64-encoded command"),
+            ("-enc ",                      "launches a hidden base64-encoded command (-enc)"),
+            ("-windowstyle hidden",        "spawns a hidden PowerShell window"),
+            ("-w hidden",                  "spawns a hidden PowerShell window (-w hidden)"),
+            ("amsiutils",                  "AMSI-bypass tampering (System.Management.Automation.AmsiUtils)"),
+            ("amsiinitfailed",             "AMSI-bypass tampering (amsiInitFailed)"),
+            ("reflection.assembly",        "in-memory .NET assembly loading"),
+            ("[reflection.assembly]",      "in-memory .NET assembly loading"),
+            ("virtualalloc",               "shellcode injection primitive (VirtualAlloc)"),
+            ("createthread",               "shellcode injection primitive (CreateThread)"),
+            ("add-mppreference",           "tampers with Windows Defender exclusions"),
+            ("set-mppreference",           "disables/relaxes Windows Defender settings"),
+            ("hidden powershell",          "references a hidden PowerShell launch"),
+        };
+
+    /// <summary>
     /// Data transfer object for PowerShell environment state. All checks operate on
     /// this record so they can be unit-tested without running real PowerShell
     /// commands or reading the registry.
@@ -82,6 +115,36 @@ public static class PowerShellSecurityAnalyzer
 
         // PowerShell versions found on disk / in the registry
         public List<string> InstalledVersions { get; set; } = new();
+
+        // PowerShell profile scripts (profile.ps1) present on disk. Each profile
+        // auto-runs when a shell of the matching host opens, so a tampered profile
+        // is a classic persistence + defense-evasion vector (MITRE T1546.013).
+        public List<PowerShellProfileInfo> Profiles { get; set; } = new();
+    }
+
+    /// <summary>
+    /// One PowerShell profile script found on disk. The collector fills these in
+    /// (path + whether it is machine-wide + the file's text); the analyzer decides
+    /// whether the content is suspicious. Kept as a plain record so profile checks
+    /// are unit-testable with synthetic content and never touch the filesystem.
+    /// </summary>
+    public sealed class PowerShellProfileInfo
+    {
+        /// <summary>Full path to the profile script (e.g. the CurrentUserCurrentHost profile).</summary>
+        public string Path { get; set; } = string.Empty;
+
+        /// <summary>Human label for the profile scope (e.g. "AllUsersAllHosts").</summary>
+        public string Scope { get; set; } = string.Empty;
+
+        /// <summary>
+        /// True for the AllUsers* profiles under $PSHOME - they execute for EVERY user
+        /// on the machine, so malicious content there is a machine-wide backdoor and is
+        /// graded one step higher than a per-user profile.
+        /// </summary>
+        public bool IsMachineWide { get; set; }
+
+        /// <summary>Raw text of the profile script (null when the file could not be read).</summary>
+        public string? Content { get; set; }
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -107,6 +170,7 @@ public static class PowerShellSecurityAnalyzer
         findings.AddRange(CheckRemoting(state));
         var versions = CheckVersions(state);
         if (versions != null) findings.Add(versions);
+        findings.AddRange(CheckProfiles(state));
         return findings;
     }
 
@@ -443,5 +507,113 @@ public static class PowerShellSecurityAnalyzer
             $"PowerShell Versions Installed: {state.InstalledVersions.Count}",
             $"Detected PowerShell versions: {string.Join(", ", state.InstalledVersions)}",
             Category);
+    }
+
+    // ── Profile scripts (profile.ps1 persistence) ──────────────────────────
+
+    /// <summary>
+    /// Scans a single profile's content for the <see cref="SuspiciousProfilePatterns"/>
+    /// tokens (case-insensitive substring match) and returns the human reasons for
+    /// every distinct pattern that matched, in declaration order. Empty when the
+    /// content is null/blank or nothing matched. Pure - no I/O.
+    /// </summary>
+    public static IReadOnlyList<string> ScanProfileContent(string? content)
+    {
+        if (string.IsNullOrWhiteSpace(content)) return Array.Empty<string>();
+
+        var lower = content.ToLowerInvariant();
+        var reasons = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var (token, reason) in SuspiciousProfilePatterns)
+        {
+            if (lower.Contains(token, StringComparison.Ordinal) && seen.Add(reason))
+                reasons.Add(reason);
+        }
+        return reasons;
+    }
+
+    /// <summary>
+    /// Evaluates PowerShell profile scripts for tampering. A PowerShell profile
+    /// (<c>profile.ps1</c> / <c>Microsoft.PowerShell_profile.ps1</c>) auto-executes
+    /// every time a shell of the matching host starts, so attackers plant code there
+    /// for persistence and to re-arm defense-evasion (AMSI bypass, logging off) on
+    /// each launch - MITRE ATT&amp;CK T1546.013 (Event Triggered Execution: PowerShell
+    /// Profile).
+    ///
+    /// Grading:
+    /// <list type="bullet">
+    /// <item>profile with a suspicious pattern → Critical (machine-wide AllUsers) or
+    /// Warning (per-user), since a benign profile rarely downloads+executes code.</item>
+    /// <item>machine-wide profile that exists but looks clean → Info (it runs for
+    /// every user, so its existence is worth surfacing).</item>
+    /// <item>no profiles present → a single Pass.</item>
+    /// </list>
+    /// Pure - operates only on the collected <see cref="PowerShellProfileInfo"/> list.
+    /// </summary>
+    public static List<Finding> CheckProfiles(PowerShellState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        var findings = new List<Finding>();
+
+        var profiles = state.Profiles ?? new List<PowerShellProfileInfo>();
+        if (profiles.Count == 0)
+        {
+            findings.Add(Finding.Pass(
+                "No PowerShell Profile Scripts Found",
+                "No PowerShell profile scripts (profile.ps1) are present. Profiles " +
+                "auto-run on every shell start, so an absent profile removes a common " +
+                "persistence and AMSI-bypass foothold.",
+                Category));
+            return findings;
+        }
+
+        foreach (var profile in profiles)
+        {
+            var where = string.IsNullOrWhiteSpace(profile.Scope) ? "profile" : profile.Scope;
+            var pathNote = string.IsNullOrWhiteSpace(profile.Path) ? "" : $" ({profile.Path})";
+            var reasons = ScanProfileContent(profile.Content);
+
+            if (reasons.Count > 0)
+            {
+                var reasonList = string.Join("; ", reasons);
+                var scopeWord = profile.IsMachineWide ? "machine-wide (all users)" : "per-user";
+                var description =
+                    $"The {scopeWord} PowerShell profile{pathNote} contains " +
+                    $"pattern(s) commonly seen in malicious profiles: {reasonList}. " +
+                    "PowerShell profiles execute automatically on every shell start, making " +
+                    "them a persistence and defense-evasion vector (MITRE T1546.013). " +
+                    "Review the script - this is expected only if you intentionally added it.";
+                var remediation =
+                    $"Inspect '{profile.Path}'. If unexpected, remove or restore it and rotate " +
+                    "any credentials the shell may have exposed.";
+
+                findings.Add(profile.IsMachineWide
+                    ? Finding.Critical($"Suspicious PowerShell Profile: {where}", description, Category, remediation)
+                    : Finding.Warning($"Suspicious PowerShell Profile: {where}", description, Category, remediation));
+            }
+            else if (profile.IsMachineWide)
+            {
+                findings.Add(Finding.Info(
+                    $"Machine-Wide PowerShell Profile Present: {where}",
+                    $"A machine-wide PowerShell profile{pathNote} exists and runs for every " +
+                    "user on this system. No suspicious patterns were detected, but confirm " +
+                    "its contents are intended - machine-wide profiles are a high-value " +
+                    "persistence target.",
+                    Category,
+                    $"Review '{profile.Path}' and confirm every line is expected."));
+            }
+        }
+
+        // If profiles exist but none were machine-wide or suspicious, note the clean state.
+        if (findings.Count == 0)
+        {
+            findings.Add(Finding.Pass(
+                "PowerShell Profile Scripts Clean",
+                $"{profiles.Count} per-user PowerShell profile script(s) present; no suspicious " +
+                "patterns (download cradles, AMSI-bypass, hidden execution) detected.",
+                Category));
+        }
+
+        return findings;
     }
 }

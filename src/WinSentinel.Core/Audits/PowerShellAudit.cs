@@ -16,6 +16,7 @@ namespace WinSentinel.Core.Audits;
 /// - Constrained Language Mode not enforced
 /// - AMSI provider registration issues
 /// - PowerShell remoting (WinRM) exposure
+/// - Tampered PowerShell profile scripts (profile.ps1 persistence, T1546.013)
 ///
 /// This module owns only data collection from the live system. Every security
 /// decision (the thresholds that turn collected state into findings) lives in the
@@ -86,6 +87,7 @@ public class PowerShellAudit : IAuditModule
         CollectAmsiState(state);
         await CollectRemotingState(state, ct);
         CollectInstalledVersions(state);
+        CollectProfilesState(state);
 
         return state;
     }
@@ -304,5 +306,92 @@ public class PowerShellAudit : IAuditModule
         catch { /* ignored */ }
 
         state.InstalledVersions = versions;
+    }
+
+    /// <summary>
+    /// Collects the PowerShell profile scripts (profile.ps1) that exist on disk so the
+    /// analyzer can inspect them for tampering. Covers all four well-known profile
+    /// scopes for both Windows PowerShell (5.x) and PowerShell 7+ (pwsh):
+    /// AllUsersAllHosts, AllUsersCurrentHost, CurrentUserAllHosts, CurrentUserCurrentHost.
+    /// Only reads files that exist; unreadable files are recorded with null content so
+    /// the analyzer can still note a machine-wide profile's presence.
+    /// </summary>
+    private void CollectProfilesState(PowerShellState state)
+    {
+        var profiles = new List<PowerShellSecurityAnalyzer.PowerShellProfileInfo>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void Add(string? path, string scope, bool machineWide)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return;
+            if (!seen.Add(path)) return;               // de-dupe (WinPS + pwsh share $PSHOME rarely, but be safe)
+            try
+            {
+                if (!System.IO.File.Exists(path)) return;
+            }
+            catch { return; }
+
+            string? content = null;
+            try { content = System.IO.File.ReadAllText(path); }
+            catch { /* locked / access denied - still record presence with null content */ }
+
+            profiles.Add(new PowerShellSecurityAnalyzer.PowerShellProfileInfo
+            {
+                Path = path,
+                Scope = scope,
+                IsMachineWide = machineWide,
+                Content = content
+            });
+        }
+
+        // Machine-wide ($PSHOME) profiles - run for EVERY user.
+        try
+        {
+            var winPsHome = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.System), // ...\System32
+                "WindowsPowerShell", "v1.0");
+            Add(System.IO.Path.Combine(winPsHome, "profile.ps1"),
+                "AllUsersAllHosts (Windows PowerShell)", machineWide: true);
+            Add(System.IO.Path.Combine(winPsHome, "Microsoft.PowerShell_profile.ps1"),
+                "AllUsersCurrentHost (Windows PowerShell)", machineWide: true);
+        }
+        catch { /* ignored */ }
+
+        try
+        {
+            var pf = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+            if (!string.IsNullOrEmpty(pf))
+            {
+                var pwshHome = System.IO.Path.Combine(pf, "PowerShell", "7");
+                Add(System.IO.Path.Combine(pwshHome, "profile.ps1"),
+                    "AllUsersAllHosts (PowerShell 7)", machineWide: true);
+                Add(System.IO.Path.Combine(pwshHome, "Microsoft.PowerShell_profile.ps1"),
+                    "AllUsersCurrentHost (PowerShell 7)", machineWide: true);
+            }
+        }
+        catch { /* ignored */ }
+
+        // Per-user (Documents) profiles.
+        try
+        {
+            var docs = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            if (!string.IsNullOrEmpty(docs))
+            {
+                var winPsUser = System.IO.Path.Combine(docs, "WindowsPowerShell");
+                Add(System.IO.Path.Combine(winPsUser, "profile.ps1"),
+                    "CurrentUserAllHosts (Windows PowerShell)", machineWide: false);
+                Add(System.IO.Path.Combine(winPsUser, "Microsoft.PowerShell_profile.ps1"),
+                    "CurrentUserCurrentHost (Windows PowerShell)", machineWide: false);
+
+                var pwshUser = System.IO.Path.Combine(docs, "PowerShell");
+                Add(System.IO.Path.Combine(pwshUser, "profile.ps1"),
+                    "CurrentUserAllHosts (PowerShell 7)", machineWide: false);
+                Add(System.IO.Path.Combine(pwshUser, "Microsoft.PowerShell_profile.ps1"),
+                    "CurrentUserCurrentHost (PowerShell 7)", machineWide: false);
+            }
+        }
+        catch { /* ignored */ }
+
+        state.Profiles = profiles;
     }
 }

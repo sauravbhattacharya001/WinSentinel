@@ -266,7 +266,7 @@ cd src\WinSentinel.Installer
 | 12 | 🔐 **Encryption** | BitLocker per volume, TPM 2.0, EFS coverage, expired certs, weak RSA keys |
 | 13 | 📋 **Event Log** | Failed logons, privilege escalations, service installations, suspicious PowerShell |
 | 14 | 🔑 **Identity & Credentials** | Local admin sprawl, stale accounts, LAPS posture, cached credentials |
-| 15 | ⚡ **PowerShell** | Execution policy, transcription/module logging, AMSI, ConstrainedLanguageMode |
+| 15 | ⚡ **PowerShell** | Execution policy, transcription/module logging, AMSI, ConstrainedLanguageMode, tampered profile.ps1 (T1546.013) |
 | 16 | 🔌 **USB & Removable Media** | Device history, autorun status, BitLocker-to-Go, write-protect policy |
 | 17 | 🌐 **DNS** | DNS-over-HTTPS config, cache poisoning vectors, resolver security |
 | 18 | 🖥️ **Drivers** | Unsigned drivers, vulnerable driver blocklist, kernel-mode code integrity |

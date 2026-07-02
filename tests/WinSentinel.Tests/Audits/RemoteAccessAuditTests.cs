@@ -305,6 +305,100 @@ public class RemoteAccessAuditTests
         Assert.Contains(result.Findings, f => f.Title.Contains("Remote Desktop Users") && f.Severity == Severity.Info);
     }
 
+    // --- RDP device redirection (drive / clipboard) ---
+
+    // A fully-hardened RDP baseline so the ONLY thing under test is the redirection setting.
+    private static RemoteAccessState RdpSecureBaseline()
+    {
+        var s = MakeSecureState();
+        s.RdpEnabled = true;
+        s.RdpNlaEnabled = true;
+        s.RdpEncryptionLevel = 3;
+        s.RdpSecurityLayer = 2;
+        s.RdpIdleTimeoutConfigured = true;
+        s.RdpSingleSessionPerUser = true;
+        return s;
+    }
+
+    [Fact]
+    public void RdpDriveRedirectionAllowed_WarningFinding()
+    {
+        var state = RdpSecureBaseline();
+        state.RdpDriveRedirectionAllowed = true;
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.Contains(result.Findings,
+            f => f.Title.Contains("Drive Redirection Allowed") && f.Severity == Severity.Warning);
+    }
+
+    [Fact]
+    public void RdpDriveRedirectionAllowed_HasFixCommand()
+    {
+        var state = RdpSecureBaseline();
+        state.RdpDriveRedirectionAllowed = true;
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        var finding = result.Findings.First(f => f.Title.Contains("Drive Redirection Allowed"));
+        Assert.False(string.IsNullOrWhiteSpace(finding.FixCommand));
+        Assert.Contains("fDisableCdm", finding.FixCommand);
+    }
+
+    [Fact]
+    public void RdpDriveRedirectionDisabled_PassFinding()
+    {
+        var state = RdpSecureBaseline(); // redirection flags default false = disabled
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.Contains(result.Findings,
+            f => f.Title.Contains("Drive Redirection Disabled") && f.Severity == Severity.Pass);
+    }
+
+    [Fact]
+    public void RdpClipboardRedirectionAllowed_InfoFinding()
+    {
+        var state = RdpSecureBaseline();
+        state.RdpClipboardRedirectionAllowed = true;
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.Contains(result.Findings,
+            f => f.Title.Contains("Clipboard Redirection Allowed") && f.Severity == Severity.Info);
+    }
+
+    [Fact]
+    public void RdpClipboardRedirectionAllowed_HasFixCommand()
+    {
+        var state = RdpSecureBaseline();
+        state.RdpClipboardRedirectionAllowed = true;
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        var finding = result.Findings.First(f => f.Title.Contains("Clipboard Redirection Allowed"));
+        Assert.False(string.IsNullOrWhiteSpace(finding.FixCommand));
+        Assert.Contains("fDisableClip", finding.FixCommand);
+    }
+
+    [Fact]
+    public void RdpClipboardRedirectionDisabled_NoFinding()
+    {
+        var state = RdpSecureBaseline(); // clipboard flag default false = disabled
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.DoesNotContain(result.Findings, f => f.Title.Contains("Clipboard Redirection Allowed"));
+    }
+
+    [Fact]
+    public void RdpRedirection_NotEvaluatedWhenRdpDisabled()
+    {
+        // Redirection findings live inside the RDP-enabled branch; with RDP off they must not fire
+        // even if the (stale) redirection flags say "allowed". This keeps a non-RDP host clean.
+        var state = MakeSecureState();
+        state.RdpEnabled = false;
+        state.RdpDriveRedirectionAllowed = true;
+        state.RdpClipboardRedirectionAllowed = true;
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.DoesNotContain(result.Findings, f => f.Title.Contains("Redirection"));
+    }
+
     // --- SSH checks ---
 
     [Fact]

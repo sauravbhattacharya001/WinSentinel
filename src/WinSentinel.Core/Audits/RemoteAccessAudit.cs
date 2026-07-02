@@ -7,6 +7,7 @@ namespace WinSentinel.Core.Audits;
 /// <summary>
 /// Audits remote access security configuration for risks including:
 /// - RDP enabled with weak settings (no NLA, default port, weak encryption)
+/// - RDP device redirection (client drive / clipboard mapped into the session — exfiltration channels)
 /// - SSH server exposure without key-only auth
 /// - VNC/TeamViewer/AnyDesk/other remote tools running with weak config
 /// - Remote Desktop Users group membership
@@ -128,6 +129,16 @@ public class RemoteAccessAudit : IAuditModule
 
         /// <summary>Whether RDP restricts max sessions per user.</summary>
         public bool RdpSingleSessionPerUser { get; set; }
+
+        /// <summary>Whether RDP client DRIVE redirection is allowed (fDisableCdm != 1). When allowed, an
+        /// RDP session can mount the connecting client's local drives into the session — a data
+        /// exfiltration / ingress channel. Default false (= disabled/secure) so an unconfigured or
+        /// non-RDP host is not flagged.</summary>
+        public bool RdpDriveRedirectionAllowed { get; set; }
+
+        /// <summary>Whether RDP CLIPBOARD redirection is allowed (fDisableClip != 1). A lower-severity
+        /// data-leak path between the session and the connecting client. Default false (= disabled/secure).</summary>
+        public bool RdpClipboardRedirectionAllowed { get; set; }
 
         /// <summary>Members of the Remote Desktop Users group.</summary>
         public List<string> RemoteDesktopUsers { get; set; } = new();
@@ -277,6 +288,31 @@ public class RemoteAccessAudit : IAuditModule
             {
                 state.RdpIdleTimeoutConfigured = true;
                 state.RdpIdleTimeoutMinutes = idleMs / 60000;
+            }
+        }
+        catch { /* Non-fatal */ }
+
+        // RDP device redirection policy (drive + clipboard). These live under the Terminal Services
+        // policy hive as fDisableCdm / fDisableClip where a value of 1 DISABLES the redirection
+        // (i.e. secure). We record whether each is ALLOWED; the analyzer only flags them when RDP is
+        // actually enabled, so an unconfigured or non-RDP host stays clean. JSON-guarded + non-fatal.
+        try
+        {
+            var redirOutput = await ShellHelper.RunPowerShellAsync(
+                "$r = Get-ItemProperty 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services' -ErrorAction SilentlyContinue; " +
+                "[PSCustomObject]@{ " +
+                "  DisableCdm=$r.fDisableCdm; " +
+                "  DisableClip=$r.fDisableClip " +
+                "} | ConvertTo-Json", ct);
+            if (!string.IsNullOrWhiteSpace(redirOutput) && redirOutput.TrimStart().StartsWith("{"))
+            {
+                var json = System.Text.Json.JsonDocument.Parse(redirOutput);
+                var root = json.RootElement;
+                // Redirection is ALLOWED unless the policy explicitly sets the disable flag to 1.
+                state.RdpDriveRedirectionAllowed =
+                    !(root.TryGetProperty("DisableCdm", out var cdm) && cdm.ValueKind == System.Text.Json.JsonValueKind.Number && cdm.GetInt32() == 1);
+                state.RdpClipboardRedirectionAllowed =
+                    !(root.TryGetProperty("DisableClip", out var clip) && clip.ValueKind == System.Text.Json.JsonValueKind.Number && clip.GetInt32() == 1);
             }
         }
         catch { /* Non-fatal */ }
@@ -562,6 +598,42 @@ public class RemoteAccessAudit : IAuditModule
                 "Users can have multiple simultaneous RDP sessions. Consider restricting to one session per user.",
                 cat,
                 "Set-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server' -Name fSingleSessionPerUser -Value 1"));
+        }
+
+        // Drive redirection: allowing the connecting client's local drives to be mounted into the RDP
+        // session is a bidirectional data channel — attacker-to-host ingress (drop tooling) and
+        // host-to-attacker exfiltration. CIS Windows L1 recommends disabling it (fDisableCdm=1).
+        if (state.RdpDriveRedirectionAllowed)
+        {
+            result.Findings.Add(Finding.Warning("RDP: Drive Redirection Allowed",
+                "RDP client drive redirection is allowed, so a connecting client's local drives can be " +
+                "mounted into the remote session. This is a data exfiltration and ingress channel — an " +
+                "attacker with an RDP session can copy files off the host or stage tooling onto it.",
+                cat,
+                "Disable via Group Policy: Computer Configuration > Administrative Templates > Windows Components > " +
+                "Remote Desktop Services > Remote Desktop Session Host > Device and Resource Redirection > " +
+                "'Do not allow drive redirection' = Enabled.",
+                "Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services' -Name fDisableCdm -Value 1"));
+        }
+        else
+        {
+            result.Findings.Add(Finding.Pass("RDP: Drive Redirection Disabled",
+                "RDP client drive redirection is disabled — local drives cannot be mounted into the session.", cat));
+        }
+
+        // Clipboard redirection: lower severity than drives, but still a data-leak path (copy/paste
+        // of credentials or sensitive text between the session and the connecting client).
+        if (state.RdpClipboardRedirectionAllowed)
+        {
+            result.Findings.Add(Finding.Info("RDP: Clipboard Redirection Allowed",
+                "RDP clipboard redirection is allowed, permitting copy/paste of text and files between the " +
+                "remote session and the connecting client. In high-security or regulated environments this " +
+                "is often disabled to reduce data leakage.",
+                cat,
+                "Disable via Group Policy: Computer Configuration > Administrative Templates > Windows Components > " +
+                "Remote Desktop Services > Remote Desktop Session Host > Device and Resource Redirection > " +
+                "'Do not allow Clipboard redirection' = Enabled.",
+                "Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services' -Name fDisableClip -Value 1"));
         }
 
         // Remote Desktop Users group

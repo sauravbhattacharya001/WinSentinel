@@ -186,6 +186,12 @@ public class RemoteAccessAudit : IAuditModule
         /// <summary>Whether WinRM HTTPS listener is configured.</summary>
         public bool WinRmHttpsListenerEnabled { get; set; }
 
+        /// <summary>Whether any WinRM listener accepts connections from any source IP (IPv4Filter/IPv6Filter = "*").</summary>
+        public bool WinRmListenerUnrestricted { get; set; }
+
+        /// <summary>Raw WinRM listener IPv4Filter value when present (e.g. "*" = any source address).</summary>
+        public string WinRmListenerIpv4Filter { get; set; } = string.Empty;
+
         /// <summary>Whether WinRM allows basic authentication.</summary>
         public bool WinRmBasicAuthEnabled { get; set; }
 
@@ -431,6 +437,22 @@ public class RemoteAccessAudit : IAuditModule
                 {
                     state.WinRmHttpListenerEnabled = listeners.Contains("Transport = HTTP", StringComparison.OrdinalIgnoreCase);
                     state.WinRmHttpsListenerEnabled = listeners.Contains("Transport = HTTPS", StringComparison.OrdinalIgnoreCase);
+
+                    // A listener's IPv4Filter/IPv6Filter constrains which SOURCE addresses may connect.
+                    // "*" (the default) accepts from anywhere; a scoped value (e.g. "10.0.0.0-10.0.0.255")
+                    // limits exposure to a management subnet. Capture the IPv4Filter for the message and
+                    // flag when any listener is wide open.
+                    var v4 = System.Text.RegularExpressions.Regex.Match(
+                        listeners, @"IPv4Filter\s*=\s*(?<val>\S+)",
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    if (v4.Success)
+                        state.WinRmListenerIpv4Filter = v4.Groups["val"].Value.Trim();
+                    var v6 = System.Text.RegularExpressions.Regex.Match(
+                        listeners, @"IPv6Filter\s*=\s*(?<val>\S+)",
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    state.WinRmListenerUnrestricted =
+                        state.WinRmListenerIpv4Filter == "*" ||
+                        (v6.Success && v6.Groups["val"].Value.Trim() == "*");
                 }
             }
         }
@@ -913,6 +935,23 @@ public class RemoteAccessAudit : IAuditModule
         {
             result.Findings.Add(Finding.Pass("WinRM: HTTPS Listener Configured",
                 "WinRM has an HTTPS listener configured.", cat));
+        }
+
+        // A WinRM listener with IPv4Filter/IPv6Filter = "*" accepts management connections from ANY
+        // source address. Combined with a running listener this is a broad remote attack surface —
+        // credential relay / brute-force against 5985/5986 from anywhere the host is reachable.
+        // Scoping the filter to a management subnet is defence-in-depth on top of the host firewall.
+        if ((state.WinRmHttpListenerEnabled || state.WinRmHttpsListenerEnabled) && state.WinRmListenerUnrestricted)
+        {
+            result.Findings.Add(Finding.Warning("WinRM: Listener Accepts Connections From Any IP",
+                "A WinRM listener has an unrestricted address filter (IPv4Filter/IPv6Filter = '*'), so it " +
+                "accepts remote-management connections from any source address the host can be reached from. " +
+                "Scope the listener to your management subnet(s) to shrink the remote attack surface (this is " +
+                "in addition to, not a replacement for, a firewall rule on ports 5985/5986).",
+                cat,
+                "Restrict the listener source range, e.g.: " +
+                "winrm set winrm/config/listener?Address=*+Transport=HTTP @{IPv4Filter=\"10.0.0.0-10.0.0.255\"} " +
+                "(use your real management range; set IPv6Filter similarly or to an empty string to disable IPv6)."));
         }
     }
 

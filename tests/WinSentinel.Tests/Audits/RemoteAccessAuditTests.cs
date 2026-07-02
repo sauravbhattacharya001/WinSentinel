@@ -696,6 +696,46 @@ public class RemoteAccessAuditTests
         Assert.Contains(result.Findings, f => f.Title.Contains("HTTPS Listener") && f.Severity == Severity.Pass);
     }
 
+    [Fact]
+    public void WinRmListenerUnrestricted_WarningFinding()
+    {
+        var state = MakeSecureState();
+        state.WinRmRunning = true;
+        state.WinRmHttpListenerEnabled = true;
+        state.WinRmListenerUnrestricted = true;
+        state.WinRmListenerIpv4Filter = "*";
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.Contains(result.Findings, f => f.Title.Contains("Accepts Connections From Any IP") && f.Severity == Severity.Warning);
+    }
+
+    [Fact]
+    public void WinRmListenerScopedFilter_NoUnrestrictedFinding()
+    {
+        var state = MakeSecureState();
+        state.WinRmRunning = true;
+        state.WinRmHttpsListenerEnabled = true;
+        state.WinRmListenerUnrestricted = false;            // scoped, e.g. "10.0.0.0-10.0.0.255"
+        state.WinRmListenerIpv4Filter = "10.0.0.0-10.0.0.255";
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.DoesNotContain(result.Findings, f => f.Title.Contains("Accepts Connections From Any IP"));
+    }
+
+    [Fact]
+    public void WinRmListenerUnrestrictedButNoListener_NoFinding()
+    {
+        // Filter parsed as unrestricted but no listener actually enabled => no exposure, no finding.
+        var state = MakeSecureState();
+        state.WinRmRunning = true;
+        state.WinRmHttpListenerEnabled = false;
+        state.WinRmHttpsListenerEnabled = false;
+        state.WinRmListenerUnrestricted = true;
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.DoesNotContain(result.Findings, f => f.Title.Contains("Accepts Connections From Any IP"));
+    }
+
     // --- Remote Registry ---
 
     [Fact]

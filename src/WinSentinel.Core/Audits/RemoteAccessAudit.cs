@@ -186,6 +186,15 @@ public class RemoteAccessAudit : IAuditModule
         /// <summary>Whether Remote Assistance is enabled.</summary>
         public bool RemoteAssistanceEnabled { get; set; }
 
+        /// <summary>Whether UNSOLICITED Remote Assistance is enabled (fAllowUnsolicited) — a helper can
+        /// offer/initiate a session without a per-session invitation from the user, driven by the
+        /// "Offer Remote Assistance" policy. Materially higher risk than solicited "Ask for Help".</summary>
+        public bool RemoteAssistanceUnsolicitedEnabled { get; set; }
+
+        /// <summary>Whether unsolicited Remote Assistance helpers are granted FULL CONTROL
+        /// (fAllowUnsolicitedFullControl) rather than view-only.</summary>
+        public bool RemoteAssistanceUnsolicitedFullControl { get; set; }
+
         /// <summary>Whether Telnet server is installed/running.</summary>
         public bool TelnetServerRunning { get; set; }
 
@@ -403,6 +412,29 @@ public class RemoteAccessAudit : IAuditModule
             var raOutput = await ShellHelper.RunPowerShellAsync(
                 "(Get-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Remote Assistance' -Name 'fAllowToGetHelp' -ErrorAction SilentlyContinue).fAllowToGetHelp", ct);
             state.RemoteAssistanceEnabled = raOutput?.Trim() == "1";
+        }
+        catch { /* Non-fatal */ }
+
+        // Unsolicited Remote Assistance ("Offer Remote Assistance" policy). These live under the
+        // Policies hive and let a listed helper initiate a session with no user invitation; full
+        // control means the helper can drive the desktop, not just watch.
+        try
+        {
+            var unsolicitedOutput = await ShellHelper.RunPowerShellAsync(
+                "$ra = Get-ItemProperty 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services' -ErrorAction SilentlyContinue; " +
+                "[PSCustomObject]@{ " +
+                "  Unsolicited=$ra.fAllowUnsolicited; " +
+                "  FullControl=$ra.fAllowUnsolicitedFullControl " +
+                "} | ConvertTo-Json", ct);
+            if (!string.IsNullOrWhiteSpace(unsolicitedOutput) && unsolicitedOutput.TrimStart().StartsWith("{"))
+            {
+                var json = System.Text.Json.JsonDocument.Parse(unsolicitedOutput);
+                var root = json.RootElement;
+                state.RemoteAssistanceUnsolicitedEnabled =
+                    root.TryGetProperty("Unsolicited", out var uns) && uns.ValueKind == System.Text.Json.JsonValueKind.Number && uns.GetInt32() == 1;
+                state.RemoteAssistanceUnsolicitedFullControl =
+                    root.TryGetProperty("FullControl", out var fc) && fc.ValueKind == System.Text.Json.JsonValueKind.Number && fc.GetInt32() == 1;
+            }
         }
         catch { /* Non-fatal */ }
 
@@ -807,6 +839,23 @@ public class RemoteAccessAudit : IAuditModule
         {
             result.Findings.Add(Finding.Pass("Remote Assistance Disabled",
                 "Windows Remote Assistance is disabled.", cat));
+        }
+
+        // Unsolicited Remote Assistance is the dangerous variant: a listed helper can initiate a
+        // session with NO invitation from the user. Combined with full control it is a ready-made
+        // lateral-movement / hands-on-keyboard channel (MITRE ATT&CK T1219 remote access software,
+        // and abuse of T1021 remote services), so it warrants a Warning rather than Info.
+        if (state.RemoteAssistanceUnsolicitedEnabled)
+        {
+            var control = state.RemoteAssistanceUnsolicitedFullControl ? "full control of" : "view-only access to";
+            result.Findings.Add(Finding.Warning("Remote Assistance: Unsolicited Offers Allowed",
+                $"Unsolicited Remote Assistance is enabled (fAllowUnsolicited=1), granting listed helpers {control} " +
+                "this machine without the user issuing an invitation. This 'Offer Remote Assistance' policy is a common " +
+                "lateral-movement and hands-on-keyboard vector — disable it unless a helpdesk tool explicitly requires it.",
+                cat,
+                "Disable via Group Policy: Computer Configuration > Administrative Templates > System > " +
+                "Remote Assistance > 'Offer Remote Assistance' = Disabled, then remove any configured helper list.",
+                "Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services' -Name fAllowUnsolicited -Value 0"));
         }
     }
 

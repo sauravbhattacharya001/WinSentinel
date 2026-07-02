@@ -589,6 +589,77 @@ public class RemoteAccessAuditTests
         Assert.Contains(result.Findings, f => f.Title.Contains("Remote Assistance Disabled") && f.Severity == Severity.Pass);
     }
 
+    // --- Unsolicited Remote Assistance ("Offer Remote Assistance") ---
+
+    [Fact]
+    public void RemoteAssistanceUnsolicited_WarningFinding()
+    {
+        var state = MakeSecureState();
+        state.RemoteAssistanceUnsolicitedEnabled = true;
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.Contains(result.Findings,
+            f => f.Title.Contains("Unsolicited Offers Allowed") && f.Severity == Severity.Warning);
+    }
+
+    [Fact]
+    public void RemoteAssistanceUnsolicited_HasFixCommand()
+    {
+        var state = MakeSecureState();
+        state.RemoteAssistanceUnsolicitedEnabled = true;
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        var finding = result.Findings.First(f => f.Title.Contains("Unsolicited Offers Allowed"));
+        Assert.False(string.IsNullOrWhiteSpace(finding.FixCommand));
+    }
+
+    [Fact]
+    public void RemoteAssistanceUnsolicitedFullControl_MentionedInMessage()
+    {
+        var state = MakeSecureState();
+        state.RemoteAssistanceUnsolicitedEnabled = true;
+        state.RemoteAssistanceUnsolicitedFullControl = true;
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        var finding = result.Findings.First(f => f.Title.Contains("Unsolicited Offers Allowed"));
+        Assert.Contains("full control", finding.Description, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void RemoteAssistanceUnsolicitedViewOnly_MentionedInMessage()
+    {
+        var state = MakeSecureState();
+        state.RemoteAssistanceUnsolicitedEnabled = true;
+        state.RemoteAssistanceUnsolicitedFullControl = false;
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        var finding = result.Findings.First(f => f.Title.Contains("Unsolicited Offers Allowed"));
+        Assert.Contains("view-only", finding.Description, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void RemoteAssistanceUnsolicitedDisabled_NoFinding()
+    {
+        var state = MakeSecureState(); // unsolicited flags default false
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.DoesNotContain(result.Findings, f => f.Title.Contains("Unsolicited Offers Allowed"));
+    }
+
+    [Fact]
+    public void RemoteAssistanceUnsolicited_IndependentOfSolicited()
+    {
+        // Unsolicited can be enabled even when solicited "Ask for Help" (fAllowToGetHelp) is off;
+        // the two findings are evaluated independently.
+        var state = MakeSecureState();
+        state.RemoteAssistanceEnabled = false;
+        state.RemoteAssistanceUnsolicitedEnabled = true;
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.Contains(result.Findings, f => f.Title.Contains("Remote Assistance Disabled") && f.Severity == Severity.Pass);
+        Assert.Contains(result.Findings, f => f.Title.Contains("Unsolicited Offers Allowed") && f.Severity == Severity.Warning);
+    }
+
     // --- Telnet ---
 
     [Fact]

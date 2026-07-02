@@ -7,7 +7,7 @@ namespace WinSentinel.Core.Audits;
 /// <summary>
 /// Audits remote access security configuration for risks including:
 /// - RDP enabled with weak settings (no NLA, default port, weak encryption)
-/// - RDP device redirection (client drive / clipboard mapped into the session — exfiltration channels)
+/// - RDP device redirection (client drive / clipboard / printer / COM-LPT ports mapped into the session — exfiltration channels)
 /// - SSH server exposure without key-only auth
 /// - VNC/TeamViewer/AnyDesk/other remote tools running with weak config
 /// - Remote Desktop Users group membership
@@ -139,6 +139,16 @@ public class RemoteAccessAudit : IAuditModule
         /// <summary>Whether RDP CLIPBOARD redirection is allowed (fDisableClip != 1). A lower-severity
         /// data-leak path between the session and the connecting client. Default false (= disabled/secure).</summary>
         public bool RdpClipboardRedirectionAllowed { get; set; }
+
+        /// <summary>Whether RDP PRINTER redirection is allowed (fDisableCpm != 1). The connecting client's
+        /// printers are mapped into the session; print jobs can carry data off the host and the redirected
+        /// spooler has historically been an attack surface. Default false (= disabled/secure).</summary>
+        public bool RdpPrinterRedirectionAllowed { get; set; }
+
+        /// <summary>Whether RDP COM/LPT PORT redirection is allowed (fDisableLPT != 1). Legacy serial/parallel
+        /// ports on the client are mapped into the session — a low-level data channel rarely needed on modern
+        /// hosts. Default false (= disabled/secure).</summary>
+        public bool RdpPortRedirectionAllowed { get; set; }
 
         /// <summary>Members of the Remote Desktop Users group.</summary>
         public List<string> RemoteDesktopUsers { get; set; } = new();
@@ -292,17 +302,20 @@ public class RemoteAccessAudit : IAuditModule
         }
         catch { /* Non-fatal */ }
 
-        // RDP device redirection policy (drive + clipboard). These live under the Terminal Services
-        // policy hive as fDisableCdm / fDisableClip where a value of 1 DISABLES the redirection
-        // (i.e. secure). We record whether each is ALLOWED; the analyzer only flags them when RDP is
-        // actually enabled, so an unconfigured or non-RDP host stays clean. JSON-guarded + non-fatal.
+        // RDP device redirection policy (drive + clipboard + printer + COM/LPT ports). These live under
+        // the Terminal Services policy hive as fDisableCdm / fDisableClip / fDisableCpm / fDisableLPT where a
+        // value of 1 DISABLES the redirection (i.e. secure). We record whether each is ALLOWED; the analyzer
+        // only flags them when RDP is actually enabled, so an unconfigured or non-RDP host stays clean.
+        // JSON-guarded + non-fatal.
         try
         {
             var redirOutput = await ShellHelper.RunPowerShellAsync(
                 "$r = Get-ItemProperty 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services' -ErrorAction SilentlyContinue; " +
                 "[PSCustomObject]@{ " +
                 "  DisableCdm=$r.fDisableCdm; " +
-                "  DisableClip=$r.fDisableClip " +
+                "  DisableClip=$r.fDisableClip; " +
+                "  DisableCpm=$r.fDisableCpm; " +
+                "  DisableLPT=$r.fDisableLPT " +
                 "} | ConvertTo-Json", ct);
             if (!string.IsNullOrWhiteSpace(redirOutput) && redirOutput.TrimStart().StartsWith("{"))
             {
@@ -313,6 +326,10 @@ public class RemoteAccessAudit : IAuditModule
                     !(root.TryGetProperty("DisableCdm", out var cdm) && cdm.ValueKind == System.Text.Json.JsonValueKind.Number && cdm.GetInt32() == 1);
                 state.RdpClipboardRedirectionAllowed =
                     !(root.TryGetProperty("DisableClip", out var clip) && clip.ValueKind == System.Text.Json.JsonValueKind.Number && clip.GetInt32() == 1);
+                state.RdpPrinterRedirectionAllowed =
+                    !(root.TryGetProperty("DisableCpm", out var cpm) && cpm.ValueKind == System.Text.Json.JsonValueKind.Number && cpm.GetInt32() == 1);
+                state.RdpPortRedirectionAllowed =
+                    !(root.TryGetProperty("DisableLPT", out var lpt) && lpt.ValueKind == System.Text.Json.JsonValueKind.Number && lpt.GetInt32() == 1);
             }
         }
         catch { /* Non-fatal */ }
@@ -634,6 +651,38 @@ public class RemoteAccessAudit : IAuditModule
                 "Remote Desktop Services > Remote Desktop Session Host > Device and Resource Redirection > " +
                 "'Do not allow Clipboard redirection' = Enabled.",
                 "Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services' -Name fDisableClip -Value 1"));
+        }
+
+        // Printer redirection: the connecting client's printers are mapped into the session. Print jobs
+        // are a data-egress path (anything printable leaves the host) and the redirected print spooler has
+        // a history of local-privilege-escalation bugs (PrintNightmare family). CIS L1 disables it (fDisableCpm=1).
+        if (state.RdpPrinterRedirectionAllowed)
+        {
+            result.Findings.Add(Finding.Info("RDP: Printer Redirection Allowed",
+                "RDP client printer redirection is allowed, mapping the connecting client's printers into the " +
+                "remote session. Redirected printing is a data-egress path and the redirected spooler has been " +
+                "an attack surface for privilege escalation. Disable it where remote printing is not required.",
+                cat,
+                "Disable via Group Policy: Computer Configuration > Administrative Templates > Windows Components > " +
+                "Remote Desktop Services > Remote Desktop Session Host > Printer Redirection > " +
+                "'Do not allow client printer redirection' = Enabled.",
+                "Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services' -Name fDisableCpm -Value 1"));
+        }
+
+        // COM/LPT port redirection: legacy serial/parallel ports on the client are mapped into the session.
+        // Rarely needed on modern hosts and, like drive redirection, a low-level data channel between the
+        // client and the session. CIS L1 disables it (fDisableLPT=1).
+        if (state.RdpPortRedirectionAllowed)
+        {
+            result.Findings.Add(Finding.Info("RDP: COM/LPT Port Redirection Allowed",
+                "RDP client COM/LPT port redirection is allowed, mapping the connecting client's serial and " +
+                "parallel ports into the remote session. This is a legacy data channel that is almost never " +
+                "needed on modern systems and is recommended to be disabled to shrink the redirection surface.",
+                cat,
+                "Disable via Group Policy: Computer Configuration > Administrative Templates > Windows Components > " +
+                "Remote Desktop Services > Remote Desktop Session Host > Device and Resource Redirection > " +
+                "'Do not allow LPT port redirection' = Enabled (and 'Do not allow COM port redirection').",
+                "Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services' -Name fDisableLPT -Value 1"));
         }
 
         // Remote Desktop Users group

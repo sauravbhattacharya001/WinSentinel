@@ -386,6 +386,70 @@ public class RemoteAccessAuditTests
     }
 
     [Fact]
+    public void RdpPrinterRedirectionAllowed_InfoFinding()
+    {
+        var state = RdpSecureBaseline();
+        state.RdpPrinterRedirectionAllowed = true;
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.Contains(result.Findings,
+            f => f.Title.Contains("Printer Redirection Allowed") && f.Severity == Severity.Info);
+    }
+
+    [Fact]
+    public void RdpPrinterRedirectionAllowed_HasFixCommand()
+    {
+        var state = RdpSecureBaseline();
+        state.RdpPrinterRedirectionAllowed = true;
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        var finding = result.Findings.First(f => f.Title.Contains("Printer Redirection Allowed"));
+        Assert.False(string.IsNullOrWhiteSpace(finding.FixCommand));
+        Assert.Contains("fDisableCpm", finding.FixCommand);
+    }
+
+    [Fact]
+    public void RdpPrinterRedirectionDisabled_NoFinding()
+    {
+        var state = RdpSecureBaseline(); // printer flag default false = disabled
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.DoesNotContain(result.Findings, f => f.Title.Contains("Printer Redirection Allowed"));
+    }
+
+    [Fact]
+    public void RdpPortRedirectionAllowed_InfoFinding()
+    {
+        var state = RdpSecureBaseline();
+        state.RdpPortRedirectionAllowed = true;
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.Contains(result.Findings,
+            f => f.Title.Contains("Port Redirection Allowed") && f.Severity == Severity.Info);
+    }
+
+    [Fact]
+    public void RdpPortRedirectionAllowed_HasFixCommand()
+    {
+        var state = RdpSecureBaseline();
+        state.RdpPortRedirectionAllowed = true;
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        var finding = result.Findings.First(f => f.Title.Contains("Port Redirection Allowed"));
+        Assert.False(string.IsNullOrWhiteSpace(finding.FixCommand));
+        Assert.Contains("fDisableLPT", finding.FixCommand);
+    }
+
+    [Fact]
+    public void RdpPortRedirectionDisabled_NoFinding()
+    {
+        var state = RdpSecureBaseline(); // port flag default false = disabled
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.DoesNotContain(result.Findings, f => f.Title.Contains("Port Redirection Allowed"));
+    }
+
+    [Fact]
     public void RdpRedirection_NotEvaluatedWhenRdpDisabled()
     {
         // Redirection findings live inside the RDP-enabled branch; with RDP off they must not fire
@@ -394,6 +458,8 @@ public class RemoteAccessAuditTests
         state.RdpEnabled = false;
         state.RdpDriveRedirectionAllowed = true;
         state.RdpClipboardRedirectionAllowed = true;
+        state.RdpPrinterRedirectionAllowed = true;
+        state.RdpPortRedirectionAllowed = true;
         var result = MakeResult();
         RemoteAccessAudit.AnalyzeState(state, result);
         Assert.DoesNotContain(result.Findings, f => f.Title.Contains("Redirection"));

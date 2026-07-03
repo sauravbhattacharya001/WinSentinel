@@ -450,6 +450,38 @@ public class RemoteAccessAuditTests
     }
 
     [Fact]
+    public void RdpPnpRedirectionAllowed_InfoFinding()
+    {
+        var state = RdpSecureBaseline();
+        state.RdpPnpRedirectionAllowed = true;
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.Contains(result.Findings,
+            f => f.Title.Contains("Plug-and-Play Device Redirection Allowed") && f.Severity == Severity.Info);
+    }
+
+    [Fact]
+    public void RdpPnpRedirectionAllowed_HasFixCommand()
+    {
+        var state = RdpSecureBaseline();
+        state.RdpPnpRedirectionAllowed = true;
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        var finding = result.Findings.First(f => f.Title.Contains("Plug-and-Play Device Redirection Allowed"));
+        Assert.False(string.IsNullOrWhiteSpace(finding.FixCommand));
+        Assert.Contains("fDisablePNPRedir", finding.FixCommand);
+    }
+
+    [Fact]
+    public void RdpPnpRedirectionDisabled_NoFinding()
+    {
+        var state = RdpSecureBaseline(); // PnP flag default false = disabled
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.DoesNotContain(result.Findings, f => f.Title.Contains("Plug-and-Play Device Redirection Allowed"));
+    }
+
+    [Fact]
     public void RdpRedirection_NotEvaluatedWhenRdpDisabled()
     {
         // Redirection findings live inside the RDP-enabled branch; with RDP off they must not fire
@@ -460,6 +492,7 @@ public class RemoteAccessAuditTests
         state.RdpClipboardRedirectionAllowed = true;
         state.RdpPrinterRedirectionAllowed = true;
         state.RdpPortRedirectionAllowed = true;
+        state.RdpPnpRedirectionAllowed = true;
         var result = MakeResult();
         RemoteAccessAudit.AnalyzeState(state, result);
         Assert.DoesNotContain(result.Findings, f => f.Title.Contains("Redirection"));

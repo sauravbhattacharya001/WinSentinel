@@ -8,6 +8,7 @@ namespace WinSentinel.Core.Audits;
 /// Audits remote access security configuration for risks including:
 /// - RDP enabled with weak settings (no NLA, default port, weak encryption)
 /// - RDP device redirection (client drive / clipboard / printer / COM-LPT ports mapped into the session — exfiltration channels)
+/// - RDP session shadowing allowed without user consent (silent view/control of a live session)
 /// - SSH server exposure without key-only auth
 /// - VNC/TeamViewer/AnyDesk/other remote tools running with weak config
 /// - Remote Desktop Users group membership
@@ -149,6 +150,19 @@ public class RemoteAccessAudit : IAuditModule
         /// ports on the client are mapped into the session — a low-level data channel rarely needed on modern
         /// hosts. Default false (= disabled/secure).</summary>
         public bool RdpPortRedirectionAllowed { get; set; }
+
+        /// <summary>RDP session-shadowing policy (the <c>Shadow</c> value under the Terminal Services policy hive),
+        /// which controls whether an administrator may remotely VIEW or CONTROL another user's live RDP session:
+        /// 0 = no remote control (secure), 1 = full control WITH the user's consent, 2 = full control WITHOUT
+        /// consent, 3 = view WITH consent, 4 = view WITHOUT consent. The no-consent modes (2 and 4) let an admin
+        /// silently observe or take over a session — a surveillance / session-hijack vector (MITRE ATT&amp;CK
+        /// T1563.002). Default 0 (= secure) so an unconfigured or non-RDP host is not flagged.</summary>
+        public int RdpShadowMode { get; set; }
+
+        /// <summary>Whether the RDP <c>Shadow</c> policy is explicitly configured (the value is present in the
+        /// policy hive). When false the OS default applies and no shadow-policy finding beyond the secure
+        /// baseline is raised.</summary>
+        public bool RdpShadowConfigured { get; set; }
 
         /// <summary>Members of the Remote Desktop Users group.</summary>
         public List<string> RemoteDesktopUsers { get; set; } = new();
@@ -321,7 +335,8 @@ public class RemoteAccessAudit : IAuditModule
                 "  DisableCdm=$r.fDisableCdm; " +
                 "  DisableClip=$r.fDisableClip; " +
                 "  DisableCpm=$r.fDisableCpm; " +
-                "  DisableLPT=$r.fDisableLPT " +
+                "  DisableLPT=$r.fDisableLPT; " +
+                "  Shadow=$r.Shadow " +
                 "} | ConvertTo-Json", ct);
             if (!string.IsNullOrWhiteSpace(redirOutput) && redirOutput.TrimStart().StartsWith("{"))
             {
@@ -336,6 +351,13 @@ public class RemoteAccessAudit : IAuditModule
                     !(root.TryGetProperty("DisableCpm", out var cpm) && cpm.ValueKind == System.Text.Json.JsonValueKind.Number && cpm.GetInt32() == 1);
                 state.RdpPortRedirectionAllowed =
                     !(root.TryGetProperty("DisableLPT", out var lpt) && lpt.ValueKind == System.Text.Json.JsonValueKind.Number && lpt.GetInt32() == 1);
+                // Session shadowing: capture the raw Shadow mode when the policy is present. Absent => OS
+                // default; we only raise a beyond-baseline finding when it is explicitly a no-consent mode.
+                if (root.TryGetProperty("Shadow", out var shadow) && shadow.ValueKind == System.Text.Json.JsonValueKind.Number)
+                {
+                    state.RdpShadowConfigured = true;
+                    state.RdpShadowMode = shadow.GetInt32();
+                }
             }
         }
         catch { /* Non-fatal */ }
@@ -705,6 +727,41 @@ public class RemoteAccessAudit : IAuditModule
                 "Remote Desktop Services > Remote Desktop Session Host > Device and Resource Redirection > " +
                 "'Do not allow LPT port redirection' = Enabled (and 'Do not allow COM port redirection').",
                 "Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services' -Name fDisableLPT -Value 1"));
+        }
+
+        // Session shadowing (the Shadow policy) lets an administrator remotely VIEW or take CONTROL of a
+        // user's live RDP session. The two "without the user's consent" modes (2 = full control, 4 = view)
+        // allow a silent takeover / over-the-shoulder surveillance with no prompt to the session owner — an
+        // insider-threat and session-hijack vector (MITRE ATT&CK T1563.002). Modes that require consent
+        // (1, 3) or disable shadowing entirely (0) are acceptable; only flag the no-consent modes, and only
+        // when the policy is explicitly configured and RDP is actually enabled.
+        if (state.RdpShadowConfigured && (state.RdpShadowMode == 2 || state.RdpShadowMode == 4))
+        {
+            var access = state.RdpShadowMode == 2 ? "take full control of" : "view";
+            result.Findings.Add(Finding.Warning("RDP: Session Shadowing Without User Consent",
+                $"The RDP session-shadowing policy is set to mode {state.RdpShadowMode}, which lets an administrator " +
+                $"{access} a user's live session WITHOUT the user's consent and with no on-screen prompt. This enables " +
+                "silent over-the-shoulder surveillance or a hands-on-keyboard session takeover — an insider-threat and " +
+                "session-hijack risk. Require consent (mode 1 or 3) or disable shadowing (mode 0).",
+                cat,
+                "Set via Group Policy: Computer Configuration > Administrative Templates > Windows Components > " +
+                "Remote Desktop Services > Remote Desktop Session Host > Connections > " +
+                "'Set rules for remote control of Remote Desktop Services user sessions' to a consent-required " +
+                "option, or disable remote control.",
+                "Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services' -Name Shadow -Value 0"));
+        }
+        else if (state.RdpShadowConfigured)
+        {
+            var mode = state.RdpShadowMode switch
+            {
+                0 => "disabled (no remote control)",
+                1 => "full control with the user's consent",
+                3 => "view-only with the user's consent",
+                _ => $"mode {state.RdpShadowMode}"
+            };
+            result.Findings.Add(Finding.Pass("RDP: Session Shadowing Requires Consent",
+                $"RDP session shadowing is {mode} — an administrator cannot silently observe or control a user's " +
+                "session without their permission.", cat));
         }
 
         // Remote Desktop Users group

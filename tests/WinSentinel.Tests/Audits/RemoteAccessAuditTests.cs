@@ -465,6 +465,94 @@ public class RemoteAccessAuditTests
         Assert.DoesNotContain(result.Findings, f => f.Title.Contains("Redirection"));
     }
 
+    // --- RDP session shadowing (Shadow policy) ---
+
+    [Fact]
+    public void RdpShadowFullControlNoConsent_WarningFinding()
+    {
+        var state = RdpSecureBaseline();
+        state.RdpShadowConfigured = true;
+        state.RdpShadowMode = 2; // full control WITHOUT consent
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.Contains(result.Findings, f =>
+            f.Title == "RDP: Session Shadowing Without User Consent" && f.Severity == Severity.Warning);
+    }
+
+    [Fact]
+    public void RdpShadowViewNoConsent_WarningFinding()
+    {
+        var state = RdpSecureBaseline();
+        state.RdpShadowConfigured = true;
+        state.RdpShadowMode = 4; // view WITHOUT consent
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.Contains(result.Findings, f =>
+            f.Title == "RDP: Session Shadowing Without User Consent" && f.Severity == Severity.Warning);
+    }
+
+    [Fact]
+    public void RdpShadowNoConsent_HasFixCommand()
+    {
+        var state = RdpSecureBaseline();
+        state.RdpShadowConfigured = true;
+        state.RdpShadowMode = 2;
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        var finding = result.Findings.Single(f => f.Title == "RDP: Session Shadowing Without User Consent");
+        Assert.False(string.IsNullOrWhiteSpace(finding.FixCommand));
+        Assert.Contains("Shadow", finding.FixCommand);
+    }
+
+    [Fact]
+    public void RdpShadowDisabled_PassFinding()
+    {
+        var state = RdpSecureBaseline();
+        state.RdpShadowConfigured = true;
+        state.RdpShadowMode = 0; // no remote control
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.Contains(result.Findings, f =>
+            f.Title == "RDP: Session Shadowing Requires Consent" && f.Severity == Severity.Pass);
+        Assert.DoesNotContain(result.Findings, f => f.Title.Contains("Without User Consent"));
+    }
+
+    [Fact]
+    public void RdpShadowWithConsent_PassFinding()
+    {
+        var state = RdpSecureBaseline();
+        state.RdpShadowConfigured = true;
+        state.RdpShadowMode = 1; // full control WITH consent
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.Contains(result.Findings, f =>
+            f.Title == "RDP: Session Shadowing Requires Consent" && f.Severity == Severity.Pass);
+    }
+
+    [Fact]
+    public void RdpShadowUnconfigured_NoShadowFinding()
+    {
+        // Policy absent => OS default; we raise no shadow-specific finding at all.
+        var state = RdpSecureBaseline();
+        state.RdpShadowConfigured = false;
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.DoesNotContain(result.Findings, f => f.Title.Contains("Session Shadowing"));
+    }
+
+    [Fact]
+    public void RdpShadow_NotEvaluatedWhenRdpDisabled()
+    {
+        // Shadowing lives inside the RDP-enabled branch; with RDP off a no-consent mode must not fire.
+        var state = MakeSecureState();
+        state.RdpEnabled = false;
+        state.RdpShadowConfigured = true;
+        state.RdpShadowMode = 2;
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.DoesNotContain(result.Findings, f => f.Title.Contains("Session Shadowing"));
+    }
+
     // --- SSH checks ---
 
     [Fact]

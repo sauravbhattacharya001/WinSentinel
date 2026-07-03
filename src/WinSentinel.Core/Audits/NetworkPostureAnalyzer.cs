@@ -525,11 +525,11 @@ public static class NetworkPostureAnalyzer
                 "to capture NTLMv2 hashes (tools like Responder/Inveigh). This is one of the most common internal network attack vectors.",
                 Category,
                 "Disable LLMNR via Group Policy: Computer Configuration > Administrative Templates > Network > DNS Client > Turn Off Multicast Name Resolution.",
-                // Single reg.exe command (creates the key path + sets the value).
-                // The old "New-Item ... | Out-Null; Set-ItemProperty ..." form was
-                // rejected by InputSanitizer.CheckDangerousCommand (semicolon chaining),
-                // so the Fix button never executed.
-                @"reg add ""HKLM\SOFTWARE\Policies\Microsoft\Windows NT\DNSClient"" /v EnableMulticast /t REG_DWORD /d 0 /f"));
+                // Single-statement PowerShell (no semicolon chaining, so it passes
+                // InputSanitizer.CheckDangerousCommand). Matches the same fix in
+                // IncidentResponsePlaybook.cs. Set-ItemProperty requires the DNSClient
+                // policy key to exist; that is the standard remediation path.
+                @"Set-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\DNSClient' -Name EnableMulticast -Value 0"));
         }
 
         // NetBIOS over TCP/IP

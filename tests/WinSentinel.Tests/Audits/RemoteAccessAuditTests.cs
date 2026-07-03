@@ -553,6 +553,72 @@ public class RemoteAccessAuditTests
         Assert.DoesNotContain(result.Findings, f => f.Title.Contains("Session Shadowing"));
     }
 
+    // --- RDP always-prompt-for-password (fPromptForPassword policy) ---
+
+    [Fact]
+    public void RdpPromptForPasswordDisabled_WarningFinding()
+    {
+        // Policy explicitly 0 => saved/delegated creds open a session with no prompt.
+        var state = RdpSecureBaseline();
+        state.RdpPromptForPasswordConfigured = true;
+        state.RdpAlwaysPromptForPassword = false;
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.Contains(result.Findings, f =>
+            f.Title == "RDP: Password Prompt On Connect Disabled" && f.Severity == Severity.Warning);
+    }
+
+    [Fact]
+    public void RdpPromptForPasswordDisabled_HasFixCommand()
+    {
+        var state = RdpSecureBaseline();
+        state.RdpPromptForPasswordConfigured = true;
+        state.RdpAlwaysPromptForPassword = false;
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        var finding = result.Findings.Single(f => f.Title == "RDP: Password Prompt On Connect Disabled");
+        Assert.False(string.IsNullOrWhiteSpace(finding.FixCommand));
+        Assert.Contains("fPromptForPassword", finding.FixCommand);
+    }
+
+    [Fact]
+    public void RdpPromptForPasswordEnabled_PassFinding()
+    {
+        // Policy explicitly 1 => a password is required on every connection.
+        var state = RdpSecureBaseline();
+        state.RdpPromptForPasswordConfigured = true;
+        state.RdpAlwaysPromptForPassword = true;
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.Contains(result.Findings, f =>
+            f.Title == "RDP: Password Prompt On Connect Required" && f.Severity == Severity.Pass);
+        Assert.DoesNotContain(result.Findings, f => f.Title == "RDP: Password Prompt On Connect Disabled");
+    }
+
+    [Fact]
+    public void RdpPromptForPasswordUnconfigured_NoFinding()
+    {
+        // Policy absent => OS default; no prompt-for-password finding of either polarity.
+        var state = RdpSecureBaseline();
+        state.RdpPromptForPasswordConfigured = false;
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.DoesNotContain(result.Findings, f => f.Title.Contains("Password Prompt On Connect"));
+    }
+
+    [Fact]
+    public void RdpPromptForPassword_NotEvaluatedWhenRdpDisabled()
+    {
+        // The check lives inside the RDP-enabled branch; with RDP off, a disabled policy must not fire.
+        var state = MakeSecureState();
+        state.RdpEnabled = false;
+        state.RdpPromptForPasswordConfigured = true;
+        state.RdpAlwaysPromptForPassword = false;
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.DoesNotContain(result.Findings, f => f.Title.Contains("Password Prompt On Connect"));
+    }
+
     // --- SSH checks ---
 
     [Fact]

@@ -9,6 +9,7 @@ namespace WinSentinel.Core.Audits;
 /// - RDP enabled with weak settings (no NLA, default port, weak encryption)
 /// - RDP device redirection (client drive / clipboard / printer / COM-LPT ports mapped into the session — exfiltration channels)
 /// - RDP session shadowing allowed without user consent (silent view/control of a live session)
+/// - RDP password prompt on connect disabled (saved/delegated credentials open a session with no challenge)
 /// - SSH server exposure without key-only auth
 /// - VNC/TeamViewer/AnyDesk/other remote tools running with weak config
 /// - Remote Desktop Users group membership
@@ -163,6 +164,18 @@ public class RemoteAccessAudit : IAuditModule
         /// policy hive). When false the OS default applies and no shadow-policy finding beyond the secure
         /// baseline is raised.</summary>
         public bool RdpShadowConfigured { get; set; }
+
+        /// <summary>The RDP "Always prompt for password upon connection" policy (<c>fPromptForPassword</c> under
+        /// the Terminal Services policy hive). When 1, the RD Session Host always challenges for a password at
+        /// connect time even if the client supplied saved credentials. When 0, credentials passed by the client
+        /// (e.g. a saved RDP password or a delegated/cached credential) are accepted without a prompt, so a stolen
+        /// or reused credential can open a session silently and unattended — a lateral-movement / credential-reuse
+        /// risk. Default false (secure) so an unconfigured or non-RDP host is not flagged.</summary>
+        public bool RdpAlwaysPromptForPassword { get; set; }
+
+        /// <summary>Whether the RDP <c>fPromptForPassword</c> policy is explicitly configured (present in the
+        /// policy hive). When false the OS default applies and no beyond-baseline finding is raised.</summary>
+        public bool RdpPromptForPasswordConfigured { get; set; }
 
         /// <summary>Members of the Remote Desktop Users group.</summary>
         public List<string> RemoteDesktopUsers { get; set; } = new();
@@ -336,7 +349,8 @@ public class RemoteAccessAudit : IAuditModule
                 "  DisableClip=$r.fDisableClip; " +
                 "  DisableCpm=$r.fDisableCpm; " +
                 "  DisableLPT=$r.fDisableLPT; " +
-                "  Shadow=$r.Shadow " +
+                "  Shadow=$r.Shadow; " +
+                "  PromptForPassword=$r.fPromptForPassword " +
                 "} | ConvertTo-Json", ct);
             if (!string.IsNullOrWhiteSpace(redirOutput) && redirOutput.TrimStart().StartsWith("{"))
             {
@@ -357,6 +371,13 @@ public class RemoteAccessAudit : IAuditModule
                 {
                     state.RdpShadowConfigured = true;
                     state.RdpShadowMode = shadow.GetInt32();
+                }
+                // Always-prompt-for-password: capture only when the policy is explicitly present. Absent =>
+                // OS default; the analyzer flags the value 0 (saved creds bypass the prompt) and only when RDP is on.
+                if (root.TryGetProperty("PromptForPassword", out var pfp) && pfp.ValueKind == System.Text.Json.JsonValueKind.Number)
+                {
+                    state.RdpPromptForPasswordConfigured = true;
+                    state.RdpAlwaysPromptForPassword = pfp.GetInt32() == 1;
                 }
             }
         }
@@ -762,6 +783,33 @@ public class RemoteAccessAudit : IAuditModule
             result.Findings.Add(Finding.Pass("RDP: Session Shadowing Requires Consent",
                 $"RDP session shadowing is {mode} — an administrator cannot silently observe or control a user's " +
                 "session without their permission.", cat));
+        }
+
+        // Always prompt for password on connect (the fPromptForPassword policy). When set to 0, the RD Session
+        // Host accepts credentials handed over by the client — a saved RDP password, or a delegated/cached
+        // credential — and opens the session with no password challenge. That lets a stolen or reused credential
+        // (or an unattended machine with a saved connection) log in silently, which aids lateral movement and
+        // defeats "something you know at connect time". Value 1 forces a prompt every time (secure). Only flag
+        // when the policy is explicitly configured; this whole method already short-circuits unless RDP is enabled.
+        if (state.RdpPromptForPasswordConfigured && !state.RdpAlwaysPromptForPassword)
+        {
+            result.Findings.Add(Finding.Warning("RDP: Password Prompt On Connect Disabled",
+                "The RDP 'Always prompt for password upon connection' policy is disabled (fPromptForPassword = 0), " +
+                "so the Remote Desktop host accepts credentials supplied by the client (a saved RDP password or a " +
+                "delegated/cached credential) and opens the session with no password challenge. A stolen or reused " +
+                "credential — or an unattended machine holding a saved connection — can then log in silently, aiding " +
+                "lateral movement. Require a password prompt on every connection.",
+                cat,
+                "Set via Group Policy: Computer Configuration > Administrative Templates > Windows Components > " +
+                "Remote Desktop Services > Remote Desktop Session Host > Security > 'Always prompt for password " +
+                "upon connection' = Enabled.",
+                "Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Terminal Services' -Name fPromptForPassword -Value 1"));
+        }
+        else if (state.RdpPromptForPasswordConfigured)
+        {
+            result.Findings.Add(Finding.Pass("RDP: Password Prompt On Connect Required",
+                "RDP always prompts for a password on connection (fPromptForPassword = 1), so a saved or delegated " +
+                "credential cannot silently open a remote session.", cat));
         }
 
         // Remote Desktop Users group

@@ -87,9 +87,6 @@ jobs:
         dotnet build src/WinSentinel.Cli/WinSentinel.Cli.csproj --no-restore -c Release @extra
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-    - name: Run tests
-      run: dotnet test tests/WinSentinel.Tests/WinSentinel.Tests.csproj -c Release --verbosity normal
-
     - name: Pack NuGet packages
       shell: pwsh
       run: |

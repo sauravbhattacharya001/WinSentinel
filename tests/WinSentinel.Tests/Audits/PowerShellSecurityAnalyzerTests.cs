@@ -302,6 +302,75 @@ public class PowerShellSecurityAnalyzerTests
         Assert.Equal(expected, f.Severity);
     }
 
+    // Explicitly disabled (registry value present and 0) is a tamper signal graded
+    // Critical, kept distinct from the Warning emitted when logging is merely unset.
+    [Fact]
+    public void CheckScriptBlockLogging_ExplicitlyDisabled_IsCriticalTamperSignal()
+    {
+        var f = CheckScriptBlockLogging(new PowerShellState
+        {
+            ScriptBlockLoggingEnabled = false,
+            ScriptBlockLoggingExplicitlyDisabled = true
+        });
+        Assert.Equal(Severity.Critical, f.Severity);
+        Assert.Contains("Explicitly Disabled", f.Title);
+        Assert.Contains("T1562.002", f.Description);
+        Assert.False(string.IsNullOrWhiteSpace(f.Remediation),
+            "a Critical tamper finding must carry remediation");
+    }
+
+    [Fact]
+    public void CheckModuleLogging_ExplicitlyDisabled_IsCriticalTamperSignal()
+    {
+        var f = CheckModuleLogging(new PowerShellState
+        {
+            ModuleLoggingEnabled = false,
+            ModuleLoggingExplicitlyDisabled = true
+        });
+        Assert.Equal(Severity.Critical, f.Severity);
+        Assert.Contains("Explicitly Disabled", f.Title);
+        Assert.Contains("T1562.002", f.Description);
+        Assert.False(string.IsNullOrWhiteSpace(f.Remediation),
+            "a Critical tamper finding must carry remediation");
+    }
+
+    // "Explicitly disabled" (value 0) and "never configured" (value absent) must be
+    // graded differently so an operator can tell active suppression from a hygiene
+    // gap: Critical vs Warning, with distinct titles.
+    [Fact]
+    public void CheckScriptBlockLogging_DisabledVsUnset_AreDistinctFindings()
+    {
+        var tampered = CheckScriptBlockLogging(new PowerShellState
+        {
+            ScriptBlockLoggingExplicitlyDisabled = true
+        });
+        var unset = CheckScriptBlockLogging(new PowerShellState
+        {
+            ScriptBlockLoggingEnabled = false,
+            ScriptBlockLoggingExplicitlyDisabled = false
+        });
+        Assert.Equal(Severity.Critical, tampered.Severity);
+        Assert.Equal(Severity.Warning, unset.Severity);
+        Assert.NotEqual(tampered.Title, unset.Title);
+    }
+
+    [Fact]
+    public void CheckModuleLogging_DisabledVsUnset_AreDistinctFindings()
+    {
+        var tampered = CheckModuleLogging(new PowerShellState
+        {
+            ModuleLoggingExplicitlyDisabled = true
+        });
+        var unset = CheckModuleLogging(new PowerShellState
+        {
+            ModuleLoggingEnabled = false,
+            ModuleLoggingExplicitlyDisabled = false
+        });
+        Assert.Equal(Severity.Critical, tampered.Severity);
+        Assert.Equal(Severity.Warning, unset.Severity);
+        Assert.NotEqual(tampered.Title, unset.Title);
+    }
+
     [Fact]
     public void CheckTranscription_EnabledWithDir_MentionsDirInPass()
     {

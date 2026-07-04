@@ -99,6 +99,16 @@ public static class PowerShellSecurityAnalyzer
         public bool TranscriptionEnabled { get; set; }
         public string? TranscriptionOutputDir { get; set; }
 
+        // Tamper signal: the logging policy value is present in the registry but set
+        // to 0 (explicitly OFF), as opposed to simply never configured. Attackers
+        // disable script-block/module logging to blind forensic capture (MITRE
+        // T1562.002 - Impair Defenses: Disable Windows Event Logging), so an
+        // explicit 0 is graded far more seriously than an absent key. Defaults false
+        // so a machine that never configured logging reads as a hygiene gap, not
+        // tampering.
+        public bool ScriptBlockLoggingExplicitlyDisabled { get; set; }
+        public bool ModuleLoggingExplicitlyDisabled { get; set; }
+
         // Language mode
         public string LanguageMode { get; set; } = "FullLanguage";
 
@@ -280,6 +290,25 @@ public static class PowerShellSecurityAnalyzer
 
     public static Finding CheckScriptBlockLogging(PowerShellState state)
     {
+        // Explicitly disabled (value present and 0) is a tamper signal, not a mere
+        // hygiene gap: someone actively turned OFF forensic script capture. Grade it
+        // Critical (MITRE T1562.002) and keep it distinct from "never configured".
+        if (state.ScriptBlockLoggingExplicitlyDisabled)
+        {
+            return Finding.Critical(
+                "Script Block Logging Explicitly Disabled",
+                "PowerShell script block logging is explicitly turned OFF " +
+                "(EnableScriptBlockLogging = 0 in the registry), not merely unset. " +
+                "Disabling it blinds forensic capture of obfuscated and dynamically " +
+                "generated commands and is a common defense-evasion step " +
+                "(MITRE T1562.002 - Impair Defenses: Disable Windows Event Logging).",
+                Category,
+                "Re-enable script block logging and investigate why it was disabled: " +
+                @"HKLM\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging\EnableScriptBlockLogging = 1",
+                @"Set-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging' " +
+                "-Name EnableScriptBlockLogging -Value 1");
+        }
+
         if (!state.ScriptBlockLoggingEnabled)
         {
             return Finding.Warning(
@@ -305,6 +334,24 @@ public static class PowerShellSecurityAnalyzer
 
     public static Finding CheckModuleLogging(PowerShellState state)
     {
+        // Explicitly disabled (value present and 0) => tamper signal, graded Critical
+        // and kept distinct from "never configured" (the Warning below).
+        if (state.ModuleLoggingExplicitlyDisabled)
+        {
+            return Finding.Critical(
+                "Module Logging Explicitly Disabled",
+                "PowerShell module logging is explicitly turned OFF " +
+                "(EnableModuleLogging = 0 in the registry), not merely unset. " +
+                "Disabling it removes pipeline-execution visibility across all " +
+                "modules and is a common defense-evasion step " +
+                "(MITRE T1562.002 - Impair Defenses: Disable Windows Event Logging).",
+                Category,
+                "Re-enable module logging and investigate why it was disabled: " +
+                @"HKLM\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ModuleLogging\EnableModuleLogging = 1",
+                @"Set-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ModuleLogging' " +
+                "-Name EnableModuleLogging -Value 1");
+        }
+
         if (!state.ModuleLoggingEnabled)
         {
             return Finding.Warning(

@@ -146,6 +146,9 @@ public class PowerShellAudit : IAuditModule
             {
                 var val = key.GetValue("EnableScriptBlockLogging");
                 state.ScriptBlockLoggingEnabled = val is int i && i == 1;
+                // Distinguish an explicit 0 (someone turned it OFF = tamper signal)
+                // from an absent value (never configured = hygiene gap).
+                state.ScriptBlockLoggingExplicitlyDisabled = val is int d && d == 0;
             }
         }
         catch { /* Access denied */ }
@@ -159,6 +162,7 @@ public class PowerShellAudit : IAuditModule
             {
                 var val = key.GetValue("EnableModuleLogging");
                 state.ModuleLoggingEnabled = val is int i && i == 1;
+                state.ModuleLoggingExplicitlyDisabled = val is int d && d == 0;
             }
         }
         catch { /* Access denied */ }

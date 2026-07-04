@@ -152,7 +152,6 @@ return options.Command switch
     CliCommand.Schedule => WinSentinel.Cli.ScheduledScans.ScheduleCommandHandler.Handle(options),
     CliCommand.Monitor => WinSentinel.Cli.Monitor.MonitorCommandHandler.Handle(options),
     CliCommand.Why => await WhyCommandHandler.HandleAsync(options),
-            CliCommand.Fleet => await FleetCommandHandler.HandleAsync(options),
     CliCommand.Agent => await AgentCommandHandler.HandleAsync(options),
     CliCommand.Telemetry => HandleTelemetry(options),
     CliCommand.Badge => await HandleBadge(options),

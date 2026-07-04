@@ -184,16 +184,7 @@ public class CliOptions
     /// <summary>Search query for the <c>why</c> command (finding title/keyword).</summary>
     public string? WhyQuery { get; set; }
 
-    // Fleet command options (Pro-only)
-    public FleetAction FleetAction { get; set; } = FleetAction.Help;
     public TelemetryAction TelemetryAction { get; set; } = TelemetryAction.Status;
-    public string? FleetEndpoint { get; set; }
-    public string? FleetTargetNodes { get; set; }
-    public string? FleetPolicyFile { get; set; }
-    /// <summary>Optional status filter for `fleet commands` (pending|acknowledged|completed|failed|expired).</summary>
-    public string? FleetStatusFilter { get; set; }
-    /// <summary>Optional row limit for `fleet commands` history (clamped server-side to 200).</summary>
-    public int? FleetLimit { get; set; }
 
     // Agent command options
     public AgentAction AgentAction { get; set; } = AgentAction.Help;
@@ -573,7 +564,6 @@ public enum CliCommand
     Schedule,
     Monitor,
     Why,
-    Fleet,
     Telemetry,
     Agent
 }
@@ -1693,14 +1683,6 @@ public static class CliParser
                     break;
 
                 case "--limit" or "-l":
-                    if (options.Command == CliCommand.Fleet)
-                    {
-                        // `fleet commands --limit N` history page size; server caps at 200.
-                        if (!TryConsumeInt(args, ref i, "--limit (-l)", 1, FleetRequestBuilder.MaxCommandHistoryLimit, out var fleetLimit, out var fleetLimitErr))
-                        { options.Error = fleetLimitErr; return options; }
-                        options.FleetLimit = fleetLimit;
-                        break;
-                    }
                     if (!TryConsumeInt(args, ref i, "--limit (-l)", 1, 100, out var limit, out var limitErr))
                     { options.Error = limitErr; return options; }
                     options.HistoryLimit = limit;
@@ -2199,28 +2181,6 @@ public static class CliParser
                     }
                     break;
 
-                case "fleet":
-                case "--fleet":
-                    options.Command = CliCommand.Fleet;
-                    // Consume sub-action
-                    if (i + 1 < args.Length && !args[i + 1].StartsWith('-'))
-                    {
-                        i++;
-                        options.FleetAction = args[i].ToLowerInvariant() switch
-                        {
-                            "status" => FleetAction.Status,
-                            "scan-all" => FleetAction.ScanAll,
-                            "scan" => FleetAction.ScanAll,
-                            "push-policy" => FleetAction.PushPolicy,
-                            "nodes" => FleetAction.Nodes,
-                            "commands" => FleetAction.Commands,
-                            "history" => FleetAction.Commands,
-                            "help" => FleetAction.Help,
-                            _ => FleetAction.Help,
-                        };
-                    }
-                    break;
-
                 case "telemetry":
                 case "--telemetry":
                     options.Command = CliCommand.Telemetry;
@@ -2255,28 +2215,6 @@ public static class CliParser
                             _ => AgentAction.Help,
                         };
                     }
-                    break;
-
-                case "--fleet-endpoint":
-                    if (i + 1 < args.Length) { i++; options.FleetEndpoint = args[i]; }
-                    break;
-
-                case "--fleet-nodes":
-                case "--nodes":
-                    if (i + 1 < args.Length) { i++; options.FleetTargetNodes = args[i]; }
-                    break;
-
-                case "--fleet-policy-file":
-                case "--file":
-                    if (options.Command == CliCommand.Fleet && i + 1 < args.Length)
-                    { i++; options.FleetPolicyFile = args[i]; }
-                    break;
-
-                case "--fleet-status":
-                case "--command-status":
-                    // Status filter for `fleet commands` (pending|acknowledged|completed|failed|expired).
-                    // A dedicated flag avoids colliding with the bare `--status` audit verb.
-                    if (i + 1 < args.Length) { i++; options.FleetStatusFilter = args[i]; }
                     break;
 
                 case "--watch":

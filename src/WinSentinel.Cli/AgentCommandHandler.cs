@@ -8,7 +8,6 @@ namespace WinSentinel.Cli;
 /// Handles 'winsentinel agent start|stop|status|install|uninstall' subcommands.
 /// The agent runs as either a background process or a Windows Service.
 /// This is FREE functionality — no license required for standalone mode.
-/// Fleet registration (phoning home to a central node) requires a Pro license.
 /// </summary>
 public static class AgentCommandHandler
 {
@@ -57,14 +56,6 @@ public static class AgentCommandHandler
 
         // Build args for the agent process
         var agentArgs = new List<string>();
-        if (options.FleetEndpoint != null)
-        {
-            agentArgs.Add($"--fleet-endpoint={options.FleetEndpoint}");
-        }
-        if (options.TransientLicenseKey != null)
-        {
-            agentArgs.Add($"--license={options.TransientLicenseKey}");
-        }
 
         // Launch as background process
         Directory.CreateDirectory(AgentDataDir);
@@ -110,19 +101,6 @@ public static class AgentCommandHandler
             Console.ResetColor();
             Console.WriteLine($"    Logs: {Path.Combine(AgentDataDir, "logs")}");
             Console.WriteLine($"    Config: {Path.Combine(AgentDataDir, "agent-config.json")}");
-
-            if (options.FleetEndpoint != null)
-            {
-                Console.ForegroundColor = ConsoleColor.Cyan;
-                Console.WriteLine($"    Fleet endpoint: {options.FleetEndpoint}");
-                Console.ResetColor();
-            }
-            else
-            {
-                Console.ForegroundColor = ConsoleColor.DarkGray;
-                Console.WriteLine("    Running in standalone mode (no fleet registration)");
-                Console.ResetColor();
-            }
 
             return 0;
         }
@@ -399,15 +377,8 @@ public static class AgentCommandHandler
         Console.WriteLine("    install    Install as a Windows Service (requires admin)");
         Console.WriteLine("    uninstall  Remove the Windows Service (requires admin)");
         Console.WriteLine();
-        Console.WriteLine("  Options:");
-        Console.WriteLine("    --fleet-endpoint <url>  Register with a fleet control plane (Pro)");
-        Console.WriteLine("    --license <key>         License key for fleet features");
-        Console.WriteLine();
         Console.WriteLine("  The agent runs locally for free — real-time threat monitoring,");
         Console.WriteLine("  scheduled audits, and auto-remediation on your machine.");
-        Console.WriteLine();
-        Console.WriteLine("  With a Pro license and --fleet-endpoint, the agent also reports");
-        Console.WriteLine("  to your organization's central control plane for fleet management.");
         Console.WriteLine();
         return 0;
     }

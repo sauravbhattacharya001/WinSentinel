@@ -57,13 +57,6 @@ public class AgentConfig
     /// <summary>Per-category default response action (AutoFix, Alert, Log).</summary>
     public Dictionary<string, string> CategoryDefaultResponse { get; set; } = new();
 
-    /// <summary>
-    /// Fleet control plane endpoint URL. When set (and a Pro license is active),
-    /// the agent registers with the fleet and reports scan results.
-    /// Override via WINSENTINEL_FLEET_ENDPOINT environment variable.
-    /// </summary>
-    public string? FleetEndpoint { get; set; }
-
     // ── Persistence ──
 
     private static readonly string ConfigDir =

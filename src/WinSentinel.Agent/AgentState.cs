@@ -62,7 +62,6 @@ public class AgentState
     /// <summary>
     /// When set to true, the ScheduledAuditModule should run a scan immediately
     /// regardless of the schedule. Reset to false after the scan starts.
-    /// Used by fleet remote command dispatch.
     /// </summary>
     public volatile bool ForceImmediateScan;
 

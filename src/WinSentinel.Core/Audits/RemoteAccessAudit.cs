@@ -13,7 +13,7 @@ namespace WinSentinel.Core.Audits;
 /// - SSH server exposure without key-only auth
 /// - VNC/TeamViewer/AnyDesk/other remote tools running with weak config
 /// - Remote Desktop Users group membership
-/// - WinRM/PSRemoting exposure (unencrypted traffic, Basic auth, CredSSP delegation, wildcard TrustedHosts)
+/// - WinRM/PSRemoting exposure (unencrypted traffic, Basic auth, CredSSP delegation, channel binding, wildcard TrustedHosts)
 /// - Remote Registry service enabled
 /// - Remote Assistance enabled
 /// </summary>
@@ -232,6 +232,15 @@ public class RemoteAccessAudit : IAuditModule
 
         /// <summary>Whether the WinRM service accepts CredSSP authentication (delegates caller credentials to this host).</summary>
         public bool WinRmServiceCredSspEnabled { get; set; }
+
+        /// <summary>The WinRM service authentication Channel-Binding-Token / Extended-Protection-for-Authentication
+        /// hardening level (<c>CbtHardeningLevel</c> under winrm/config/service/auth): <c>None</c>, <c>Relaxed</c>
+        /// (the default), or <c>Strict</c>. Channel binding ties the authenticated session to the outer TLS
+        /// channel; with <c>None</c> the service performs no channel-binding validation at all, so an
+        /// authenticated WinRM-over-HTTPS session can be relayed/man-in-the-middled (the credential is not bound
+        /// to the TLS endpoint) — an authentication-relay hardening gap. Empty string = not read/unknown; the
+        /// analyzer only flags the explicit <c>None</c> value.</summary>
+        public string WinRmCbtHardeningLevel { get; set; } = string.Empty;
 
         /// <summary>Whether the WinRM client is allowed to use CredSSP when connecting out (delegates our credentials to the remote host).</summary>
         public bool WinRmClientCredSspEnabled { get; set; }
@@ -468,6 +477,14 @@ public class RemoteAccessAudit : IAuditModule
                     state.WinRmAllowUnencrypted = winrmConfig.Contains("AllowUnencrypted = true", StringComparison.OrdinalIgnoreCase);
                     state.WinRmBasicAuthEnabled = winrmConfig.Contains("Basic = true", StringComparison.OrdinalIgnoreCase);
                     state.WinRmServiceCredSspEnabled = winrmConfig.Contains("CredSSP = true", StringComparison.OrdinalIgnoreCase);
+
+                    // CbtHardeningLevel (channel binding / EPA) is reported inline in the service auth block,
+                    // e.g. "CbtHardeningLevel = Relaxed". Capture the raw token; the analyzer only warns on None.
+                    var cbt = System.Text.RegularExpressions.Regex.Match(
+                        winrmConfig, @"CbtHardeningLevel\s*=\s*(?<val>\S+)",
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    if (cbt.Success)
+                        state.WinRmCbtHardeningLevel = cbt.Groups["val"].Value.Trim();
                 }
 
                 // WinRM client-side auth + TrustedHosts (governs OUTBOUND connections from this host).
@@ -1021,6 +1038,33 @@ public class RemoteAccessAudit : IAuditModule
                 cat,
                 "Disable unless explicitly required (e.g. certain double-hop scenarios): " +
                 "winrm set winrm/config/service/auth @{CredSSP=\"false\"}"));
+        }
+
+        // CbtHardeningLevel governs channel binding (Extended Protection for Authentication) for the WinRM
+        // service. When set to "None" the service performs NO channel-binding check, so an authenticated
+        // WinRM-over-HTTPS session is not bound to its TLS channel and can be relayed / man-in-the-middled
+        // (a credential-relay path onto this host). "Relaxed" (the default) validates a binding when the
+        // client supplies one, and "Strict" always requires it. Only flag the explicit "None" value; treat
+        // Strict as a hardened pass and leave the default/unknown unflagged to avoid noise.
+        var cbt = state.WinRmCbtHardeningLevel?.Trim() ?? string.Empty;
+        if (string.Equals(cbt, "None", StringComparison.OrdinalIgnoreCase))
+        {
+            result.Findings.Add(Finding.Warning("WinRM: Channel Binding Disabled (CbtHardeningLevel = None)",
+                "The WinRM service channel-binding hardening level is set to None, so the service does not bind " +
+                "an authenticated session to its outer TLS channel (no Extended Protection for Authentication). " +
+                "An authenticated WinRM-over-HTTPS session can then be relayed or man-in-the-middled onto this " +
+                "host, because the credential is not tied to the TLS endpoint it was presented over. Require " +
+                "channel binding.",
+                cat,
+                "Set the service to require channel binding: " +
+                "winrm set winrm/config/service/auth @{CbtHardeningLevel=\"Strict\"} " +
+                "(or 'Relaxed' to validate a binding when present)."));
+        }
+        else if (string.Equals(cbt, "Strict", StringComparison.OrdinalIgnoreCase))
+        {
+            result.Findings.Add(Finding.Pass("WinRM: Channel Binding Enforced",
+                "The WinRM service requires channel binding (CbtHardeningLevel = Strict), binding authenticated " +
+                "sessions to their TLS channel and blocking authentication-relay onto this host.", cat));
         }
 
         // CredSSP on the CLIENT means WE delegate OUR credentials to whatever host we connect to,

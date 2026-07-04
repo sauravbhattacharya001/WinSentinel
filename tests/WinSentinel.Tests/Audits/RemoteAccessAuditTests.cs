@@ -1382,6 +1382,70 @@ public class RemoteAccessAuditTests
         Assert.DoesNotContain(result.Findings, f => f.Title.Contains("CredSSP") || f.Title.Contains("TrustedHosts"));
     }
 
+    // --- WinRM channel binding (CbtHardeningLevel) ---
+
+    [Fact]
+    public void WinRmCbtHardeningNone_WarningFinding()
+    {
+        var state = MakeSecureState();
+        state.WinRmRunning = true;
+        state.WinRmCbtHardeningLevel = "None";
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.Contains(result.Findings,
+            f => f.Title.Contains("Channel Binding Disabled") && f.Severity == Severity.Warning);
+    }
+
+    [Fact]
+    public void WinRmCbtHardeningNone_HasRemediation()
+    {
+        var state = MakeSecureState();
+        state.WinRmRunning = true;
+        state.WinRmCbtHardeningLevel = "none"; // case-insensitive
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        var finding = result.Findings.First(f => f.Title.Contains("Channel Binding Disabled"));
+        Assert.False(string.IsNullOrWhiteSpace(finding.Remediation));
+    }
+
+    [Fact]
+    public void WinRmCbtHardeningStrict_PassFinding()
+    {
+        var state = MakeSecureState();
+        state.WinRmRunning = true;
+        state.WinRmCbtHardeningLevel = "Strict";
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.Contains(result.Findings,
+            f => f.Title.Contains("Channel Binding Enforced") && f.Severity == Severity.Pass);
+        Assert.DoesNotContain(result.Findings, f => f.Title.Contains("Channel Binding Disabled"));
+    }
+
+    [Fact]
+    public void WinRmCbtHardeningRelaxed_NoFinding()
+    {
+        // "Relaxed" is the OS default; it is neither flagged as a gap nor asserted as a hardened pass.
+        var state = MakeSecureState();
+        state.WinRmRunning = true;
+        state.WinRmCbtHardeningLevel = "Relaxed";
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.DoesNotContain(result.Findings, f => f.Title.Contains("Channel Binding"));
+    }
+
+    [Fact]
+    public void WinRmCbtHardeningNone_NotEvaluatedWhenWinRmStopped()
+    {
+        // The CbtHardeningLevel check lives inside the WinRM-running branch; a stale None value
+        // on a stopped service must not raise a finding.
+        var state = MakeSecureState();
+        state.WinRmRunning = false;
+        state.WinRmCbtHardeningLevel = "None";
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.DoesNotContain(result.Findings, f => f.Title.Contains("Channel Binding"));
+    }
+
     [Fact]
     public void WinRmTrustedHostsWildcard_WarningFinding()
     {

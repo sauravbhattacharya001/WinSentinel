@@ -225,6 +225,24 @@ public class AgentServiceTests : IDisposable
         await service.StopAsync(CancellationToken.None);
     }
 
+    /// <summary>
+    /// Polls <paramref name="condition"/> until it returns true or <paramref name="timeoutMs"/>
+    /// elapses, checking every <paramref name="pollMs"/>. Returns the final observed value.
+    /// Used to wait for the background <c>ExecuteAsync</c> loop to reach a state (e.g. modules
+    /// started) rather than assuming a fixed delay is enough — a fixed delay races on slow CI.
+    /// </summary>
+    private static async Task<bool> WaitForAsync(Func<bool> condition, int timeoutMs = 5000, int pollMs = 25)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (condition())
+                return true;
+            await Task.Delay(pollMs);
+        }
+        return condition();
+    }
+
     // ══════════════════════════════════════════════════════════════════
     // STATE INITIALIZATION
     // ══════════════════════════════════════════════════════════════════
@@ -349,8 +367,18 @@ public class AgentServiceTests : IDisposable
         var module2 = new FakeModule("FileMonitor");
         var (service, _, _, _) = CreateServiceFull(modules: new IAgentModule[] { module1, module2 });
 
-        await RunServiceBriefly(service);
+        using var cts = new CancellationTokenSource();
+        var startTask = service.StartAsync(cts.Token);
 
+        // The background ExecuteAsync loop starts modules asynchronously; a fixed delay
+        // races on slow CI runners, so wait until both modules actually report started
+        // (bounded) rather than asserting immediately.
+        var started = await WaitForAsync(() => module1.WasStarted && module2.WasStarted);
+
+        cts.Cancel();
+        await service.StopAsync(CancellationToken.None);
+
+        Assert.True(started, "Enabled modules did not start within the timeout");
         Assert.True(module1.WasStarted);
         Assert.True(module2.WasStarted);
     }

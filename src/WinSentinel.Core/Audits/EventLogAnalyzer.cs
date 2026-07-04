@@ -519,6 +519,41 @@ public static class EventLogAnalyzer
             "powershell -Command \"Start-MpScan -ScanType FullScan\"");
     }
 
+    // === Defender tampering / protection-disabled (5001/5010/5012) ===
+
+    /// <summary>
+    /// Classify Windows Defender "protection turned off" events from the Defender
+    /// operational log over the last 7 days. Unlike a threat detection (1116/1117,
+    /// which is Defender <i>working</i>), these events mean a layer of protection
+    /// was <b>disabled</b> — Event ID 5001 (real-time protection off), 5010
+    /// (anti-malware/anti-spyware scanning off), or 5012 (antivirus scanning off).
+    /// Disabling AV is a classic precursor to dropping a payload, so any such
+    /// event in the window is treated as Critical (an admin toggling it off still
+    /// warrants a look). Zero =&gt; Pass. Pure/deterministic: the audit module reads
+    /// the log and passes the counts + formatted lines here.
+    /// </summary>
+    /// <param name="disableEvents">Total count of 5001/5010/5012 events in the window.</param>
+    /// <param name="eventLines">Optional human-readable "• time — what was disabled" lines.</param>
+    public static Finding BuildDefenderTamperingFinding(int disableEvents,
+        IReadOnlyList<string>? eventLines = null)
+    {
+        if (disableEvents <= 0)
+        {
+            return Finding.Pass(
+                "Defender Protection Not Disabled",
+                "No Windows Defender protection-disabled events (Event IDs 5001/5010/5012) in the last 7 days. Real-time and scanning protection appear to have stayed on.",
+                Category);
+        }
+
+        var lines = eventLines is { Count: > 0 } ? string.Join("\n", eventLines) : "(details unavailable)";
+        return Finding.Critical(
+            $"Defender Protection Disabled — {disableEvents} Event(s)",
+            $"Windows Defender protection was turned off {disableEvents} time(s) in the last 7 days (real-time protection, anti-malware, or antivirus scanning). Disabling antivirus is a common step attackers take before deploying malware, and it leaves the machine exposed while off.\n\nEvents:\n{lines}",
+            Category,
+            "Confirm whether this was an authorized change. Re-enable real-time protection (Windows Security → Virus & threat protection → Manage settings). Turn on Tamper Protection so malware cannot disable Defender, and enable the Defender 'Disable Antivirus' / 'Disable Real-time Protection' ASR-adjacent policies via Group Policy or Intune. Run a full scan.",
+            "powershell -Command \"Set-MpPreference -DisableRealtimeMonitoring $false; Start-MpScan -ScanType FullScan\"");
+    }
+
     // === System errors (System log, Level 1/2) ===
 
     /// <summary>

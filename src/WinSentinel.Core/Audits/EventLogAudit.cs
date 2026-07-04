@@ -78,6 +78,7 @@ public class EventLogAudit : IAuditModule
                 CheckServiceInstallations(result, cancellationToken),
                 CheckSuspiciousPowerShell(result, cancellationToken),
                 CheckDefenderDetections(result, cancellationToken),
+                CheckDefenderTampering(result, cancellationToken),
                 CheckSystemErrors(result, cancellationToken),
                 CheckSecurityLogSize(result, cancellationToken),
                 CheckLogCleared(result, cancellationToken));
@@ -573,6 +574,65 @@ public class EventLogAudit : IAuditModule
             AddFinding(result, Finding.Info(
                 "Defender Detection Check Error",
                 $"Could not check Defender detections: {ex.Message}",
+                Category));
+        }
+    }
+
+    /// <summary>
+    /// Check the Windows Defender operational log for "protection turned off"
+    /// events over the last 7 days: 5001 (real-time protection disabled), 5010
+    /// (anti-malware/anti-spyware scanning disabled), 5012 (antivirus scanning
+    /// disabled). Distinct from <see cref="CheckDefenderDetections"/> (which flags
+    /// threats Defender <i>caught</i>); this flags Defender being <i>switched
+    /// off</i>, a classic attacker precursor to dropping a payload.
+    /// </summary>
+    private async Task CheckDefenderTampering(AuditResult result, CancellationToken ct)
+    {
+        try
+        {
+            // 5001 = real-time protection disabled, 5010 = anti-malware scanning
+            // disabled, 5012 = antivirus scanning disabled. Last 7 days.
+            var query = "*[System[(EventID=5001 or EventID=5010 or EventID=5012) and TimeCreated[timediff(@SystemTime) <= 604800000]]]";
+
+            var events = await QueryEventLogAsync("Microsoft-Windows-Windows Defender/Operational", query, ct);
+
+            if (events == null)
+            {
+                AddFinding(result, Finding.Info(
+                    "Defender Tamper Check — Log Unavailable",
+                    "Could not read Windows Defender operational log. Defender may not be installed or the log may be inaccessible.",
+                    Category,
+                    "Ensure Windows Defender is installed and running."));
+                return;
+            }
+
+            if (events.Count == 0)
+            {
+                AddFinding(result, EventLogAnalyzer.BuildDefenderTamperingFinding(0));
+                return;
+            }
+
+            var eventLines = new List<string>();
+            foreach (var evt in events.OrderByDescending(e => e.TimeCreated))
+            {
+                if (eventLines.Count >= 10) break;
+                var what = evt.Id switch
+                {
+                    5001 => "Real-time protection disabled",
+                    5010 => "Anti-malware/anti-spyware scanning disabled",
+                    5012 => "Antivirus scanning disabled",
+                    _ => $"Protection disabled (event {evt.Id})",
+                };
+                eventLines.Add($"• {evt.TimeCreated:yyyy-MM-dd HH:mm} — {what}");
+            }
+
+            AddFinding(result, EventLogAnalyzer.BuildDefenderTamperingFinding(events.Count, eventLines));
+        }
+        catch (Exception ex)
+        {
+            AddFinding(result, Finding.Info(
+                "Defender Tamper Check Error",
+                $"Could not check Defender tampering: {ex.Message}",
                 Category));
         }
     }

@@ -655,6 +655,60 @@ public class EventLogAnalyzerTests
     }
 
     // ----------------------------------------------------------------------
+    // Defender tampering / protection-disabled (5001/5010/5012)
+    // ----------------------------------------------------------------------
+
+    [Fact]
+    public void BuildDefenderTamperingFinding_None_IsPass()
+    {
+        var f = EventLogAnalyzer.BuildDefenderTamperingFinding(0);
+        Assert.Equal(Severity.Pass, f.Severity);
+        // The pass copy must cite the specific event IDs so an auditor knows what was checked.
+        Assert.Contains("5001", f.Description);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(3)]
+    [InlineData(25)]
+    public void BuildDefenderTamperingFinding_AnyDisableEvent_IsCritical(int count)
+    {
+        // Defender being switched off is a pre-attack signal => always Critical, never a soft warning.
+        var f = EventLogAnalyzer.BuildDefenderTamperingFinding(count);
+        Assert.Equal(Severity.Critical, f.Severity);
+        Assert.Contains(count.ToString(), f.Title);
+    }
+
+    [Fact]
+    public void BuildDefenderTamperingFinding_HasTamperProtectionRemediationAndFix()
+    {
+        var f = EventLogAnalyzer.BuildDefenderTamperingFinding(2);
+        // Remediation must steer the user to Tamper Protection (the durable fix), not just "turn it back on".
+        Assert.NotNull(f.Remediation);
+        Assert.Contains("Tamper Protection", f.Remediation!);
+        Assert.NotNull(f.FixCommand);
+        Assert.Contains("DisableRealtimeMonitoring", f.FixCommand!);
+    }
+
+    [Fact]
+    public void BuildDefenderTamperingFinding_IncludesEventLines()
+    {
+        var f = EventLogAnalyzer.BuildDefenderTamperingFinding(1,
+            new[] { "• 2026-07-04 03:15 — Real-time protection disabled" });
+        Assert.Contains("Real-time protection disabled", f.Description);
+    }
+
+    [Fact]
+    public void BuildDefenderTamperingFinding_TitleDiffersFromDetectionFinding()
+    {
+        // Regression guard: tampering (protection OFF) and detection (threat caught) are
+        // distinct findings and must not collide on title.
+        var tamper = EventLogAnalyzer.BuildDefenderTamperingFinding(1);
+        var detect = EventLogAnalyzer.BuildDefenderDetectionFinding(1, 0);
+        Assert.NotEqual(tamper.Title, detect.Title);
+    }
+
+    // ----------------------------------------------------------------------
     // System errors (System log Level 1/2)
     // ----------------------------------------------------------------------
 

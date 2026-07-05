@@ -7,7 +7,8 @@ namespace WinSentinel.Core.Audits;
 /// <summary>
 /// Audits DNS security configuration for risks including:
 /// - DNS servers set to known-insecure or unexpected addresses
-/// - DNS-over-HTTPS (DoH) not enabled
+/// - DNS-over-HTTPS (DoH) not enabled, or enabled to an unrecognized resolver
+///   (encrypted DNS to an untrusted server bypasses port-53 controls)
 /// - DNS cache poisoning exposure (large cache, no secure validation)
 /// - LLMNR/NetBIOS name resolution enabled (spoofing risk)
 /// - DNS client settings that leak queries to untrusted networks
@@ -77,6 +78,15 @@ public class DnsAudit : AuditModuleBase
 
         /// <summary>Whether DNS-over-HTTPS is enabled system-wide (Win11+).</summary>
         public bool? DohEnabled { get; set; }
+
+        /// <summary>
+        /// Resolver IPs that have a DoH template configured
+        /// (from Get-DnsClientDohServerAddress). Used to tell a trusted DoH
+        /// resolver apart from an unrecognized one that could be blinding
+        /// network 53-based controls. Empty when the specific resolvers are
+        /// unknown even though DoH is enabled.
+        /// </summary>
+        public List<string> DohServers { get; set; } = new();
 
         /// <summary>LLMNR enabled (multicast DNS fallback, spoofable).</summary>
         public bool LlmnrEnabled { get; set; } = true;
@@ -165,13 +175,23 @@ public class DnsAudit : AuditModuleBase
         // Check DoH status (Windows 11+)
         try
         {
+            // Enumerate configured DoH resolvers. -ExpandProperty ServerAddress
+            // yields one IP per line; presence of any line means DoH is configured.
             var dohOutput = await ShellHelper.RunPowerShellAsync(
-                "Get-DnsClientDohServerAddress | ConvertTo-Json -Compress", ct);
-            state.DohEnabled = !string.IsNullOrWhiteSpace(dohOutput) && dohOutput != "[]";
+                "Get-DnsClientDohServerAddress | " +
+                "Select-Object -ExpandProperty ServerAddress", ct);
+
+            state.DohServers = dohOutput
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Where(s => IPAddress.TryParse(s, out _))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            state.DohEnabled = state.DohServers.Count > 0;
         }
         catch
         {
-            state.DohEnabled = null; // cmdlet not available
+            state.DohEnabled = null; // cmdlet not available (pre-Win11)
         }
 
         // Check LLMNR
@@ -308,10 +328,51 @@ public class DnsAudit : AuditModuleBase
         }
         else if (state.DohEnabled == true)
         {
-            result.Findings.Add(Finding.Pass(
-                "DNS-over-HTTPS Configured",
-                "DoH server addresses are configured, encrypting DNS queries.",
-                Category));
+            // DoH is on. Whether it HELPS depends on WHO the resolver is:
+            // a trusted provider encrypts queries end-to-end, but an
+            // unrecognized DoH resolver can just as easily be an attacker's
+            // or a third party quietly upgrading queries off the network's
+            // 53-based inspection/controls (a blind spot / exfiltration path).
+            if (state.DohServers.Count == 0)
+            {
+                // DoH configured but the specific resolver(s) are unknown.
+                result.Findings.Add(Finding.Pass(
+                    "DNS-over-HTTPS Configured",
+                    "DoH server addresses are configured, encrypting DNS queries.",
+                    Category));
+            }
+            else
+            {
+                var trusted = state.DohServers
+                    .Where(s => KnownSecureDns.ContainsKey(s)).ToList();
+                var untrusted = state.DohServers
+                    .Where(s => !KnownSecureDns.ContainsKey(s)).ToList();
+
+                foreach (var server in trusted)
+                {
+                    var provider = KnownSecureDns[server];
+                    result.Findings.Add(Finding.Pass(
+                        "DNS-over-HTTPS Configured",
+                        $"Queries to {server} are encrypted over DoH via a recognized provider ({provider}).",
+                        Category));
+                }
+
+                if (untrusted.Count > 0)
+                {
+                    var list = string.Join(", ", untrusted);
+                    result.Findings.Add(Finding.Warning(
+                        "DNS-over-HTTPS Uses Unrecognized Resolver",
+                        $"DoH is configured to an unrecognized resolver ({list}). " +
+                        "Encrypted DNS to an untrusted server bypasses network-level DNS " +
+                        "inspection and firewall controls that watch port 53, and can be " +
+                        "abused as a covert channel. Confirm this resolver is one you " +
+                        "intended to use.",
+                        Category,
+                        "Verify the DoH resolver is trusted; if not, remove it and point DoH at a " +
+                        "known provider (Cloudflare 1.1.1.1, Google 8.8.8.8, Quad9 9.9.9.9).",
+                        $"Remove-DnsClientDohServerAddress -ServerAddress '{untrusted[0]}'"));
+                }
+            }
         }
         else
         {

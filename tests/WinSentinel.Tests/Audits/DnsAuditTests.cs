@@ -329,6 +329,114 @@ public class DnsAuditTests
             f.Severity == Severity.Info && f.Title.Contains("DNS-over-HTTPS"));
     }
 
+    [Fact]
+    public void AnalyzeState_DohTrustedResolver_Pass()
+    {
+        // DoH pointed at a recognized provider IP -> Pass naming the provider.
+        var state = new DnsState
+        {
+            DohEnabled = true,
+            DohServers = new List<string> { "1.1.1.1" },
+            LlmnrEnabled = false,
+            NetBiosEnabled = false,
+        };
+        var result = MakeResult();
+        _audit.AnalyzeState(state, result);
+
+        Assert.Contains(result.Findings, f =>
+            f.Severity == Severity.Pass &&
+            f.Title.Contains("DNS-over-HTTPS") &&
+            f.Description.Contains("Cloudflare"));
+        Assert.DoesNotContain(result.Findings, f =>
+            f.Severity == Severity.Warning && f.Title.Contains("DNS-over-HTTPS"));
+    }
+
+    [Fact]
+    public void AnalyzeState_DohUnrecognizedResolver_Warning()
+    {
+        // DoH enabled but the resolver is not a known provider -> blind-spot warning.
+        var state = new DnsState
+        {
+            DohEnabled = true,
+            DohServers = new List<string> { "203.0.113.99" },
+            LlmnrEnabled = false,
+            NetBiosEnabled = false,
+        };
+        var result = MakeResult();
+        _audit.AnalyzeState(state, result);
+
+        var warning = result.Findings.FirstOrDefault(f =>
+            f.Severity == Severity.Warning && f.Title.Contains("Unrecognized Resolver"));
+        Assert.NotNull(warning);
+        Assert.Contains("203.0.113.99", warning!.Description);
+        Assert.NotNull(warning.Remediation);
+        Assert.NotNull(warning.FixCommand);
+        Assert.Contains("Remove-DnsClientDohServerAddress", warning.FixCommand);
+    }
+
+    [Fact]
+    public void AnalyzeState_DohMixedResolvers_PassAndWarning()
+    {
+        // A trusted + an untrusted DoH resolver -> one Pass and one Warning.
+        var state = new DnsState
+        {
+            DohEnabled = true,
+            DohServers = new List<string> { "9.9.9.9", "45.90.28.0" },
+            LlmnrEnabled = false,
+            NetBiosEnabled = false,
+        };
+        var result = MakeResult();
+        _audit.AnalyzeState(state, result);
+
+        Assert.Contains(result.Findings, f =>
+            f.Severity == Severity.Pass && f.Description.Contains("Quad9"));
+        Assert.Contains(result.Findings, f =>
+            f.Severity == Severity.Warning && f.Title.Contains("Unrecognized Resolver") &&
+            f.Description.Contains("45.90.28.0"));
+    }
+
+    [Fact]
+    public void AnalyzeState_DohMultipleUntrusted_SingleGroupedWarning()
+    {
+        var state = new DnsState
+        {
+            DohEnabled = true,
+            DohServers = new List<string> { "203.0.113.1", "198.51.100.2" },
+            LlmnrEnabled = false,
+            NetBiosEnabled = false,
+        };
+        var result = MakeResult();
+        _audit.AnalyzeState(state, result);
+
+        var warnings = result.Findings
+            .Where(f => f.Severity == Severity.Warning && f.Title.Contains("Unrecognized Resolver"))
+            .ToList();
+        Assert.Single(warnings);
+        Assert.Contains("203.0.113.1", warnings[0].Description);
+        Assert.Contains("198.51.100.2", warnings[0].Description);
+    }
+
+    [Fact]
+    public void AnalyzeState_DohEnabledNoResolverList_StillPassNoWarning()
+    {
+        // Backward-compat: DohEnabled=true with no DohServers (resolver unknown)
+        // keeps the original single Pass and never emits the resolver warning.
+        var state = new DnsState
+        {
+            DohEnabled = true,
+            DohServers = new List<string>(),
+            LlmnrEnabled = false,
+            NetBiosEnabled = false,
+        };
+        var result = MakeResult();
+        _audit.AnalyzeState(state, result);
+
+        Assert.Contains(result.Findings, f =>
+            f.Severity == Severity.Pass && f.Title.Contains("DNS-over-HTTPS"));
+        Assert.DoesNotContain(result.Findings, f =>
+            f.Severity == Severity.Warning && f.Title.Contains("DNS-over-HTTPS"));
+    }
+
     // ─── LLMNR checks ─────────────────────────────────────────────
 
     [Fact]

@@ -14,10 +14,148 @@ public class UpdateAudit : AuditModuleBase
 
     protected override async Task ExecuteAuditAsync(AuditResult result, CancellationToken cancellationToken)
     {
+        await CheckWindowsSupportStatus(result, cancellationToken);
         await CheckLastUpdateDate(result, cancellationToken);
         await CheckPendingUpdates(result, cancellationToken);
         await CheckAutoUpdateSettings(result, cancellationToken);
         await CheckPendingReboot(result, cancellationToken);
+    }
+
+    private async Task CheckWindowsSupportStatus(AuditResult result, CancellationToken ct)
+    {
+        // The single most important update finding: is this Windows *build* still
+        // serviced at all? A machine on an out-of-support feature update receives
+        // NO security fixes regardless of how recently it "last updated", so this
+        // ranks above the last-hotfix-date heuristic. Read the build number and
+        // classify it against Microsoft's published lifecycle table below.
+        var output = await ShellHelper.RunPowerShellAsync(
+            @"$os = Get-CimInstance Win32_OperatingSystem
+            $ver = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -ErrorAction SilentlyContinue).DisplayVersion
+            '{0}|{1}|{2}' -f $os.Caption, $os.BuildNumber, $ver", ct);
+
+        var parts = output.Trim().Split('|');
+        var caption = parts.Length > 0 ? parts[0].Trim() : string.Empty;
+        var displayVersion = parts.Length > 2 ? parts[2].Trim() : string.Empty;
+
+        if (parts.Length < 2 || !int.TryParse(parts[1].Trim(), out int build) || build <= 0)
+        {
+            result.Findings.Add(Finding.Info(
+                "Windows Support Status Unknown",
+                "Could not determine the Windows build number to check its support lifecycle.",
+                Category));
+            return;
+        }
+
+        var status = ClassifyWindowsSupport(build, DateTime.UtcNow);
+        var label = string.IsNullOrEmpty(displayVersion)
+            ? $"{caption} (build {build})"
+            : $"{caption} {displayVersion} (build {build})";
+
+        switch (status.Level)
+        {
+            case Severity.Critical:
+                result.Findings.Add(Finding.Critical(
+                    "Windows Build Out of Support",
+                    $"{label} reached end of support on {status.EndDate:yyyy-MM-dd} and no longer receives security updates. " +
+                    "Unpatched OS vulnerabilities cannot be remediated on this build.",
+                    Category,
+                    "Upgrade to a supported Windows feature update (or a newer Windows release) to resume receiving security patches.",
+                    "Start-Process ms-settings:windowsupdate"));
+                break;
+            case Severity.Warning:
+                result.Findings.Add(Finding.Warning(
+                    "Windows Build Approaching End of Support",
+                    $"{label} reaches end of support on {status.EndDate:yyyy-MM-dd} (in {status.DaysRemaining} day(s)). " +
+                    "After that date this build stops receiving security updates.",
+                    Category,
+                    "Plan a feature-update upgrade before the end-of-support date to avoid running an unpatched build.",
+                    "Start-Process ms-settings:windowsupdate"));
+                break;
+            case Severity.Pass:
+                result.Findings.Add(Finding.Pass(
+                    "Windows Build Supported",
+                    status.EndDate.HasValue
+                        ? $"{label} is within its support lifecycle (end of support {status.EndDate:yyyy-MM-dd})."
+                        : $"{label} is a current, supported Windows build.",
+                    Category));
+                break;
+            default:
+                result.Findings.Add(Finding.Info(
+                    "Windows Support Status Unrecognized",
+                    $"{label}: this build is not in the known lifecycle table, so its support status could not be confirmed. " +
+                    "It may be a very new or insider build.",
+                    Category));
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Result of classifying a Windows build against the support-lifecycle table.
+    /// </summary>
+    public readonly record struct WindowsSupportStatus(Severity Level, DateTime? EndDate, int DaysRemaining);
+
+    /// <summary>
+    /// Pure, side-effect-free classification of a Windows build number against
+    /// Microsoft's published end-of-servicing dates. Kept static and dependency
+    /// free so it can be unit-tested deterministically for any (build, date).
+    ///
+    /// The <paramref name="nowUtc"/> is compared against the *latest* end-of-support
+    /// date across editions for that feature update (Enterprise/Education, which
+    /// outlast Home/Pro). Using the most generous date means a still-serviced
+    /// machine is never mis-flagged Critical; consumer editions that die earlier
+    /// are covered by the general last-update-date and pending-update checks.
+    /// </summary>
+    /// <param name="build">OS build number (e.g. 19045 for Windows 10 22H2).</param>
+    /// <param name="nowUtc">The reference "now" (UTC).</param>
+    /// <param name="warnWithinDays">Window before EOS to raise a Warning. Default 60.</param>
+    public static WindowsSupportStatus ClassifyWindowsSupport(int build, DateTime nowUtc, int warnWithinDays = 60)
+    {
+        // build -> latest documented end-of-support date (UTC midnight).
+        // Dates are Microsoft Lifecycle end-of-servicing for the feature update.
+        // Only builds with a known, fixed EOS date are listed; anything newer or
+        // unknown returns Info (do not guess a date we don't have).
+        var eos = build switch
+        {
+            // Windows 11 feature updates (build >= 22000)
+            26100 => new DateTime(2027, 10, 12), // 24H2 (Ent/Edu)
+            22631 => new DateTime(2026, 11, 10), // 23H2 (Ent/Edu)
+            22621 => new DateTime(2025, 10, 14), // 22H2 (Ent/Edu)
+            22000 => new DateTime(2024, 10, 8),  // 21H2 (Ent/Edu)
+            // Windows 10 feature updates
+            19045 => new DateTime(2025, 10, 14), // 22H2 - final Windows 10 (all editions)
+            19044 => new DateTime(2024, 6, 11),  // 21H2 (Ent/Edu/IoT)
+            19043 => new DateTime(2022, 12, 13), // 21H1
+            19042 => new DateTime(2023, 5, 9),   // 20H2 (Ent/Edu)
+            19041 => new DateTime(2021, 12, 14), // 2004
+            18363 => new DateTime(2022, 5, 10),  // 1909 (Ent/Edu)
+            _ => (DateTime?)null,
+        };
+
+        if (eos is null)
+        {
+            // No known EOS date for this build. If it's newer than the newest build
+            // we track, treat it as a current supported build (Pass, no date);
+            // otherwise Info (genuinely unrecognized, e.g. an old Server/insider build).
+            if (build > 26100)
+            {
+                return new WindowsSupportStatus(Severity.Pass, null, 0);
+            }
+            return new WindowsSupportStatus(Severity.Info, null, 0);
+        }
+
+        var end = eos.Value;
+        if (nowUtc.Date > end.Date)
+        {
+            return new WindowsSupportStatus(Severity.Critical, end, 0);
+        }
+
+        var daysRemaining = (int)Math.Ceiling((end.Date - nowUtc.Date).TotalDays);
+        if (daysRemaining <= warnWithinDays)
+        {
+            return new WindowsSupportStatus(Severity.Warning, end, daysRemaining);
+        }
+
+        return new WindowsSupportStatus(Severity.Pass, end, daysRemaining);
     }
 
     private async Task CheckLastUpdateDate(AuditResult result, CancellationToken ct)

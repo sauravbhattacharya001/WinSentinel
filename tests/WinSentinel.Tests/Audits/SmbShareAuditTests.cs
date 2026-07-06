@@ -24,6 +24,8 @@ public class SmbShareAuditTests
         Smb1Enabled = false,
         Smb2Enabled = true,
         SigningRequired = true,
+        ClientSigningRequired = true,
+        ClientSigningEnabled = true,
         EncryptionEnabled = true,
         GuestAccessEnabled = false,
         RestrictAnonymous = true,
@@ -44,6 +46,8 @@ public class SmbShareAuditTests
         Smb1Enabled = true,
         Smb2Enabled = true,
         SigningRequired = false,
+        ClientSigningRequired = false,
+        ClientSigningEnabled = false,
         EncryptionEnabled = false,
         GuestAccessEnabled = true,
         RestrictAnonymous = false,
@@ -154,6 +158,66 @@ public class SmbShareAuditTests
         SmbShareAudit.AnalyzeState(state, result);
         Assert.Contains(result.Findings, f =>
             f.Title.Contains("signing") && f.Severity == Severity.Pass);
+    }
+
+    // ── Client-side SMB signing (NTLM-relay victim posture) ──
+
+    [Fact]
+    public void ClientSigningRequired_ReportsPass()
+    {
+        var state = MakeSecureState();
+        var result = MakeResult();
+        SmbShareAudit.AnalyzeState(state, result);
+        Assert.Contains(result.Findings, f =>
+            f.Title.Contains("client signing is required") && f.Severity == Severity.Pass);
+    }
+
+    [Fact]
+    public void ClientSigningNegotiatedButNotRequired_ReportsWarning()
+    {
+        var state = MakeSecureState();
+        state.ClientSigningRequired = false;
+        state.ClientSigningEnabled = true;
+        var result = MakeResult();
+        SmbShareAudit.AnalyzeState(state, result);
+        var finding = result.Findings.FirstOrDefault(f =>
+            f.Title.Contains("client signing is enabled but not required"));
+        Assert.NotNull(finding);
+        Assert.Equal(Severity.Warning, finding!.Severity);
+        Assert.False(string.IsNullOrWhiteSpace(finding.Remediation));
+    }
+
+    [Fact]
+    public void ClientSigningDisabled_ReportsWarning()
+    {
+        var state = MakeSecureState();
+        state.ClientSigningRequired = false;
+        state.ClientSigningEnabled = false;
+        var result = MakeResult();
+        SmbShareAudit.AnalyzeState(state, result);
+        var finding = result.Findings.FirstOrDefault(f =>
+            f.Title.Contains("client signing is disabled"));
+        Assert.NotNull(finding);
+        Assert.Equal(Severity.Warning, finding!.Severity);
+    }
+
+    [Fact]
+    public void ClientSigningIsIndependentOfServerSigning()
+    {
+        // Server signing required, but client signing NOT required: the machine can
+        // still be relayed on its outbound connections, so a warning must appear even
+        // though the server-side check passes.
+        var state = MakeSecureState();
+        state.SigningRequired = true;
+        state.ClientSigningRequired = false;
+        state.ClientSigningEnabled = false;
+        var result = MakeResult();
+        SmbShareAudit.AnalyzeState(state, result);
+
+        Assert.Contains(result.Findings, f =>
+            f.Title.Contains("SMB signing is required") && f.Severity == Severity.Pass);
+        Assert.Contains(result.Findings, f =>
+            f.Title.Contains("client signing is disabled") && f.Severity == Severity.Warning);
     }
 
     // ── Encryption ──

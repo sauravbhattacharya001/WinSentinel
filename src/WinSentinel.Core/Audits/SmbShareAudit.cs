@@ -8,6 +8,7 @@ namespace WinSentinel.Core.Audits;
 /// <list type="bullet">
 ///   <item>SMBv1 protocol enabled (MITRE T1210, WannaCry/NotPetya vector)</item>
 ///   <item>SMB signing not required (MITRE T1557.001, relay attacks)</item>
+///   <item>SMB client signing not required (MITRE T1557.001, outbound NTLM-relay victim)</item>
 ///   <item>Administrative shares (C$, ADMIN$, IPC$) exposed</item>
 ///   <item>User-created shares with permissive access (Everyone/Authenticated Users)</item>
 ///   <item>Hidden shares (name ending with $) beyond standard admin shares</item>
@@ -61,7 +62,23 @@ public class SmbShareAudit : IAuditModule
         // Protocol configuration
         public bool Smb1Enabled { get; set; }
         public bool Smb2Enabled { get; set; }
+
+        // Server-side SMB signing (LanmanServer): controls inbound connections to
+        // shares this machine hosts.
         public bool SigningRequired { get; set; }
+
+        // Client-side SMB signing (LanmanWorkstation): controls the OUTBOUND
+        // connections this machine makes as an SMB client. This is the setting that
+        // actually protects against being an NTLM-relay victim, because relay attacks
+        // coerce the machine to authenticate outbound to an attacker. A machine can
+        // require server signing yet still be relay-able if the client does not
+        // require signing, so the two are graded independently.
+        // ClientSigningRequired = RequireSecuritySignature (mandatory).
+        // ClientSigningEnabled  = EnableSecuritySignature (negotiated when the peer
+        // also supports it - weaker than required, an attacker can strip it).
+        public bool ClientSigningRequired { get; set; }
+        public bool ClientSigningEnabled { get; set; }
+
         public bool EncryptionEnabled { get; set; }
         public bool GuestAccessEnabled { get; set; }
 
@@ -128,10 +145,21 @@ public class SmbShareAudit : IAuditModule
                 @"HKLM\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters",
                 "SMB2", defaultValue: true);
 
-            // Signing
+            // Signing (server side - inbound to shares we host)
             state.SigningRequired = ReadRegistryBool(
                 @"HKLM\SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters",
                 "RequireSecuritySignature", defaultValue: false);
+
+            // Signing (client side - outbound connections we make as an SMB client).
+            // This is the setting that governs NTLM-relay exposure. Defaults to
+            // enabled-but-not-required on modern Windows, so read both flags.
+            state.ClientSigningRequired = ReadRegistryBool(
+                @"HKLM\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters",
+                "RequireSecuritySignature", defaultValue: false);
+
+            state.ClientSigningEnabled = ReadRegistryBool(
+                @"HKLM\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters",
+                "EnableSecuritySignature", defaultValue: true);
 
             // Encryption (SMBv3)
             state.EncryptionEnabled = ReadRegistryBool(
@@ -198,7 +226,7 @@ public class SmbShareAudit : IAuditModule
 
     public static void AnalyzeState(SmbState state, AuditResult result)
     {
-        // 1. SMBv1 enabled — CRITICAL (WannaCry/EternalBlue vector)
+        // 1. SMBv1 enabled - CRITICAL (WannaCry/EternalBlue vector)
         if (state.Smb1Enabled)
         {
             result.Findings.Add(new Finding
@@ -223,7 +251,7 @@ public class SmbShareAudit : IAuditModule
             });
         }
 
-        // 2. SMB signing not required — WARNING (relay attack vector)
+        // 2. SMB signing not required - WARNING (relay attack vector)
         if (!state.SigningRequired)
         {
             result.Findings.Add(new Finding
@@ -248,7 +276,61 @@ public class SmbShareAudit : IAuditModule
             });
         }
 
-        // 3. SMB encryption not enabled — INFO (data-in-transit protection)
+        // 2b. Client-side SMB signing (LanmanWorkstation) - the real NTLM-relay
+        // control. Graded independently of the server-side setting above because a
+        // relay coerces this machine's OUTBOUND SMB authentication.
+        if (!state.ClientSigningRequired)
+        {
+            if (state.ClientSigningEnabled)
+            {
+                // Negotiated-only: signing is used when the peer supports it, but an
+                // on-path attacker can strip the request and force an unsigned session.
+                result.Findings.Add(new Finding
+                {
+                    Title = "SMB client signing is enabled but not required",
+                    Description = "The SMB client (LanmanWorkstation) only negotiates signing " +
+                        "rather than requiring it. When this machine connects out to a server, an " +
+                        "on-path attacker can strip the signing request and relay the resulting " +
+                        "NTLM authentication to another host (MITRE T1557.001). Requiring client " +
+                        "signing closes the relay path for outbound connections.",
+                    Severity = Severity.Warning,
+                    Remediation = "Require client signing: " +
+                        "Set-SmbClientConfiguration -RequireSecuritySignature $true; or set " +
+                        "RequireSecuritySignature=1 in LanmanWorkstation\\Parameters. Also enforce it " +
+                        "via GPO: Microsoft network client: Digitally sign communications (always)."
+                });
+            }
+            else
+            {
+                // Neither required nor even enabled - the machine will happily use
+                // fully unsigned SMB as a client.
+                result.Findings.Add(new Finding
+                {
+                    Title = "SMB client signing is disabled",
+                    Description = "The SMB client (LanmanWorkstation) neither requires nor enables " +
+                        "signing, so outbound SMB sessions can be fully unsigned. This makes the " +
+                        "machine a prime NTLM-relay victim: coerced authentication (e.g. via a " +
+                        "malicious file path or PetitPotam-style trigger) can be relayed to another " +
+                        "service (MITRE T1557.001).",
+                    Severity = Severity.Warning,
+                    Remediation = "Require client signing: " +
+                        "Set-SmbClientConfiguration -RequireSecuritySignature $true; or set " +
+                        "RequireSecuritySignature=1 in LanmanWorkstation\\Parameters."
+                });
+            }
+        }
+        else
+        {
+            result.Findings.Add(new Finding
+            {
+                Title = "SMB client signing is required",
+                Description = "The SMB client requires signing on outbound connections, closing the " +
+                    "NTLM-relay path for authentication this machine initiates.",
+                Severity = Severity.Pass
+            });
+        }
+
+        // 3. SMB encryption not enabled - INFO (data-in-transit protection)
         if (state.Smb2Enabled && !state.EncryptionEnabled)
         {
             result.Findings.Add(new Finding
@@ -272,7 +354,7 @@ public class SmbShareAudit : IAuditModule
             });
         }
 
-        // 4. Guest access enabled — WARNING
+        // 4. Guest access enabled - WARNING
         if (state.GuestAccessEnabled)
         {
             result.Findings.Add(new Finding

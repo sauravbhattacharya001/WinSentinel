@@ -1151,5 +1151,57 @@ public class NetworkAuditLlmnrNetBiosParsingTests
         Assert.False(oldEnabled);                                        // old: dropped (assumed disabled)
         Assert.True(NetworkAudit.IsNetBiosEnabledFromOption(garbage));   // new: surfaced (fail safe)
     }
+
+    // ── ClassifyWpadValue ──────────────────────────────────────
+    //
+    // WPAD posture semantics differ from LLMNR: only a clean lone "1" (DisableWpad
+    // kill switch ON) is the secure Enabled/hardened state; "0" means the switch is
+    // present but off (Disabled/exposed); a missing (NOT_SET) / errored / unreadable
+    // value is Unknown. The analyzer warns on BOTH Disabled and Unknown, so an
+    // absent or unreadable kill switch fails safe and surfaces the WPAD exposure.
+
+    [Theory]
+    [InlineData("1")]
+    [InlineData(" 1 ")]           // surrounding whitespace
+    [InlineData("1\n")]          // trailing newline (typical PowerShell output)
+    [InlineData("\n1\n")]        // blank lines around the value
+    public void ClassifyWpad_CleanOne_IsHardenedEnabled(string raw) =>
+        Assert.Equal(Toggle.Enabled, NetworkAudit.ClassifyWpadValue(raw));
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData(" 0 ")]
+    [InlineData("0\n")]
+    public void ClassifyWpad_CleanZero_IsDisabledExposed(string raw) =>
+        Assert.Equal(Toggle.Disabled, NetworkAudit.ClassifyWpadValue(raw));
+
+    [Theory]
+    [InlineData("NOT_SET")]       // key absent
+    [InlineData("not_set")]       // case-insensitive sentinel
+    [InlineData("ERROR")]         // reader catch sentinel
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("garbage")]       // unrecognised single token
+    [InlineData("2")]            // not a recognised value
+    [InlineData("00")]           // not exactly "1"/"0"
+    public void ClassifyWpad_MissingErroredOrUnrecognised_IsUnknown(string? raw) =>
+        Assert.Equal(Toggle.Unknown, NetworkAudit.ClassifyWpadValue(raw));
+
+    [Fact]
+    public void ClassifyWpad_NoisyPrefixThenOne_IsHardenedEnabled()
+    {
+        // A prepended CIM/registry warning must not defeat the hardened verdict --
+        // the scanner finds the first recognised token line.
+        const string noisy = "WARNING: Get-ItemProperty provider error\n1";
+        Assert.Equal(Toggle.Enabled, NetworkAudit.ClassifyWpadValue(noisy));
+    }
+
+    [Fact]
+    public void ClassifyWpad_NoisyPrefixThenZero_IsDisabledExposed()
+    {
+        const string noisy = "WARNING: verbose banner\n0";
+        Assert.Equal(Toggle.Disabled, NetworkAudit.ClassifyWpadValue(noisy));
+    }
 }
 

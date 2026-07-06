@@ -21,7 +21,7 @@ public class NetworkAudit : AuditModuleBase
 {
     public override string Name => "Network Audit";
     public override string Category => "Network";
-    public override string Description => "Checks open ports, listening services, SMB/RDP exposure, IPv6, Wi-Fi security, network profile, LLMNR/NetBIOS, and ARP anomalies.";
+    public override string Description => "Checks open ports, listening services, SMB/RDP exposure, IPv6, Wi-Fi security, network profile, LLMNR/NetBIOS/WPAD, and ARP anomalies.";
 
     /// <summary>
     /// High-risk TCP ports. Kept for backwards compatibility; the source of truth is
@@ -64,6 +64,7 @@ public class NetworkAudit : AuditModuleBase
         await CollectNetworkProfile(state, ct);
         await CollectWiFi(state, ct);
         await CollectLlmnrNetBios(state, ct);
+        await CollectWpad(state, ct);
         await CollectArp(state, ct);
         await CollectIPv6(state, ct);
 
@@ -291,6 +292,22 @@ public class NetworkAudit : AuditModuleBase
                 state.NetBiosEnabledAdapters.Add(parts[0]);
             }
         }
+    }
+
+    private async Task CollectWpad(NetworkState state, CancellationToken ct)
+    {
+        // Read the Microsoft-documented machine-wide WPAD kill switch
+        // (HKLM\...\Internet Settings\WinHttp\DisableWpad; 1 = WPAD auto-discovery
+        // disabled). Emit one of 0 / 1 / NOT_SET / ERROR so the classifier can decide
+        // the posture from a clean token line even if a CIM/registry banner is
+        // prepended.
+        var output = await ShellHelper.RunPowerShellAsync(
+            @"try {
+                $key = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings\WinHttp' -Name 'DisableWpad' -ErrorAction SilentlyContinue
+                if ($key -ne $null -and $key.PSObject.Properties.Name -contains 'DisableWpad') { $key.DisableWpad } else { 'NOT_SET' }
+            } catch { 'ERROR' }", ct);
+
+        state.WpadHardened = ClassifyWpadValue(output);
     }
 
     private async Task CollectArp(NetworkState state, CancellationToken ct)
@@ -580,6 +597,35 @@ public class NetworkAudit : AuditModuleBase
             // for the real token line rather than letting it decide the verdict.
         }
         return Toggle.Enabled; // no recognised token -> treat as enabled/unknown (warn)
+    }
+
+    /// <summary>
+    /// Classifies the <c>DisableWpad</c> (WPAD kill switch) reader output into the
+    /// <see cref="NetworkState.WpadHardened"/> posture toggle. The reader emits one of
+    /// <c>0</c> / <c>1</c> / <c>NOT_SET</c> / <c>ERROR</c>. Because a CIM/registry
+    /// warning line can be prepended, scan for the FIRST line that is exactly a
+    /// recognised token rather than testing the whole blob: a clean lone <c>1</c>
+    /// =&gt; <see cref="Toggle.Enabled"/> (hardened - the only Pass state); a clean lone
+    /// <c>0</c> =&gt; <see cref="Toggle.Disabled"/> (kill switch present but off). A
+    /// missing value (<c>NOT_SET</c>), an <c>ERROR</c>, or no recognised token map to
+    /// <see cref="Toggle.Unknown"/>. The analyzer warns on both Disabled and Unknown,
+    /// so an absent/unreadable kill switch fails SAFE and surfaces the WPAD-poisoning
+    /// exposure instead of hiding it.
+    /// </summary>
+    internal static Toggle ClassifyWpadValue(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return Toggle.Unknown;
+        foreach (var line in raw.Split('\n'))
+        {
+            var t = line.Trim();
+            if (t.Length == 0) continue;
+            if (t == "1") return Toggle.Enabled;   // DisableWpad = 1 => WPAD hardened OFF
+            if (t == "0") return Toggle.Disabled;  // present but 0 => WPAD still active
+            if (t.Equals("NOT_SET", StringComparison.OrdinalIgnoreCase)) return Toggle.Unknown;
+            if (t.Equals("ERROR", StringComparison.OrdinalIgnoreCase)) return Toggle.Unknown;
+            // Unrecognised noise line (e.g. a registry warning): skip and keep scanning.
+        }
+        return Toggle.Unknown; // no recognised token -> unknown (analyzer warns, fail-safe)
     }
 
     /// <summary>

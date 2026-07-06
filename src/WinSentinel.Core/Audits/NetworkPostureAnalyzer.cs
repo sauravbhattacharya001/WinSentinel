@@ -119,6 +119,18 @@ public static class NetworkPostureAnalyzer
         // LLMNR ("EnableMulticast" GPO value): Disabled = key explicitly set to 0.
         public Toggle Llmnr { get; set; } = Toggle.Unknown;
 
+        // WPAD (Web Proxy Auto-Discovery) hardening. Tracks the Microsoft-documented
+        // machine-wide kill switch
+        // HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings\WinHttp\DisableWpad
+        // (Windows 10 1809+ / Server 2019+). To avoid a double negative the toggle
+        // encodes the *posture*, not the raw value: Enabled = WPAD auto-discovery is
+        // hardened OFF (DisableWpad = 1, the secure state); Disabled = the kill switch
+        // is absent or 0 (WPAD auto-discovery still active); Unknown = the value could
+        // not be read. WPAD is the third classic local name-resolution poisoning vector
+        // alongside LLMNR and NBT-NS - Responder/Inveigh answer the client's
+        // "wpad" WPAD/PAC lookup to feed a rogue proxy and harvest NTLM auth.
+        public Toggle WpadHardened { get; set; } = Toggle.Unknown;
+
         // NetBIOS over TCP/IP - adapters where NBT is still enabled (option 0 or 1).
         public List<string> NetBiosEnabledAdapters { get; set; } = new();
         // Number of IP-enabled adapters seen at all (so "all disabled" can Pass).
@@ -157,6 +169,7 @@ public static class NetworkPostureAnalyzer
         var wifi = CheckWiFi(state);
         if (wifi != null) findings.Add(wifi);
         findings.AddRange(CheckLlmnrNetBios(state));
+        findings.Add(CheckWpad(state));
         findings.Add(CheckArp(state));
         findings.AddRange(CheckIPv6(state));
         return findings;
@@ -552,6 +565,69 @@ public static class NetworkPostureAnalyzer
         }
 
         return findings;
+    }
+
+    // ── WPAD (Web Proxy Auto-Discovery) ───────────────────────────────────────
+
+    /// <summary>
+    /// Evaluates WPAD (Web Proxy Auto-Discovery) hardening - the third classic
+    /// local name-resolution poisoning vector next to LLMNR and NBT-NS. When a
+    /// client is set to "automatically detect settings", it broadcasts a lookup for
+    /// the host <c>wpad</c> (and requests <c>http://wpad/wpad.dat</c>) to find a
+    /// proxy auto-config file. An attacker on the LAN running Responder/Inveigh can
+    /// answer that name (over LLMNR/NBT-NS/DNS) with a rogue host, serve a malicious
+    /// PAC, and force the victim's HTTP stack to authenticate to them - harvesting
+    /// NTLMv2 hashes or MITM-ing web traffic, with no user interaction.
+    ///
+    /// <para>The durable, machine-wide mitigation Microsoft documents (Windows 10
+    /// 1809+ / Server 2019+) is the <c>DisableWpad</c> kill switch under
+    /// <c>HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings\WinHttp</c>.
+    /// The analyzer grades the collected posture in
+    /// <see cref="NetworkState.WpadHardened"/>: <see cref="Toggle.Enabled"/> (the kill
+    /// switch is on, DisableWpad = 1) passes; <see cref="Toggle.Disabled"/> (absent or
+    /// 0) warns; <see cref="Toggle.Unknown"/> (unreadable) also warns, fail-safe, so a
+    /// blocked read surfaces the exposure rather than hiding it. Always returns exactly
+    /// one finding.</para>
+    /// </summary>
+    public static Finding CheckWpad(NetworkState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+
+        if (state.WpadHardened == Toggle.Enabled)
+        {
+            return Finding.Pass(
+                "WPAD Auto-Discovery Disabled",
+                "Web Proxy Auto-Discovery (WPAD) is disabled machine-wide " +
+                "(WinHttp DisableWpad = 1). Attackers on the local network cannot " +
+                "poison the 'wpad' proxy lookup to serve a rogue PAC and harvest NTLM " +
+                "credentials or man-in-the-middle web traffic.",
+                Category);
+        }
+
+        var stateNote = state.WpadHardened == Toggle.Disabled
+            ? "The WinHttp 'DisableWpad' kill switch is not set (absent or 0), so WPAD " +
+              "proxy auto-discovery is still active."
+            : "The WinHttp 'DisableWpad' kill switch could not be read, so WPAD proxy " +
+              "auto-discovery must be assumed active.";
+
+        return Finding.Warning(
+            "WPAD Auto-Discovery Enabled (Poisoning Risk)",
+            stateNote + " When a client automatically detects proxy settings it " +
+            "broadcasts a lookup for the host 'wpad'; an attacker on the local network " +
+            "(Responder/Inveigh) can answer it, serve a malicious proxy auto-config " +
+            "file, and capture NTLMv2 hashes or intercept web traffic. WPAD is the third " +
+            "classic name-resolution poisoning vector alongside LLMNR and NBT-NS.",
+            Category,
+            "Disable WPAD machine-wide by setting the WinHttp DisableWpad DWORD to 1, " +
+            "then restart the WinHTTP Web Proxy Auto-Discovery Service (WinHttpAutoProxySvc). " +
+            "Also turn off 'Automatically detect settings' in the proxy configuration.",
+            // Single sanitizer-safe PowerShell statement (no ';'/'|'/'&&' chaining, so it
+            // survives InputSanitizer.CheckDangerousCommand AND satisfies NetworkAudit's
+            // PowerShell/netsh-only fix convention, unlike a `reg add`). The target
+            // WinHttp key exists by default on Windows, so Set-ItemProperty succeeds
+            // without a New-Item first; the service restart is human-guided detail above.
+            @"Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings\WinHttp' " +
+            "-Name DisableWpad -Value 1");
     }
 
     // ── ARP ──────────────────────────────────────────────────────────────────────

@@ -466,6 +466,65 @@ public class NetworkPostureAnalyzerTests
         Assert.DoesNotContain(f, x => x.Title.Contains("NetBIOS"));
     }
 
+    // ---- WPAD ----------------------------------------------------------------
+
+    [Fact]
+    public void Wpad_NullState_Throws() =>
+        Assert.Throws<ArgumentNullException>(() => CheckWpad(null!));
+
+    [Fact]
+    public void Wpad_Hardened_Passes()
+    {
+        // Toggle.Enabled encodes "DisableWpad = 1" (the secure, hardened-off posture).
+        var f = CheckWpad(new NetworkState { WpadHardened = Toggle.Enabled });
+        Assert.Equal(Severity.Pass, f.Severity);
+        Assert.Contains("WPAD Auto-Discovery Disabled", f.Title);
+        Assert.Null(f.FixCommand); // a Pass carries no fix
+    }
+
+    [Theory]
+    [InlineData(Toggle.Disabled)] // kill switch absent or 0 => still exposed
+    [InlineData(Toggle.Unknown)]  // unreadable => fail safe, warn
+    public void Wpad_NotHardenedOrUnknown_Warns(Toggle posture)
+    {
+        var f = CheckWpad(new NetworkState { WpadHardened = posture });
+        Assert.Equal(Severity.Warning, f.Severity);
+        Assert.Contains("WPAD Auto-Discovery Enabled", f.Title);
+    }
+
+    [Fact]
+    public void Wpad_Warning_HasSanitizerSafeFix()
+    {
+        var f = CheckWpad(new NetworkState { WpadHardened = Toggle.Disabled });
+        Assert.False(string.IsNullOrWhiteSpace(f.FixCommand));
+        // Single Set-ItemProperty (no ';'/'|'/'&&' chaining) so both FixEngine's
+        // sanitizer AND NetworkAudit's PowerShell/netsh-only fix convention accept it.
+        Assert.StartsWith("Set-ItemProperty ", f.FixCommand);
+        Assert.Contains("DisableWpad", f.FixCommand);
+        Assert.DoesNotContain(";", f.FixCommand!);
+        Assert.DoesNotContain("|", f.FixCommand!);
+        Assert.Null(InputSanitizer.CheckDangerousCommand(f.FixCommand));
+    }
+
+    [Fact]
+    public void Wpad_UnknownAndDisabled_ExplainReadFailureDifferently()
+    {
+        var unknown = CheckWpad(new NetworkState { WpadHardened = Toggle.Unknown });
+        var disabled = CheckWpad(new NetworkState { WpadHardened = Toggle.Disabled });
+        Assert.Contains("could not be read", unknown.Description);
+        Assert.Contains("not set", disabled.Description);
+    }
+
+    [Fact]
+    public void Analyze_Includes_ExactlyOneWpadFinding()
+    {
+        // The aggregate entry point must surface WPAD exactly once, in both postures.
+        // SecureState leaves WpadHardened at its default (Unknown => a Warning), and
+        // InsecureState is left likewise; either way there must be exactly one WPAD row.
+        Assert.Single(Analyze(SecureState()), x => x.Title.Contains("WPAD", StringComparison.OrdinalIgnoreCase));
+        Assert.Single(Analyze(InsecureState()), x => x.Title.Contains("WPAD", StringComparison.OrdinalIgnoreCase));
+    }
+
     // ---- ARP -----------------------------------------------------------------
 
     [Fact]

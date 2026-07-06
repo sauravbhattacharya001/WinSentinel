@@ -91,13 +91,14 @@ public class AuditFixCommandSanitizerCoverageTests
             Llmnr = NetworkPostureAnalyzer.Toggle.Enabled,   // LLMNR reg-add fix
             NetBiosEnabledAdapters = { "Ethernet0" },        // NetBIOS disable fix
             NetBiosAdapterCount = 1,
+            WpadHardened = NetworkPostureAnalyzer.Toggle.Disabled, // WPAD Set-ItemProperty fix
             TeredoActive = true,                   // Teredo disable fix
         };
 
         var findings = NetworkPostureAnalyzer.Analyze(state);
         // SMBv1, SMB-signing, RDP, WinRM, public-profile, open-WiFi, LLMNR, NetBIOS,
-        // Teredo, high-risk-ports ⇒ well over 8 fix commands.
-        AssertAllFixCommandsSanitizerSafe(findings, minExpected: 8);
+        // WPAD, Teredo, high-risk-ports ⇒ well over 9 fix commands.
+        AssertAllFixCommandsSanitizerSafe(findings, minExpected: 9);
     }
 
     [Fact]

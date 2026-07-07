@@ -17,7 +17,7 @@ public class FirewallAudit : AuditModuleBase
 {
     public override string Name => "Firewall Audit";
     public override string Category => FirewallAnalyzer.Category;
-    public override string Description => "Checks Windows Firewall status, profile states, and rule analysis.";
+    public override string Description => "Checks Windows Firewall profile states (Domain/Private/Public), the default inbound policy, the inbound allow-rule surface, and over-permissive wide-open inbound rules that let any program accept connections from any address on any port.";
 
     protected override async Task ExecuteAuditAsync(AuditResult result, CancellationToken cancellationToken)
     {

@@ -243,6 +243,38 @@ public class PowerShellAudit : IAuditModule
             // Can't read — assume present (don't false-alarm)
             state.AmsiProviderRegistered = true;
         }
+
+        // AMSI kill switch: SOFTWARE\Microsoft\Windows Script\Settings\AmsiEnable = 0
+        // disables AMSI content scanning for the Windows Script Host / PowerShell
+        // console host while leaving the provider registered. Check both HKLM (all
+        // users) and HKCU (current user); either being an explicit 0 is the bypass.
+        var disabledHives = new List<string>();
+        CheckAmsiEnableHive(Registry.LocalMachine, "HKLM", disabledHives);
+        CheckAmsiEnableHive(Registry.CurrentUser, "HKCU", disabledHives);
+        if (disabledHives.Count > 0)
+        {
+            state.AmsiDisabledViaRegistry = true;
+            state.AmsiDisableRegistryScope = string.Join(", ", disabledHives);
+        }
+    }
+
+    /// <summary>
+    /// Reads <c>SOFTWARE\Microsoft\Windows Script\Settings\AmsiEnable</c> under the
+    /// given root hive and, when the value is present and explicitly 0, records the
+    /// hive label. An absent value (the default) or any non-zero value is treated as
+    /// "not disabled" so a machine that never touched the setting does not false-alarm.
+    /// </summary>
+    private static void CheckAmsiEnableHive(RegistryKey root, string label, List<string> disabledHives)
+    {
+        try
+        {
+            using var key = root.OpenSubKey(@"SOFTWARE\Microsoft\Windows Script\Settings");
+            if (key == null) return;
+            var val = key.GetValue("AmsiEnable");
+            if (val is int i && i == 0)
+                disabledHives.Add(label);
+        }
+        catch { /* Access denied — treat as not-disabled to avoid false alarms */ }
     }
 
     private async Task CollectRemotingState(PowerShellState state, CancellationToken ct)

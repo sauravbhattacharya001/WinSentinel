@@ -118,6 +118,20 @@ public static class PowerShellSecurityAnalyzer
         // AMSI
         public bool AmsiProviderRegistered { get; set; } = true;
 
+        // AMSI kill switch: the well-known registry bypass that turns AMSI OFF for
+        // the Windows Script Host / PowerShell console host - HKLM or HKCU
+        // SOFTWARE\Microsoft\Windows Script\Settings\AmsiEnable = 0. Setting this to
+        // 0 disables real-time script scanning without unregistering the provider,
+        // so the provider-registered check above still passes while AMSI is in fact
+        // neutered. Attackers flip it to evade content inspection (MITRE T1562.001 -
+        // Impair Defenses: Disable or Modify Tools). Defaults false (not disabled).
+        public bool AmsiDisabledViaRegistry { get; set; }
+
+        // Which hive the AmsiEnable=0 value was found in ("HKLM", "HKCU", or
+        // "HKLM, HKCU" when both) - purely for the finding text. Null/empty when the
+        // kill switch was not found.
+        public string? AmsiDisableRegistryScope { get; set; }
+
         // Remoting (WinRM)
         public bool WinRmRunning { get; set; }
         public bool WinRmPublicAccess { get; set; }
@@ -458,6 +472,37 @@ public static class PowerShellSecurityAnalyzer
 
     public static Finding CheckAmsi(PowerShellState state)
     {
+        // The AmsiEnable=0 registry kill switch is graded FIRST and separately from
+        // provider registration: it disables AMSI content scanning while leaving the
+        // provider registered, so a machine can look fine to the provider check yet
+        // have AMSI fully neutered. This is a very common, cheap defense-evasion step
+        // (MITRE T1562.001) - surface it as its own Critical so the remediation is
+        // unambiguous (delete/reset the value), not conflated with "install an AV".
+        if (state.AmsiDisabledViaRegistry)
+        {
+            var scope = string.IsNullOrWhiteSpace(state.AmsiDisableRegistryScope)
+                ? "the registry"
+                : state.AmsiDisableRegistryScope;
+            return Finding.Critical(
+                "AMSI Disabled via Registry (AmsiEnable = 0)",
+                "The Anti-Malware Scan Interface (AMSI) is turned OFF by the " +
+                $"'AmsiEnable' registry value under {scope} " +
+                @"SOFTWARE\Microsoft\Windows Script\Settings. " +
+                "With AmsiEnable = 0, PowerShell / Windows Script Host script content " +
+                "is no longer submitted to AMSI for real-time malware scanning, even " +
+                "though an AMSI provider is still registered. Attackers set this value " +
+                "to evade content inspection of obfuscated and in-memory payloads " +
+                "(MITRE T1562.001 - Impair Defenses: Disable or Modify Tools).",
+                Category,
+                "Remove the AmsiEnable override (or set it to 1) and investigate why it " +
+                "was disabled: " +
+                @"HKLM\SOFTWARE\Microsoft\Windows Script\Settings\AmsiEnable (and the HKCU hive).",
+                @"Remove-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows Script\Settings' " +
+                "-Name AmsiEnable -ErrorAction SilentlyContinue; " +
+                @"Remove-ItemProperty -Path 'HKCU:\SOFTWARE\Microsoft\Windows Script\Settings' " +
+                "-Name AmsiEnable -ErrorAction SilentlyContinue");
+        }
+
         if (!state.AmsiProviderRegistered)
         {
             return Finding.Critical(
@@ -473,8 +518,8 @@ public static class PowerShellSecurityAnalyzer
 
         return Finding.Pass(
             "AMSI Provider Registered",
-            "An AMSI provider is registered, enabling real-time script " +
-            "content scanning for malicious patterns.",
+            "An AMSI provider is registered and no AmsiEnable=0 kill switch is set, " +
+            "enabling real-time script content scanning for malicious patterns.",
             Category);
     }
 

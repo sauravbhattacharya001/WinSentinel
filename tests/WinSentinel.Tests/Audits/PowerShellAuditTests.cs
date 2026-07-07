@@ -481,6 +481,71 @@ public class PowerShellAuditTests
         Assert.Contains("tampering", finding.Description, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void Amsi_DisabledViaRegistry_CreatesCritical()
+    {
+        var state = MakeSecureState();
+        state.AmsiProviderRegistered = true;   // provider still registered...
+        state.AmsiDisabledViaRegistry = true;  // ...but AmsiEnable=0 kill switch set
+        state.AmsiDisableRegistryScope = "HKLM";
+        var result = MakeResult();
+
+        _audit.AnalyzeState(state, result);
+
+        Assert.Contains(result.Findings, f =>
+            f.Severity == Severity.Critical &&
+            f.Title.Contains("AMSI Disabled via Registry"));
+    }
+
+    [Fact]
+    public void Amsi_DisabledViaRegistry_MentionsAmsiEnableAndScopeAndTechnique()
+    {
+        var state = MakeSecureState();
+        state.AmsiDisabledViaRegistry = true;
+        state.AmsiDisableRegistryScope = "HKLM, HKCU";
+        var result = MakeResult();
+
+        _audit.AnalyzeState(state, result);
+
+        var finding = result.Findings.First(f =>
+            f.Title.Contains("AMSI Disabled via Registry"));
+        Assert.Contains("AmsiEnable", finding.Description, StringComparison.Ordinal);
+        Assert.Contains("HKLM, HKCU", finding.Description, StringComparison.Ordinal);
+        Assert.Contains("T1562.001", finding.Description, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Amsi_DisabledViaRegistry_TakesPrecedenceOverProviderCheck()
+    {
+        // When AMSI is disabled via registry AND the provider is somehow also missing,
+        // the kill-switch finding is the one surfaced (it is checked first and returns).
+        var state = MakeSecureState();
+        state.AmsiProviderRegistered = false;
+        state.AmsiDisabledViaRegistry = true;
+        state.AmsiDisableRegistryScope = "HKCU";
+        var result = MakeResult();
+
+        _audit.AnalyzeState(state, result);
+
+        Assert.Contains(result.Findings, f => f.Title.Contains("AMSI Disabled via Registry"));
+        Assert.DoesNotContain(result.Findings, f => f.Title.Contains("AMSI Provider Not Registered"));
+    }
+
+    [Fact]
+    public void Amsi_NotDisabledViaRegistry_CreatesPass()
+    {
+        // Secure state: provider registered, no kill switch -> Pass, no AMSI Critical.
+        var state = MakeSecureState();
+        var result = MakeResult();
+
+        _audit.AnalyzeState(state, result);
+
+        Assert.Contains(result.Findings, f =>
+            f.Severity == Severity.Pass &&
+            f.Title.Contains("AMSI Provider Registered"));
+        Assert.DoesNotContain(result.Findings, f => f.Title.Contains("AMSI Disabled via Registry"));
+    }
+
     // ─── WinRM / Remoting ─────────────────────────────────────────
 
     [Fact]

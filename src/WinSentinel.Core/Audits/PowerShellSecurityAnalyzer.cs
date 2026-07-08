@@ -47,10 +47,13 @@ public static class PowerShellSecurityAnalyzer
 
     /// <summary>
     /// Regex-free substrings that, when present in a PowerShell profile script, are
-    /// strong indicators of malicious content (download cradles, in-memory execution,
-    /// AMSI/logging tampering, obfuscation). Each entry pairs the token that is
-    /// matched (case-insensitively) with a short human explanation shown in the
-    /// finding. Order is the reporting order.
+    /// strong indicators of malicious content: download cradles (WebClient / Invoke-
+    /// WebRequest / Invoke-RestMethod and their iwr/irm aliases), LOLBin fetch/decode
+    /// (certutil -urlcache/-decode, bitsadmin /transfer, BITS), reverse/bind-shell
+    /// primitives (Net.Sockets.TcpClient), in-memory execution, inline execution-
+    /// policy downgrade (-ExecutionPolicy Bypass), AMSI/logging/Defender tampering,
+    /// and obfuscation. Each entry pairs the token that is matched (case-insensitively)
+    /// with a short human explanation shown in the finding. Order is the reporting order.
     /// </summary>
     public static readonly IReadOnlyList<(string Token, string Reason)> SuspiciousProfilePatterns =
         new List<(string, string)>
@@ -61,7 +64,16 @@ public static class PowerShellSecurityAnalyzer
             ("downloadfile",               "Net.WebClient.DownloadFile download cradle"),
             ("invoke-webrequest",          "remote payload fetch (Invoke-WebRequest)"),
             ("invoke-restmethod",          "remote payload fetch (Invoke-RestMethod)"),
+            ("iwr http",                   "remote payload fetch (iwr = Invoke-WebRequest alias) of a URL"),
+            ("irm http",                   "remote payload fetch (irm = Invoke-RestMethod alias) of a URL"),
             ("start-bitstransfer",         "remote payload fetch via BITS"),
+            ("bitsadmin /transfer",        "remote payload fetch via the bitsadmin LOLBin"),
+            ("certutil -urlcache",         "remote payload fetch via the certutil LOLBin (-urlcache)"),
+            ("certutil.exe -urlcache",     "remote payload fetch via the certutil LOLBin (-urlcache)"),
+            ("certutil -decode",           "base64 payload decode via the certutil LOLBin (-decode)"),
+            ("certutil.exe -decode",       "base64 payload decode via the certutil LOLBin (-decode)"),
+            ("system.net.webclient",       "Net.WebClient download-cradle object"),
+            (".downloaddata",              "Net.WebClient.DownloadData download cradle"),
             ("frombase64string",           "base64-encoded payload decode"),
             ("-encodedcommand",            "launches a hidden base64-encoded command"),
             ("-enc ",                      "launches a hidden base64-encoded command (-enc)"),
@@ -73,6 +85,9 @@ public static class PowerShellSecurityAnalyzer
             ("[reflection.assembly]",      "in-memory .NET assembly loading"),
             ("virtualalloc",               "shellcode injection primitive (VirtualAlloc)"),
             ("createthread",               "shellcode injection primitive (CreateThread)"),
+            ("net.sockets.tcpclient",      "raw TCP socket - reverse/bind-shell primitive (Net.Sockets.TcpClient)"),
+            ("-executionpolicy bypass",    "inline execution-policy downgrade (-ExecutionPolicy Bypass)"),
+            ("-ep bypass",                 "inline execution-policy downgrade (-ep Bypass)"),
             ("add-mppreference",           "tampers with Windows Defender exclusions"),
             ("set-mppreference",           "disables/relaxes Windows Defender settings"),
             ("hidden powershell",          "references a hidden PowerShell launch"),

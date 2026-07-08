@@ -81,7 +81,8 @@ public class EventLogAudit : IAuditModule
                 CheckDefenderTampering(result, cancellationToken),
                 CheckSystemErrors(result, cancellationToken),
                 CheckSecurityLogSize(result, cancellationToken),
-                CheckLogCleared(result, cancellationToken));
+                CheckLogCleared(result, cancellationToken),
+                CheckRemoteLogons(result, cancellationToken));
         }
         catch (Exception ex)
         {
@@ -839,6 +840,91 @@ public class EventLogAudit : IAuditModule
             AddFinding(result, Finding.Info(
                 "Log Cleared Check Error",
                 $"Could not check for log-cleared events: {ex.Message}",
+                Category,
+                "Run WinSentinel as Administrator."));
+        }
+    }
+
+    #endregion
+
+    #region Remote Logons (Event ID 4624, LogonType 3/10)
+
+    /// <summary>
+    /// Check the Security log for SUCCESSFUL remote logons (Event ID 4624) that came
+    /// from external (public-internet) source IPs in the last 24 hours - RDP
+    /// (LogonType 10) and network (LogonType 3). Complements <see
+    /// cref="CheckFailedLogins"/> (4625): a successful remote logon from outside the
+    /// LAN, especially RDP, is the point at which a brute force turns into a breach.
+    /// </summary>
+    private async Task CheckRemoteLogons(AuditResult result, CancellationToken ct)
+    {
+        try
+        {
+            // Event 4624 = successful logon. Filter to the two remotely-reachable
+            // logon types (3 network, 10 RemoteInteractive/RDP) in the last 24h.
+            // EventData/Data[@Name='LogonType'] narrows at the log layer so we don't
+            // pull every interactive/service logon on the box.
+            var query = "*[System[(EventID=4624) and TimeCreated[timediff(@SystemTime) <= 86400000]]]" +
+                        "[EventData[Data[@Name='LogonType']='10' or Data[@Name='LogonType']='3']]";
+
+            var events = await QueryEventLogAsync("Security", query, ct, maxEvents: 1000);
+
+            if (events == null)
+            {
+                AddFinding(result, Finding.Info(
+                    "Remote Logon Check - Access Denied",
+                    "Could not read the Security event log for successful remote logons (Event ID 4624). Administrator privileges are required.",
+                    Category,
+                    "Run WinSentinel as Administrator to check remote logon activity."));
+                return;
+            }
+
+            int externalRdp = 0;
+            int externalNetwork = 0;
+            var sources = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var evt in events)
+            {
+                try
+                {
+                    // 4624 property layout: 5 = TargetUserName, 8 = LogonType, 18 = IpAddress.
+                    int logonType = -1;
+                    if (evt.Properties.Count > 8 &&
+                        int.TryParse(evt.Properties[8]?.Value?.ToString(), out var lt))
+                    {
+                        logonType = lt;
+                    }
+
+                    var ip = evt.Properties.Count > 18 ? evt.Properties[18]?.Value?.ToString() : null;
+
+                    // Only external (public) source IPs are the risk signal - LAN
+                    // remote logons are expected. IsExternalSourceIp also drops
+                    // blank/"-"/loopback.
+                    if (!EventLogAnalyzer.IsExternalSourceIp(ip)) continue;
+
+                    var user = evt.Properties.Count > 5 ? evt.Properties[5]?.Value?.ToString() : null;
+                    if (EventLogAnalyzer.IsSystemAccount(user)) continue; // ignore machine/system network auth noise
+
+                    if (logonType == EventLogAnalyzer.LogonTypeRemoteInteractive) externalRdp++;
+                    else if (logonType == EventLogAnalyzer.LogonTypeNetwork) externalNetwork++;
+                    else continue;
+
+                    var who = EventLogAnalyzer.IsMeaningfulUser(user) ? user! : "?";
+                    var key = $"{who}@{ip} [{EventLogAnalyzer.DescribeLogonType(logonType)}]";
+                    sources[key] = sources.GetValueOrDefault(key) + 1;
+                }
+                catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] Error: {ex.GetType().Name} - {ex.Message}"); }
+            }
+
+            AddFinding(result, EventLogAnalyzer.BuildRemoteLogonFinding(
+                externalRdp, externalNetwork,
+                EventLogAnalyzer.RankTopCounts(sources)));
+        }
+        catch (Exception ex)
+        {
+            AddFinding(result, Finding.Info(
+                "Remote Logon Check Error",
+                $"Could not check remote logons: {ex.Message}",
                 Category,
                 "Run WinSentinel as Administrator."));
         }

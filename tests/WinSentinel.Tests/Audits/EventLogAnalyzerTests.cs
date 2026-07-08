@@ -900,6 +900,127 @@ public class EventLogAnalyzerTests
     }
 
     // ----------------------------------------------------------------------
+    // Remote logons from external IPs (4624, LogonType 3/10)
+    // ----------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("10.0.0.5")]
+    [InlineData("10.255.255.255")]
+    [InlineData("172.16.0.1")]
+    [InlineData("172.31.255.254")]
+    [InlineData("192.168.1.100")]
+    [InlineData("127.0.0.1")]
+    [InlineData("169.254.10.10")]   // APIPA link-local
+    [InlineData("100.64.0.1")]      // CGNAT
+    [InlineData("0.0.0.0")]
+    [InlineData("::1")]             // IPv6 loopback
+    [InlineData("fe80::1")]         // IPv6 link-local
+    [InlineData("fd00::abcd")]      // IPv6 unique-local
+    [InlineData("::ffff:192.168.0.1")] // IPv4-mapped private
+    [InlineData("-")]
+    [InlineData("")]
+    [InlineData(null)]
+    [InlineData("not-an-ip")]
+    [InlineData("1.2.3.4.5")]        // too many octets => local/unknown
+    [InlineData("999.1.1.1")]        // out-of-range octet => local/unknown
+    public void IsPrivateOrLocalIp_PrivateLoopbackAndUnparseable_ReturnTrue(string? ip)
+    {
+        Assert.True(EventLogAnalyzer.IsPrivateOrLocalIp(ip));
+    }
+
+    [Theory]
+    [InlineData("8.8.8.8")]
+    [InlineData("1.1.1.1")]
+    [InlineData("203.0.113.7")]
+    [InlineData("172.15.0.1")]       // just below the 172.16/12 private range
+    [InlineData("172.32.0.1")]       // just above the 172.16/12 private range
+    [InlineData("192.169.0.1")]      // not 192.168
+    [InlineData("100.63.0.1")]       // just below CGNAT 100.64/10
+    [InlineData("100.128.0.1")]      // just above CGNAT 100.64/10
+    [InlineData("2606:4700:4700::1111")] // public IPv6
+    [InlineData("::ffff:8.8.8.8")]   // IPv4-mapped public
+    public void IsPrivateOrLocalIp_PublicAddresses_ReturnFalse(string ip)
+    {
+        Assert.False(EventLogAnalyzer.IsPrivateOrLocalIp(ip));
+    }
+
+    [Theory]
+    [InlineData("8.8.8.8", true)]
+    [InlineData("192.168.1.1", false)]
+    [InlineData("-", false)]
+    [InlineData("127.0.0.1", false)]
+    [InlineData(null, false)]
+    public void IsExternalSourceIp_OnlyPublicRoutable(string? ip, bool expected)
+    {
+        Assert.Equal(expected, EventLogAnalyzer.IsExternalSourceIp(ip));
+    }
+
+    [Theory]
+    [InlineData(3, "Network")]
+    [InlineData(10, "RemoteInteractive (RDP)")]
+    [InlineData(2, "Interactive")]
+    [InlineData(5, "Service")]
+    [InlineData(99, "Type 99")]     // unknown falls back
+    public void DescribeLogonType_KnownAndUnknown(int type, string expected)
+    {
+        Assert.Equal(expected, EventLogAnalyzer.DescribeLogonType(type));
+    }
+
+    [Fact]
+    public void BuildRemoteLogonFinding_NoExternal_IsPass()
+    {
+        var f = EventLogAnalyzer.BuildRemoteLogonFinding(0, 0);
+        Assert.Equal(Severity.Pass, f.Severity);
+        Assert.Equal("Event Logs", f.Category);
+        Assert.Contains("No External Remote Logons", f.Title);
+    }
+
+    [Theory]
+    [InlineData(1, 0)]
+    [InlineData(1, 50)]   // RDP dominates grading even with many network logons
+    [InlineData(3, 0)]
+    public void BuildRemoteLogonFinding_AnyExternalRdp_IsCritical(int rdp, int network)
+    {
+        var f = EventLogAnalyzer.BuildRemoteLogonFinding(rdp, network,
+            new[] { "attacker@203.0.113.7 [RemoteInteractive (RDP)] (3x)" });
+        Assert.Equal(Severity.Critical, f.Severity);
+        Assert.Contains("RDP", f.Title);
+        Assert.Contains("T1021.001", f.Description);
+        Assert.Contains("203.0.113.7", f.Description);
+        // Remediation must exist and steer away from internet-exposed RDP.
+        Assert.False(string.IsNullOrWhiteSpace(f.Remediation));
+    }
+
+    [Fact]
+    public void BuildRemoteLogonFinding_ManyExternalNetwork_IsWarning()
+    {
+        var f = EventLogAnalyzer.BuildRemoteLogonFinding(0, 6);
+        Assert.Equal(Severity.Warning, f.Severity);
+        Assert.Contains("External Network Logons", f.Title);
+        Assert.Contains("T1021.002", f.Description);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(5)]
+    public void BuildRemoteLogonFinding_FewExternalNetwork_IsInfo(int network)
+    {
+        var f = EventLogAnalyzer.BuildRemoteLogonFinding(0, network);
+        Assert.Equal(Severity.Info, f.Severity);
+        Assert.Contains("External Network Logons", f.Title);
+    }
+
+    [Fact]
+    public void BuildRemoteLogonFinding_ExternalNetworkThreshold_IsBoundaryCorrect()
+    {
+        // Threshold is > 5 for Warning; exactly 5 stays Info.
+        Assert.Equal(Severity.Info,
+            EventLogAnalyzer.BuildRemoteLogonFinding(0, EventLogAnalyzer.ExternalNetworkLogonWarningThreshold).Severity);
+        Assert.Equal(Severity.Warning,
+            EventLogAnalyzer.BuildRemoteLogonFinding(0, EventLogAnalyzer.ExternalNetworkLogonWarningThreshold + 1).Severity);
+    }
+
+    // ----------------------------------------------------------------------
     // Cross-cutting invariants
     // ----------------------------------------------------------------------
 
@@ -927,6 +1048,10 @@ public class EventLogAnalyzerTests
             EventLogAnalyzer.BuildSecurityLogSizeFinding(999L * 1024 * 1024, 0),
             EventLogAnalyzer.BuildLogClearedFinding(0),
             EventLogAnalyzer.BuildLogClearedFinding(3),
+            EventLogAnalyzer.BuildRemoteLogonFinding(0, 0),
+            EventLogAnalyzer.BuildRemoteLogonFinding(2, 0),
+            EventLogAnalyzer.BuildRemoteLogonFinding(0, 99),
+            EventLogAnalyzer.BuildRemoteLogonFinding(0, 3),
         };
 
         Assert.All(findings, f =>

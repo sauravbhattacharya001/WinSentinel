@@ -8,9 +8,9 @@ namespace WinSentinel.Core.Audits;
 ///
 /// Everything here is deterministic and side-effect free (no Event Log reader,
 /// no <c>auditpol</c>, no registry, no clock, no <c>Console</c>) so the actual
-/// security decisions — brute-force thresholds, audit-policy gap detection,
+/// security decisions - brute-force thresholds, audit-policy gap detection,
 /// suspicious-PowerShell matching, log-tamper detection, and Security-log sizing
-/// — can be unit tested. The audit module owns the Windows Event Log / shell /
+/// - can be unit tested. The audit module owns the Windows Event Log / shell /
 /// registry collection and delegates every classification to this analyzer.
 ///
 /// Mirrors the structure of <see cref="ProcessLineageAnalyzer"/>.
@@ -124,7 +124,7 @@ public static class EventLogAnalyzer
         => !string.IsNullOrWhiteSpace(user) && user != "-";
 
     /// <summary>
-    /// True when an IPv4/IPv6 source address is "real" — i.e. not blank, "-", or loopback.
+    /// True when an IPv4/IPv6 source address is "real" - i.e. not blank, "-", or loopback.
     /// Loopback failed logons are noise from local services and are excluded from source-IP tallies.
     /// </summary>
     public static bool IsMeaningfulSourceIp(string? ip)
@@ -148,7 +148,7 @@ public static class EventLogAnalyzer
     /// Ties are broken by ascending key (ordinal) so the output is fully deterministic.
     /// A bare <c>OrderByDescending(kv =&gt; kv.Value)</c> is a <em>stable</em> sort, but the
     /// input is an <see cref="IReadOnlyDictionary{TKey,TValue}"/> whose enumeration order is
-    /// not defined — it depends on insertion order, hash-bucket layout and any prior removals.
+    /// not defined - it depends on insertion order, hash-bucket layout and any prior removals.
     /// Without a secondary key, two scans of <em>identical</em> event data could surface a
     /// different set of equally-frequent users/IPs at the <paramref name="take"/> cut-off (or
     /// the same set in a different order), producing phantom diffs in score history /
@@ -171,7 +171,7 @@ public static class EventLogAnalyzer
     /// <summary>
     /// Classify a failed-login tally into a Finding. <paramref name="topUsers"/> /
     /// <paramref name="topSourceIps"/> are pre-ranked "name (Nx)" fragments (caller controls ranking).
-    /// &gt;20 → Critical, &gt;5 → Warning, 1–5 → Info, 0 → Pass.
+    /// &gt;20 → Critical, &gt;5 → Warning, 1-5 → Info, 0 → Pass.
     /// </summary>
     public static Finding BuildFailedLoginFinding(int count,
         IReadOnlyList<string>? topUsers = null, IReadOnlyList<string>? topSourceIps = null)
@@ -194,7 +194,7 @@ public static class EventLogAnalyzer
         if (count > FailedLoginCriticalThreshold)
         {
             return Finding.Critical(
-                $"High Failed Login Rate — {count} in 24h",
+                $"High Failed Login Rate - {count} in 24h",
                 $"{description} This may indicate a brute-force attack or credential stuffing attempt.",
                 Category,
                 "Investigate the source IPs. Consider enabling account lockout policies, IP blocking, or MFA. Check if any accounts were compromised.",
@@ -204,14 +204,14 @@ public static class EventLogAnalyzer
         if (count > FailedLoginWarningThreshold)
         {
             return Finding.Warning(
-                $"Failed Login Attempts — {count} in 24h",
-                $"{description} Multiple failed login attempts detected — monitor for patterns.",
+                $"Failed Login Attempts - {count} in 24h",
+                $"{description} Multiple failed login attempts detected - monitor for patterns.",
                 Category,
                 "Review the failed login sources. Ensure account lockout policies are configured. Consider enabling MFA.");
         }
 
         return Finding.Info(
-            $"Failed Login Attempts — {count} in 24h",
+            $"Failed Login Attempts - {count} in 24h",
             $"{description} A small number of failed logins is normal (mistyped passwords, etc.).",
             Category);
     }
@@ -221,7 +221,7 @@ public static class EventLogAnalyzer
     // ──────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Classify account-lockout events. &gt;5 → Warning, 1–5 → Info, 0 → Pass.
+    /// Classify account-lockout events. &gt;5 → Warning, 1-5 → Info, 0 → Pass.
     /// <paramref name="topAccounts"/> are pre-ranked "name (Nx)" fragments.
     /// </summary>
     public static Finding BuildAccountLockoutFinding(int count, IReadOnlyList<string>? topAccounts = null)
@@ -238,12 +238,12 @@ public static class EventLogAnalyzer
 
         return count > AccountLockoutWarningThreshold
             ? Finding.Warning(
-                $"Account Lockouts — {count} in 7 Days",
+                $"Account Lockouts - {count} in 7 Days",
                 $"Detected {count} account lockout event(s). Affected accounts: {accountsList}. Frequent lockouts may indicate brute-force attacks.",
                 Category,
                 "Investigate whether lockouts are from legitimate users mistyping passwords or from an attacker. Review account lockout policies.")
             : Finding.Info(
-                $"Account Lockouts — {count} in 7 Days",
+                $"Account Lockouts - {count} in 7 Days",
                 $"Detected {count} account lockout event(s). Affected accounts: {accountsList}. Occasional lockouts are normal.",
                 Category);
     }
@@ -284,7 +284,7 @@ public static class EventLogAnalyzer
         }
 
         return Finding.Pass(
-            "Privilege Escalation Events — Normal",
+            "Privilege Escalation Events - Normal",
             details + " Volume appears normal for this system.",
             Category);
     }
@@ -299,7 +299,7 @@ public static class EventLogAnalyzer
     /// <summary>
     /// Parse <c>auditpol /get /category:*</c> output, classifying each required subcategory as a
     /// gap ("No Auditing") or enabled. Subcategories not present in the output are skipped.
-    /// Returns <c>null</c> when the output is empty or access was denied — the audit treats that
+    /// Returns <c>null</c> when the output is empty or access was denied - the audit treats that
     /// as an "Access Denied" Info finding instead of a real result.
     /// </summary>
     public static AuditPolicyScan? ParseAuditPolicy(string? auditpolOutput)
@@ -319,7 +319,7 @@ public static class EventLogAnalyzer
             // Match the subcategory as a leading token on the (already TrimEntries'd)
             // line, NOT a free substring anywhere on it. A loose Contains lets the
             // shorter "Logon" subcategory match a "Special Logon" line (substring
-            // collision), which — depending on auditpol output ordering — misreports
+            // collision), which - depending on auditpol output ordering - misreports
             // "Logon" using "Special Logon"'s setting (e.g. a false gap, or a duplicate
             // when both share the same wording). Anchoring to the start with a
             // whitespace/end boundary keeps each required subcategory bound to its
@@ -341,7 +341,7 @@ public static class EventLogAnalyzer
 
     /// <summary>
     /// True when a (whitespace-trimmed) auditpol line names exactly
-    /// <paramref name="subcategory"/> as its leading subcategory token — i.e. the
+    /// <paramref name="subcategory"/> as its leading subcategory token - i.e. the
     /// line starts with the name and the name is bounded by whitespace or end of
     /// line. This avoids the substring collision where "Logon" would otherwise
     /// match a "Special Logon" line. Case-insensitive; the line is expected to be
@@ -359,7 +359,7 @@ public static class EventLogAnalyzer
     }
 
     /// <summary>
-    /// Classify an audit-policy scan. 0 gaps → Pass, 1–3 → Warning, &gt;3 → Critical.
+    /// Classify an audit-policy scan. 0 gaps → Pass, 1-3 → Warning, &gt;3 → Critical.
     /// The Warning fix command rebuilds <c>auditpol</c> set lines from the gap names.
     /// </summary>
     public static Finding BuildAuditPolicyFinding(AuditPolicyScan scan)
@@ -380,7 +380,7 @@ public static class EventLogAnalyzer
             var fix = "powershell -Command \"" + string.Join("; ", gaps.Select(g =>
                 $"auditpol /set /subcategory:\\\"{g.Split('(')[0].Trim()}\\\" /success:enable /failure:enable")) + "\"";
             return Finding.Warning(
-                $"Audit Policy Gaps — {gaps.Count} Missing",
+                $"Audit Policy Gaps - {gaps.Count} Missing",
                 $"Some audit policies are not enabled: {string.Join(", ", gaps)}. Missing audit policies create blind spots where malicious activity goes unrecorded.",
                 Category,
                 "Enable missing audit policies using: auditpol /set /subcategory:\"<name>\" /success:enable /failure:enable",
@@ -388,10 +388,10 @@ public static class EventLogAnalyzer
         }
 
         return Finding.Critical(
-            $"Major Audit Policy Gaps — {gaps.Count} Missing",
+            $"Major Audit Policy Gaps - {gaps.Count} Missing",
             $"Many critical audit policies are disabled: {string.Join(", ", gaps.Take(8))}. The system is not recording important security events, making incident investigation extremely difficult.",
             Category,
-            "Enable comprehensive audit policies immediately. Use: auditpol /set /category:* /success:enable /failure:enable — or apply a security baseline via Group Policy.",
+            "Enable comprehensive audit policies immediately. Use: auditpol /set /category:* /success:enable /failure:enable - or apply a security baseline via Group Policy.",
             "powershell -Command \"auditpol /set /category:* /success:enable /failure:enable\"");
     }
 
@@ -400,8 +400,8 @@ public static class EventLogAnalyzer
     // ──────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Classify new-service-install events. &gt;5 → Warning, 1–5 → Info, 0 → Pass.
-    /// <paramref name="serviceLines"/> are pre-formatted "• name — path (date)" fragments.
+    /// Classify new-service-install events. &gt;5 → Warning, 1-5 → Info, 0 → Pass.
+    /// <paramref name="serviceLines"/> are pre-formatted "• name - path (date)" fragments.
     /// </summary>
     public static Finding BuildServiceInstallFinding(int count, IReadOnlyList<string>? serviceLines = null)
     {
@@ -420,12 +420,12 @@ public static class EventLogAnalyzer
 
         return count > ServiceInstallWarningThreshold
             ? Finding.Warning(
-                $"New Services Installed — {count} in 7 Days",
+                $"New Services Installed - {count} in 7 Days",
                 description,
                 Category,
                 "Review installed services to ensure they are legitimate. Malware often persists by installing services. Check service binary paths for suspicious locations (temp folders, AppData, etc.).")
             : Finding.Info(
-                $"New Services Installed — {count} in 7 Days",
+                $"New Services Installed - {count} in 7 Days",
                 description,
                 Category,
                 "Review installed services to ensure they are expected.");
@@ -469,12 +469,12 @@ public static class EventLogAnalyzer
 
         return suspiciousCount > SuspiciousPowerShellCriticalThreshold
             ? Finding.Critical(
-                $"Suspicious PowerShell Activity — {suspiciousCount} Events",
+                $"Suspicious PowerShell Activity - {suspiciousCount} Events",
                 description,
                 Category,
                 "Investigate the PowerShell commands immediately. Check which user account ran them. Look for indicators of compromise. Consider blocking PowerShell for non-admin users via AppLocker.")
             : Finding.Warning(
-                $"Suspicious PowerShell Activity — {suspiciousCount} Events",
+                $"Suspicious PowerShell Activity - {suspiciousCount} Events",
                 description,
                 Category,
                 "Review the flagged PowerShell commands. Some may be legitimate admin scripts, but encoded commands and download cradles are common attack techniques.");
@@ -504,7 +504,7 @@ public static class EventLogAnalyzer
         if (detections > actions)
         {
             return Finding.Critical(
-                $"Defender Threats Detected — {detections} ({detections - actions} Unresolved)",
+                $"Defender Threats Detected - {detections} ({detections - actions} Unresolved)",
                 description + " Some threats may not have been remediated.",
                 Category,
                 "Open Windows Security → Virus & threat protection → Protection history. Review and resolve any remaining threats. Run a full system scan.",
@@ -512,7 +512,7 @@ public static class EventLogAnalyzer
         }
 
         return Finding.Warning(
-            $"Defender Threats Detected — {detections} (All Remediated)",
+            $"Defender Threats Detected - {detections} (All Remediated)",
             description + " All detected threats were remediated.",
             Category,
             "Review Windows Security → Protection history to understand what was detected. Consider running a full scan to ensure no threats remain.",
@@ -525,7 +525,7 @@ public static class EventLogAnalyzer
     /// Classify Windows Defender "protection turned off" events from the Defender
     /// operational log over the last 7 days. Unlike a threat detection (1116/1117,
     /// which is Defender <i>working</i>), these events mean a layer of protection
-    /// was <b>disabled</b> — Event ID 5001 (real-time protection off), 5010
+    /// was <b>disabled</b> - Event ID 5001 (real-time protection off), 5010
     /// (anti-malware/anti-spyware scanning off), or 5012 (antivirus scanning off).
     /// Disabling AV is a classic precursor to dropping a payload, so any such
     /// event in the window is treated as Critical (an admin toggling it off still
@@ -533,7 +533,7 @@ public static class EventLogAnalyzer
     /// the log and passes the counts + formatted lines here.
     /// </summary>
     /// <param name="disableEvents">Total count of 5001/5010/5012 events in the window.</param>
-    /// <param name="eventLines">Optional human-readable "• time — what was disabled" lines.</param>
+    /// <param name="eventLines">Optional human-readable "• time - what was disabled" lines.</param>
     public static Finding BuildDefenderTamperingFinding(int disableEvents,
         IReadOnlyList<string>? eventLines = null)
     {
@@ -547,7 +547,7 @@ public static class EventLogAnalyzer
 
         var lines = eventLines is { Count: > 0 } ? string.Join("\n", eventLines) : "(details unavailable)";
         return Finding.Critical(
-            $"Defender Protection Disabled — {disableEvents} Event(s)",
+            $"Defender Protection Disabled - {disableEvents} Event(s)",
             $"Windows Defender protection was turned off {disableEvents} time(s) in the last 7 days (real-time protection, anti-malware, or antivirus scanning). Disabling antivirus is a common step attackers take before deploying malware, and it leaves the machine exposed while off.\n\nEvents:\n{lines}",
             Category,
             "Confirm whether this was an authorized change. Re-enable real-time protection (Windows Security → Virus & threat protection → Manage settings). Turn on Tamper Protection so malware cannot disable Defender, and enable the Defender 'Disable Antivirus' / 'Disable Real-time Protection' ASR-adjacent policies via Group Policy or Intune. Run a full scan.",
@@ -581,7 +581,7 @@ public static class EventLogAnalyzer
         if (criticalCount > 0)
         {
             return Finding.Warning(
-                $"System Critical Errors — {criticalCount} Critical, {errorCount} Errors",
+                $"System Critical Errors - {criticalCount} Critical, {errorCount} Errors",
                 description,
                 Category,
                 "Investigate critical events immediately. Check for bugcheck dumps (BSOD), driver failures, or hardware issues. Run 'sfc /scannow' and 'DISM /Online /Cleanup-Image /RestoreHealth' to repair system files.",
@@ -591,14 +591,14 @@ public static class EventLogAnalyzer
         if (errorCount > SystemErrorWarningThreshold)
         {
             return Finding.Warning(
-                $"High System Error Rate — {errorCount} Errors in 24h",
+                $"High System Error Rate - {errorCount} Errors in 24h",
                 description,
                 Category,
                 "Investigate recurring error sources. High error rates may indicate driver issues, hardware failure, or misconfigurations.");
         }
 
         return Finding.Info(
-            $"System Errors — {errorCount} in 24h",
+            $"System Errors - {errorCount} in 24h",
             description,
             Category,
             "Review error sources if any seem unusual. A small number of errors is common.");
@@ -630,7 +630,7 @@ public static class EventLogAnalyzer
         if (maxSizeBytes < SecurityLogMinimumBytes)
         {
             return Finding.Critical(
-                $"Security Log Too Small — {maxSizeMB:F0} MB",
+                $"Security Log Too Small - {maxSizeMB:F0} MB",
                 $"The Security event log maximum size is only {maxSizeMB:F0} MB. Recommended minimum is 128 MB. Small log sizes cause events to be overwritten quickly, potentially destroying forensic evidence. Overwrite mode: {overwriteMode}.",
                 Category,
                 "Increase Security log size to at least 128 MB: Event Viewer → Windows Logs → Security → Properties → Maximum log size.",
@@ -640,7 +640,7 @@ public static class EventLogAnalyzer
         if (maxSizeBytes < SecurityLogRecommendedBytes)
         {
             return Finding.Warning(
-                $"Security Log Size — {maxSizeMB:F0} MB",
+                $"Security Log Size - {maxSizeMB:F0} MB",
                 $"The Security event log is {maxSizeMB:F0} MB. Recommended size is >= 128 MB for adequate forensic retention. Overwrite mode: {overwriteMode}.",
                 Category,
                 "Increase Security log size to 128 MB or more.",
@@ -648,7 +648,7 @@ public static class EventLogAnalyzer
         }
 
         return Finding.Pass(
-            $"Security Log Size — {maxSizeMB:F0} MB",
+            $"Security Log Size - {maxSizeMB:F0} MB",
             $"The Security event log is adequately sized at {maxSizeMB:F0} MB (recommended >= 128 MB). Overwrite mode: {overwriteMode}.",
             Category);
     }
@@ -660,7 +660,7 @@ public static class EventLogAnalyzer
     {
         if (retention != -1) return null;
         return Finding.Warning(
-            "Security Log — Do Not Overwrite Mode",
+            "Security Log - Do Not Overwrite Mode",
             "The Security event log is configured to NOT overwrite events. When the log fills up, new events will be silently dropped. This can cause a denial-of-logging attack.",
             Category,
             "Change to 'Overwrite as needed' or implement automated log archiving to prevent event loss.",
@@ -693,14 +693,14 @@ public static class EventLogAnalyzer
     /// <see cref="!:System.Diagnostics.Eventing.Reader.EventLogMode"/>, whose only three
     /// members are <c>Circular</c>, <c>Retain</c>, and <c>AutoBackup</c>:
     /// <list type="bullet">
-    ///   <item><c>Circular</c> — overwrite the oldest events when full =&gt; <c>0</c> (overwrite as needed).</item>
-    ///   <item><c>Retain</c> — keep all events, stop logging when full =&gt; <c>-1</c> (do not overwrite).</item>
-    ///   <item><c>AutoBackup</c> — archive the log when full and start a fresh one; events are
+    ///   <item><c>Circular</c> - overwrite the oldest events when full =&gt; <c>0</c> (overwrite as needed).</item>
+    ///   <item><c>Retain</c> - keep all events, stop logging when full =&gt; <c>-1</c> (do not overwrite).</item>
+    ///   <item><c>AutoBackup</c> - archive the log when full and start a fresh one; events are
     ///         <em>never overwritten</em> =&gt; <c>-1</c> (do not overwrite / archive). This is the
     ///         "Archive the log when full" radio button in Event Viewer's log properties.</item>
     /// </list>
     /// Both <c>Retain</c> and <c>AutoBackup</c> mean the log will not overwrite events, so both map
-    /// to <c>-1</c> — that is what trips the denial-of-logging warning and the
+    /// to <c>-1</c> - that is what trips the denial-of-logging warning and the
     /// "do not overwrite" retention label. Anything unrecognised returns the <paramref name="fallback"/>.
     /// </summary>
     public static int ParseRetentionFromLogMode(string? psOutput, int fallback = 0)
@@ -735,9 +735,206 @@ public static class EventLogAnalyzer
 
         var lines = clearLines is { Count: > 0 } ? string.Join("\n", clearLines) : "(details unavailable)";
         return Finding.Critical(
-            $"Audit Log Cleared — {count} Time(s)",
+            $"Audit Log Cleared - {count} Time(s)",
             $"The Security audit log was cleared {count} time(s) in the last 30 days. This destroys forensic evidence and may indicate an attacker covering their tracks.\n\nClear events:\n{lines}",
             Category,
             "Investigate who cleared the logs and why. Implement log forwarding to a SIEM or remote log collector to prevent evidence destruction. Consider restricting 'Manage auditing and security log' privilege.");
+    }
+
+    // === Successful remote logons from external IPs (Event ID 4624, LogonType 3/10) ===
+
+    /// <summary>
+    /// Windows logon-type numbers for a successful logon (Event ID 4624). Only the
+    /// two remotely-reachable types are security-relevant to this check:
+    /// <list type="bullet">
+    ///   <item><c>3</c> - Network (SMB / file share / authenticated web / WinRM).</item>
+    ///   <item><c>10</c> - RemoteInteractive (Remote Desktop / Terminal Services).</item>
+    /// </list>
+    /// The rest (2 interactive, 4 batch, 5 service, 7 unlock, 8 network-cleartext,
+    /// 9 new-credentials, 11 cached-interactive) are listed only so the finding can
+    /// name a type it happens to be handed. A successful Type 10 from a routable,
+    /// non-RFC1918 address is the classic "the brute force finally worked / RDP is
+    /// exposed to the internet" breach signal (MITRE T1021.001 - Remote Services:
+    /// Remote Desktop Protocol); a Type 3 from outside is lateral movement / exposed
+    /// SMB (T1021.002).
+    /// </summary>
+    public static readonly IReadOnlyDictionary<int, string> LogonTypeNames =
+        new Dictionary<int, string>
+        {
+            { 2,  "Interactive" },
+            { 3,  "Network" },
+            { 4,  "Batch" },
+            { 5,  "Service" },
+            { 7,  "Unlock" },
+            { 8,  "NetworkCleartext" },
+            { 9,  "NewCredentials" },
+            { 10, "RemoteInteractive (RDP)" },
+            { 11, "CachedInteractive" },
+        };
+
+    /// <summary>Logon type 10 - RemoteInteractive (Remote Desktop).</summary>
+    public const int LogonTypeRemoteInteractive = 10;
+
+    /// <summary>Logon type 3 - Network (SMB / WinRM / authenticated network access).</summary>
+    public const int LogonTypeNetwork = 3;
+
+    /// <summary>
+    /// Count of external successful network (Type 3) logons above which the finding is
+    /// escalated from Info to Warning. Any external RDP (Type 10) success is graded
+    /// Critical regardless of this threshold.
+    /// </summary>
+    public const int ExternalNetworkLogonWarningThreshold = 5;
+
+    /// <summary>Human label for a logon type number (falls back to "Type N").</summary>
+    public static string DescribeLogonType(int logonType)
+        => LogonTypeNames.TryGetValue(logonType, out var name) ? name : $"Type {logonType}";
+
+    /// <summary>
+    /// True when <paramref name="ip"/> is a private (RFC1918), loopback, link-local,
+    /// CGNAT (100.64.0.0/10), or otherwise non-routable/local address - i.e. NOT a
+    /// public internet source. Successful remote logons from these are expected on a
+    /// LAN and are not the breach signal; only <b>external</b> (public) sources are.
+    /// Deterministic string classification - no DNS, no socket, no I/O - so it is
+    /// unit-testable. Blank / "-" / unparseable inputs return <c>true</c> (treated as
+    /// local/unknown so they never raise a false external alarm).
+    /// </summary>
+    public static bool IsPrivateOrLocalIp(string? ip)
+    {
+        if (string.IsNullOrWhiteSpace(ip)) return true;
+        ip = ip.Trim();
+        if (ip == "-") return true;
+
+        // IPv6 special cases first (loopback, link-local, unique-local, unspecified).
+        if (ip.Contains(':'))
+        {
+            var v6 = ip;
+            // Strip an IPv6 zone index (fe80::1%eth0) before classifying.
+            var pct = v6.IndexOf('%');
+            if (pct >= 0) v6 = v6[..pct];
+            if (v6 == "::1" || v6 == "::") return true;
+            var lower = v6.ToLowerInvariant();
+            // fe80::/10 link-local; fc00::/7 unique-local (fc00.. / fd00..).
+            if (lower.StartsWith("fe8") || lower.StartsWith("fe9") ||
+                lower.StartsWith("fea") || lower.StartsWith("feb")) return true;
+            if (lower.StartsWith("fc") || lower.StartsWith("fd")) return true;
+            // IPv4-mapped IPv6 (::ffff:a.b.c.d) - fall through to the IPv4 parse below.
+            var lastColon = lower.LastIndexOf(':');
+            if (lower.Contains("ffff:") && lastColon >= 0 && lower[(lastColon + 1)..].Contains('.'))
+            {
+                ip = v6[(v6.LastIndexOf(':') + 1)..];
+            }
+            else
+            {
+                // Any other IPv6 is treated as public (routable) - the safer default,
+                // so a real external IPv6 RDP logon is not silently ignored.
+                return false;
+            }
+        }
+
+        var octets = ip.Split('.');
+        if (octets.Length != 4) return true; // unparseable => treat as local/unknown
+        var parts = new int[4];
+        for (int i = 0; i < 4; i++)
+        {
+            if (!int.TryParse(octets[i], out parts[i]) || parts[i] < 0 || parts[i] > 255)
+                return true; // malformed => local/unknown
+        }
+
+        int a = parts[0], b = parts[1];
+        if (a == 10) return true;                          // 10.0.0.0/8
+        if (a == 127) return true;                         // 127.0.0.0/8 loopback
+        if (a == 172 && b >= 16 && b <= 31) return true;   // 172.16.0.0/12
+        if (a == 192 && b == 168) return true;             // 192.168.0.0/16
+        if (a == 169 && b == 254) return true;             // 169.254.0.0/16 link-local (APIPA)
+        if (a == 100 && b >= 64 && b <= 127) return true;  // 100.64.0.0/10 CGNAT
+        if (a == 0) return true;                           // 0.0.0.0/8 "this network"
+        return false;                                      // anything else => public
+    }
+
+    /// <summary>True when a source IP is a real, routable public address (the inverse of
+    /// <see cref="IsPrivateOrLocalIp"/>, also excluding blank/"-").</summary>
+    public static bool IsExternalSourceIp(string? ip)
+        => IsMeaningfulSourceIp(ip) && !IsPrivateOrLocalIp(ip);
+
+    /// <summary>
+    /// Classify successful remote logons (Event ID 4624) that originated from
+    /// <b>external</b> (public-internet) source IPs over the last 24 hours. The audit
+    /// module tallies successful 4624 events by logon type + source IP and passes the
+    /// external-only counts here.
+    ///
+    /// Grading:
+    /// <list type="bullet">
+    ///   <item>any external RemoteInteractive/RDP (Type 10) success =&gt; Critical -
+    ///         internet-exposed RDP is a top ransomware entry vector and a successful
+    ///         one may already be a compromise.</item>
+    ///   <item>external Network (Type 3) successes &gt; 5 =&gt; Warning; 1-5 =&gt; Info
+    ///         (could be a legitimate VPN-less remote share, still worth surfacing).</item>
+    ///   <item>no external remote logons =&gt; Pass.</item>
+    /// </list>
+    /// Pure/deterministic. <paramref name="topSources"/> are pre-ranked
+    /// "user@ip (Nx)" style fragments the caller builds.
+    /// </summary>
+    /// <param name="externalRdpCount">External Type 10 (RDP) successful logons.</param>
+    /// <param name="externalNetworkCount">External Type 3 (network) successful logons.</param>
+    /// <param name="topSources">Optional pre-ranked source fragments for the description.</param>
+    public static Finding BuildRemoteLogonFinding(int externalRdpCount, int externalNetworkCount,
+        IReadOnlyList<string>? topSources = null)
+    {
+        int total = externalRdpCount + externalNetworkCount;
+
+        if (total <= 0)
+        {
+            return Finding.Pass(
+                "No External Remote Logons",
+                "No successful remote logons (Event ID 4624, RDP/network) from public internet " +
+                "addresses in the last 24 hours. Remote access appears confined to the local network.",
+                Category);
+        }
+
+        var details = new List<string>();
+        if (externalRdpCount > 0) details.Add($"{externalRdpCount} RDP (RemoteInteractive)");
+        if (externalNetworkCount > 0) details.Add($"{externalNetworkCount} network");
+        var breakdown = string.Join(" and ", details);
+        var sourcesNote = topSources is { Count: > 0 }
+            ? $" Sources: {string.Join(", ", topSources)}."
+            : string.Empty;
+
+        if (externalRdpCount > 0)
+        {
+            return Finding.Critical(
+                $"Successful RDP Logon From Public IP - {externalRdpCount} in 24h",
+                $"Detected {breakdown} successful remote logon(s) from public internet address(es) " +
+                $"in the last 24 hours.{sourcesNote} A successful Remote Desktop (RemoteInteractive) " +
+                "logon from outside the local network means RDP is exposed to the internet - one of " +
+                "the most common ransomware and hands-on-keyboard entry vectors (MITRE T1021.001). " +
+                "If this was not an authorized administrator, the account is likely compromised.",
+                Category,
+                "Confirm the logon was authorized. Do NOT expose RDP directly to the internet - put it " +
+                "behind a VPN or Zero-Trust gateway, enforce MFA/Network Level Authentication, restrict " +
+                "the firewall rule to known IPs, and enable account lockout. Rotate the account's password " +
+                "if the source is unexpected.",
+                "powershell -Command \"Set-NetFirewallRule -DisplayGroup 'Remote Desktop' -Enabled False\"");
+        }
+
+        if (externalNetworkCount > ExternalNetworkLogonWarningThreshold)
+        {
+            return Finding.Warning(
+                $"External Network Logons - {externalNetworkCount} in 24h",
+                $"Detected {externalNetworkCount} successful network (Type 3) logon(s) from public " +
+                $"internet address(es) in the last 24 hours.{sourcesNote} Network logons from outside " +
+                "the LAN may indicate exposed SMB / WinRM / authenticated services or lateral movement " +
+                "(MITRE T1021.002).",
+                Category,
+                "Verify these remote network logons are expected. Restrict SMB/WinRM exposure to the " +
+                "internet, require VPN for remote access, and confirm the accounts and source IPs are legitimate.");
+        }
+
+        return Finding.Info(
+            $"External Network Logons - {externalNetworkCount} in 24h",
+            $"Detected {externalNetworkCount} successful network (Type 3) logon(s) from public internet " +
+            $"address(es) in the last 24 hours.{sourcesNote} A small number may be legitimate remote access, " +
+            "but confirm the source IPs and accounts are expected.",
+            Category,
+            "Confirm these remote logons are authorized and consider requiring VPN for any internet-facing access.");
     }
 }

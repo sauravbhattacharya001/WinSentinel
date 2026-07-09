@@ -18,6 +18,7 @@ namespace WinSentinel.Tests.Audits;
 public class NetworkPostureAnalyzerTests
 {
     private static ListeningPort Port(int p, string proc = "svc") => new(p, proc);
+    private static ListeningPort Port(int p, string proc, string addr) => new(p, proc, addr);
 
     private static NetworkState SecureState() => new()
     {
@@ -100,7 +101,8 @@ public class NetworkPostureAnalyzerTests
         {
             ListeningPorts = new() { Port(445, "System"), Port(8080, "node"), Port(3389, "svc") },
         });
-        Assert.True(Has(f, Severity.Warning, "High-Risk Ports Listening (2)"));
+        // Blank bind address -> treated as network-exposed.
+        Assert.True(Has(f, Severity.Warning, "High-Risk Ports Exposed to Network (2)"));
         Assert.True(Has(f, Severity.Info, "Total Listening Ports: 3"));
     }
 
@@ -133,7 +135,7 @@ public class NetworkPostureAnalyzerTests
     {
         Assert.Contains(port, HighRiskPorts);
         var f = CheckListeningPorts(new NetworkState { ListeningPorts = new() { Port(port) } });
-        Assert.True(Has(f, Severity.Warning, "High-Risk Ports Listening"));
+        Assert.True(Has(f, Severity.Warning, "High-Risk Ports Exposed to Network"));
     }
 
     [Fact]
@@ -163,6 +165,77 @@ public class NetworkPostureAnalyzerTests
         var w = f.Single(x => x.Severity == Severity.Warning);
         if (!string.IsNullOrWhiteSpace(w.FixCommand))
             Assert.Null(InputSanitizer.CheckDangerousCommand(w.FixCommand));
+    }
+
+    [Fact]
+    public void Ports_LoopbackOnlyHighRisk_IsInfoNotWarning()
+    {
+        // A high-risk port bound to loopback is only locally reachable -> Info, and
+        // NOT the network-exposed Warning.
+        var f = CheckListeningPorts(new NetworkState
+        {
+            ListeningPorts = new() { Port(3389, "svc", "127.0.0.1") },
+        });
+        Assert.True(Has(f, Severity.Info, "High-Risk Ports Listening on Loopback Only (1)"));
+        Assert.False(f.Any(x => x.Severity == Severity.Warning));
+    }
+
+    [Fact]
+    public void Ports_ExposedAndLoopback_AreReportedSeparately()
+    {
+        // 445 on 0.0.0.0 is network-exposed (Warning); 3389 on ::1 is loopback (Info).
+        var f = CheckListeningPorts(new NetworkState
+        {
+            ListeningPorts = new() { Port(445, "System", "0.0.0.0"), Port(3389, "svc", "::1") },
+        });
+        Assert.True(Has(f, Severity.Warning, "High-Risk Ports Exposed to Network (1)"));
+        Assert.True(Has(f, Severity.Info, "High-Risk Ports Listening on Loopback Only (1)"));
+
+        // The exposed finding names the bind address so an operator can see it.
+        var w = f.Single(x => x.Severity == Severity.Warning);
+        Assert.Contains("on 0.0.0.0", w.Description);
+    }
+
+    [Fact]
+    public void Ports_AllInterfacesWildcard_CountsAsExposed()
+    {
+        // The IPv6 all-interfaces wildcard "::" is network-exposed, not loopback.
+        var f = CheckListeningPorts(new NetworkState
+        {
+            ListeningPorts = new() { Port(445, "System", "::") },
+        });
+        Assert.True(Has(f, Severity.Warning, "High-Risk Ports Exposed to Network"));
+        Assert.False(f.Any(x => x.Title.Contains("Loopback", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [Theory]
+    [InlineData("0.0.0.0", true)]
+    [InlineData("::", true)]
+    [InlineData("[::]", true)]
+    [InlineData("192.168.1.10", true)]
+    [InlineData("10.0.0.5", true)]
+    [InlineData("", true)]            // unknown -> fail safe
+    [InlineData("   ", true)]
+    [InlineData(null, true)]
+    [InlineData("127.0.0.1", false)]
+    [InlineData("127.5.6.7", false)]  // whole 127.0.0.0/8 is loopback
+    [InlineData("::1", false)]
+    [InlineData("[::1]", false)]
+    [InlineData("localhost", false)]
+    [InlineData("LOCALHOST", false)]
+    [InlineData("fe80::1%eth0", true)] // link-local with a zone id -> reachable, not loopback
+    public void IsPublicBindAddress_ClassifiesLoopbackVsReachable(string? addr, bool expectedPublic)
+    {
+        Assert.Equal(expectedPublic, NetworkPostureAnalyzer.IsPublicBindAddress(addr));
+    }
+
+    [Theory]
+    [InlineData("0.0.0.0", true)]
+    [InlineData("127.0.0.1", false)]
+    [InlineData("", true)]
+    public void ListeningPort_IsPubliclyBound_TracksBindAddress(string addr, bool expected)
+    {
+        Assert.Equal(expected, new ListeningPort(3389, "svc", addr).IsPubliclyBound);
     }
 
     // ---- SMB -----------------------------------------------------------------

@@ -75,11 +75,11 @@ public class NetworkAudit : AuditModuleBase
     {
         var output = await ShellHelper.RunPowerShellAsync(
             @"Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | 
-              Select-Object LocalPort, OwningProcess | 
+              Select-Object LocalAddress, LocalPort, OwningProcess | 
               Sort-Object LocalPort -Unique | 
               ForEach-Object { 
                   $proc = Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue
-                  '{0}|{1}' -f $_.LocalPort, $proc.ProcessName 
+                  '{0}|{1}|{2}' -f $_.LocalPort, $proc.ProcessName, $_.LocalAddress 
               }", ct);
 
         foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
@@ -93,9 +93,9 @@ public class NetworkAudit : AuditModuleBase
 
     /// <summary>
     /// Parse a single line of the listening-ports collector's pipe-delimited PowerShell
-    /// output (<c>'{0}|{1}' -f $_.LocalPort, $proc.ProcessName</c>) into a
-    /// <see cref="NetworkPostureAnalyzer.ListeningPort"/>. Returns false for anything
-    /// that is not a real <c>port|process</c> row.
+    /// output (<c>'{0}|{1}|{2}' -f $_.LocalPort, $proc.ProcessName, $_.LocalAddress</c>)
+    /// into a <see cref="NetworkPostureAnalyzer.ListeningPort"/>. Returns false for
+    /// anything that is not a real <c>port|process[|address]</c> row.
     ///
     /// <para>The previous inline parse accepted column 0 as a port whenever
     /// <see cref="int.TryParse(string, out int)"/> succeeded, with no range check, and
@@ -110,13 +110,21 @@ public class NetworkAudit : AuditModuleBase
     /// missing/blank process name to <c>"unknown"</c>, so junk lines are rejected for what
     /// they are — on any Windows display language — and a real port always carries a
     /// non-empty owner label.</para>
+    ///
+    /// <para>The optional third column is the <c>LocalAddress</c> the port is bound to
+    /// (e.g. <c>0.0.0.0</c>, <c>::</c>, <c>127.0.0.1</c>). It lets the analyzer tell a
+    /// network-exposed high-risk service from a loopback-only one. It is optional so a
+    /// two-column row from older data still parses (address defaults to blank, which the
+    /// analyzer treats conservatively as exposed).</para>
     /// </summary>
     internal static bool TryParseListeningPortLine(string? line, out NetworkPostureAnalyzer.ListeningPort port)
     {
         port = new NetworkPostureAnalyzer.ListeningPort();
         if (string.IsNullOrWhiteSpace(line)) return false;
 
-        // Rows look like "445|System" or "49664|svchost"; an exited owner yields "445|".
+        // Rows look like "0.0.0.0|System|445" -> "445|System|0.0.0.0" after the format
+        // string; an exited owner yields "445||0.0.0.0", and older two-column data is
+        // "445|System" with no address.
         var parts = line.Split('|');
         if (parts.Length < 2) return false; // need both a port and a (possibly empty) owner column
 
@@ -125,7 +133,9 @@ public class NetworkAudit : AuditModuleBase
         var processName = parts[1].Trim();
         if (processName.Length == 0) processName = "unknown";
 
-        port = new NetworkPostureAnalyzer.ListeningPort(portNumber, processName);
+        var localAddress = parts.Length >= 3 ? parts[2].Trim() : "";
+
+        port = new NetworkPostureAnalyzer.ListeningPort(portNumber, processName, localAddress);
         return true;
     }
 

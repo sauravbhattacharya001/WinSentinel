@@ -748,12 +748,25 @@ public class NetworkAuditIPv6ParsingTests
     [InlineData("  3389 | TermService ", 3389, "TermService")]     // surrounding whitespace trimmed
     [InlineData("1|wininit", 1, "wininit")]                          // lowest valid port
     [InlineData("65535|app", 65535, "app")]                          // highest valid port
-    [InlineData("80|svc|extra", 80, "svc")]                          // trailing column ignored
+    [InlineData("80|svc|0.0.0.0", 80, "svc")]                        // 3rd column is the bind address
     public void TryParseListeningPortLine_ParsesRealRows(string line, int expectedPort, string expectedProc)
     {
         Assert.True(NetworkAudit.TryParseListeningPortLine(line, out var p));
         Assert.Equal(expectedPort, p.Port);
         Assert.Equal(expectedProc, p.ProcessName);
+    }
+
+    [Theory]
+    [InlineData("445|System|0.0.0.0", "0.0.0.0")]
+    [InlineData("3389|TermService|127.0.0.1", "127.0.0.1")]
+    [InlineData("445|System|::", "::")]
+    [InlineData("  445 | System | 0.0.0.0 ", "0.0.0.0")]             // address trimmed
+    [InlineData("445||0.0.0.0", "0.0.0.0")]                          // exited owner, address still captured
+    [InlineData("445|System", "")]                                  // two-column (older) row -> blank address
+    public void TryParseListeningPortLine_CapturesBindAddress(string line, string expectedAddr)
+    {
+        Assert.True(NetworkAudit.TryParseListeningPortLine(line, out var p));
+        Assert.Equal(expectedAddr, p.LocalAddress);
     }
 
     [Fact]
@@ -763,6 +776,7 @@ public class NetworkAuditIPv6ParsingTests
         Assert.True(NetworkAudit.TryParseListeningPortLine("445|", out var p));
         Assert.Equal(445, p.Port);
         Assert.Equal("unknown", p.ProcessName);
+        Assert.Equal("", p.LocalAddress);
     }
 
     [Fact]

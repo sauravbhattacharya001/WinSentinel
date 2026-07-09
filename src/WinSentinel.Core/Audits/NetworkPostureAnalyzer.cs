@@ -56,12 +56,69 @@ public static class NetworkPostureAnalyzer
         public int Port { get; set; }
         public string ProcessName { get; set; } = "";
 
+        /// <summary>
+        /// The local bind address the port is listening on (e.g. <c>0.0.0.0</c>,
+        /// <c>::</c>, or <c>127.0.0.1</c>). Empty when the collector could not
+        /// determine it (older data / a locale where the column was dropped) - in
+        /// which case it is treated conservatively as publicly bound.
+        /// </summary>
+        public string LocalAddress { get; set; } = "";
+
+        /// <summary>
+        /// True when the port is reachable from OFF this machine - i.e. bound to
+        /// all interfaces (<c>0.0.0.0</c> / <c>::</c>) or a concrete non-loopback
+        /// address - rather than to loopback only (<c>127.0.0.1</c> / <c>::1</c>).
+        /// A high-risk service on loopback is a much smaller exposure than the
+        /// same service answering the network, so the port checks weight the two
+        /// very differently. Unknown/blank binds are treated as public (fail safe).
+        /// </summary>
+        public bool IsPubliclyBound => IsPublicBindAddress(LocalAddress);
+
         public ListeningPort() { }
         public ListeningPort(int port, string processName)
         {
             Port = port;
             ProcessName = processName ?? "";
         }
+        public ListeningPort(int port, string processName, string localAddress)
+        {
+            Port = port;
+            ProcessName = processName ?? "";
+            LocalAddress = localAddress ?? "";
+        }
+    }
+
+    /// <summary>
+    /// Classify a listening bind address as publicly reachable (true) vs
+    /// loopback-only (false). Pure/allocation-light so it can be unit-tested and
+    /// reused. Loopback = <c>127.0.0.0/8</c> IPv4, IPv6 <c>::1</c>, or the literal
+    /// <c>localhost</c>. Everything else - including all-interfaces wildcards
+    /// (<c>0.0.0.0</c>, <c>::</c>, <c>[::]</c>) and any concrete LAN/public IP -
+    /// counts as public. A blank/unknown address is treated as public so a
+    /// collector gap can never silently downgrade a real exposure.
+    /// </summary>
+    public static bool IsPublicBindAddress(string? address)
+    {
+        var a = address?.Trim();
+        if (string.IsNullOrEmpty(a)) return true; // unknown -> fail safe (assume exposed)
+
+        // Strip an IPv6 bracket wrapper and any zone/scope id or :port suffix that
+        // may have ridden along (e.g. "[::1]", "fe80::1%eth0").
+        if (a.Length >= 2 && a[0] == '[')
+        {
+            var close = a.IndexOf(']');
+            a = close > 1 ? a.Substring(1, close - 1) : a.Substring(1);
+        }
+        var pct = a.IndexOf('%');
+        if (pct >= 0) a = a.Substring(0, pct);
+        a = a.Trim();
+        if (a.Length == 0) return true;
+
+        if (a.Equals("localhost", StringComparison.OrdinalIgnoreCase)) return false;
+        if (a == "::1") return false;                 // IPv6 loopback
+        if (a.StartsWith("127.", StringComparison.Ordinal)) return false; // 127.0.0.0/8
+
+        return true; // 0.0.0.0, ::, concrete LAN/public IPs -> reachable
     }
 
     /// <summary>An ARP table entry (IPv4 + MAC).</summary>
@@ -178,21 +235,33 @@ public static class NetworkPostureAnalyzer
     // ── Listening ports ─────────────────────────────────────────────────────
 
     /// <summary>
-    /// Flags any high-risk listening ports and always emits the total-count info.
+    /// Flags high-risk listening ports, separating those exposed to the network
+    /// (bound to all interfaces or a concrete non-loopback address) from those
+    /// bound to loopback only, and always emits the total-count info.
     /// </summary>
     public static List<Finding> CheckListeningPorts(NetworkState state)
     {
         var findings = new List<Finding>();
-        var highRisk = state.ListeningPorts
+
+        var highRiskPorts = state.ListeningPorts
             .Where(p => HighRiskPorts.Contains(p.Port))
-            .Select(p => $"Port {p.Port} ({p.ProcessName})")
             .ToList();
 
-        if (highRisk.Count > 0)
+        // Exposure matters: a high-risk service answering the network (0.0.0.0 / a
+        // LAN IP) is a real remote attack surface, while the same service on
+        // loopback is only reachable locally. Split them so the network-exposed
+        // ports raise a Warning and loopback-only ports get a calmer Info note
+        // (unknown/blank binds count as exposed - see IsPublicBindAddress).
+        var exposed = highRiskPorts.Where(p => p.IsPubliclyBound).ToList();
+        var loopbackOnly = highRiskPorts.Where(p => !p.IsPubliclyBound).ToList();
+
+        if (exposed.Count > 0)
         {
+            var list = string.Join(", ", exposed.Select(FormatExposedPort));
             findings.Add(Finding.Warning(
-                $"High-Risk Ports Listening ({highRisk.Count})",
-                $"The following high-risk ports are open and listening: {string.Join(", ", highRisk)}",
+                $"High-Risk Ports Exposed to Network ({exposed.Count})",
+                $"The following high-risk ports are listening on a network-reachable address: {list}. " +
+                "Because they are not bound to loopback, they can be reached by other hosts.",
                 Category,
                 // No FixCommand: which listening service to stop is a human judgement
                 // call (closing a port may break a needed service), so there is no
@@ -202,9 +271,20 @@ public static class NetworkPostureAnalyzer
                 // the "Fix" button a guaranteed-to-fail dead button.
                 "Review each listening service and disable any that are not needed, then block " +
                 "unused ports in the firewall. List the owning processes with: " +
-                "Get-NetTCPConnection -State Listen | Select-Object LocalPort, OwningProcess | Sort-Object LocalPort"));
+                "Get-NetTCPConnection -State Listen | Select-Object LocalAddress, LocalPort, OwningProcess | Sort-Object LocalPort"));
         }
-        else
+
+        if (loopbackOnly.Count > 0)
+        {
+            var list = string.Join(", ", loopbackOnly.Select(p => $"Port {p.Port} ({p.ProcessName})"));
+            findings.Add(Finding.Info(
+                $"High-Risk Ports Listening on Loopback Only ({loopbackOnly.Count})",
+                $"The following high-risk ports are listening on loopback only (not reachable from other hosts): {list}. " +
+                "This is a much smaller exposure than a network-bound service, but confirm the bind stays local-only.",
+                Category));
+        }
+
+        if (exposed.Count == 0 && loopbackOnly.Count == 0)
         {
             findings.Add(Finding.Pass(
                 "No Common High-Risk Ports Exposed",
@@ -218,6 +298,20 @@ public static class NetworkPostureAnalyzer
             Category));
 
         return findings;
+    }
+
+    /// <summary>
+    /// Render an exposed high-risk port for the finding text, appending the bind
+    /// address when it is known (so an operator sees whether it is the
+    /// all-interfaces wildcard or a specific LAN IP). A blank address is omitted
+    /// rather than shown as an empty "on ".
+    /// </summary>
+    private static string FormatExposedPort(ListeningPort p)
+    {
+        var addr = p.LocalAddress?.Trim();
+        return string.IsNullOrEmpty(addr)
+            ? $"Port {p.Port} ({p.ProcessName})"
+            : $"Port {p.Port} ({p.ProcessName}) on {addr}";
     }
 
     // ── SMB ──────────────────────────────────────────────────────────────────

@@ -51,6 +51,38 @@ public static class EncryptionAnalyzer
         "RC4", "DES", "NULL", "EXPORT", "MD5"
     };
 
+    /// <summary>
+    /// Cipher-suite tokens that indicate <b>no or trivially-broken</b> protection and so
+    /// warrant a <see cref="Severity.Critical"/> finding (not merely Warning):
+    /// <list type="bullet">
+    ///   <item><c>NULL</c> - no encryption at all (traffic is plaintext).</item>
+    ///   <item><c>EXPORT</c> - deliberately-crippled 1990s export-grade keys, breakable in
+    ///     minutes (FREAK / Logjam).</item>
+    ///   <item><c>anon</c> - anonymous key exchange, no server authentication, trivially
+    ///     man-in-the-middled.</item>
+    ///   <item><c>_DES_</c> - single 56-bit DES, brute-forceable. Written with surrounding
+    ///     underscores so it matches <c>TLS_RSA_WITH_DES_CBC_SHA</c> but <b>not</b>
+    ///     Triple-DES (<c>3DES</c>), which is weak-but-encrypted and handled below.</item>
+    /// </list>
+    /// </summary>
+    public static readonly IReadOnlyList<string> CriticalCipherTokens = new[]
+    {
+        "NULL", "EXPORT", "anon", "_DES_"
+    };
+
+    /// <summary>
+    /// Cipher-suite tokens that are weak-but-still-encrypting, warranting a
+    /// <see cref="Severity.Warning"/>: <c>RC4</c> (biased keystream, RFC 7465 prohibits it),
+    /// <c>3DES</c> (64-bit block Sweet32 birthday attack, CVE-2016-2183), and <c>MD5</c>
+    /// (broken MAC/PRF hash). These protect the data but with broken primitives, so they
+    /// should still be removed - just a rung below the <see cref="CriticalCipherTokens"/>
+    /// "no protection at all" tier.
+    /// </summary>
+    public static readonly IReadOnlyList<string> WarningCipherTokens = new[]
+    {
+        "RC4", "3DES", "MD5"
+    };
+
     /// <summary>Weak certificate signature-algorithm tokens.</summary>
     public static readonly IReadOnlyList<string> WeakSignatureTokens = new[] { "SHA1", "MD5", "MD2" };
 
@@ -533,8 +565,42 @@ public static class EncryptionAnalyzer
     }
 
     /// <summary>
+    /// Classify a SChannel Functions cipher-suite list into two disjoint, order-preserving
+    /// buckets: Critical suites (contain a <see cref="CriticalCipherTokens"/> token - no real
+    /// protection) and Warning suites (contain a <see cref="WarningCipherTokens"/> token but
+    /// no critical token - weak-but-encrypted). Each suite is counted once, in the highest
+    /// tier it qualifies for (critical wins), so the lists never overlap. Blank entries are
+    /// dropped; null/blank input yields two empty lists. Severity-aware companion to
+    /// <see cref="FindWeakCipherSuites"/> (which returns the flat union).
+    /// </summary>
+    public static (IReadOnlyList<string> Critical, IReadOnlyList<string> Warning) ClassifyWeakCipherSuites(string? functions)
+    {
+        var critical = new List<string>();
+        var warning = new List<string>();
+        if (string.IsNullOrWhiteSpace(functions)) return (critical, warning);
+
+        var suites = functions.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        foreach (var suite in suites)
+        {
+            var isCritical = false;
+            foreach (var token in CriticalCipherTokens)
+            {
+                if (suite.Contains(token, StringComparison.OrdinalIgnoreCase)) { isCritical = true; break; }
+            }
+            if (isCritical) { critical.Add(suite); continue; }
+
+            foreach (var token in WarningCipherTokens)
+            {
+                if (suite.Contains(token, StringComparison.OrdinalIgnoreCase)) { warning.Add(suite); break; }
+            }
+        }
+        return (critical, warning);
+    }
+
+    /// <summary>
     /// Build the cipher-suite finding. Null/blank functions -> Info (system default).
-    /// Any weak suite -> Warning; otherwise Pass.
+    /// Any suite with no/broken protection (NULL/EXPORT/anon/single-DES) -> Critical;
+    /// otherwise any weak-but-encrypting suite (RC4/3DES/MD5) -> Warning; else Pass.
     /// </summary>
     public static Finding BuildCipherSuiteFinding(string? functions)
     {
@@ -547,15 +613,39 @@ public static class EncryptionAnalyzer
         }
 
         var suites = functions.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-        var weak = FindWeakCipherSuites(functions);
+        var (critical, warning) = ClassifyWeakCipherSuites(functions);
 
-        if (weak.Count > 0)
+        if (critical.Count > 0)
+        {
+            // NULL / EXPORT / anonymous / single-DES suites offer no meaningful protection
+            // (plaintext, brute-forceable, or unauthenticated -> MITM). Critical. Any
+            // weak-but-encrypting suites are folded into the same finding's count.
+            var total = critical.Count + warning.Count;
+            var sample = string.Join(", ", critical.Concat(warning).Take(5));
+            return new Finding
+            {
+                Title = $"Insecure Cipher Suites Configured ({total})",
+                Description = $"Found {critical.Count} cipher suite(s) that provide no real protection "
+                    + $"(NULL/EXPORT/anonymous/56-bit DES) plus {warning.Count} other weak suite(s). "
+                    + $"Sample: {sample}. NULL means plaintext, EXPORT/DES are brute-forceable, and "
+                    + "anonymous suites allow undetected man-in-the-middle interception.",
+                Severity = Severity.Critical,
+                Category = Category,
+                Remediation = "Remove all NULL, EXPORT, anonymous, and DES/3DES/RC4 cipher suites "
+                    + "from the SSL cipher suite order via Group Policy or registry, leaving only "
+                    + "AES-GCM / ChaCha20 suites.",
+                FixCommand = OpenGroupPolicyFix
+            };
+        }
+
+        if (warning.Count > 0)
         {
             return Finding.Warning(
-                $"Weak Cipher Suites Configured ({weak.Count})",
-                $"Found {weak.Count} weak cipher suite(s) in the configured order: {string.Join(", ", weak.Take(5))}. These use broken cryptographic algorithms.",
+                $"Weak Cipher Suites Configured ({warning.Count})",
+                $"Found {warning.Count} weak cipher suite(s) in the configured order: {string.Join(", ", warning.Take(5))}. "
+                    + "These still encrypt but rely on broken primitives (RC4 keystream bias, 3DES Sweet32 birthday attack, MD5 MAC).",
                 Category,
-                "Remove weak cipher suites (RC4, DES, NULL, EXPORT, MD5) from the cipher suite order via Group Policy or registry.",
+                "Remove weak cipher suites (RC4, 3DES, MD5) from the cipher suite order via Group Policy or registry.",
                 OpenGroupPolicyFix);
         }
 

@@ -588,6 +588,102 @@ ManufacturerVersionFull20       : 7.2.2.0";
         Assert.Contains("2 suite", f.Description);
     }
 
+    // --- Severity tiering: critical (no protection) vs warning (weak-but-encrypted) ---
+
+    [Fact]
+    public void ClassifyWeakCipherSuites_Null_BothEmpty()
+    {
+        var (crit, warn) = EncryptionAnalyzer.ClassifyWeakCipherSuites(null);
+        Assert.Empty(crit);
+        Assert.Empty(warn);
+        var (crit2, warn2) = EncryptionAnalyzer.ClassifyWeakCipherSuites("   ");
+        Assert.Empty(crit2);
+        Assert.Empty(warn2);
+    }
+
+    [Fact]
+    public void ClassifyWeakCipherSuites_SplitsTiers_NoOverlap()
+    {
+        // NULL + EXPORT + anon + single-DES => critical; RC4 + 3DES + MD5 => warning; GCM strong.
+        var fns = "TLS_RSA_WITH_NULL_SHA,"
+                + "TLS_RSA_EXPORT_WITH_RC2_CBC_40_MD5,"
+                + "TLS_DH_anon_WITH_AES_128_CBC_SHA,"
+                + "TLS_RSA_WITH_DES_CBC_SHA,"
+                + "TLS_RSA_WITH_RC4_128_SHA,"
+                + "TLS_RSA_WITH_3DES_EDE_CBC_SHA,"
+                + "TLS_AES_256_GCM_SHA384";
+        var (crit, warn) = EncryptionAnalyzer.ClassifyWeakCipherSuites(fns);
+
+        Assert.Contains(crit, s => s.Contains("NULL"));
+        Assert.Contains(crit, s => s.Contains("EXPORT"));
+        Assert.Contains(crit, s => s.Contains("anon"));
+        Assert.Contains(crit, s => s.Contains("WITH_DES_"));   // single 56-bit DES
+        Assert.Contains(warn, s => s.Contains("RC4"));
+        Assert.Contains(warn, s => s.Contains("3DES"));
+
+        // No suite appears in both buckets.
+        Assert.Empty(crit.Intersect(warn));
+        // Strong GCM suite is in neither.
+        Assert.DoesNotContain(crit.Concat(warn), s => s.Contains("AES_256_GCM"));
+    }
+
+    [Fact]
+    public void ClassifyWeakCipherSuites_TripleDes_IsWarningNotCritical()
+    {
+        // Sweet32 (CVE-2016-2183): 3DES is weak-but-encrypting, so it must land in Warning,
+        // NOT be misclassified as single-DES Critical. The "_DES_" critical token has
+        // underscores precisely so it does not match "3DES".
+        var (crit, warn) = EncryptionAnalyzer.ClassifyWeakCipherSuites("TLS_RSA_WITH_3DES_EDE_CBC_SHA");
+        Assert.Empty(crit);
+        Assert.Single(warn);
+        Assert.Contains("3DES", warn[0]);
+    }
+
+    [Fact]
+    public void ClassifyWeakCipherSuites_CriticalWins_WhenSuiteHasBothTokens()
+    {
+        // A single suite that is both EXPORT (critical) and MD5 (warning) is counted once, in
+        // the critical tier only.
+        var (crit, warn) = EncryptionAnalyzer.ClassifyWeakCipherSuites("TLS_RSA_EXPORT_WITH_RC4_40_MD5");
+        Assert.Single(crit);
+        Assert.Empty(warn);
+    }
+
+    [Fact]
+    public void BuildCipherSuite_NullCipher_IsCritical()
+    {
+        var f = EncryptionAnalyzer.BuildCipherSuiteFinding("TLS_RSA_WITH_NULL_SHA,TLS_AES_256_GCM_SHA384");
+        Assert.Equal(Severity.Critical, f.Severity);
+        Assert.Contains("Insecure Cipher Suites", f.Title);
+        Assert.Equal(EncryptionAnalyzer.OpenGroupPolicyFix, f.FixCommand);
+    }
+
+    [Fact]
+    public void BuildCipherSuite_ExportCipher_IsCritical()
+    {
+        var f = EncryptionAnalyzer.BuildCipherSuiteFinding("TLS_RSA_EXPORT_WITH_DES40_CBC_SHA");
+        Assert.Equal(Severity.Critical, f.Severity);
+    }
+
+    [Fact]
+    public void BuildCipherSuite_TripleDesOnly_IsWarning()
+    {
+        // 3DES alone must be a Warning, and the message should name Sweet32/3DES, not DES.
+        var f = EncryptionAnalyzer.BuildCipherSuiteFinding("TLS_RSA_WITH_3DES_EDE_CBC_SHA,TLS_AES_128_GCM_SHA256");
+        Assert.Equal(Severity.Warning, f.Severity);
+        Assert.Contains("Weak Cipher Suites", f.Title);
+        Assert.Contains("3DES", f.Description);
+    }
+
+    [Fact]
+    public void BuildCipherSuite_CriticalFinding_CountsBothTiers()
+    {
+        // One NULL (critical) + one RC4 (warning) => Critical finding whose count is 2.
+        var f = EncryptionAnalyzer.BuildCipherSuiteFinding("TLS_RSA_WITH_NULL_MD5,TLS_RSA_WITH_RC4_128_SHA");
+        Assert.Equal(Severity.Critical, f.Severity);
+        Assert.Contains("(2)", f.Title);
+    }
+
     // ----------------------------------------------------------------------
     // Certificates: weak key / weak signature predicates
     // ----------------------------------------------------------------------

@@ -34,6 +34,8 @@ public class NetworkPostureAnalyzerTests
         WiFiCipher = "CCMP",
         Llmnr = Toggle.Disabled,
         NetBiosAdapterCount = 1,
+        WpadHardened = Toggle.Enabled,
+        MdnsHardened = Toggle.Enabled,
     };
 
     private static NetworkState InsecureState() => new()
@@ -596,6 +598,65 @@ public class NetworkPostureAnalyzerTests
         // InsecureState is left likewise; either way there must be exactly one WPAD row.
         Assert.Single(Analyze(SecureState()), x => x.Title.Contains("WPAD", StringComparison.OrdinalIgnoreCase));
         Assert.Single(Analyze(InsecureState()), x => x.Title.Contains("WPAD", StringComparison.OrdinalIgnoreCase));
+    }
+
+    // ---- mDNS ----------------------------------------------------------------
+
+    [Fact]
+    public void Mdns_NullState_Throws() =>
+        Assert.Throws<ArgumentNullException>(() => CheckMdns(null!));
+
+    [Fact]
+    public void Mdns_Hardened_Passes()
+    {
+        // Toggle.Enabled encodes "EnableMDNS = 0" (the secure, hardened-off posture).
+        var f = CheckMdns(new NetworkState { MdnsHardened = Toggle.Enabled });
+        Assert.Equal(Severity.Pass, f.Severity);
+        Assert.Contains("mDNS Disabled", f.Title);
+        Assert.Null(f.FixCommand); // a Pass carries no fix
+    }
+
+    [Theory]
+    [InlineData(Toggle.Disabled)] // EnableMDNS = 1 or absent (default on) => exposed
+    [InlineData(Toggle.Unknown)]  // unreadable => fail safe, warn
+    public void Mdns_NotHardenedOrUnknown_Warns(Toggle posture)
+    {
+        var f = CheckMdns(new NetworkState { MdnsHardened = posture });
+        Assert.Equal(Severity.Warning, f.Severity);
+        Assert.Contains("mDNS Enabled", f.Title);
+    }
+
+    [Fact]
+    public void Mdns_Warning_HasSanitizerSafeFix()
+    {
+        var f = CheckMdns(new NetworkState { MdnsHardened = Toggle.Disabled });
+        Assert.False(string.IsNullOrWhiteSpace(f.FixCommand));
+        // Single Set-ItemProperty (no ';'/'|'/'&&' chaining) so both FixEngine's
+        // sanitizer AND NetworkAudit's PowerShell/netsh-only fix convention accept it.
+        Assert.StartsWith("Set-ItemProperty ", f.FixCommand);
+        Assert.Contains("EnableMDNS", f.FixCommand);
+        Assert.DoesNotContain(";", f.FixCommand!);
+        Assert.DoesNotContain("|", f.FixCommand!);
+        Assert.Null(InputSanitizer.CheckDangerousCommand(f.FixCommand));
+    }
+
+    [Fact]
+    public void Mdns_UnknownAndDisabled_ExplainReadFailureDifferently()
+    {
+        var unknown = CheckMdns(new NetworkState { MdnsHardened = Toggle.Unknown });
+        var disabled = CheckMdns(new NetworkState { MdnsHardened = Toggle.Disabled });
+        Assert.Contains("could not be read", unknown.Description);
+        Assert.Contains("default", disabled.Description);
+    }
+
+    [Fact]
+    public void Analyze_Includes_ExactlyOneMdnsFinding()
+    {
+        // The aggregate entry point must surface mDNS exactly once, in both postures.
+        // SecureState sets MdnsHardened = Enabled (a Pass); InsecureState leaves it at
+        // its default (Unknown => a Warning); either way exactly one mDNS row.
+        Assert.Single(Analyze(SecureState()), x => x.Title.Contains("mDNS", StringComparison.OrdinalIgnoreCase));
+        Assert.Single(Analyze(InsecureState()), x => x.Title.Contains("mDNS", StringComparison.OrdinalIgnoreCase));
     }
 
     // ---- ARP -----------------------------------------------------------------

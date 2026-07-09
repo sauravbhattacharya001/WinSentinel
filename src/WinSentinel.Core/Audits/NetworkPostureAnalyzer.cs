@@ -188,6 +188,19 @@ public static class NetworkPostureAnalyzer
         // "wpad" WPAD/PAC lookup to feed a rogue proxy and harvest NTLM auth.
         public Toggle WpadHardened { get; set; } = Toggle.Unknown;
 
+        // mDNS (Multicast DNS, UDP 5353) hardening. Tracks the Microsoft-documented
+        // machine-wide DNS Client control
+        // HKLM\SYSTEM\CurrentControlSet\Services\Dnscache\Parameters\EnableMDNS
+        // (0 = the Windows DNS Client mDNS responder/listener is turned off). To avoid
+        // a double negative the toggle encodes the *posture*, not the raw value:
+        // Enabled = mDNS is hardened OFF (EnableMDNS = 0, the secure state); Disabled =
+        // EnableMDNS is 1 OR the value is absent (Windows ships with mDNS ON by
+        // default, so a missing key is still exposed); Unknown = the value could not be
+        // read. mDNS is the fourth classic local name-resolution poisoning vector
+        // alongside LLMNR, NBT-NS and WPAD - Responder/Inveigh answer the client's
+        // multicast ".local" lookups to harvest NTLM auth.
+        public Toggle MdnsHardened { get; set; } = Toggle.Unknown;
+
         // NetBIOS over TCP/IP - adapters where NBT is still enabled (option 0 or 1).
         public List<string> NetBiosEnabledAdapters { get; set; } = new();
         // Number of IP-enabled adapters seen at all (so "all disabled" can Pass).
@@ -227,6 +240,7 @@ public static class NetworkPostureAnalyzer
         if (wifi != null) findings.Add(wifi);
         findings.AddRange(CheckLlmnrNetBios(state));
         findings.Add(CheckWpad(state));
+        findings.Add(CheckMdns(state));
         findings.Add(CheckArp(state));
         findings.AddRange(CheckIPv6(state));
         return findings;
@@ -722,6 +736,73 @@ public static class NetworkPostureAnalyzer
             // without a New-Item first; the service restart is human-guided detail above.
             @"Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings\WinHttp' " +
             "-Name DisableWpad -Value 1");
+    }
+
+    // ── mDNS (Multicast DNS / .local) ─────────────────────────────────────────
+
+    /// <summary>
+    /// Evaluates mDNS (Multicast DNS, UDP 5353) hardening - the fourth classic local
+    /// name-resolution poisoning vector next to LLMNR, NBT-NS and WPAD. The Windows
+    /// DNS Client resolves <c>.local</c> names (and, when LLMNR/NBT-NS are already
+    /// disabled, other single-label names) by multicasting a query to the whole LAN.
+    /// An attacker running Responder/Inveigh answers that multicast with a rogue host
+    /// and coerces the victim into authenticating - harvesting NTLMv2 hashes exactly
+    /// as with LLMNR, with no user interaction.
+    ///
+    /// <para>The durable, machine-wide mitigation Microsoft documents is the
+    /// <c>EnableMDNS</c> DWORD under
+    /// <c>HKLM\SYSTEM\CurrentControlSet\Services\Dnscache\Parameters</c> set to 0,
+    /// which turns off the DNS Client mDNS responder/listener. The analyzer grades the
+    /// collected posture in <see cref="NetworkState.MdnsHardened"/>:
+    /// <see cref="Toggle.Enabled"/> (EnableMDNS = 0, mDNS hardened off) passes;
+    /// <see cref="Toggle.Disabled"/> (EnableMDNS = 1, OR the value is absent - Windows
+    /// ships with mDNS ON by default, so a missing key is still exposed) warns;
+    /// <see cref="Toggle.Unknown"/> (unreadable) also warns, fail-safe, so a blocked
+    /// read surfaces the exposure rather than hiding it. Always returns exactly one
+    /// finding.</para>
+    /// </summary>
+    public static Finding CheckMdns(NetworkState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+
+        if (state.MdnsHardened == Toggle.Enabled)
+        {
+            return Finding.Pass(
+                "mDNS Disabled",
+                "Multicast DNS (mDNS, UDP 5353) is disabled machine-wide " +
+                "(Dnscache EnableMDNS = 0). Attackers on the local network cannot " +
+                "poison the client's multicast '.local' name lookups to coerce NTLM " +
+                "authentication and harvest credentials.",
+                Category);
+        }
+
+        var stateNote = state.MdnsHardened == Toggle.Disabled
+            ? "The Dnscache 'EnableMDNS' value is 1 or absent (Windows enables mDNS by " +
+              "default), so the multicast DNS responder is still active."
+            : "The Dnscache 'EnableMDNS' value could not be read, so multicast DNS must " +
+              "be assumed active.";
+
+        return Finding.Warning(
+            "mDNS Enabled (Poisoning Risk)",
+            stateNote + " The Windows DNS Client resolves '.local' names (and other " +
+            "single-label names when LLMNR/NBT-NS are already off) by multicasting to " +
+            "the whole LAN; an attacker (Responder/Inveigh) can answer that multicast, " +
+            "impersonate the requested host, and capture NTLMv2 hashes. mDNS is the " +
+            "fourth classic name-resolution poisoning vector alongside LLMNR, NBT-NS " +
+            "and WPAD.",
+            Category,
+            "Disable the Windows DNS Client mDNS responder machine-wide by setting the " +
+            "Dnscache EnableMDNS DWORD to 0, then restart the DNS Client service " +
+            "(Dnscache) or reboot. Note: on Windows this suppresses the OS mDNS " +
+            "resolver; some apps (printing, casting) ship their own mDNS stack and are " +
+            "unaffected.",
+            // Single sanitizer-safe PowerShell statement (no ';'/'|'/'&&' chaining, so it
+            // survives InputSanitizer.CheckDangerousCommand AND satisfies NetworkAudit's
+            // PowerShell/netsh-only fix convention). The Dnscache\Parameters key exists
+            // by default on Windows, so Set-ItemProperty succeeds without a New-Item; the
+            // service restart is human-guided detail above.
+            @"Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Dnscache\Parameters' " +
+            "-Name EnableMDNS -Value 0");
     }
 
     // ── ARP ──────────────────────────────────────────────────────────────────────

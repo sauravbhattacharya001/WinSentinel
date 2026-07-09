@@ -21,7 +21,7 @@ public class NetworkAudit : AuditModuleBase
 {
     public override string Name => "Network Audit";
     public override string Category => "Network";
-    public override string Description => "Checks open ports, listening services, SMB/RDP exposure, IPv6, Wi-Fi security, network profile, LLMNR/NetBIOS/WPAD, and ARP anomalies.";
+    public override string Description => "Checks open ports, listening services, SMB/RDP exposure, IPv6, Wi-Fi security, network profile, LLMNR/NetBIOS/WPAD/mDNS, and ARP anomalies.";
 
     /// <summary>
     /// High-risk TCP ports. Kept for backwards compatibility; the source of truth is
@@ -65,6 +65,7 @@ public class NetworkAudit : AuditModuleBase
         await CollectWiFi(state, ct);
         await CollectLlmnrNetBios(state, ct);
         await CollectWpad(state, ct);
+        await CollectMdns(state, ct);
         await CollectArp(state, ct);
         await CollectIPv6(state, ct);
 
@@ -318,6 +319,22 @@ public class NetworkAudit : AuditModuleBase
             } catch { 'ERROR' }", ct);
 
         state.WpadHardened = ClassifyWpadValue(output);
+    }
+
+    private async Task CollectMdns(NetworkState state, CancellationToken ct)
+    {
+        // Read the Microsoft-documented machine-wide mDNS control
+        // (HKLM\SYSTEM\CurrentControlSet\Services\Dnscache\Parameters\EnableMDNS;
+        // 0 = the Windows DNS Client mDNS responder/listener is off). Emit one of
+        // 0 / 1 / NOT_SET / ERROR so the classifier can decide the posture from a clean
+        // token line even if a CIM/registry banner is prepended.
+        var output = await ShellHelper.RunPowerShellAsync(
+            @"try {
+                $key = Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Dnscache\Parameters' -Name 'EnableMDNS' -ErrorAction SilentlyContinue
+                if ($key -ne $null -and $key.PSObject.Properties.Name -contains 'EnableMDNS') { $key.EnableMDNS } else { 'NOT_SET' }
+            } catch { 'ERROR' }", ct);
+
+        state.MdnsHardened = ClassifyMdnsValue(output);
     }
 
     private async Task CollectArp(NetworkState state, CancellationToken ct)
@@ -632,6 +649,38 @@ public class NetworkAudit : AuditModuleBase
             if (t == "1") return Toggle.Enabled;   // DisableWpad = 1 => WPAD hardened OFF
             if (t == "0") return Toggle.Disabled;  // present but 0 => WPAD still active
             if (t.Equals("NOT_SET", StringComparison.OrdinalIgnoreCase)) return Toggle.Unknown;
+            if (t.Equals("ERROR", StringComparison.OrdinalIgnoreCase)) return Toggle.Unknown;
+            // Unrecognised noise line (e.g. a registry warning): skip and keep scanning.
+        }
+        return Toggle.Unknown; // no recognised token -> unknown (analyzer warns, fail-safe)
+    }
+
+    /// <summary>
+    /// Classifies the <c>EnableMDNS</c> (Windows DNS Client mDNS control) reader output
+    /// into the <see cref="NetworkState.MdnsHardened"/> posture toggle. The reader emits
+    /// one of <c>0</c> / <c>1</c> / <c>NOT_SET</c> / <c>ERROR</c>. Because a CIM/registry
+    /// warning line can be prepended, scan for the FIRST line that is exactly a
+    /// recognised token rather than testing the whole blob. The mDNS semantics are the
+    /// INVERSE of WPAD's kill switch: a clean lone <c>0</c> =&gt; <see cref="Toggle.Enabled"/>
+    /// (mDNS hardened off - the only Pass state); a clean lone <c>1</c> =&gt;
+    /// <see cref="Toggle.Disabled"/> (mDNS explicitly on, exposed). Crucially a missing
+    /// value (<c>NOT_SET</c>) also maps to <see cref="Toggle.Disabled"/> because Windows
+    /// ships with mDNS ENABLED by default, so an absent key means the responder is still
+    /// live - not unknown. Only an <c>ERROR</c> (or no recognised token) maps to
+    /// <see cref="Toggle.Unknown"/>. The analyzer warns on both Disabled and Unknown, so a
+    /// default-on or unreadable state fails SAFE and surfaces the mDNS-poisoning exposure.
+    /// </summary>
+    internal static Toggle ClassifyMdnsValue(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return Toggle.Unknown;
+        foreach (var line in raw.Split('\n'))
+        {
+            var t = line.Trim();
+            if (t.Length == 0) continue;
+            if (t == "0") return Toggle.Enabled;    // EnableMDNS = 0 => mDNS hardened OFF
+            if (t == "1") return Toggle.Disabled;   // EnableMDNS = 1 => mDNS explicitly on
+            // Key absent: Windows enables mDNS by default, so this is still exposed.
+            if (t.Equals("NOT_SET", StringComparison.OrdinalIgnoreCase)) return Toggle.Disabled;
             if (t.Equals("ERROR", StringComparison.OrdinalIgnoreCase)) return Toggle.Unknown;
             // Unrecognised noise line (e.g. a registry warning): skip and keep scanning.
         }

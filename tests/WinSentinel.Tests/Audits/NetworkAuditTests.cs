@@ -1217,5 +1217,58 @@ public class NetworkAuditLlmnrNetBiosParsingTests
         const string noisy = "WARNING: verbose banner\n0";
         Assert.Equal(Toggle.Disabled, NetworkAudit.ClassifyWpadValue(noisy));
     }
+
+    // ── ClassifyMdnsValue ─────────────────────────
+    //
+    // mDNS posture is the INVERSE of WPAD: a clean lone "0" (EnableMDNS = 0, the DNS
+    // Client mDNS responder is off) is the secure Enabled/hardened state; "1" means
+    // mDNS is explicitly on (Disabled/exposed). Crucially a missing key (NOT_SET) is
+    // ALSO Disabled/exposed because Windows enables mDNS by default, so an absent value
+    // must not read as "unknown". Only ERROR / unreadable maps to Unknown. The analyzer
+    // warns on both Disabled and Unknown, so a default-on box fails safe and surfaces it.
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData(" 0 ")]           // surrounding whitespace
+    [InlineData("0\n")]          // trailing newline (typical PowerShell output)
+    [InlineData("\n0\n")]        // blank lines around the value
+    public void ClassifyMdns_CleanZero_IsHardenedEnabled(string raw) =>
+        Assert.Equal(Toggle.Enabled, NetworkAudit.ClassifyMdnsValue(raw));
+
+    [Theory]
+    [InlineData("1")]
+    [InlineData(" 1 ")]
+    [InlineData("1\n")]
+    [InlineData("NOT_SET")]       // key absent => still exposed (mDNS on by default)
+    [InlineData("not_set")]       // case-insensitive sentinel
+    public void ClassifyMdns_OneOrMissing_IsDisabledExposed(string raw) =>
+        Assert.Equal(Toggle.Disabled, NetworkAudit.ClassifyMdnsValue(raw));
+
+    [Theory]
+    [InlineData("ERROR")]         // reader catch sentinel
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("garbage")]       // unrecognised single token
+    [InlineData("2")]            // not a recognised value
+    [InlineData("00")]           // not exactly "0"/"1"
+    public void ClassifyMdns_ErroredOrUnrecognised_IsUnknown(string? raw) =>
+        Assert.Equal(Toggle.Unknown, NetworkAudit.ClassifyMdnsValue(raw));
+
+    [Fact]
+    public void ClassifyMdns_NoisyPrefixThenZero_IsHardenedEnabled()
+    {
+        // A prepended CIM/registry warning must not defeat the hardened verdict --
+        // the scanner finds the first recognised token line.
+        const string noisy = "WARNING: Get-ItemProperty provider error\n0";
+        Assert.Equal(Toggle.Enabled, NetworkAudit.ClassifyMdnsValue(noisy));
+    }
+
+    [Fact]
+    public void ClassifyMdns_NoisyPrefixThenOne_IsDisabledExposed()
+    {
+        const string noisy = "WARNING: verbose banner\n1";
+        Assert.Equal(Toggle.Disabled, NetworkAudit.ClassifyMdnsValue(noisy));
+    }
 }
 

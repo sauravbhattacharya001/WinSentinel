@@ -177,6 +177,8 @@ public class PowerShellAudit : IAuditModule
                 var val = key.GetValue("EnableTranscripting");
                 state.TranscriptionEnabled = val is int i && i == 1;
                 state.TranscriptionOutputDir = key.GetValue("OutputDirectory")?.ToString();
+                var hdr = key.GetValue("EnableInvocationHeader");
+                state.TranscriptionInvocationHeaderEnabled = hdr is int h && h == 1;
             }
         }
         catch { /* Access denied */ }

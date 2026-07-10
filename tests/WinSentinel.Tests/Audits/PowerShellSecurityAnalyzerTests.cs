@@ -23,6 +23,7 @@ public class PowerShellSecurityAnalyzerTests
         ScriptBlockLoggingEnabled = true,
         ModuleLoggingEnabled = true,
         TranscriptionEnabled = true,
+        TranscriptionInvocationHeaderEnabled = true,
         TranscriptionOutputDir = @"C:\PSTranscripts",
         LanguageMode = "ConstrainedLanguage",
         V2EngineInstalled = false,
@@ -377,6 +378,7 @@ public class PowerShellSecurityAnalyzerTests
         var f = CheckTranscription(new PowerShellState
         {
             TranscriptionEnabled = true,
+            TranscriptionInvocationHeaderEnabled = true,
             TranscriptionOutputDir = @"D:\Logs\PS"
         });
         Assert.Equal(Severity.Pass, f.Severity);
@@ -386,9 +388,45 @@ public class PowerShellSecurityAnalyzerTests
     [Fact]
     public void CheckTranscription_EnabledNoDir_NotesDefaultLocation()
     {
-        var f = CheckTranscription(new PowerShellState { TranscriptionEnabled = true });
+        var f = CheckTranscription(new PowerShellState
+        {
+            TranscriptionEnabled = true,
+            TranscriptionInvocationHeaderEnabled = true
+        });
         Assert.Equal(Severity.Pass, f.Severity);
         Assert.Contains("defaults to user's Documents", f.Description);
+    }
+
+    // Transcription is on but the per-command invocation header is off: CIS L1
+    // hygiene gap, surfaced as its own Info (distinct from the fully-off case) with
+    // an EnableInvocationHeader remediation.
+    [Fact]
+    public void CheckTranscription_EnabledHeaderOff_IsInfoWithHeaderRemediation()
+    {
+        var f = CheckTranscription(new PowerShellState
+        {
+            TranscriptionEnabled = true,
+            TranscriptionInvocationHeaderEnabled = false
+        });
+        Assert.Equal(Severity.Info, f.Severity);
+        Assert.Contains("Invocation Header", f.Title);
+        Assert.Contains("EnableInvocationHeader", f.FixCommand ?? "");
+    }
+
+    // Header-off (transcription on) and transcription-off are both Info but must be
+    // distinct findings so an operator can tell a partial config from no config.
+    [Fact]
+    public void CheckTranscription_HeaderOffVsFullyOff_AreDistinctFindings()
+    {
+        var headerOff = CheckTranscription(new PowerShellState
+        {
+            TranscriptionEnabled = true,
+            TranscriptionInvocationHeaderEnabled = false
+        });
+        var fullyOff = CheckTranscription(new PowerShellState { TranscriptionEnabled = false });
+        Assert.Equal(Severity.Info, headerOff.Severity);
+        Assert.Equal(Severity.Info, fullyOff.Severity);
+        Assert.NotEqual(headerOff.Title, fullyOff.Title);
     }
 
     [Fact]

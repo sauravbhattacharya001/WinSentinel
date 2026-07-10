@@ -28,6 +28,7 @@ public class PowerShellAuditTests
         ScriptBlockLoggingEnabled = true,
         ModuleLoggingEnabled = true,
         TranscriptionEnabled = true,
+        TranscriptionInvocationHeaderEnabled = true,
         TranscriptionOutputDir = @"C:\PSTranscripts",
         LanguageMode = "ConstrainedLanguage",
         V2EngineInstalled = false,

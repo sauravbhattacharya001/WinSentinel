@@ -114,6 +114,13 @@ public static class PowerShellSecurityAnalyzer
         public bool TranscriptionEnabled { get; set; }
         public string? TranscriptionOutputDir { get; set; }
 
+        // CIS L1 recommends transcription include a per-command invocation header
+        // (EnableInvocationHeader = 1). Without it, transcripts run the input/output
+        // together with no timestamped command boundaries, which makes forensic
+        // reconstruction of "what ran when" unreliable. Only meaningful when
+        // TranscriptionEnabled is true.
+        public bool TranscriptionInvocationHeaderEnabled { get; set; }
+
         // Tamper signal: the logging policy value is present in the registry but set
         // to 0 (explicitly OFF), as opposed to simply never configured. Attackers
         // disable script-block/module logging to blind forensic capture (MITRE
@@ -423,9 +430,31 @@ public static class PowerShellSecurityAnalyzer
             ? " (output directory not configured - defaults to user's Documents)"
             : $" (output directory: {state.TranscriptionOutputDir})";
 
+        // Transcription is on but the per-command invocation header is off. Per CIS
+        // L1, the header stamps each command with a timestamp/user/command line so
+        // the transcript has real command boundaries; without it the log is far less
+        // useful for forensic reconstruction. Surface as its own Info so the fix
+        // (EnableInvocationHeader = 1) is unambiguous and not conflated with the
+        // "transcription entirely off" case above.
+        if (!state.TranscriptionInvocationHeaderEnabled)
+        {
+            return Finding.Info(
+                "PowerShell Transcription: Invocation Header Disabled",
+                "Automatic transcription is enabled" + dirNote + ", but the per-command " +
+                "invocation header (EnableInvocationHeader) is not turned on. Without it, " +
+                "transcripts lack the timestamped command boundaries that make forensic " +
+                "reconstruction of what ran, and when, reliable (CIS L1).",
+                Category,
+                "Enable the invocation header via Group Policy or registry: " +
+                @"HKLM\SOFTWARE\Policies\Microsoft\Windows\PowerShell\Transcription\EnableInvocationHeader = 1",
+                @"New-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\Transcription' " +
+                "-Name EnableInvocationHeader -Value 1 -PropertyType DWord -Force");
+        }
+
         return Finding.Pass(
             "PowerShell Transcription Enabled",
-            "Automatic transcription is enabled" + dirNote + ".",
+            "Automatic transcription is enabled" + dirNote +
+            ", with per-command invocation headers for reliable forensic reconstruction.",
             Category);
     }
 

@@ -240,6 +240,53 @@ Volume C: [OSDisk]
         Assert.Contains("TPM, Numerical Password", f.Description);
     }
 
+    [Theory]
+    [InlineData("XTS-AES 256", false)]
+    [InlineData("xts-aes 256", false)]   // case-insensitive
+    [InlineData("XTS-AES 128", true)]
+    [InlineData("AES-CBC 256", true)]
+    [InlineData("AES-CBC 128", true)]
+    [InlineData("AES 256", true)]
+    [InlineData("AES 128", true)]
+    [InlineData("Unknown", false)]       // unrecognized → do not downgrade
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void IsWeakBitLockerMethod_ClassifiesBelowXtsAes256(string? method, bool expected)
+    {
+        Assert.Equal(expected, EncryptionAnalyzer.IsWeakBitLockerMethod(method));
+    }
+
+    [Fact]
+    public void BuildBitLocker_EncryptedWithWeakMethod_IsWarning()
+    {
+        var state = new EncryptionAnalyzer.BitLockerDriveState
+        {
+            Status = EncryptionAnalyzer.BitLockerStatus.Encrypted,
+            EncryptionMethod = "AES-CBC 128",
+            KeyProtectors = new List<string> { "TPM" }
+        };
+        var f = EncryptionAnalyzer.BuildBitLockerFinding("C:", state);
+        Assert.Equal(Severity.Warning, f.Severity);
+        Assert.Equal(Cat, f.Category);
+        Assert.Contains("Weak Encryption Method", f.Title);
+        Assert.Contains("AES-CBC 128", f.Description);
+        Assert.Contains("XTS-AES 256", f.Description);
+        Assert.False(string.IsNullOrWhiteSpace(f.FixCommand));
+    }
+
+    [Fact]
+    public void BuildBitLocker_EncryptedWithUnknownMethod_StillPasses()
+    {
+        var state = new EncryptionAnalyzer.BitLockerDriveState
+        {
+            Status = EncryptionAnalyzer.BitLockerStatus.Encrypted,
+            EncryptionMethod = "Unknown",
+            KeyProtectors = new List<string> { "TPM" }
+        };
+        var f = EncryptionAnalyzer.BuildBitLockerFinding("C:", state);
+        Assert.Equal(Severity.Pass, f.Severity);
+    }
+
     [Fact]
     public void BuildBitLocker_Partial_IsWarning()
     {

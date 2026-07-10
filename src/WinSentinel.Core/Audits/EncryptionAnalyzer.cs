@@ -39,6 +39,39 @@ public static class EncryptionAnalyzer
         "XTS-AES 256", "XTS-AES 128", "AES-CBC 256", "AES-CBC 128", "AES 256", "AES 128"
     };
 
+    /// <summary>
+    /// The recommended BitLocker encryption method (CIS / Microsoft guidance for
+    /// fixed and OS drives). Anything weaker than this is flagged even when the drive
+    /// is otherwise fully encrypted and protected.
+    /// </summary>
+    public const string RecommendedEncryptionMethod = "XTS-AES 256";
+
+    /// <summary>
+    /// Classifies a parsed BitLocker encryption-method string as cryptographically
+    /// weaker than the recommended <see cref="RecommendedEncryptionMethod"/>. A drive
+    /// encrypted with a 128-bit method, or with the legacy AES-CBC mode (superseded by
+    /// XTS-AES, which resists ciphertext-manipulation attacks), is considered weak.
+    /// Returns <c>false</c> for XTS-AES 256, for an unknown/unparsed method (we don't
+    /// downgrade on uncertainty), and for blank input.
+    /// </summary>
+    public static bool IsWeakBitLockerMethod(string? method)
+    {
+        if (string.IsNullOrWhiteSpace(method)) return false;
+
+        // Unknown/unrecognized method → don't downgrade a passing drive on a string we
+        // couldn't classify (fail-safe: uncertainty is not "weak").
+        var normalized = method.Trim();
+        if (!KnownEncryptionMethods.Any(m => string.Equals(m, normalized, StringComparison.OrdinalIgnoreCase)))
+            return false;
+
+        if (string.Equals(normalized, RecommendedEncryptionMethod, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        // Everything else in the recognized set (128-bit variants + legacy AES-CBC) is
+        // weaker than XTS-AES 256.
+        return true;
+    }
+
     /// <summary>Key-protector labels recognized in BitLocker status output.</summary>
     public static readonly IReadOnlyList<string> KnownKeyProtectors = new[]
     {
@@ -273,6 +306,20 @@ public static class EncryptionAnalyzer
                     "Upgrade to Windows 10/11 Pro or Enterprise for BitLocker support.");
 
             case BitLockerStatus.Encrypted:
+                if (IsWeakBitLockerMethod(state.EncryptionMethod))
+                {
+                    return Finding.Warning(
+                        $"BitLocker - {driveLetter} Weak Encryption Method",
+                        $"Drive {driveLetter} is fully encrypted with BitLocker and protection is ON, but it uses " +
+                        $"the weaker '{state.EncryptionMethod}' method instead of the recommended {RecommendedEncryptionMethod}. " +
+                        "128-bit and legacy AES-CBC methods are superseded by XTS-AES 256, which better resists " +
+                        $"ciphertext-manipulation attacks. Key protectors: {protectorInfo}.",
+                        Category,
+                        $"Re-encrypt drive {driveLetter} with {RecommendedEncryptionMethod}. This requires decrypting then " +
+                        "re-enabling BitLocker with the stronger method (back up the recovery key first).",
+                        $"manage-bde -off {driveLetter}");
+                }
+
                 return Finding.Pass(
                     $"BitLocker - {driveLetter} Encrypted",
                     $"Drive {driveLetter} is fully encrypted with BitLocker. Method: {state.EncryptionMethod}. Protection: ON. Key protectors: {protectorInfo}.",

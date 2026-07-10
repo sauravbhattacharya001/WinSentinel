@@ -789,4 +789,36 @@ public class NetworkPostureAnalyzerTests
         Assert.True(Has(f, Severity.Info, "Global IPv6"));
         Assert.True(Has(f, Severity.Warning, "Teredo"));
     }
+
+    [Fact]
+    public void IPv6_SixToFourActive_Warns()
+    {
+        var f = CheckIPv6(new NetworkState { SixToFourActive = true });
+        Assert.True(Has(f, Severity.Warning, "6to4"));
+    }
+
+    [Fact]
+    public void IPv6_IsatapActive_Warns()
+    {
+        var f = CheckIPv6(new NetworkState { IsatapActive = true });
+        Assert.True(Has(f, Severity.Warning, "ISATAP"));
+    }
+
+    [Fact]
+    public void IPv6_NoTunnels_EmitsNoTunnelWarnings()
+    {
+        var f = CheckIPv6(new NetworkState());
+        Assert.False(Has(f, Severity.Warning, "Teredo"));
+        Assert.False(Has(f, Severity.Warning, "6to4"));
+        Assert.False(Has(f, Severity.Warning, "ISATAP"));
+    }
+
+    [Fact]
+    public void IPv6_AllTunnelsActive_EmitsAllThree()
+    {
+        var f = CheckIPv6(new NetworkState { TeredoActive = true, SixToFourActive = true, IsatapActive = true });
+        Assert.True(Has(f, Severity.Warning, "Teredo"));
+        Assert.True(Has(f, Severity.Warning, "6to4"));
+        Assert.True(Has(f, Severity.Warning, "ISATAP"));
+    }
 }

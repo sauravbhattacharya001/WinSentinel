@@ -214,6 +214,23 @@ public static class NetworkPostureAnalyzer
         // IPv6
         public List<string> GlobalIPv6Addresses { get; set; } = new();
         public bool TeredoActive { get; set; }
+
+        /// <summary>
+        /// True when a 6to4 IPv6 transition tunnel is active. 6to4 (RFC 3056)
+        /// encapsulates IPv6 in IPv4 protocol-41 packets to a public relay,
+        /// bypassing IPv4-only firewalls and monitoring the same way Teredo does.
+        /// It is a legacy, largely-deprecated transition technology and should be
+        /// off on a hardened host.
+        /// </summary>
+        public bool SixToFourActive { get; set; }
+
+        /// <summary>
+        /// True when an ISATAP (Intra-Site Automatic Tunnel Addressing Protocol)
+        /// tunnel is active. ISATAP carries IPv6 over an IPv4 intranet and, like
+        /// 6to4 and Teredo, opens an IPv6 path that IPv4-only controls miss. It is
+        /// legacy transition tech and should be disabled unless explicitly required.
+        /// </summary>
+        public bool IsatapActive { get; set; }
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -951,6 +968,30 @@ public static class NetworkPostureAnalyzer
                 Category,
                 "Disable Teredo if IPv6 tunneling is not needed.",
                 "netsh interface teredo set state disabled"));
+        }
+
+        if (state.SixToFourActive)
+        {
+            findings.Add(Finding.Warning(
+                "6to4 IPv6 Tunnel Active",
+                "A 6to4 IPv6 transition tunnel is active. 6to4 encapsulates IPv6 traffic in IPv4 " +
+                "protocol-41 packets to a public relay, which can bypass IPv4-only firewalls and " +
+                "security monitoring. 6to4 is a deprecated legacy transition technology.",
+                Category,
+                "Disable 6to4 if IPv6 tunneling is not needed.",
+                "netsh interface 6to4 set state disabled"));
+        }
+
+        if (state.IsatapActive)
+        {
+            findings.Add(Finding.Warning(
+                "ISATAP IPv6 Tunnel Active",
+                "An ISATAP IPv6 transition tunnel is active. ISATAP carries IPv6 over the IPv4 intranet, " +
+                "opening an IPv6 path that IPv4-only firewalls and monitoring tools may miss. ISATAP is a " +
+                "legacy transition technology and should be disabled unless explicitly required.",
+                Category,
+                "Disable ISATAP if IPv6 tunneling is not needed.",
+                "netsh interface isatap set state disabled"));
         }
 
         return findings;

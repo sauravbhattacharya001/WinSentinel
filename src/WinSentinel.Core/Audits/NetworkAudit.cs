@@ -459,6 +459,39 @@ public class NetworkAudit : AuditModuleBase
                 }
             }
         }
+
+        var sixToFourOutput = await ShellHelper.RunNetshAsync("interface 6to4 show state", ct);
+        state.SixToFourActive = IsTransitionTunnelStateOutput(sixToFourOutput);
+
+        var isatapOutput = await ShellHelper.RunNetshAsync("interface isatap show state", ct);
+        state.IsatapActive = IsTransitionTunnelStateOutput(isatapOutput);
+    }
+
+    /// <summary>
+    /// Classifies the output of <c>netsh interface 6to4 show state</c> /
+    /// <c>netsh interface isatap show state</c>. Both emit a <c>State :</c> line.
+    /// The tunnel is treated as active only for the explicit <c>enabled</c> state;
+    /// <c>default</c>, <c>disabled</c>, blank, and any unknown/localized token are
+    /// treated as inactive. Matching the specific active token (rather than "not
+    /// disabled") avoids a stray line manufacturing a phantom active-tunnel warning.
+    /// </summary>
+    internal static bool IsTransitionTunnelStateOutput(string? output)
+    {
+        if (string.IsNullOrWhiteSpace(output)) return false;
+        foreach (var rawLine in output.Split('\n'))
+        {
+            var line = rawLine.Trim();
+            if (line.StartsWith("State", StringComparison.OrdinalIgnoreCase))
+            {
+                var value = AfterColon(line)?.Trim();
+                if (!string.IsNullOrWhiteSpace(value) &&
+                    value.Equals("enabled", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /// <summary>

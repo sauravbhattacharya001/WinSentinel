@@ -709,6 +709,30 @@ public class NetworkAuditIPv6ParsingTests
     public void IsTeredoActiveState_FalseForNull() =>
         Assert.False(NetworkAudit.IsTeredoActiveState(null));
 
+    // ── IsTransitionTunnelStateOutput classifier (6to4 / ISATAP) ───────
+
+    [Theory]
+    [InlineData("State                  : enabled")]
+    [InlineData("State : ENABLED")]                       // case-insensitive
+    [InlineData("Some header line\r\nState : enabled\r\n")] // finds the State line among others
+    public void IsTransitionTunnelStateOutput_TrueWhenEnabled(string output) =>
+        Assert.True(NetworkAudit.IsTransitionTunnelStateOutput(output));
+
+    [Theory]
+    [InlineData("State                  : disabled")]
+    [InlineData("State : default")]
+    [InlineData("State : automatic")]        // not the explicit 'enabled' token
+    [InlineData("Type : client")]            // wrong key entirely
+    [InlineData("aktiviert")]                // no State line at all
+    [InlineData("")]
+    [InlineData("   ")]
+    public void IsTransitionTunnelStateOutput_FalseOtherwise(string output) =>
+        Assert.False(NetworkAudit.IsTransitionTunnelStateOutput(output));
+
+    [Fact]
+    public void IsTransitionTunnelStateOutput_FalseForNull() =>
+        Assert.False(NetworkAudit.IsTransitionTunnelStateOutput(null));
+
     // ── Full pipe-delimited collector sample (structure end-to-end) ─────
 
     [Fact]

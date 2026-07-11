@@ -14,7 +14,7 @@ public class EncryptionAudit : AuditModuleBase
 {
     public override string Name => "Encryption Audit";
     public override string Category => "Encryption";
-    public override string Description => "Checks BitLocker status, TPM availability, EFS usage, certificate store health, TLS/SSL configuration, Credential Guard, and DPAPI protection.";
+    public override string Description => "Checks BitLocker status, TPM availability, EFS usage, certificate store health, TLS/SSL configuration, Credential Guard, DPAPI protection, and Kernel DMA Protection.";
 
     private const string SchannelProtocolsPath =
         @"SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols";
@@ -31,6 +31,7 @@ public class EncryptionAudit : AuditModuleBase
         CheckTlsSslConfiguration(result);
         await CheckCredentialGuard(result, cancellationToken);
         await CheckDpapiProtection(result, cancellationToken);
+        CheckKernelDmaProtection(result);
     }
 
     #region BitLocker
@@ -909,6 +910,73 @@ public class EncryptionAudit : AuditModuleBase
                 "DPAPI Check Error",
                 $"Could not check DPAPI protection status: {ex.Message}",
                 Category));
+        }
+    }
+
+    #endregion
+
+    #region Kernel DMA Protection
+
+    /// <summary>
+    /// Checks Kernel DMA Protection (Memory Access Protection) availability and the
+    /// lock-screen DMA policy. Kernel DMA Protection blocks drive-by DMA attacks from
+    /// malicious PCIe / Thunderbolt / USB4 peripherals - a single-machine hardware
+    /// security posture check. Availability comes from Win32_DeviceGuard
+    /// AvailableSecurityProperties (value 6); the lock-screen policy comes from the
+    /// DmaSecurity\AllowDmaUnderLock registry value. All grading is delegated to the
+    /// pure, unit-tested <see cref="EncryptionAnalyzer"/>.
+    /// </summary>
+    private void CheckKernelDmaProtection(AuditResult result)
+    {
+        try
+        {
+            var props = new List<int>();
+            bool querySucceeded = false;
+
+            try
+            {
+                var dgResults = WmiHelper.Query(
+                    "SELECT AvailableSecurityProperties FROM Win32_DeviceGuard",
+                    @"root\Microsoft\Windows\DeviceGuard");
+
+                if (dgResults.Count > 0 &&
+                    dgResults[0].TryGetValue("AvailableSecurityProperties", out var raw))
+                {
+                    querySucceeded = true;
+                    // AvailableSecurityProperties is a uint[]; be defensive about the type.
+                    switch (raw)
+                    {
+                        case uint[] u: props.AddRange(u.Select(x => (int)x)); break;
+                        case int[] i: props.AddRange(i); break;
+                        case System.Collections.IEnumerable en when raw is not string:
+                            foreach (var o in en)
+                            {
+                                if (o != null && int.TryParse(o.ToString(), out var v)) props.Add(v);
+                            }
+                            break;
+                    }
+                }
+            }
+            catch
+            {
+                // WMI namespace may be unavailable / not elevated -> Unknown posture.
+            }
+
+            var allowDmaUnderLock = RegistryHelper.GetValue<int>(
+                RegistryHive.LocalMachine,
+                @"SYSTEM\CurrentControlSet\Control\DmaSecurity",
+                "AllowDmaUnderLock", -1);
+
+            var state = EncryptionAnalyzer.ClassifyKernelDma(props, allowDmaUnderLock, querySucceeded);
+            result.Findings.Add(EncryptionAnalyzer.BuildKernelDmaFinding(state));
+        }
+        catch (Exception ex)
+        {
+            result.Findings.Add(Finding.Info(
+                "Kernel DMA Protection Check Error",
+                $"Could not determine Kernel DMA Protection status: {ex.Message}",
+                Category,
+                "Run WinSentinel as Administrator to check Kernel DMA Protection."));
         }
     }
 

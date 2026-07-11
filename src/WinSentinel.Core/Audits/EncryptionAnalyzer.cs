@@ -979,4 +979,113 @@ public static class EncryptionAnalyzer
             Category,
             "Use a strong login password. Consider enabling Credential Guard for enhanced DPAPI protection.");
     }
+
+    // === Kernel DMA Protection ================================================
+
+    /// <summary>
+    /// Normalized Kernel DMA Protection posture derived from the WMI
+    /// <c>Win32_DeviceGuard.AvailableSecurityProperties</c> array and the
+    /// <c>HKLM\SYSTEM\CurrentControlSet\Control\DmaSecurity\AllowDmaUnderLock</c>
+    /// registry policy. Kernel DMA Protection (a.k.a. Memory Access Protection)
+    /// blocks drive-by DMA attacks from malicious PCIe / Thunderbolt / USB4
+    /// peripherals - the classic "evil maid plugs a device into a locked laptop
+    /// and reads RAM to lift BitLocker keys / credentials" attack. It is a
+    /// single-machine hardware-security posture check, complementary to VBS /
+    /// Credential Guard.
+    /// </summary>
+    public sealed class KernelDmaState
+    {
+        /// <summary>
+        /// True when the platform reports Kernel DMA Protection is available
+        /// (Win32_DeviceGuard.AvailableSecurityProperties contains 6). When false
+        /// the hardware/firmware does not support it (missing IOMMU/VT-d, or an
+        /// older platform), so the OS cannot enforce it regardless of policy.
+        /// </summary>
+        public bool IsAvailable { get; set; }
+
+        /// <summary>
+        /// True when the DMA policy could be read at all. When false the WMI
+        /// query failed (e.g. not elevated / namespace missing) and the posture
+        /// is Unknown rather than a hard fail.
+        /// </summary>
+        public bool QuerySucceeded { get; set; }
+
+        /// <summary>
+        /// Value of the DmaSecurity <c>AllowDmaUnderLock</c> policy DWORD, or -1
+        /// when the value is absent. 1 = new DMA-capable devices are allowed to
+        /// enumerate/DMA even while the screen is locked (the weaker setting);
+        /// 0 / absent = the secure default (new devices are blocked from DMA
+        /// until the user unlocks and authorizes them).
+        /// </summary>
+        public int AllowDmaUnderLock { get; set; } = -1;
+    }
+
+    /// <summary>Win32_DeviceGuard AvailableSecurityProperties enum value for Kernel DMA Protection.</summary>
+    public const int DmaProtectionSecurityProperty = 6;
+
+    /// <summary>
+    /// Pure classifier: given the raw AvailableSecurityProperties list and the
+    /// AllowDmaUnderLock policy value, produce a normalized <see cref="KernelDmaState"/>.
+    /// Kept I/O-free so it can be unit-tested with synthetic input.
+    /// </summary>
+    public static KernelDmaState ClassifyKernelDma(IEnumerable<int>? availableSecurityProperties, int allowDmaUnderLock, bool querySucceeded)
+    {
+        var props = availableSecurityProperties as IReadOnlyCollection<int> ?? availableSecurityProperties?.ToList();
+        return new KernelDmaState
+        {
+            QuerySucceeded = querySucceeded,
+            IsAvailable = props != null && props.Contains(DmaProtectionSecurityProperty),
+            AllowDmaUnderLock = allowDmaUnderLock,
+        };
+    }
+
+    /// <summary>Build the Kernel DMA Protection finding from collected state.</summary>
+    public static Finding BuildKernelDmaFinding(KernelDmaState state)
+    {
+        if (!state.QuerySucceeded)
+        {
+            return Finding.Info(
+                "Kernel DMA Protection Unknown",
+                "Kernel DMA Protection status could not be determined (the DeviceGuard WMI provider " +
+                "could not be queried). This usually requires elevation. Kernel DMA Protection blocks " +
+                "drive-by DMA attacks from malicious PCIe / Thunderbolt / USB4 peripherals.",
+                Category,
+                "Run WinSentinel as Administrator, or check msinfo32 -> System Summary -> 'Kernel DMA Protection'.");
+        }
+
+        if (!state.IsAvailable)
+        {
+            return Finding.Info(
+                "Kernel DMA Protection Not Available",
+                "This platform does not support Kernel DMA Protection. It requires firmware (UEFI) support and " +
+                "an IOMMU (Intel VT-d / AMD-Vi) with DMA remapping enabled. Without it, a malicious device " +
+                "plugged into a PCIe / Thunderbolt / USB4 port could directly read system memory (including " +
+                "BitLocker keys and credentials) via DMA.",
+                Category,
+                "On supported hardware, enable VT-d / AMD-Vi (IOMMU) and 'DMA remapping' in UEFI. On older " +
+                "platforms without IOMMU support, mitigate by disabling unused Thunderbolt/PCIe ports in UEFI.");
+        }
+
+        // Available. Now grade the lock-screen policy.
+        if (state.AllowDmaUnderLock == 1)
+        {
+            return Finding.Warning(
+                "Kernel DMA Protection Weakened (DMA Allowed While Locked)",
+                "Kernel DMA Protection is available, but policy allows newly-connected DMA-capable devices to " +
+                "enumerate and perform DMA while the screen is LOCKED (DmaSecurity 'AllowDmaUnderLock' = 1). " +
+                "This re-opens the evil-maid DMA attack surface on a locked-but-powered machine: an attacker " +
+                "can plug in a malicious Thunderbolt/PCIe device and read memory without unlocking.",
+                Category,
+                "Remove the AllowDmaUnderLock override so new devices are blocked from DMA until the user unlocks " +
+                "and authorizes them (the secure default).",
+                "reg delete \"HKLM\\SYSTEM\\CurrentControlSet\\Control\\DmaSecurity\" /v AllowDmaUnderLock /f");
+        }
+
+        return Finding.Pass(
+            "Kernel DMA Protection Enabled",
+            "Kernel DMA Protection is available and enforced. Newly-connected DMA-capable peripherals " +
+            "(PCIe / Thunderbolt / USB4) are blocked from direct memory access until the device is " +
+            "authorized, defeating drive-by DMA / evil-maid memory-scraping attacks.",
+            Category);
+    }
 }

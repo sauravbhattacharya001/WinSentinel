@@ -1065,4 +1065,55 @@ ManufacturerVersionFull20       : 7.2.2.0";
         var f = EncryptionAnalyzer.BuildDpapiFinding(s);
         Assert.Contains("Credential Guard", f.Title);
     }
+
+    // === Kernel DMA Protection ================================================
+
+    [Fact]
+    public void KernelDma_QueryFailed_IsInfoUnknown()
+    {
+        var s = EncryptionAnalyzer.ClassifyKernelDma(null, -1, querySucceeded: false);
+        var f = EncryptionAnalyzer.BuildKernelDmaFinding(s);
+        Assert.Equal(Severity.Info, f.Severity);
+        Assert.Contains("Unknown", f.Title);
+    }
+
+    [Fact]
+    public void KernelDma_NotAvailable_IsInfo()
+    {
+        // Query succeeded but property 6 absent => hardware/firmware unsupported.
+        var s = EncryptionAnalyzer.ClassifyKernelDma(new[] { 1, 2, 3 }, -1, querySucceeded: true);
+        Assert.False(s.IsAvailable);
+        var f = EncryptionAnalyzer.BuildKernelDmaFinding(s);
+        Assert.Equal(Severity.Info, f.Severity);
+        Assert.Contains("Not Available", f.Title);
+    }
+
+    [Fact]
+    public void KernelDma_Available_SecureDefault_Passes()
+    {
+        // Property 6 present, AllowDmaUnderLock absent (-1) => secure default.
+        var s = EncryptionAnalyzer.ClassifyKernelDma(new[] { 1, EncryptionAnalyzer.DmaProtectionSecurityProperty }, -1, querySucceeded: true);
+        Assert.True(s.IsAvailable);
+        var f = EncryptionAnalyzer.BuildKernelDmaFinding(s);
+        Assert.Equal(Severity.Pass, f.Severity);
+        Assert.Contains("Enabled", f.Title);
+    }
+
+    [Fact]
+    public void KernelDma_Available_ButAllowDmaUnderLock_Warns()
+    {
+        var s = EncryptionAnalyzer.ClassifyKernelDma(new[] { EncryptionAnalyzer.DmaProtectionSecurityProperty }, 1, querySucceeded: true);
+        var f = EncryptionAnalyzer.BuildKernelDmaFinding(s);
+        Assert.Equal(Severity.Warning, f.Severity);
+        Assert.Contains("AllowDmaUnderLock", f.Description);
+        Assert.False(string.IsNullOrWhiteSpace(f.FixCommand));
+    }
+
+    [Fact]
+    public void KernelDma_AllowDmaUnderLockZero_IsSecure()
+    {
+        var s = EncryptionAnalyzer.ClassifyKernelDma(new[] { EncryptionAnalyzer.DmaProtectionSecurityProperty }, 0, querySucceeded: true);
+        var f = EncryptionAnalyzer.BuildKernelDmaFinding(s);
+        Assert.Equal(Severity.Pass, f.Severity);
+    }
 }

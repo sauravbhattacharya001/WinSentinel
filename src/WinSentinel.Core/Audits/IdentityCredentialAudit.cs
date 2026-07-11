@@ -19,7 +19,8 @@ public class IdentityCredentialAudit : AuditModuleBase
     public override string Category => "Identity";
     public override string Description =>
         "Audits local admin sprawl, stale accounts, password-never-expires flags, " +
-        "LAPS deployment status, and cached credential exposure.";
+        "LAPS deployment status, cached credential exposure, LSA Protection (RunAsPPL), " +
+        "and Credential Guard.";
 
     protected override async Task ExecuteAuditAsync(AuditResult result, CancellationToken cancellationToken)
     {

@@ -344,6 +344,32 @@ public class IdentityCredentialAnalyzerTests
     }
 
     [Fact]
+    public void Lsa_EnabledRegistryOnly_PassSuggestsUefiLock()
+    {
+        // RunAsPPL = 1: enabled but not UEFI-locked. Still a Pass, but should
+        // nudge toward value 2 with a concrete fix.
+        var f = IdentityCredentialAnalyzer.BuildLsaProtectionFinding(
+            new State { LsaKeyReadable = true, RunAsPplEnabled = true, RunAsPplUefiLocked = false });
+        Assert.NotNull(f);
+        Assert.Equal(Severity.Pass, f!.Severity);
+        Assert.DoesNotContain("UEFI-Locked", f.Title);
+        Assert.Contains("RunAsPPL", f.FixCommand);
+        Assert.Contains("2", f.FixCommand);
+    }
+
+    [Fact]
+    public void Lsa_UefiLocked_PassNoFixNeeded()
+    {
+        // RunAsPPL = 2: the most hardened setting. Previously mis-reported as a
+        // Warning because the collector only matched `== 1`.
+        var f = IdentityCredentialAnalyzer.BuildLsaProtectionFinding(
+            new State { LsaKeyReadable = true, RunAsPplEnabled = true, RunAsPplUefiLocked = true });
+        Assert.NotNull(f);
+        Assert.Equal(Severity.Pass, f!.Severity);
+        Assert.Contains("UEFI-Locked", f.Title);
+    }
+
+    [Fact]
     public void Lsa_Disabled_WarnsWithFix()
     {
         var f = IdentityCredentialAnalyzer.BuildLsaProtectionFinding(

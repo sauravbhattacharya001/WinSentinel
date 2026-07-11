@@ -358,18 +358,18 @@ public static class IdentityCredentialAnalyzer
             {
                 return Finding.Pass(
                     "LSA Protection Enabled (UEFI-Locked)",
-                    "LSASS is running as a Protected Process Light (PPL) with a UEFI lock (RunAsPPL = 2). " +
-                    "The setting is enforced in firmware and cannot be silently removed by malware with admin rights.",
+                    "LSASS is running as a Protected Process Light (PPL) with a UEFI lock (RunAsPPL = 1). " +
+                    "The setting is stored in a UEFI variable and cannot be silently removed by malware with admin rights.",
                     Category);
             }
 
             return Finding.Pass(
                 "LSA Protection Enabled",
                 "LSASS is running as a Protected Process Light (PPL), protecting against credential dumping tools. " +
-                "Consider enabling the UEFI lock (RunAsPPL = 2) so the protection cannot be turned off without physical access.",
+                "Consider enabling the UEFI lock (RunAsPPL = 1) so the protection cannot be turned off by simply removing the registry value.",
                 Category,
                 "Enable the UEFI lock for LSA Protection to make it tamper-resistant.",
-                @"Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa' -Name 'RunAsPPL' -Value 2");
+                @"Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa' -Name 'RunAsPPL' -Value 1");
         }
 
         return Finding.Warning(
@@ -496,7 +496,7 @@ public static class IdentityCredentialAnalyzer
         public bool LsaKeyReadable { get; set; }
         /// <summary>True when RunAsPPL = 1 or 2 (LSASS as Protected Process Light).</summary>
         public bool RunAsPplEnabled { get; set; }
-        /// <summary>True when RunAsPPL = 2 (PPL enforced with a UEFI lock, tamper-resistant).</summary>
+        /// <summary>True when RunAsPPL = 1 (PPL enforced WITH a UEFI lock, tamper-resistant).</summary>
         public bool RunAsPplUefiLocked { get; set; }
 
         // Credential Guard

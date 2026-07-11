@@ -205,13 +205,15 @@ public class IdentityCredentialAudit : AuditModuleBase
 
             state.LsaKeyReadable = true;
             var runAsPpl = key.GetValue("RunAsPPL");
-            // RunAsPPL: 1 = enabled (registry only), 2 = enabled with UEFI lock (tamper-resistant).
-            // Both values enable PPL; only 2 is locked into firmware so it cannot be silently
-            // removed by an attacker who gains admin. Treating 2 as "not enabled" (the old
-            // `== 1` check) was a false-negative that flagged the MOST hardened machines.
+            // RunAsPPL: 1 = enabled WITH a UEFI lock (tamper-resistant; stored in a UEFI
+            // variable so deleting the registry value after reboot has no effect),
+            // 2 = enabled WITHOUT the UEFI lock (registry only, easier to roll back).
+            // Both values enable PPL; only 1 is locked into firmware. Treating 2 as
+            // "not enabled" (the old `== 1` check) was a false-negative that flagged
+            // machines running LSA Protection without the UEFI lock.
             int runAsPplValue = runAsPpl != null ? Convert.ToInt32(runAsPpl) : 0;
             state.RunAsPplEnabled = runAsPplValue == 1 || runAsPplValue == 2;
-            state.RunAsPplUefiLocked = runAsPplValue == 2;
+            state.RunAsPplUefiLocked = runAsPplValue == 1;
         }
         catch
         {

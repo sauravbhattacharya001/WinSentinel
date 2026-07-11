@@ -354,7 +354,7 @@ public class IdentityCredentialAnalyzerTests
         Assert.Equal(Severity.Pass, f!.Severity);
         Assert.DoesNotContain("UEFI-Locked", f.Title);
         Assert.Contains("RunAsPPL", f.FixCommand);
-        Assert.Contains("2", f.FixCommand);
+        Assert.Contains("1", f.FixCommand);
     }
 
     [Fact]

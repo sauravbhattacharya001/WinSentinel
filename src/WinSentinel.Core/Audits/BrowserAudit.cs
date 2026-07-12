@@ -313,6 +313,10 @@ public class BrowserAudit : AuditModuleBase
         state.ChromeSitePerProcess = ReadDword(Registry.LocalMachine, @"SOFTWARE\Policies\Google\Chrome", "SitePerProcess");
         state.ChromeDownloadRestrictions = ReadDword(Registry.LocalMachine, @"SOFTWARE\Policies\Google\Chrome", "DownloadRestrictions");
 
+        // Minimum TLS version (string policy: tls1 / tls1.1 / tls1.2 / tls1.3)
+        state.ChromeSslVersionMin = ReadString(Registry.LocalMachine, @"SOFTWARE\Policies\Google\Chrome", "SSLVersionMin");
+        state.EdgeSslVersionMin = ReadString(Registry.LocalMachine, @"SOFTWARE\Policies\Microsoft\Edge", "SSLVersionMin");
+
         return state;
     }
 

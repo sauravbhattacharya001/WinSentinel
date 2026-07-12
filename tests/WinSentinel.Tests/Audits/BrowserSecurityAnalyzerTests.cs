@@ -579,6 +579,50 @@ public class BrowserSecurityAnalyzerTests
     }
 
     // ------------------------------------------------------------------
+    // Minimum TLS version (SSLVersionMin policy)
+    // ------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("tls1", true)]
+    [InlineData("TLS1", true)]
+    [InlineData("tls1.1", true)]
+    [InlineData("tls1.2", false)]
+    [InlineData("tls1.3", false)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    [InlineData("garbage", false)]
+    public void IsMinimumTlsTooLow_ClassifiesCorrectly(string? value, bool expected)
+    {
+        Assert.Equal(expected, IsMinimumTlsTooLow(value));
+    }
+
+    [Fact]
+    public void SecurityPolicies_ChromeMinTlsTooLow_IsCritical()
+    {
+        var findings = AnalyzeSecurityPolicies(new BrowserPolicyState { ChromeSslVersionMin = "tls1" });
+        var f = Assert.Single(findings, x => x.Title.Contains("Chrome") && x.Title.Contains("Minimum TLS"));
+        Assert.Equal(Severity.Critical, f.Severity);
+        Assert.Contains("TLS 1.0", f.Description);
+        Assert.Contains("SSLVersionMin", f.FixCommand);
+    }
+
+    [Fact]
+    public void SecurityPolicies_EdgeMinTls11_IsCritical()
+    {
+        var findings = AnalyzeSecurityPolicies(new BrowserPolicyState { EdgeSslVersionMin = "tls1.1" });
+        var f = Assert.Single(findings, x => x.Title.Contains("Edge") && x.Title.Contains("Minimum TLS"));
+        Assert.Equal(Severity.Critical, f.Severity);
+        Assert.Contains("TLS 1.1", f.Description);
+    }
+
+    [Fact]
+    public void SecurityPolicies_MinTls12_NotReported()
+    {
+        var findings = AnalyzeSecurityPolicies(new BrowserPolicyState { ChromeSslVersionMin = "tls1.2", EdgeSslVersionMin = "tls1.3" });
+        Assert.DoesNotContain(findings, f => f.Title.Contains("Minimum TLS"));
+    }
+
+    // ------------------------------------------------------------------
     // Cross-cutting: every emitted Critical/Warning honors Finding invariants
     // ------------------------------------------------------------------
 

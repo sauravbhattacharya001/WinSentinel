@@ -28,9 +28,9 @@ public static class BrowserSecurityAnalyzer
 
     // Known latest stable baselines - any installed version older than these is flagged.
     // Kept here (not in the audit) so version-comparison logic is unit testable.
-    public static readonly Version LatestChromeVersion = new(133, 0, 6943, 0);
-    public static readonly Version LatestEdgeVersion = new(133, 0, 3065, 0);
-    public static readonly Version LatestFirefoxVersion = new(135, 0, 0, 0);
+    public static readonly Version LatestChromeVersion = new(138, 0, 7204, 0);
+    public static readonly Version LatestEdgeVersion = new(138, 0, 3351, 0);
+    public static readonly Version LatestFirefoxVersion = new(140, 0, 0, 0);
 
     /// <summary>
     /// A Chrome "Login Data" SQLite DB this size (bytes) or larger is assumed to
@@ -120,6 +120,13 @@ public static class BrowserSecurityAnalyzer
         public int? EdgePasswordManagerEnabled { get; set; }        // 0 = disabled
         public int? ChromeSitePerProcess { get; set; }              // 1 = site isolation enforced
         public int? ChromeDownloadRestrictions { get; set; }        // >=1 = restrictions active
+
+        // Minimum TLS version the browser will negotiate. The SSLVersionMin policy
+        // is a string: "tls1", "tls1.1", "tls1.2", or "tls1.3" (null = policy not set,
+        // browser default = TLS 1.2). Setting it to tls1 / tls1.1 forces the browser
+        // to accept obsolete, vulnerable TLS (POODLE, BEAST) - a real downgrade.
+        public string? ChromeSslVersionMin { get; set; }
+        public string? EdgeSslVersionMin { get; set; }
     }
 
     /// <summary>Saved-password DB presence/size for Chrome and Edge.</summary>
@@ -583,6 +590,48 @@ public static class BrowserSecurityAnalyzer
                 Category));
         }
 
+        AddMinimumTlsFinding(findings, "Chrome", "Google Chrome", p.ChromeSslVersionMin,
+            @"HKLM:\SOFTWARE\Policies\Google\Chrome");
+        AddMinimumTlsFinding(findings, "Edge", "Microsoft Edge", p.EdgeSslVersionMin,
+            @"HKLM:\SOFTWARE\Policies\Microsoft\Edge");
+
         return findings;
+    }
+
+    // ---------------------------------------------------------------------
+    // Minimum TLS version (SSLVersionMin policy)
+    // ---------------------------------------------------------------------
+
+    /// <summary>
+    /// True when an SSLVersionMin policy value forces the browser to accept a TLS
+    /// version below the safe baseline of TLS 1.2. "tls1" (TLS 1.0) and "tls1.1" are
+    /// obsolete and vulnerable (POODLE, BEAST, RFC 8996 deprecates both). "tls1.2",
+    /// "tls1.3", blank, and any unrecognized value return false (we don't downgrade a
+    /// passing browser on a value we can't classify - the browser default is TLS 1.2).
+    /// </summary>
+    public static bool IsMinimumTlsTooLow(string? sslVersionMin)
+    {
+        if (string.IsNullOrWhiteSpace(sslVersionMin)) return false;
+        var v = sslVersionMin.Trim();
+        return v.Equals("tls1", StringComparison.OrdinalIgnoreCase)
+            || v.Equals("tls1.1", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void AddMinimumTlsFinding(List<Finding> findings, string display, string product, string? sslVersionMin, string policyPath)
+    {
+        if (!IsMinimumTlsTooLow(sslVersionMin)) return;
+
+        var version = sslVersionMin!.Trim().Equals("tls1", StringComparison.OrdinalIgnoreCase)
+            ? "TLS 1.0"
+            : "TLS 1.1";
+
+        findings.Add(Finding.Critical(
+            $"{display} Minimum TLS Version Too Low",
+            $"{product} is configured (SSLVersionMin policy) to allow connections down to {version}. " +
+            "TLS 1.0 and 1.1 are deprecated (RFC 8996) and vulnerable to POODLE / BEAST downgrade " +
+            "attacks. The browser will negotiate these obsolete protocols with servers that offer them.",
+            Category,
+            $"Remove the SSLVersionMin policy (browser default is TLS 1.2) or set it to 'tls1.2'/'tls1.3'. Path: {policyPath}\\SSLVersionMin",
+            $"Remove-ItemProperty -Path '{policyPath}' -Name 'SSLVersionMin' -ErrorAction SilentlyContinue"));
     }
 }

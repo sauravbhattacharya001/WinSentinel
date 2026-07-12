@@ -88,7 +88,30 @@ public static class AttackSurfaceReductionAnalyzer
     {
         /// <summary>True when the rule actively blocks (Action == 1).</summary>
         public bool IsBlocking => Action == ActionBlock;
+
+        /// <summary>
+        /// Short human label for the rule's current configured state, used to
+        /// annotate the finding sample so an admin can tell an audit-only rule
+        /// (logs but doesn't stop the technique) apart from a fully disabled one
+        /// at a glance.
+        /// </summary>
+        public string StateLabel => StateLabelFor(Action);
     }
+
+    /// <summary>
+    /// Map an ASR action code to a short human state label. <c>null</c> means the
+    /// rule is absent from the policy ("not configured"); an unrecognized code
+    /// falls back to its numeric value so nothing is silently swallowed.
+    /// </summary>
+    public static string StateLabelFor(int? action) => action switch
+    {
+        null => "not configured",
+        ActionBlock => "block",
+        ActionAudit => "audit",
+        ActionWarn => "warn",
+        ActionDisabled => "disabled",
+        _ => $"action {action}",
+    };
 
     /// <summary>
     /// Parse the two parallel CSV strings Get-MpPreference produces into a map of
@@ -186,7 +209,9 @@ public static class AttackSurfaceReductionAnalyzer
         var auditOrWarn = notBlocking.Where(s => s.Action == ActionAudit || s.Action == ActionWarn).ToList();
 
         // Sample a few rule names so the description is actionable without dumping all 16.
-        var sample = string.Join("; ", notBlocking.Take(3).Select(s => s.Rule.Name));
+        // Annotate each with its current state so audit-only (logs, doesn't stop
+        // the technique) is visibly distinct from fully disabled.
+        var sample = string.Join("; ", notBlocking.Take(3).Select(s => $"{s.Rule.Name} ({s.StateLabel})"));
         if (notBlocking.Count > 3) sample += $"; +{notBlocking.Count - 3} more";
 
         // None of the recommended rules block at all → Critical (ASR effectively off).

@@ -190,6 +190,42 @@ public class AttackSurfaceReductionAnalyzerTests
         Assert.Contains("Set-MpPreference", finding.FixCommand);
     }
 
+    // ──────────────────────────────────────────────────────────────────────
+    // StateLabel / StateLabelFor
+    // ──────────────────────────────────────────────────────────────────────
+
+    [Theory]
+    [InlineData(null, "not configured")]
+    [InlineData(0, "disabled")]
+    [InlineData(1, "block")]
+    [InlineData(2, "audit")]
+    [InlineData(6, "warn")]
+    [InlineData(99, "action 99")]
+    public void StateLabelFor_MapsActionCodeToHumanLabel(int? action, string expected)
+    {
+        Assert.Equal(expected, AttackSurfaceReductionAnalyzer.StateLabelFor(action));
+    }
+
+    [Fact]
+    public void RuleStatus_StateLabel_ReflectsAction()
+    {
+        var rule = AttackSurfaceReductionAnalyzer.RecommendedRules[0];
+        Assert.Equal("audit", new AttackSurfaceReductionAnalyzer.RuleStatus(rule, 2).StateLabel);
+        Assert.Equal("not configured", new AttackSurfaceReductionAnalyzer.RuleStatus(rule, null).StateLabel);
+    }
+
+    [Fact]
+    public void BuildAsrFinding_PartialCoverage_SampleAnnotatesStateOfNonBlockingRules()
+    {
+        // First rule blocks; the rest are audit-only. The sample must call out
+        // "(audit)" so an admin sees the technique is logged but not stopped.
+        var (ids, actions) = Policy(blockCount: 1, restAction: AttackSurfaceReductionAnalyzer.ActionAudit);
+        var finding = AttackSurfaceReductionAnalyzer.BuildAsrFinding(ids, actions);
+        Assert.NotNull(finding);
+        Assert.Equal(Severity.Warning, finding!.Severity);
+        Assert.Contains("(audit)", finding.Description);
+    }
+
     [Fact]
     public void BuildAsrFinding_NotDefenderManaged_ReturnsNull()
     {

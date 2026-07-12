@@ -373,4 +373,53 @@ public class AppSecurityAuditTests
     }
 
     #endregion
+
+    #region Sideloading / Developer-Mode Classification
+
+    [Fact]
+    public void ClassifySideloadingPolicy_DevMode_TakesPrecedence()
+    {
+        // Dev mode on, sideloading also on -> DeveloperMode wins (most concerning).
+        var state = new AppSecurityAudit.SideloadingState(AllowAllTrustedApps: 1, AllowDevelopmentWithoutDevLicense: 1);
+        Assert.Equal(AppSecurityAudit.SideloadingPosture.DeveloperMode,
+            AppSecurityAudit.ClassifySideloadingPolicy(state));
+    }
+
+    [Fact]
+    public void ClassifySideloadingPolicy_DevModeOnly_IsDeveloperMode()
+    {
+        var state = new AppSecurityAudit.SideloadingState(AllowAllTrustedApps: null, AllowDevelopmentWithoutDevLicense: 1);
+        Assert.Equal(AppSecurityAudit.SideloadingPosture.DeveloperMode,
+            AppSecurityAudit.ClassifySideloadingPolicy(state));
+    }
+
+    [Fact]
+    public void ClassifySideloadingPolicy_TrustedAppsOnly_IsSideloadingEnabled()
+    {
+        var state = new AppSecurityAudit.SideloadingState(AllowAllTrustedApps: 1, AllowDevelopmentWithoutDevLicense: 0);
+        Assert.Equal(AppSecurityAudit.SideloadingPosture.SideloadingEnabled,
+            AppSecurityAudit.ClassifySideloadingPolicy(state));
+    }
+
+    [Theory]
+    [InlineData(null, null)]  // not configured (default)
+    [InlineData(0, 0)]        // explicitly off
+    [InlineData(0, null)]
+    public void ClassifySideloadingPolicy_Default_IsLocked(int? trusted, int? dev)
+    {
+        var state = new AppSecurityAudit.SideloadingState(trusted, dev);
+        Assert.Equal(AppSecurityAudit.SideloadingPosture.Locked,
+            AppSecurityAudit.ClassifySideloadingPolicy(state));
+    }
+
+    [Fact]
+    public async Task RunAuditAsync_EmitsSideloadingFinding()
+    {
+        var result = await _audit.RunAuditAsync();
+        Assert.Contains(result.Findings, f =>
+            f.Title.Contains("Sideloading", StringComparison.OrdinalIgnoreCase) ||
+            f.Title.Contains("Developer Mode", StringComparison.OrdinalIgnoreCase));
+    }
+
+    #endregion
 }

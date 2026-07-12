@@ -17,7 +17,7 @@ public class AppSecurityAudit : IAuditModule
     public string Description =>
         "Detects outdated, end-of-life, and insecure software by scanning installed programs " +
         "against known-safe minimum versions, flagging EOL products, suspicious installs, " +
-        "and duplicate x86/x64 installations.";
+        "duplicate x86/x64 installations, and MSIX/AppX sideloading & developer-mode posture.";
 
     /// <summary>Threshold for total installed programs — above this suggests potential bloatware.</summary>
     private const int BloatwareThreshold = 120;
@@ -164,6 +164,7 @@ public class AppSecurityAudit : IAuditModule
             CheckBloatware(result, programs);
             CheckVisualCppRedistributables(result, programs);
             CheckStoreAutoUpdate(result);
+            CheckSideloadingPolicy(result);
             CheckTotalProgramsSummary(result, programs);
         }
         catch (Exception ex)
@@ -574,6 +575,92 @@ public class AppSecurityAudit : IAuditModule
                 "While many apps require these, having too many may indicate leftover packages from uninstalled software.",
                 "Applications",
                 "Review the list and remove any that aren't needed by installed applications."));
+        }
+    }
+
+    #endregion
+
+    #region App Sideloading / Developer Mode
+
+    /// <summary>
+    /// State of the AppModelUnlock policy keys that control MSIX/AppX sideloading and
+    /// developer mode. Nullable = value absent (not configured).
+    /// <c>AllowAllTrustedApps</c>: 1 permits sideloading of trusted (signed) packages
+    /// outside the Store. <c>AllowDevelopmentWithoutDevLicense</c>: 1 enables developer
+    /// mode, allowing unsigned/self-signed packages to be deployed.
+    /// </summary>
+    public readonly record struct SideloadingState(int? AllowAllTrustedApps, int? AllowDevelopmentWithoutDevLicense);
+
+    /// <summary>
+    /// The severity of an app-sideloading posture, most-to-least concerning.
+    /// </summary>
+    public enum SideloadingPosture { DeveloperMode, SideloadingEnabled, Locked }
+
+    /// <summary>
+    /// Pure classification of the AppModelUnlock policy into a posture. Developer mode
+    /// (unsigned deployment) outranks plain sideloading (trusted-signed only), which in
+    /// turn outranks the locked/default state. Exposed so the precedence can be unit
+    /// tested without touching the registry. This is the single source of truth used by
+    /// <see cref="CheckSideloadingPolicy"/>.
+    /// </summary>
+    public static SideloadingPosture ClassifySideloadingPolicy(SideloadingState state)
+    {
+        if (state.AllowDevelopmentWithoutDevLicense == 1) return SideloadingPosture.DeveloperMode;
+        if (state.AllowAllTrustedApps == 1) return SideloadingPosture.SideloadingEnabled;
+        return SideloadingPosture.Locked;
+    }
+
+    private static void CheckSideloadingPolicy(AuditResult result)
+    {
+        var state = new SideloadingState(null, null);
+        try
+        {
+            using var key = Registry.LocalMachine.OpenSubKey(
+                @"SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock");
+            if (key != null)
+            {
+                var trusted = key.GetValue("AllowAllTrustedApps");
+                var dev = key.GetValue("AllowDevelopmentWithoutDevLicense");
+                state = new SideloadingState(
+                    trusted != null ? Convert.ToInt32(trusted) : (int?)null,
+                    dev != null ? Convert.ToInt32(dev) : (int?)null);
+            }
+        }
+        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[WinSentinel] Error: {ex.GetType().Name} - {ex.Message}"); }
+
+        switch (ClassifySideloadingPolicy(state))
+        {
+            case SideloadingPosture.DeveloperMode:
+                result.Findings.Add(Finding.Warning(
+                    "Developer Mode Enabled (Unsigned App Sideloading)",
+                    "AllowDevelopmentWithoutDevLicense is set to 1, so Windows Developer Mode is enabled. " +
+                    "This permits deployment of unsigned or self-signed MSIX/AppX packages that never pass " +
+                    "through the Microsoft Store review pipeline — a real attack-surface expansion on a " +
+                    "production endpoint.",
+                    "Applications",
+                    "Disable Developer Mode unless this machine is actively used for app development.",
+                    @"Remove-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock' -Name 'AllowDevelopmentWithoutDevLicense' -ErrorAction SilentlyContinue"));
+                break;
+
+            case SideloadingPosture.SideloadingEnabled:
+                result.Findings.Add(Finding.Info(
+                    "App Sideloading Enabled",
+                    "AllowAllTrustedApps is set to 1, permitting sideloading of trusted (signed) MSIX/AppX " +
+                    "packages outside the Microsoft Store. This is legitimate for line-of-business app " +
+                    "deployment, but any package signed by a certificate this machine trusts will install " +
+                    "without Store review. Confirm the trusted signers are expected.",
+                    "Applications",
+                    "If sideloading is not required, set AllowAllTrustedApps to 0 to require Store-delivered apps.",
+                    @"Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock' -Name 'AllowAllTrustedApps' -Value 0 -Type DWord"));
+                break;
+
+            default:
+                result.Findings.Add(Finding.Pass(
+                    "App Sideloading Not Unlocked",
+                    "Neither Developer Mode nor trusted-app sideloading is enabled via AppModelUnlock. " +
+                    "MSIX/AppX packages install through the normal (Store / signed-provisioning) path.",
+                    "Applications"));
+                break;
         }
     }
 

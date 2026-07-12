@@ -52,7 +52,9 @@ public static class PowerShellSecurityAnalyzer
     /// (certutil -urlcache/-decode, bitsadmin /transfer, BITS), reverse/bind-shell
     /// primitives (Net.Sockets.TcpClient), in-memory execution, inline execution-
     /// policy downgrade (-ExecutionPolicy Bypass), AMSI/logging/Defender tampering,
-    /// and obfuscation. Each entry pairs the token that is matched (case-insensitively)
+    /// Defender real-time-monitoring kill, profile-skipping relaunch wrappers
+    /// (-NoProfile / -nop), named offensive tooling (Invoke-Mimikatz, Invoke-Shellcode,
+    /// PowerSploit), and obfuscation. Each entry pairs the token that is matched (case-insensitively)
     /// with a short human explanation shown in the finding. Order is the reporting order.
     /// </summary>
     public static readonly IReadOnlyList<(string Token, string Reason)> SuspiciousProfilePatterns =
@@ -90,6 +92,12 @@ public static class PowerShellSecurityAnalyzer
             ("-ep bypass",                 "inline execution-policy downgrade (-ep Bypass)"),
             ("add-mppreference",           "tampers with Windows Defender exclusions"),
             ("set-mppreference",           "disables/relaxes Windows Defender settings"),
+            ("disablerealtimemonitoring",  "disables Windows Defender real-time protection"),
+            ("-noprofile",                 "relaunches PowerShell ignoring profiles (-NoProfile), a common evasion wrapper"),
+            ("-nop ",                      "relaunches PowerShell ignoring profiles (-nop), a common evasion wrapper"),
+            ("invoke-mimikatz",            "in-memory credential theft (Invoke-Mimikatz)"),
+            ("invoke-shellcode",           "in-memory shellcode execution (Invoke-Shellcode)"),
+            ("powersploit",                "references the PowerSploit offensive toolkit"),
             ("hidden powershell",          "references a hidden PowerShell launch"),
         };
 

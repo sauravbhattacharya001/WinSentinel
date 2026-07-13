@@ -1088,4 +1088,87 @@ public static class EncryptionAnalyzer
             "authorized, defeating drive-by DMA / evil-maid memory-scraping attacks.",
             Category);
     }
+
+    // === Diffie-Hellman key exchange strength (Logjam) =====================
+
+    /// <summary>
+    /// Minimum acceptable Diffie-Hellman prime size (bits) for TLS key exchange.
+    /// Below 2048 bits, DHE is vulnerable to Logjam-style precomputation attacks
+    /// (weak-DH downgrade) that let a passive/active attacker recover the session key.
+    /// </summary>
+    public const int MinAcceptableDhKeyBits = 2048;
+
+    /// <summary>Normalized state of the SChannel Diffie-Hellman minimum key-length policy.</summary>
+    public sealed class DhKeyLengthState
+    {
+        /// <summary>Configured server-side minimum DH prime bits, or 0 when unset (system default).</summary>
+        public int ServerMinKeyBits { get; set; }
+        /// <summary>Configured client-side minimum DH prime bits, or 0 when unset (system default).</summary>
+        public int ClientMinKeyBits { get; set; }
+        /// <summary>True when at least one side has an explicit (non-zero) minimum configured.</summary>
+        public bool IsConfigured => ServerMinKeyBits > 0 || ClientMinKeyBits > 0;
+        /// <summary>True when any explicitly-configured side is below the acceptable minimum.</summary>
+        public bool HasWeakSide =>
+            (ServerMinKeyBits > 0 && ServerMinKeyBits < MinAcceptableDhKeyBits) ||
+            (ClientMinKeyBits > 0 && ClientMinKeyBits < MinAcceptableDhKeyBits);
+    }
+
+    /// <summary>
+    /// Pure classifier: given the raw SChannel Diffie-Hellman
+    /// ServerMinKeyBitLength / ClientMinKeyBitLength registry values (use 0 / negative
+    /// for "not configured"), produce a normalized <see cref="DhKeyLengthState"/>.
+    /// Kept I/O-free so it can be unit-tested with synthetic input.
+    /// </summary>
+    public static DhKeyLengthState ClassifyDhKeyLength(int serverMinKeyBits, int clientMinKeyBits)
+    {
+        return new DhKeyLengthState
+        {
+            ServerMinKeyBits = serverMinKeyBits > 0 ? serverMinKeyBits : 0,
+            ClientMinKeyBits = clientMinKeyBits > 0 ? clientMinKeyBits : 0,
+        };
+    }
+
+    /// <summary>Build the Diffie-Hellman key-exchange strength finding from collected state.</summary>
+    public static Finding BuildDhKeyLengthFinding(DhKeyLengthState state)
+    {
+        if (!state.IsConfigured)
+        {
+            return Finding.Info(
+                "Diffie-Hellman Key Length - System Default",
+                "No explicit SChannel Diffie-Hellman minimum key length is configured. Modern Windows " +
+                "negotiates >= 2048-bit DH groups by default, but pinning an explicit minimum hardens " +
+                "against Logjam-style weak-DH downgrade attacks on managed fleets.",
+                Category,
+                "Optionally set ServerMinKeyBitLength / ClientMinKeyBitLength to 2048 under " +
+                "HKLM\\SYSTEM\\CurrentControlSet\\Control\\SecurityProviders\\SCHANNEL\\KeyExchangeAlgorithms\\Diffie-Hellman.");
+        }
+
+        if (state.HasWeakSide)
+        {
+            var sides = new List<string>();
+            if (state.ServerMinKeyBits > 0 && state.ServerMinKeyBits < MinAcceptableDhKeyBits)
+                sides.Add($"server={state.ServerMinKeyBits}-bit");
+            if (state.ClientMinKeyBits > 0 && state.ClientMinKeyBits < MinAcceptableDhKeyBits)
+                sides.Add($"client={state.ClientMinKeyBits}-bit");
+
+            return Finding.Warning(
+                $"Weak Diffie-Hellman Key Length ({string.Join(", ", sides)})",
+                $"The SChannel Diffie-Hellman minimum key length is configured below {MinAcceptableDhKeyBits} bits " +
+                $"({string.Join(", ", sides)}). DHE key exchange with such small primes is vulnerable to " +
+                "Logjam: an attacker can precompute the discrete log for common weak groups and recover " +
+                "the session key, enabling passive decryption or an active downgrade to export-grade DH.",
+                Category,
+                $"Set both ServerMinKeyBitLength and ClientMinKeyBitLength to at least {MinAcceptableDhKeyBits} under " +
+                "HKLM\\SYSTEM\\CurrentControlSet\\Control\\SecurityProviders\\SCHANNEL\\KeyExchangeAlgorithms\\Diffie-Hellman.",
+                "gpedit.msc");
+        }
+
+        return Finding.Pass(
+            "Diffie-Hellman Key Length Enforced",
+            $"The SChannel Diffie-Hellman minimum key length is pinned at or above {MinAcceptableDhKeyBits} bits " +
+            $"(server={(state.ServerMinKeyBits > 0 ? state.ServerMinKeyBits + "-bit" : "default")}, " +
+            $"client={(state.ClientMinKeyBits > 0 ? state.ClientMinKeyBits + "-bit" : "default")}), " +
+            "protecting DHE key exchange against Logjam weak-DH attacks.",
+            Category);
+    }
 }

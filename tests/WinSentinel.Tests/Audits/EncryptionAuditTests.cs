@@ -213,4 +213,72 @@ public class EncryptionAuditTests
         // Score should be between 0 and 100
         Assert.InRange(result.Score, 0, 100);
     }
+
+    // === Diffie-Hellman key length (Logjam) ================================
+
+    [Fact]
+    public void ClassifyDhKeyLength_Unset_IsNotConfigured()
+    {
+        var state = EncryptionAnalyzer.ClassifyDhKeyLength(0, 0);
+        Assert.False(state.IsConfigured);
+        Assert.False(state.HasWeakSide);
+    }
+
+    [Fact]
+    public void ClassifyDhKeyLength_NegativeTreatedAsUnset()
+    {
+        var state = EncryptionAnalyzer.ClassifyDhKeyLength(-1, -1);
+        Assert.Equal(0, state.ServerMinKeyBits);
+        Assert.Equal(0, state.ClientMinKeyBits);
+        Assert.False(state.IsConfigured);
+    }
+
+    [Theory]
+    [InlineData(1024, 0)]
+    [InlineData(0, 1024)]
+    [InlineData(768, 512)]
+    public void ClassifyDhKeyLength_BelowMinimum_IsWeak(int server, int client)
+    {
+        var state = EncryptionAnalyzer.ClassifyDhKeyLength(server, client);
+        Assert.True(state.IsConfigured);
+        Assert.True(state.HasWeakSide);
+    }
+
+    [Theory]
+    [InlineData(2048, 2048)]
+    [InlineData(3072, 0)]
+    [InlineData(0, 4096)]
+    public void ClassifyDhKeyLength_AtOrAboveMinimum_IsStrong(int server, int client)
+    {
+        var state = EncryptionAnalyzer.ClassifyDhKeyLength(server, client);
+        Assert.True(state.IsConfigured);
+        Assert.False(state.HasWeakSide);
+    }
+
+    [Fact]
+    public void BuildDhKeyLengthFinding_Unset_IsInfo()
+    {
+        var finding = EncryptionAnalyzer.BuildDhKeyLengthFinding(
+            EncryptionAnalyzer.ClassifyDhKeyLength(0, 0));
+        Assert.Equal(Severity.Info, finding.Severity);
+        Assert.Equal("Encryption", finding.Category);
+    }
+
+    [Fact]
+    public void BuildDhKeyLengthFinding_Weak_IsWarningWithBits()
+    {
+        var finding = EncryptionAnalyzer.BuildDhKeyLengthFinding(
+            EncryptionAnalyzer.ClassifyDhKeyLength(1024, 0));
+        Assert.Equal(Severity.Warning, finding.Severity);
+        Assert.Contains("1024", finding.Title);
+        Assert.Contains("Logjam", finding.Description, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void BuildDhKeyLengthFinding_Strong_IsPass()
+    {
+        var finding = EncryptionAnalyzer.BuildDhKeyLengthFinding(
+            EncryptionAnalyzer.ClassifyDhKeyLength(2048, 2048));
+        Assert.Equal(Severity.Pass, finding.Severity);
+    }
 }

@@ -579,6 +579,9 @@ public class EncryptionAudit : AuditModuleBase
 
             // Check cipher suite configuration
             CheckCipherSuites(result);
+
+            // Check Diffie-Hellman key exchange strength (Logjam)
+            CheckDiffieHellmanKeyLength(result);
         }
         catch (Exception ex)
         {
@@ -692,6 +695,32 @@ public class EncryptionAudit : AuditModuleBase
             result.Findings.Add(Finding.Info(
                 "Cipher Suite Check Error",
                 $"Could not check cipher suite configuration: {ex.Message}",
+                Category));
+        }
+    }
+
+    /// <summary>
+    /// Audits the SChannel Diffie-Hellman minimum key length (Logjam mitigation).
+    /// Flags any explicitly-configured minimum below 2048 bits.
+    /// </summary>
+    private void CheckDiffieHellmanKeyLength(AuditResult result)
+    {
+        try
+        {
+            const string dhPath = @"SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\KeyExchangeAlgorithms\Diffie-Hellman";
+            var serverMin = RegistryHelper.GetValue<int>(
+                RegistryHive.LocalMachine, dhPath, "ServerMinKeyBitLength", 0);
+            var clientMin = RegistryHelper.GetValue<int>(
+                RegistryHive.LocalMachine, dhPath, "ClientMinKeyBitLength", 0);
+
+            var state = EncryptionAnalyzer.ClassifyDhKeyLength(serverMin, clientMin);
+            result.Findings.Add(EncryptionAnalyzer.BuildDhKeyLengthFinding(state));
+        }
+        catch (Exception ex)
+        {
+            result.Findings.Add(Finding.Info(
+                "Diffie-Hellman Key Length Check Error",
+                $"Could not check Diffie-Hellman key length configuration: {ex.Message}",
                 Category));
         }
     }

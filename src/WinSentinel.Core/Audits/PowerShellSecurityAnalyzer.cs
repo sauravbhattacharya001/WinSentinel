@@ -174,6 +174,16 @@ public static class PowerShellSecurityAnalyzer
         // auto-runs when a shell of the matching host opens, so a tampered profile
         // is a classic persistence + defense-evasion vector (MITRE T1546.013).
         public List<PowerShellProfileInfo> Profiles { get; set; } = new();
+
+        // Protected Event Logging (a.k.a. Protected CIM/Event Logging). When enabled
+        // via Group Policy with an encryption certificate, PowerShell (and other
+        // participating providers) encrypt sensitive event-log content with CMS so
+        // credentials/secrets that land in Script Block / Module logs are not stored
+        // in plaintext where a local reader could harvest them. Registry:
+        // HKLM\SOFTWARE\Policies\Microsoft\Windows\EventLog\ProtectedEventLogging\
+        // EnableProtectedEventLogging = 1 (+ an EncryptionCertificate). Defaults
+        // false (not configured) - a defense-in-depth gap once logging is on.
+        public bool ProtectedEventLoggingEnabled { get; set; }
     }
 
     /// <summary>
@@ -225,6 +235,7 @@ public static class PowerShellSecurityAnalyzer
         var versions = CheckVersions(state);
         if (versions != null) findings.Add(versions);
         findings.AddRange(CheckProfiles(state));
+        findings.Add(CheckProtectedEventLogging(state));
         return findings;
     }
 
@@ -467,6 +478,38 @@ public static class PowerShellSecurityAnalyzer
     }
 
     // ── Language mode ──────────────────────────────────────────────────────
+
+    // Protected Event Logging encrypts sensitive event-log content (CMS) using an
+    // encryption certificate, so secrets that leak into Script Block / Module logs
+    // are not readable at rest by anyone who can read the event log. It is a
+    // defense-in-depth control that only matters once logging is on; we report it
+    // as Info (a recommendation) rather than a failure.
+    public static Finding CheckProtectedEventLogging(PowerShellState state)
+    {
+        if (state.ProtectedEventLoggingEnabled)
+        {
+            return Finding.Pass(
+                "Protected Event Logging Enabled",
+                "Protected Event Logging is enabled, so sensitive PowerShell event-log " +
+                "content is encrypted (CMS) at rest and cannot be read by a local user " +
+                "who can merely read the event log.",
+                Category);
+        }
+
+        return Finding.Info(
+            "Protected Event Logging Disabled",
+            "Protected Event Logging is not enabled. Script Block and Module logging " +
+            "can capture credentials, tokens, and other secrets that flow through the " +
+            "shell; without Protected Event Logging that content is stored in the event " +
+            "log in plaintext, readable by anyone with log-read access. Enabling it " +
+            "encrypts the content with a certificate so only the holder of the private " +
+            "key can decrypt it (defense-in-depth for PowerShell logging).",
+            Category,
+            "Deploy an encryption certificate, then enable via Group Policy or registry: " +
+            @"HKLM\SOFTWARE\Policies\Microsoft\Windows\EventLog\ProtectedEventLogging\EnableProtectedEventLogging = 1",
+            @"New-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\EventLog\ProtectedEventLogging' " +
+            "-Name EnableProtectedEventLogging -Value 1 -PropertyType DWord -Force");
+    }
 
     public static Finding CheckLanguageMode(PowerShellState state)
     {

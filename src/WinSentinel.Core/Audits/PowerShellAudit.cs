@@ -182,6 +182,19 @@ public class PowerShellAudit : IAuditModule
             }
         }
         catch { /* Access denied */ }
+
+        // Protected Event Logging (encrypts sensitive event-log content via CMS).
+        try
+        {
+            using var key = Registry.LocalMachine.OpenSubKey(
+                @"SOFTWARE\Policies\Microsoft\Windows\EventLog\ProtectedEventLogging");
+            if (key != null)
+            {
+                var val = key.GetValue("EnableProtectedEventLogging");
+                state.ProtectedEventLoggingEnabled = val is int p && p == 1;
+            }
+        }
+        catch { /* Access denied */ }
     }
 
     private async Task CollectLanguageMode(PowerShellState state, CancellationToken ct)

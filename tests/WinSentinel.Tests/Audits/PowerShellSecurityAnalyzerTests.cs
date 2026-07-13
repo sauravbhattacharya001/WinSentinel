@@ -843,4 +843,31 @@ public class PowerShellSecurityAnalyzerTests
             f.Category == Category &&
             (f.Title.Contains("Profile") || f.Title.Contains("profile")));
     }
+
+    // ── Protected Event Logging ────────────────────────────────────────────
+
+    [Fact]
+    public void CheckProtectedEventLogging_Disabled_Info_WithFix()
+    {
+        var f = CheckProtectedEventLogging(new PowerShellState { ProtectedEventLoggingEnabled = false });
+        Assert.Equal(Severity.Info, f.Severity);
+        Assert.Contains("Protected Event Logging", f.Title);
+        Assert.Contains("EnableProtectedEventLogging", f.Remediation);
+    }
+
+    [Fact]
+    public void CheckProtectedEventLogging_Enabled_Pass()
+    {
+        var f = CheckProtectedEventLogging(new PowerShellState { ProtectedEventLoggingEnabled = true });
+        Assert.Equal(Severity.Pass, f.Severity);
+        Assert.Contains("encrypted", f.Description);
+    }
+
+    [Fact]
+    public void Analyze_IncludesProtectedEventLoggingFinding()
+    {
+        var findings = Analyze(new PowerShellState());
+        Assert.Contains(findings, f =>
+            f.Category == Category && f.Title.Contains("Protected Event Logging"));
+    }
 }

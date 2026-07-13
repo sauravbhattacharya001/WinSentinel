@@ -780,6 +780,18 @@ public class PowerShellSecurityAnalyzerTests
     // Inline execution-policy downgrade launched from the profile.
     [InlineData("Start-Process powershell '-ExecutionPolicy Bypass -File x.ps1'", "execution-policy")]
     [InlineData("powershell -ep bypass -c whoami", "execution-policy")]
+    // AMSI reflection bypasses - flipping amsiInitFailed via [Ref].Assembly.GetType / setValue.
+    [InlineData("[Ref].Assembly.GetType('System.Management.Automation.AmsiUtils')", "AMSI-bypass")]
+    [InlineData("$f.SetValue($null,$true)", "AMSI-bypass")]
+    // Native-API injection primitives declared straight in a profile.
+    [InlineData("Add-Type -MemberDefinition '[DllImport(\"kernel32\")]...' ", "native API")]
+    [InlineData("$d = $del.GetDelegateForType($t)", "native-API")]
+    // Named offensive toolkits.
+    [InlineData("Import-Module .\\nishang.psm1", "Nishang")]
+    [InlineData("iex (Invoke-Obfuscation)", "obfuscation")]
+    // Non-interactive relaunch wrapper - classic hidden-automation evasion.
+    [InlineData("Start-Process powershell '-NonInteractive -w hidden -c x'", "non-interactive")]
+    [InlineData("powershell -noni -c whoami", "non-interactive")]
     public void ScanProfileContent_ModernAttackTokens_AreDetected(string content, string expectReasonSubstring)
     {
         var reasons = ScanProfileContent(content);

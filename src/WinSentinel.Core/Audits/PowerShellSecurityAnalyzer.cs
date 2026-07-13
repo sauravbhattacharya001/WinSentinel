@@ -54,7 +54,9 @@ public static class PowerShellSecurityAnalyzer
     /// policy downgrade (-ExecutionPolicy Bypass), AMSI/logging/Defender tampering,
     /// Defender real-time-monitoring kill, profile-skipping relaunch wrappers
     /// (-NoProfile / -nop), named offensive tooling (Invoke-Mimikatz, Invoke-Shellcode,
-    /// PowerSploit), and obfuscation. Each entry pairs the token that is matched (case-insensitively)
+    /// named offensive tooling (Invoke-Mimikatz, Invoke-Shellcode, Nishang,
+    /// PowerSploit), AMSI reflection bypasses ([Ref].Assembly.GetType / setValue),
+    /// native-API injection primitives (DllImport / GetDelegateForType), and obfuscation. Each entry pairs the token that is matched (case-insensitively)
     /// with a short human explanation shown in the finding. Order is the reporting order.
     /// </summary>
     public static readonly IReadOnlyList<(string Token, string Reason)> SuspiciousProfilePatterns =
@@ -87,6 +89,10 @@ public static class PowerShellSecurityAnalyzer
             ("[reflection.assembly]",      "in-memory .NET assembly loading"),
             ("virtualalloc",               "shellcode injection primitive (VirtualAlloc)"),
             ("createthread",               "shellcode injection primitive (CreateThread)"),
+            ("getdelegatefortype",          "dynamic native-API invocation primitive (GetDelegateForType) used for in-memory injection"),
+            ("dllimport",                   "P/Invoke of a native API (DllImport) - common shellcode/injection primitive in a profile"),
+            ("setvalue($null,$true)",       "AMSI-bypass reflection tamper (setValue($null,$true) on amsiInitFailed)"),
+            ("[ref].assembly.gettype",      "AMSI-bypass reflection tamper ([Ref].Assembly.GetType(...) to flip amsiInitFailed)"),
             ("net.sockets.tcpclient",      "raw TCP socket - reverse/bind-shell primitive (Net.Sockets.TcpClient)"),
             ("-executionpolicy bypass",    "inline execution-policy downgrade (-ExecutionPolicy Bypass)"),
             ("-ep bypass",                 "inline execution-policy downgrade (-ep Bypass)"),
@@ -97,6 +103,10 @@ public static class PowerShellSecurityAnalyzer
             ("-nop ",                      "relaunches PowerShell ignoring profiles (-nop), a common evasion wrapper"),
             ("invoke-mimikatz",            "in-memory credential theft (Invoke-Mimikatz)"),
             ("invoke-shellcode",           "in-memory shellcode execution (Invoke-Shellcode)"),
+            ("invoke-obfuscation",         "payload obfuscation via Invoke-Obfuscation"),
+            ("nishang",                    "references the Nishang offensive PowerShell toolkit"),
+            ("-noninteractive",            "relaunches PowerShell non-interactively (-NonInteractive), a common automation/evasion wrapper"),
+            ("-noni ",                     "relaunches PowerShell non-interactively (-noni), a common automation/evasion wrapper"),
             ("powersploit",                "references the PowerSploit offensive toolkit"),
             ("hidden powershell",          "references a hidden PowerShell launch"),
         };

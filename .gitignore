@@ -127,3 +127,5 @@ dist/
 
 ## Node (if docs/tooling ever uses it)
 node_modules/
+
+.commitmsg

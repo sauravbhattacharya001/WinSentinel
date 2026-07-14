@@ -31,6 +31,8 @@ public class UsbAnalyzerTests
         BitLockerDataVolumeStatusAvailable = false,
         UsbDeviceCount = 0,
         RequireRemovableEncryption = true,
+        DenyAllRemovableStorage = true,
+        WpdWriteDenied = false,
     };
 
     /// <summary>A wide-open posture (nothing configured, AutoPlay on, devices present).</summary>
@@ -70,11 +72,10 @@ public class UsbAnalyzerTests
     [Fact]
     public void Analyze_SecureState_EmitsSevenFindings_NoBitLockerInfo()
     {
-        // BitLockerDataVolumeStatusAvailable=false → the optional info is suppressed,
-        // so AutoRun, AutoPlay, WriteProtect, StorageDisable, BitLocker-to-Go,
-        // DeviceHistory, RemovableEncryption = 7.
+        // AutoRun, AutoPlay, WriteProtect, StorageDisable, BitLocker-to-Go,
+        // DeviceHistory, RemovableEncryption, WPD/MTP = 8.
         var findings = UsbAnalyzer.Analyze(SecureState());
-        Assert.Equal(7, findings.Count);
+        Assert.Equal(8, findings.Count);
     }
 
     [Fact]
@@ -83,7 +84,7 @@ public class UsbAnalyzerTests
         var state = SecureState();
         state.BitLockerDataVolumeStatusAvailable = true;
         var findings = UsbAnalyzer.Analyze(state);
-        Assert.Equal(8, findings.Count);
+        Assert.Equal(9, findings.Count);
     }
 
     [Fact]
@@ -109,7 +110,7 @@ public class UsbAnalyzerTests
         var state = InsecureState(); // BitLocker info present
         var titles = UsbAnalyzer.Analyze(state).Select(f => f.Title).ToList();
 
-        Assert.Equal(8, titles.Count);
+        Assert.Equal(9, titles.Count);
         Assert.Contains("AutoRun", titles[0]);
         Assert.Contains("AutoPlay", titles[1]);
         Assert.Contains("write-protect", titles[2]);
@@ -118,6 +119,7 @@ public class UsbAnalyzerTests
         Assert.Contains("BitLocker data volume status", titles[5]);
         Assert.Contains("connection history", titles[6]);
         Assert.Contains("removable drive encryption", titles[7], StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("WPD/MTP", titles[8]);
     }
 
     // ── AutoRun ───────────────────────────────────────────────────────────────
@@ -350,6 +352,55 @@ public class UsbAnalyzerTests
         var f = Single(CheckRemovableDiskEncryption, new UsbState { RequireRemovableEncryption = false });
         Assert.Equal(Severity.Info, f.Severity);
         Assert.Contains("Group Policy", f.Description);
+    }
+
+    // ── WPD / MTP restriction ─────────────────────────────────────────────────
+
+    [Fact]
+    public void Wpd_DenyAll_PassesWithDenyAllWording()
+    {
+        var f = Single(CheckWpdMtpRestriction, new UsbState { DenyAllRemovableStorage = true });
+        Assert.Equal(Severity.Pass, f.Severity);
+        Assert.Contains("Deny_All=1", f.Description);
+        Assert.Contains("WPD/MTP", f.Description);
+    }
+
+    [Fact]
+    public void Wpd_WriteDeniedOnly_PassesWithDenyWriteWording()
+    {
+        var f = Single(CheckWpdMtpRestriction, new UsbState
+        {
+            DenyAllRemovableStorage = false,
+            WpdWriteDenied = true,
+        });
+        Assert.Equal(Severity.Pass, f.Severity);
+        Assert.Contains("Deny_Write=1", f.Description);
+    }
+
+    [Fact]
+    public void Wpd_NeitherRestriction_IsInfoNotWarning()
+    {
+        var f = Single(CheckWpdMtpRestriction, new UsbState
+        {
+            DenyAllRemovableStorage = false,
+            WpdWriteDenied = false,
+        });
+        Assert.Equal(Severity.Info, f.Severity);
+        Assert.Contains("outside USBSTOR", f.Description);
+        Assert.False(string.IsNullOrWhiteSpace(f.Remediation));
+    }
+
+    [Fact]
+    public void Wpd_DenyAllWins_EvenWhenWpdWriteAlsoDenied()
+    {
+        // Deny_All is the broader control; its wording should be surfaced.
+        var f = Single(CheckWpdMtpRestriction, new UsbState
+        {
+            DenyAllRemovableStorage = true,
+            WpdWriteDenied = true,
+        });
+        Assert.Equal(Severity.Pass, f.Severity);
+        Assert.Contains("Deny_All=1", f.Description);
     }
 
     // ── Constants sanity ──────────────────────────────────────────────────────

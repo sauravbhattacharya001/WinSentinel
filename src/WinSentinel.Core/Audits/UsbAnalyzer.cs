@@ -99,6 +99,23 @@ public static class UsbAnalyzer
 
         /// <summary>BitLocker required for removable drives: <c>FVE\RDVConfigureBDE == 1</c>.</summary>
         public bool RequireRemovableEncryption { get; set; }
+
+        /// <summary>
+        /// Removable Storage Access policy denies ALL removable storage classes for
+        /// write (or read+write): <c>RemovableStorageDevices\Deny_All == 1</c>.
+        /// This is the only control that also covers WPD/MTP devices (phones, cameras,
+        /// media players), which enumerate outside <c>USBSTOR</c> and so bypass the
+        /// mass-storage / <c>USBSTOR</c> restrictions entirely.
+        /// </summary>
+        public bool DenyAllRemovableStorage { get; set; }
+
+        /// <summary>
+        /// Whether the machine has WPD-class removable devices whose write access is
+        /// specifically denied via the WPD device-class GUID
+        /// (<c>{6AC27878-A6FA-4155-BA85-F98F491D4F33}\Deny_Write == 1</c>). This is a
+        /// narrower fallback to <see cref="DenyAllRemovableStorage"/>.
+        /// </summary>
+        public bool WpdWriteDenied { get; set; }
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -128,6 +145,7 @@ public static class UsbAnalyzer
 
         findings.Add(CheckDeviceHistory(state));
         findings.Add(CheckRemovableDiskEncryption(state));
+        findings.Add(CheckWpdMtpRestriction(state));
         return findings;
     }
 
@@ -344,5 +362,42 @@ public static class UsbAnalyzer
             "Consider enforcing encryption to protect sensitive data on portable media.",
             Category,
             "Configure 'Control use of BitLocker on removable drives' in Group Policy.");
+    }
+
+    // ── WPD / MTP (phones, cameras, media players) restriction ────────────────
+
+    /// <summary>
+    /// WPD/MTP devices (phones, cameras, portable media players) transfer files over
+    /// the Media Transfer Protocol and enumerate <em>outside</em> <c>USBSTOR</c>, so
+    /// they are NOT covered by the mass-storage / <c>USBSTOR</c> restrictions checked
+    /// above — a well-known data-exfiltration gap (plug in a phone, drag files off).
+    /// The only policy that closes it is the Removable Storage Access node:
+    /// <c>Deny_All=1</c> (all classes) or, more narrowly, the WPD device-class
+    /// <c>Deny_Write=1</c>. Passes when either is enforced; Info otherwise.
+    /// </summary>
+    public static Finding CheckWpdMtpRestriction(UsbState state)
+    {
+        if (state.DenyAllRemovableStorage || state.WpdWriteDenied)
+        {
+            return Finding.Pass(
+                "WPD/MTP portable devices restricted",
+                state.DenyAllRemovableStorage
+                    ? "Removable Storage Access policy denies all removable storage classes (Deny_All=1), " +
+                      "which also blocks WPD/MTP devices such as phones, cameras and media players."
+                    : "Write access to WPD portable devices is denied via the WPD device-class policy " +
+                      "(Deny_Write=1), blocking data transfer to phones, cameras and media players.",
+                Category);
+        }
+
+        return Finding.Info(
+            "WPD/MTP portable devices not restricted",
+            "Phones, cameras and portable media players connect over MTP/WPD and enumerate outside USBSTOR, " +
+            "so they are NOT blocked by USB mass-storage or USBSTOR restrictions. A user can copy sensitive " +
+            "data onto a phone even when USB drives are otherwise locked down. Consider denying WPD/MTP write " +
+            "access via the Removable Storage Access Group Policy.",
+            Category,
+            "Enable 'Removable Storage Access: All Removable Storage classes: Deny all access' " +
+            "(or the WPD-class 'Deny write access') under Computer Configuration > Administrative Templates > " +
+            "System > Removable Storage Access.");
     }
 }

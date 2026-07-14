@@ -31,6 +31,8 @@ public class UsbAudit : AuditModuleBase
             UsbStorStartValue = CollectUsbStorStart(),
             RdvDenyWriteAccess = CollectRdvDenyWriteAccess(),
             RequireRemovableEncryption = CollectRequireRemovableEncryption(),
+            DenyAllRemovableStorage = CollectDenyAllRemovableStorage(),
+            WpdWriteDenied = CollectWpdWriteDenied(),
         };
 
         CollectUsbDeviceHistory(state);
@@ -127,6 +129,46 @@ public class UsbAudit : AuditModuleBase
         using var key = Registry.LocalMachine.OpenSubKey(fvePath);
         // RDVConfigureBDE = 1 means BitLocker is required for removable drives
         return key?.GetValue("RDVConfigureBDE") is int val && val == 1;
+    }
+
+    /// <summary>
+    /// Removable Storage Access: <c>Deny_All=1</c> denies every removable storage
+    /// class (including WPD/MTP), the machine-wide equivalent of unplugging all
+    /// portable devices. Checked under HKLM (machine policy) then HKCU (user policy).
+    /// </summary>
+    private static bool CollectDenyAllRemovableStorage()
+    {
+        const string rsdPath = @"SOFTWARE\Policies\Microsoft\Windows\RemovableStorageDevices";
+        using (var key = Registry.LocalMachine.OpenSubKey(rsdPath))
+        {
+            if (key?.GetValue("Deny_All") is int val && val == 1) return true;
+        }
+        using (var key = Registry.CurrentUser.OpenSubKey(rsdPath))
+        {
+            if (key?.GetValue("Deny_All") is int val && val == 1) return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// WPD device-class write restriction: the Removable Storage Access node for the
+    /// WPD class GUID <c>{6AC27878-A6FA-4155-BA85-F98F491D4F33}</c> with
+    /// <c>Deny_Write=1</c>. This specifically blocks writes to phones/cameras/media
+    /// players even when other classes are allowed. Checked under HKLM then HKCU.
+    /// </summary>
+    private static bool CollectWpdWriteDenied()
+    {
+        const string wpdGuid = "{6AC27878-A6FA-4155-BA85-F98F491D4F33}";
+        string wpdPath = $@"SOFTWARE\Policies\Microsoft\Windows\RemovableStorageDevices\{wpdGuid}";
+        using (var key = Registry.LocalMachine.OpenSubKey(wpdPath))
+        {
+            if (key?.GetValue("Deny_Write") is int val && val == 1) return true;
+        }
+        using (var key = Registry.CurrentUser.OpenSubKey(wpdPath))
+        {
+            if (key?.GetValue("Deny_Write") is int val && val == 1) return true;
+        }
+        return false;
     }
 
     /// <summary>

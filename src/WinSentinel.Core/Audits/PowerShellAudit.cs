@@ -318,6 +318,18 @@ public class PowerShellAudit : IAuditModule
               Where-Object { $_.Enabled -eq 'True' -and $_.Profile -match 'Public' } | 
               Measure-Object | Select-Object -ExpandProperty Count", ct);
         state.WinRmPublicAccess = int.TryParse(fwOutput.Trim(), out int count) && count > 0;
+
+        // Check AllowUnencrypted on the service (server) and client sides. WinRM
+        // exposes these under the WSMan: PSDrive; 'true'/'false' string values.
+        var svcUnenc = await ShellHelper.RunPowerShellAsync(
+            "(Get-Item WSMan:\\localhost\\Service\\AllowUnencrypted -ErrorAction SilentlyContinue).Value", ct);
+        state.WinRmServiceAllowUnencrypted =
+            string.Equals(svcUnenc.Trim(), "true", StringComparison.OrdinalIgnoreCase);
+
+        var cliUnenc = await ShellHelper.RunPowerShellAsync(
+            "(Get-Item WSMan:\\localhost\\Client\\AllowUnencrypted -ErrorAction SilentlyContinue).Value", ct);
+        state.WinRmClientAllowUnencrypted =
+            string.Equals(cliUnenc.Trim(), "true", StringComparison.OrdinalIgnoreCase);
     }
 
     private void CollectInstalledVersions(PowerShellState state)

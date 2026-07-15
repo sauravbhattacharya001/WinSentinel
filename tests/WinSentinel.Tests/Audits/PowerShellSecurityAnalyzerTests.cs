@@ -545,6 +545,66 @@ public class PowerShellSecurityAnalyzerTests
         Assert.Contains(findings, f => f.Severity == Severity.Warning && f.Title.Contains("Public Networks"));
     }
 
+    [Fact]
+    public void CheckRemoting_ServiceAllowUnencrypted_IsCritical()
+    {
+        var findings = CheckRemoting(new PowerShellState
+        {
+            WinRmRunning = true,
+            WinRmServiceAllowUnencrypted = true
+        });
+        var f = Assert.Single(findings, x => x.Title.Contains("Allows Unencrypted"));
+        Assert.Equal(Severity.Critical, f.Severity);
+        Assert.Contains("service (server)", f.Description);
+    }
+
+    [Fact]
+    public void CheckRemoting_ClientAllowUnencrypted_IsCritical()
+    {
+        var findings = CheckRemoting(new PowerShellState
+        {
+            WinRmRunning = true,
+            WinRmClientAllowUnencrypted = true
+        });
+        var f = Assert.Single(findings, x => x.Title.Contains("Allows Unencrypted"));
+        Assert.Equal(Severity.Critical, f.Severity);
+        Assert.Contains("client", f.Description);
+        Assert.DoesNotContain("service (server)", f.Description);
+    }
+
+    [Fact]
+    public void CheckRemoting_BothAllowUnencrypted_NamesBothSides()
+    {
+        var findings = CheckRemoting(new PowerShellState
+        {
+            WinRmRunning = true,
+            WinRmServiceAllowUnencrypted = true,
+            WinRmClientAllowUnencrypted = true
+        });
+        var f = Assert.Single(findings, x => x.Title.Contains("Allows Unencrypted"));
+        Assert.Contains("service (server) and client", f.Description);
+    }
+
+    [Fact]
+    public void CheckRemoting_NotRunning_IgnoresAllowUnencrypted()
+    {
+        // AllowUnencrypted only matters when WinRM is actually running.
+        var findings = CheckRemoting(new PowerShellState
+        {
+            WinRmRunning = false,
+            WinRmServiceAllowUnencrypted = true,
+            WinRmClientAllowUnencrypted = true
+        });
+        Assert.DoesNotContain(findings, f => f.Title.Contains("Allows Unencrypted"));
+    }
+
+    [Fact]
+    public void CheckRemoting_RunningEncrypted_NoUnencryptedFinding()
+    {
+        var findings = CheckRemoting(new PowerShellState { WinRmRunning = true });
+        Assert.DoesNotContain(findings, f => f.Title.Contains("Allows Unencrypted"));
+    }
+
     // ------------------------------------------------------------------
     // CheckVersions - nullable
     // ------------------------------------------------------------------

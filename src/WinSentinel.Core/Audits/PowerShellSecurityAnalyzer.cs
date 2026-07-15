@@ -177,6 +177,15 @@ public static class PowerShellSecurityAnalyzer
         public bool WinRmPublicAccess { get; set; }
         public List<string> WinRmTrustedHosts { get; set; } = new();
 
+        // WinRM plaintext transport: WSMan:\localhost\Service\AllowUnencrypted (server
+        // side) and \Client\AllowUnencrypted (client side). When true, WinRM will
+        // negotiate HTTP without message-level encryption, so credentials and command
+        // output can traverse the network in cleartext (MITRE T1040 - Network Sniffing).
+        // Both default false (the secure Windows default requires encryption); either
+        // being true is a real posture gap once WinRM is running.
+        public bool WinRmServiceAllowUnencrypted { get; set; }
+        public bool WinRmClientAllowUnencrypted { get; set; }
+
         // PowerShell versions found on disk / in the registry
         public List<string> InstalledVersions { get; set; } = new();
 
@@ -674,6 +683,29 @@ public static class PowerShellSecurityAnalyzer
                 $"TrustedHosts configured: {string.Join(", ", state.WinRmTrustedHosts.Take(5))}",
                 Category,
                 "Review trusted hosts list and ensure all entries are expected."));
+        }
+
+        // Plaintext transport: AllowUnencrypted on either the service or client side
+        // lets WinRM negotiate HTTP with no message-level encryption, exposing
+        // credentials and command output to network sniffing (MITRE T1040).
+        if (state.WinRmServiceAllowUnencrypted || state.WinRmClientAllowUnencrypted)
+        {
+            var sides = new List<string>();
+            if (state.WinRmServiceAllowUnencrypted) sides.Add("service (server)");
+            if (state.WinRmClientAllowUnencrypted) sides.Add("client");
+            var sideText = string.Join(" and ", sides);
+            findings.Add(Finding.Critical(
+                "WinRM Allows Unencrypted Traffic",
+                $"WinRM AllowUnencrypted is enabled on the {sideText} side, so remote " +
+                "PowerShell sessions can be negotiated over plain HTTP with no " +
+                "message-level encryption. Credentials and command output then cross " +
+                "the network in cleartext and can be captured by anyone on-path " +
+                "(MITRE T1040 - Network Sniffing).",
+                Category,
+                "Disable unencrypted WinRM transport and require HTTPS/Kerberos-encrypted " +
+                "traffic on both the service and client.",
+                "Set-Item WSMan:\\localhost\\Service\\AllowUnencrypted -Value $false; " +
+                "Set-Item WSMan:\\localhost\\Client\\AllowUnencrypted -Value $false"));
         }
 
         if (state.WinRmPublicAccess)

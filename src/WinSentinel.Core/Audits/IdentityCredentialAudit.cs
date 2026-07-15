@@ -20,7 +20,7 @@ public class IdentityCredentialAudit : AuditModuleBase
     public override string Description =>
         "Audits local admin sprawl, stale accounts, password-never-expires flags, " +
         "LAPS deployment status, cached credential exposure, LSA Protection (RunAsPPL), " +
-        "and Credential Guard.";
+        "WDigest cleartext credential caching, and Credential Guard.";
 
     protected override async Task ExecuteAuditAsync(AuditResult result, CancellationToken cancellationToken)
     {
@@ -47,6 +47,7 @@ public class IdentityCredentialAudit : AuditModuleBase
         CollectCachedCredentials(state);
         CollectLsaProtection(state);
         CollectCredentialGuard(state);
+        CollectWDigest(state);
 
         return state;
     }
@@ -189,6 +190,36 @@ public class IdentityCredentialAudit : AuditModuleBase
         catch
         {
             // Registry access restricted — leave CachedLogonsConfigured=false.
+        }
+    }
+
+    /// <summary>
+    /// Collects the WDigest <c>UseLogonCredential</c> setting. When 1, WDigest stores the
+    /// user's plaintext password in LSASS memory, where credential-dumping tools (Mimikatz
+    /// <c>sekurlsa::wdigest</c>) can read it directly. Windows 8.1 / Server 2012 R2 and later
+    /// (via KB2871997 on older OSes) default to 0 / unset, so an explicit 1 is a real
+    /// regression that reintroduces cleartext credential exposure (MITRE ATT&amp;CK T1003.001).
+    /// </summary>
+    private void CollectWDigest(IdentityCredentialAnalyzer.IdentityState state)
+    {
+        try
+        {
+            using var key = Registry.LocalMachine.OpenSubKey(
+                @"SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest");
+
+            if (key == null) return;
+
+            state.WDigestKeyReadable = true;
+            var useLogonCred = key.GetValue("UseLogonCredential");
+            if (useLogonCred != null)
+            {
+                state.WDigestValueSet = true;
+                state.WDigestUseLogonCredential = Convert.ToInt32(useLogonCred);
+            }
+        }
+        catch
+        {
+            // Registry access restricted — leave WDigestKeyReadable=false (audit stays quiet).
         }
     }
 

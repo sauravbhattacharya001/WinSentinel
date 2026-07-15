@@ -420,6 +420,37 @@ public static class IdentityCredentialAnalyzer
     }
 
     /// <summary>
+    /// WDigest cleartext-credential-caching finding. When the WDigest key is unreadable the
+    /// audit emits nothing (returns <c>null</c>). <c>UseLogonCredential = 1</c> → Warning
+    /// (LSASS caches plaintext passwords, directly extractable by Mimikatz); an explicit 0 →
+    /// Pass; unset → Pass (Windows 8.1+/KB2871997 default is off).
+    /// </summary>
+    public static Finding? BuildWDigestFinding(IdentityState state)
+    {
+        if (!state.WDigestKeyReadable) return null;
+
+        if (state.WDigestValueSet && state.WDigestUseLogonCredential == 1)
+        {
+            return Finding.Warning(
+                "WDigest Cleartext Credentials Enabled",
+                "WDigest UseLogonCredential is set to 1, so LSASS caches the interactive user's " +
+                "password in cleartext. Credential-dumping tools (e.g. Mimikatz sekurlsa::wdigest) " +
+                "can read it directly from memory (MITRE ATT&CK T1003.001). Windows 8.1 / Server " +
+                "2012 R2 and later default this off; an explicit 1 reintroduces the exposure.",
+                Category,
+                "Set WDigest UseLogonCredential to 0 (or remove the value) so plaintext passwords are not cached.",
+                @"Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest' -Name 'UseLogonCredential' -Value 0");
+        }
+
+        return Finding.Pass(
+            "WDigest Cleartext Credentials Disabled",
+            state.WDigestValueSet
+                ? "WDigest UseLogonCredential is explicitly 0 — LSASS does not cache plaintext passwords."
+                : "WDigest UseLogonCredential is not set — Windows defaults to not caching plaintext passwords (KB2871997).",
+            Category);
+    }
+
+    /// <summary>
     /// Build the full set of findings for a collected <see cref="IdentityState"/>,
     /// in the same order the audit produces them. This is the single entry point
     /// the audit module calls after collection.
@@ -438,6 +469,9 @@ public static class IdentityCredentialAnalyzer
 
         var lsa = BuildLsaProtectionFinding(state);
         if (lsa is not null) findings.Add(lsa);
+
+        var wdigest = BuildWDigestFinding(state);
+        if (wdigest is not null) findings.Add(wdigest);
 
         findings.Add(BuildCredentialGuardFinding(state));
 
@@ -498,6 +532,14 @@ public static class IdentityCredentialAnalyzer
         public bool RunAsPplEnabled { get; set; }
         /// <summary>True when RunAsPPL = 1 (PPL enforced WITH a UEFI lock, tamper-resistant).</summary>
         public bool RunAsPplUefiLocked { get; set; }
+
+        // WDigest cleartext credential caching
+        /// <summary>True when the WDigest SecurityProviders registry key could be opened.</summary>
+        public bool WDigestKeyReadable { get; set; }
+        /// <summary>True when the WDigest UseLogonCredential value is explicitly present.</summary>
+        public bool WDigestValueSet { get; set; }
+        /// <summary>Value of WDigest UseLogonCredential (1 = plaintext caching on; 0 = off).</summary>
+        public int WDigestUseLogonCredential { get; set; }
 
         // Credential Guard
         /// <summary>True when the DeviceGuard registry key is present.</summary>

@@ -618,4 +618,86 @@ public class IdentityCredentialAnalyzerTests
         Assert.All(warnings, w => Assert.True(
             !string.IsNullOrWhiteSpace(w.Remediation) || !string.IsNullOrWhiteSpace(w.FixCommand)));
     }
+
+    // ----------------------------------------------------------------------
+    // BuildWDigestFinding
+    // ----------------------------------------------------------------------
+
+    [Fact]
+    public void BuildWDigestFinding_KeyUnreadable_ReturnsNull()
+    {
+        Assert.Null(IdentityCredentialAnalyzer.BuildWDigestFinding(
+            new State { WDigestKeyReadable = false }));
+    }
+
+    [Fact]
+    public void BuildWDigestFinding_UseLogonCredentialOne_Warns()
+    {
+        var f = IdentityCredentialAnalyzer.BuildWDigestFinding(
+            new State { WDigestKeyReadable = true, WDigestValueSet = true, WDigestUseLogonCredential = 1 });
+        Assert.NotNull(f);
+        Assert.Equal(Severity.Warning, f!.Severity);
+        Assert.Contains("Cleartext", f.Title);
+        // Actionable: fix command flips the value back to 0.
+        Assert.Contains("UseLogonCredential", f.FixCommand);
+        Assert.Contains("Value 0", f.FixCommand);
+    }
+
+    [Fact]
+    public void BuildWDigestFinding_ExplicitZero_Passes()
+    {
+        var f = IdentityCredentialAnalyzer.BuildWDigestFinding(
+            new State { WDigestKeyReadable = true, WDigestValueSet = true, WDigestUseLogonCredential = 0 });
+        Assert.NotNull(f);
+        Assert.Equal(Severity.Pass, f!.Severity);
+        Assert.Contains("explicitly 0", f.Description);
+    }
+
+    [Fact]
+    public void BuildWDigestFinding_ValueUnset_PassesOnDefault()
+    {
+        var f = IdentityCredentialAnalyzer.BuildWDigestFinding(
+            new State { WDigestKeyReadable = true, WDigestValueSet = false });
+        Assert.NotNull(f);
+        Assert.Equal(Severity.Pass, f!.Severity);
+        Assert.Contains("not set", f.Description);
+    }
+
+    [Fact]
+    public void BuildWDigestFinding_UnexpectedValue_Passes()
+    {
+        // Any value other than 1 (e.g. a stray 2) is not the plaintext-caching state.
+        var f = IdentityCredentialAnalyzer.BuildWDigestFinding(
+            new State { WDigestKeyReadable = true, WDigestValueSet = true, WDigestUseLogonCredential = 2 });
+        Assert.NotNull(f);
+        Assert.Equal(Severity.Pass, f!.Severity);
+    }
+
+    [Fact]
+    public void BuildFindings_WDigestEnabled_AddsWarningFinding()
+    {
+        var baseState = new State
+        {
+            AdminGroupReadable = true, AdminMemberCount = 1,
+            CachedLogonsConfigured = true, CachedLogonsCount = 1,
+            LsaKeyReadable = true, RunAsPplEnabled = true,
+            DeviceGuardKeyPresent = true,
+            WDigestKeyReadable = false                 // WDigest finding suppressed
+        };
+        var wdigestState = new State
+        {
+            AdminGroupReadable = true, AdminMemberCount = 1,
+            CachedLogonsConfigured = true, CachedLogonsCount = 1,
+            LsaKeyReadable = true, RunAsPplEnabled = true,
+            DeviceGuardKeyPresent = true,
+            WDigestKeyReadable = true, WDigestValueSet = true, WDigestUseLogonCredential = 1
+        };
+
+        var baseCount = IdentityCredentialAnalyzer.BuildFindings(baseState).Count;
+        var withWDigest = IdentityCredentialAnalyzer.BuildFindings(wdigestState);
+
+        Assert.Equal(baseCount + 1, withWDigest.Count);
+        Assert.Contains(withWDigest, f =>
+            f.Title.Contains("WDigest") && f.Severity == Severity.Warning);
+    }
 }

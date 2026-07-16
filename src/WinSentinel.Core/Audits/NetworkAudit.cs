@@ -66,6 +66,7 @@ public class NetworkAudit : AuditModuleBase
         await CollectLlmnrNetBios(state, ct);
         await CollectWpad(state, ct);
         await CollectMdns(state, ct);
+        await CollectIcmpRedirect(state, ct);
         await CollectArp(state, ct);
         await CollectIPv6(state, ct);
 
@@ -335,6 +336,22 @@ public class NetworkAudit : AuditModuleBase
             } catch { 'ERROR' }", ct);
 
         state.MdnsHardened = ClassifyMdnsValue(output);
+    }
+
+    private async Task CollectIcmpRedirect(NetworkState state, CancellationToken ct)
+    {
+        // Read the Microsoft-documented machine-wide ICMP redirect control
+        // (HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\EnableICMPRedirect;
+        // 0 = the IPv4 stack ignores received ICMP redirects). Emit one of
+        // 0 / 1 / NOT_SET / ERROR so the classifier can decide the posture from a clean
+        // token line even if a CIM/registry banner is prepended.
+        var output = await ShellHelper.RunPowerShellAsync(
+            @"try {
+                $key = Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' -Name 'EnableICMPRedirect' -ErrorAction SilentlyContinue
+                if ($key -ne $null -and $key.PSObject.Properties.Name -contains 'EnableICMPRedirect') { $key.EnableICMPRedirect } else { 'NOT_SET' }
+            } catch { 'ERROR' }", ct);
+
+        state.IcmpRedirectHardened = ClassifyIcmpRedirectValue(output);
     }
 
     private async Task CollectArp(NetworkState state, CancellationToken ct)
@@ -713,6 +730,39 @@ public class NetworkAudit : AuditModuleBase
             if (t == "0") return Toggle.Enabled;    // EnableMDNS = 0 => mDNS hardened OFF
             if (t == "1") return Toggle.Disabled;   // EnableMDNS = 1 => mDNS explicitly on
             // Key absent: Windows enables mDNS by default, so this is still exposed.
+            if (t.Equals("NOT_SET", StringComparison.OrdinalIgnoreCase)) return Toggle.Disabled;
+            if (t.Equals("ERROR", StringComparison.OrdinalIgnoreCase)) return Toggle.Unknown;
+            // Unrecognised noise line (e.g. a registry warning): skip and keep scanning.
+        }
+        return Toggle.Unknown; // no recognised token -> unknown (analyzer warns, fail-safe)
+    }
+
+    /// <summary>
+    /// Classifies the <c>EnableICMPRedirect</c> (Tcpip ICMP redirect acceptance) reader
+    /// output into the <see cref="NetworkState.IcmpRedirectHardened"/> posture toggle.
+    /// The reader emits one of <c>0</c> / <c>1</c> / <c>NOT_SET</c> / <c>ERROR</c>.
+    /// Because a CIM/registry warning line can be prepended, scan for the FIRST line that
+    /// is exactly a recognised token rather than testing the whole blob. The semantics
+    /// mirror mDNS (default-ON control): a clean lone <c>0</c> =&gt;
+    /// <see cref="Toggle.Enabled"/> (redirects ignored - the only Pass state); a clean
+    /// lone <c>1</c> =&gt; <see cref="Toggle.Disabled"/> (redirects explicitly accepted).
+    /// Crucially a missing value (<c>NOT_SET</c>) also maps to <see cref="Toggle.Disabled"/>
+    /// because Windows accepts ICMP redirects by DEFAULT, so an absent key means the
+    /// host is still exposed - not unknown. Only an <c>ERROR</c> (or no recognised token)
+    /// maps to <see cref="Toggle.Unknown"/>. The analyzer warns on both Disabled and
+    /// Unknown, so a default-on or unreadable state fails SAFE and surfaces the
+    /// route-injection exposure.
+    /// </summary>
+    internal static Toggle ClassifyIcmpRedirectValue(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return Toggle.Unknown;
+        foreach (var line in raw.Split('\n'))
+        {
+            var t = line.Trim();
+            if (t.Length == 0) continue;
+            if (t == "0") return Toggle.Enabled;    // EnableICMPRedirect = 0 => redirects ignored
+            if (t == "1") return Toggle.Disabled;   // EnableICMPRedirect = 1 => redirects accepted
+            // Key absent: Windows accepts ICMP redirects by default, so still exposed.
             if (t.Equals("NOT_SET", StringComparison.OrdinalIgnoreCase)) return Toggle.Disabled;
             if (t.Equals("ERROR", StringComparison.OrdinalIgnoreCase)) return Toggle.Unknown;
             // Unrecognised noise line (e.g. a registry warning): skip and keep scanning.

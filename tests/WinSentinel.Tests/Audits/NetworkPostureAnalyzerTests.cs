@@ -36,6 +36,7 @@ public class NetworkPostureAnalyzerTests
         NetBiosAdapterCount = 1,
         WpadHardened = Toggle.Enabled,
         MdnsHardened = Toggle.Enabled,
+        IcmpRedirectHardened = Toggle.Enabled,
     };
 
     private static NetworkState InsecureState() => new()
@@ -657,6 +658,60 @@ public class NetworkPostureAnalyzerTests
         // its default (Unknown => a Warning); either way exactly one mDNS row.
         Assert.Single(Analyze(SecureState()), x => x.Title.Contains("mDNS", StringComparison.OrdinalIgnoreCase));
         Assert.Single(Analyze(InsecureState()), x => x.Title.Contains("mDNS", StringComparison.OrdinalIgnoreCase));
+    }
+
+    // ---- ICMP Redirect -------------------------------------------------------
+
+    [Fact]
+    public void IcmpRedirect_NullState_Throws() =>
+        Assert.Throws<ArgumentNullException>(() => CheckIcmpRedirect(null!));
+
+    [Fact]
+    public void IcmpRedirect_Hardened_Passes()
+    {
+        // Toggle.Enabled encodes "EnableICMPRedirect = 0" (redirects ignored).
+        var f = CheckIcmpRedirect(new NetworkState { IcmpRedirectHardened = Toggle.Enabled });
+        Assert.Equal(Severity.Pass, f.Severity);
+        Assert.Contains("ICMP Redirects Ignored", f.Title);
+        Assert.Null(f.FixCommand);
+    }
+
+    [Theory]
+    [InlineData(Toggle.Disabled)] // EnableICMPRedirect = 1 or absent (default on) => exposed
+    [InlineData(Toggle.Unknown)]  // unreadable => fail safe, warn
+    public void IcmpRedirect_NotHardenedOrUnknown_Warns(Toggle posture)
+    {
+        var f = CheckIcmpRedirect(new NetworkState { IcmpRedirectHardened = posture });
+        Assert.Equal(Severity.Warning, f.Severity);
+        Assert.Contains("ICMP Redirects Accepted", f.Title);
+    }
+
+    [Fact]
+    public void IcmpRedirect_Warning_HasSanitizerSafeFix()
+    {
+        var f = CheckIcmpRedirect(new NetworkState { IcmpRedirectHardened = Toggle.Disabled });
+        Assert.False(string.IsNullOrWhiteSpace(f.FixCommand));
+        Assert.StartsWith("Set-ItemProperty ", f.FixCommand);
+        Assert.Contains("EnableICMPRedirect", f.FixCommand);
+        Assert.DoesNotContain(";", f.FixCommand!);
+        Assert.DoesNotContain("|", f.FixCommand!);
+        Assert.Null(InputSanitizer.CheckDangerousCommand(f.FixCommand));
+    }
+
+    [Fact]
+    public void IcmpRedirect_UnknownAndDisabled_ExplainReadFailureDifferently()
+    {
+        var unknown = CheckIcmpRedirect(new NetworkState { IcmpRedirectHardened = Toggle.Unknown });
+        var disabled = CheckIcmpRedirect(new NetworkState { IcmpRedirectHardened = Toggle.Disabled });
+        Assert.Contains("could not be read", unknown.Description);
+        Assert.Contains("default", disabled.Description);
+    }
+
+    [Fact]
+    public void Analyze_Includes_ExactlyOneIcmpRedirectFinding()
+    {
+        Assert.Single(Analyze(SecureState()), x => x.Title.Contains("ICMP Redirect", StringComparison.OrdinalIgnoreCase));
+        Assert.Single(Analyze(InsecureState()), x => x.Title.Contains("ICMP Redirect", StringComparison.OrdinalIgnoreCase));
     }
 
     // ---- ARP -----------------------------------------------------------------

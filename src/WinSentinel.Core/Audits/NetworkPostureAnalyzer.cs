@@ -201,6 +201,21 @@ public static class NetworkPostureAnalyzer
         // multicast ".local" lookups to harvest NTLM auth.
         public Toggle MdnsHardened { get; set; } = Toggle.Unknown;
 
+        // ICMP Redirect acceptance hardening. Tracks the Microsoft-documented
+        // machine-wide control
+        // HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\EnableICMPRedirect
+        // (0 = the IPv4 stack ignores ICMP redirect packets and does NOT rewrite its
+        // route table in response to them). To avoid a double negative the toggle
+        // encodes the *posture*, not the raw value: Enabled = ICMP redirects are
+        // hardened OFF (EnableICMPRedirect = 0, the secure state); Disabled =
+        // EnableICMPRedirect is 1 OR the value is absent (Windows accepts ICMP
+        // redirects by default, so a missing key is still exposed); Unknown = the
+        // value could not be read. An attacker on the local segment who can forge an
+        // ICMP Redirect (Type 5) can inject a bogus host route and man-in-the-middle
+        // or blackhole the victim's traffic - the network-layer analogue of the
+        // ARP/name-resolution poisoning vectors already checked here.
+        public Toggle IcmpRedirectHardened { get; set; } = Toggle.Unknown;
+
         // NetBIOS over TCP/IP - adapters where NBT is still enabled (option 0 or 1).
         public List<string> NetBiosEnabledAdapters { get; set; } = new();
         // Number of IP-enabled adapters seen at all (so "all disabled" can Pass).
@@ -258,6 +273,7 @@ public static class NetworkPostureAnalyzer
         findings.AddRange(CheckLlmnrNetBios(state));
         findings.Add(CheckWpad(state));
         findings.Add(CheckMdns(state));
+        findings.Add(CheckIcmpRedirect(state));
         findings.Add(CheckArp(state));
         findings.AddRange(CheckIPv6(state));
         return findings;
@@ -820,6 +836,71 @@ public static class NetworkPostureAnalyzer
             // service restart is human-guided detail above.
             @"Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Dnscache\Parameters' " +
             "-Name EnableMDNS -Value 0");
+    }
+
+    // ── ICMP Redirect ─────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Evaluates ICMP Redirect acceptance - a network-layer route-injection vector
+    /// that sits alongside the ARP and name-resolution poisoning checks. An ICMP
+    /// Redirect (Type 5) tells a host "use a better next-hop for this destination";
+    /// an attacker on the same segment who forges one can insert a bogus host route
+    /// into the victim's IPv4 route table and man-in-the-middle or blackhole its
+    /// traffic, with no authentication on the redirect itself.
+    ///
+    /// <para>The durable, machine-wide mitigation Microsoft documents is the
+    /// <c>EnableICMPRedirect</c> DWORD under
+    /// <c>HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters</c> set to 0,
+    /// which stops the IPv4 stack from altering its route table in response to
+    /// received redirects. The analyzer grades the collected posture in
+    /// <see cref="NetworkState.IcmpRedirectHardened"/>: <see cref="Toggle.Enabled"/>
+    /// (EnableICMPRedirect = 0, redirects ignored) passes; <see cref="Toggle.Disabled"/>
+    /// (EnableICMPRedirect = 1, OR the value is absent - Windows accepts redirects by
+    /// default, so a missing key is still exposed) warns; <see cref="Toggle.Unknown"/>
+    /// (unreadable) also warns, fail-safe, so a blocked read surfaces the exposure
+    /// rather than hiding it. Always returns exactly one finding.</para>
+    /// </summary>
+    public static Finding CheckIcmpRedirect(NetworkState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+
+        if (state.IcmpRedirectHardened == Toggle.Enabled)
+        {
+            return Finding.Pass(
+                "ICMP Redirects Ignored",
+                "The IPv4 stack ignores ICMP Redirect packets machine-wide " +
+                "(Tcpip EnableICMPRedirect = 0). An attacker on the local segment " +
+                "cannot forge an ICMP Redirect to inject a bogus host route and " +
+                "man-in-the-middle or blackhole this host's traffic.",
+                Category);
+        }
+
+        var stateNote = state.IcmpRedirectHardened == Toggle.Disabled
+            ? "The Tcpip 'EnableICMPRedirect' value is 1 or absent (Windows accepts " +
+              "ICMP redirects by default), so the stack will rewrite its route table " +
+              "in response to received redirects."
+            : "The Tcpip 'EnableICMPRedirect' value could not be read, so ICMP redirect " +
+              "acceptance must be assumed active.";
+
+        return Finding.Warning(
+            "ICMP Redirects Accepted (Route Injection Risk)",
+            stateNote + " An ICMP Redirect (Type 5) instructs a host to change the " +
+            "next-hop for a destination; because the redirect carries no " +
+            "authentication, an attacker on the same segment can forge one to insert " +
+            "a rogue host route into this machine's IPv4 route table and " +
+            "man-in-the-middle or blackhole its traffic - the network-layer analogue " +
+            "of ARP and LLMNR/NBT-NS poisoning.",
+            Category,
+            "Stop the IPv4 stack from acting on received ICMP redirects machine-wide by " +
+            "setting the Tcpip EnableICMPRedirect DWORD to 0, then reboot (the TCP/IP " +
+            "stack reads this at start-up). This aligns with the CIS Windows benchmark " +
+            "'MSS: (EnableICMPRedirect)' recommendation.",
+            // Single sanitizer-safe PowerShell statement (no ';'/'|'/'&&' chaining) so it
+            // survives InputSanitizer.CheckDangerousCommand and matches the PowerShell-only
+            // fix convention of the sibling name-resolution checks. The Tcpip\Parameters
+            // key exists by default on Windows, so Set-ItemProperty succeeds directly.
+            @"Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' " +
+            "-Name EnableICMPRedirect -Value 0");
     }
 
     // ── ARP ──────────────────────────────────────────────────────────────────────

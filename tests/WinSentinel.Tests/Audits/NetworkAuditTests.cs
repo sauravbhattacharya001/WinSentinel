@@ -1294,5 +1294,55 @@ public class NetworkAuditLlmnrNetBiosParsingTests
         const string noisy = "WARNING: verbose banner\n1";
         Assert.Equal(Toggle.Disabled, NetworkAudit.ClassifyMdnsValue(noisy));
     }
+
+    // ── ClassifyIcmpRedirectValue ───────────────────────
+    //
+    // ICMP redirect posture mirrors mDNS (a default-ON control): a clean lone "0"
+    // (EnableICMPRedirect = 0, the stack ignores received redirects) is the secure
+    // Enabled/hardened state; "1" means redirects are accepted (Disabled/exposed).
+    // A missing key (NOT_SET) is ALSO Disabled/exposed because Windows accepts ICMP
+    // redirects by default. Only ERROR / unreadable maps to Unknown.
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData(" 0 ")]
+    [InlineData("0\n")]
+    [InlineData("\n0\n")]
+    public void ClassifyIcmpRedirect_CleanZero_IsHardenedEnabled(string raw) =>
+        Assert.Equal(Toggle.Enabled, NetworkAudit.ClassifyIcmpRedirectValue(raw));
+
+    [Theory]
+    [InlineData("1")]
+    [InlineData(" 1 ")]
+    [InlineData("1\n")]
+    [InlineData("NOT_SET")]       // key absent => still exposed (redirects on by default)
+    [InlineData("not_set")]       // case-insensitive sentinel
+    public void ClassifyIcmpRedirect_OneOrMissing_IsDisabledExposed(string raw) =>
+        Assert.Equal(Toggle.Disabled, NetworkAudit.ClassifyIcmpRedirectValue(raw));
+
+    [Theory]
+    [InlineData("ERROR")]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("garbage")]
+    [InlineData("2")]
+    [InlineData("00")]
+    public void ClassifyIcmpRedirect_ErroredOrUnrecognised_IsUnknown(string? raw) =>
+        Assert.Equal(Toggle.Unknown, NetworkAudit.ClassifyIcmpRedirectValue(raw));
+
+    [Fact]
+    public void ClassifyIcmpRedirect_NoisyPrefixThenZero_IsHardenedEnabled()
+    {
+        const string noisy = "WARNING: Get-ItemProperty provider error\n0";
+        Assert.Equal(Toggle.Enabled, NetworkAudit.ClassifyIcmpRedirectValue(noisy));
+    }
+
+    [Fact]
+    public void ClassifyIcmpRedirect_NoisyPrefixThenOne_IsDisabledExposed()
+    {
+        const string noisy = "WARNING: verbose banner\n1";
+        Assert.Equal(Toggle.Disabled, NetworkAudit.ClassifyIcmpRedirectValue(noisy));
+    }
 }
 

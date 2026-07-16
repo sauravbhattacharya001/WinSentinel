@@ -149,6 +149,18 @@ public static class PowerShellSecurityAnalyzer
         public bool ScriptBlockLoggingExplicitlyDisabled { get; set; }
         public bool ModuleLoggingExplicitlyDisabled { get; set; }
 
+        // The module names configured under the ModuleLogging\ModuleNames subkey.
+        // CIS L1 requires this to contain the single wildcard entry "*" so that
+        // pipeline execution is logged for EVERY module. A common misconfiguration
+        // is to set EnableModuleLogging = 1 (so the top-level flag reads "enabled")
+        // while leaving ModuleNames empty or scoped to a handful of named modules -
+        // in that state almost nothing is actually logged, giving a false sense of
+        // coverage. When this list is non-empty and does not contain "*", coverage
+        // is incomplete. An EMPTY list means the collector could not read the subkey
+        // (access denied / not present) and is treated as "unknown", not a finding,
+        // to avoid false positives. Matching is case-insensitive.
+        public List<string> ModuleLoggingNames { get; set; } = new();
+
         // Language mode
         public string LanguageMode { get; set; } = "FullLanguage";
 
@@ -438,6 +450,35 @@ public static class PowerShellSecurityAnalyzer
                 @"HKLM\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ModuleLogging\EnableModuleLogging = 1",
                 @"New-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ModuleLogging' " +
                 "-Name EnableModuleLogging -Value 1 -PropertyType DWord -Force");
+        }
+
+        // Enabled at the top level, but coverage is only complete when ModuleNames
+        // contains the "*" wildcard. If the collected name list is non-empty and does
+        // NOT include "*", logging is scoped to a subset of modules and most pipeline
+        // activity goes unrecorded despite the flag reading "enabled" - a false sense
+        // of coverage that CIS L1 explicitly calls out. An empty list is "unknown"
+        // (collector could not read the subkey) and is not graded.
+        if (state.ModuleLoggingNames.Count > 0 &&
+            !state.ModuleLoggingNames.Any(n => n.Trim() == "*"))
+        {
+            var configured = string.Join(", ", state.ModuleLoggingNames.Select(n => n.Trim())
+                .Where(n => n.Length > 0));
+            return Finding.Warning(
+                "Module Logging Coverage Incomplete",
+                "PowerShell module logging is enabled (EnableModuleLogging = 1) but the " +
+                "ModuleNames list does not include the '*' wildcard, so pipeline " +
+                "execution is only recorded for a scoped subset of modules " +
+                (configured.Length > 0 ? $"({configured}) " : "") +
+                "rather than every module. This leaves most PowerShell activity " +
+                "unlogged while the top-level flag reads 'enabled', giving a false " +
+                "sense of forensic coverage (CIS L1 requires ModuleNames = '*').",
+                Category,
+                "Set the ModuleNames wildcard so all modules are logged: " +
+                @"HKLM\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ModuleLogging\ModuleNames\* = '*'",
+                @"New-Item -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ModuleLogging\ModuleNames' " +
+                "-Force | Out-Null; New-ItemProperty -Path " +
+                @"'HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ModuleLogging\ModuleNames' " +
+                "-Name '*' -Value '*' -PropertyType String -Force");
         }
 
         return Finding.Pass(

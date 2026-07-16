@@ -163,6 +163,24 @@ public class PowerShellAudit : IAuditModule
                 var val = key.GetValue("EnableModuleLogging");
                 state.ModuleLoggingEnabled = val is int i && i == 1;
                 state.ModuleLoggingExplicitlyDisabled = val is int d && d == 0;
+
+                // ModuleNames subkey holds the per-module logging scope. CIS L1
+                // requires a single "*" wildcard entry so every module is logged;
+                // the analyzer flags an enabled-but-scoped config as incomplete
+                // coverage. Values are stored as name=value pairs (typically "*"="*").
+                try
+                {
+                    using var namesKey = key.OpenSubKey("ModuleNames");
+                    if (namesKey != null)
+                    {
+                        foreach (var name in namesKey.GetValueNames())
+                        {
+                            if (!string.IsNullOrWhiteSpace(name))
+                                state.ModuleLoggingNames.Add(name);
+                        }
+                    }
+                }
+                catch { /* Access denied */ }
             }
         }
         catch { /* Access denied */ }

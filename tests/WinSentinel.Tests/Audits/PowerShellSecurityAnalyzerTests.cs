@@ -372,6 +372,78 @@ public class PowerShellSecurityAnalyzerTests
         Assert.NotEqual(tampered.Title, unset.Title);
     }
 
+    // Enabled + ModuleNames = "*" is full coverage => Pass.
+    [Fact]
+    public void CheckModuleLogging_EnabledWithWildcard_IsPass()
+    {
+        var f = CheckModuleLogging(new PowerShellState
+        {
+            ModuleLoggingEnabled = true,
+            ModuleLoggingNames = new List<string> { "*" }
+        });
+        Assert.Equal(Severity.Pass, f.Severity);
+    }
+
+    // Enabled but ModuleNames scoped to a subset (no "*") => incomplete-coverage
+    // Warning distinct from the "never configured" Warning, and it must name the
+    // configured modules and cite the CIS wildcard requirement.
+    [Fact]
+    public void CheckModuleLogging_EnabledWithoutWildcard_WarnsIncompleteCoverage()
+    {
+        var f = CheckModuleLogging(new PowerShellState
+        {
+            ModuleLoggingEnabled = true,
+            ModuleLoggingNames = new List<string> { "Microsoft.PowerShell.Utility" }
+        });
+        Assert.Equal(Severity.Warning, f.Severity);
+        Assert.Contains("Coverage Incomplete", f.Title);
+        Assert.Contains("Microsoft.PowerShell.Utility", f.Description);
+        Assert.Contains("*", f.Description);
+        Assert.False(string.IsNullOrWhiteSpace(f.Remediation),
+            "an incomplete-coverage finding must carry remediation");
+    }
+
+    // A wildcard mixed in with named modules still counts as full coverage.
+    [Fact]
+    public void CheckModuleLogging_WildcardAmongNames_IsPass()
+    {
+        var f = CheckModuleLogging(new PowerShellState
+        {
+            ModuleLoggingEnabled = true,
+            ModuleLoggingNames = new List<string> { "SomeModule", "*" }
+        });
+        Assert.Equal(Severity.Pass, f.Severity);
+    }
+
+    // Empty ModuleNames list = collector could not read the subkey => "unknown",
+    // NOT graded as incomplete coverage (avoids false positives). Stays Pass.
+    [Fact]
+    public void CheckModuleLogging_EnabledWithUnknownNames_IsPassNotWarning()
+    {
+        var f = CheckModuleLogging(new PowerShellState
+        {
+            ModuleLoggingEnabled = true,
+            ModuleLoggingNames = new List<string>()
+        });
+        Assert.Equal(Severity.Pass, f.Severity);
+    }
+
+    // The incomplete-coverage title must be distinct from both the "disabled" and
+    // "explicitly disabled" titles so an operator can tell the three states apart.
+    [Fact]
+    public void CheckModuleLogging_IncompleteCoverage_TitleDistinctFromDisabledStates()
+    {
+        var incomplete = CheckModuleLogging(new PowerShellState
+        {
+            ModuleLoggingEnabled = true,
+            ModuleLoggingNames = new List<string> { "OnlyThisModule" }
+        });
+        var unsetCov = CheckModuleLogging(new PowerShellState { ModuleLoggingEnabled = false });
+        var tamperedCov = CheckModuleLogging(new PowerShellState { ModuleLoggingExplicitlyDisabled = true });
+        Assert.NotEqual(incomplete.Title, unsetCov.Title);
+        Assert.NotEqual(incomplete.Title, tamperedCov.Title);
+    }
+
     [Fact]
     public void CheckTranscription_EnabledWithDir_MentionsDirInPass()
     {

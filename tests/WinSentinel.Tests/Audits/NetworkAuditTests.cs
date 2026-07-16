@@ -1344,5 +1344,56 @@ public class NetworkAuditLlmnrNetBiosParsingTests
         const string noisy = "WARNING: verbose banner\n1";
         Assert.Equal(Toggle.Disabled, NetworkAudit.ClassifyIcmpRedirectValue(noisy));
     }
+
+    // ── ClassifyIpSourceRoutingValue ──────────────────
+    //
+    // Only the CIS/MSS "highest protection" value "2" (DisableIPSourceRouting = 2,
+    // source routing fully disabled) is the secure Enabled/hardened state. "0"
+    // (allowed) and "1" (partial) are Disabled/exposed, as is a missing key
+    // (NOT_SET) because Windows does not fully disable source routing by default.
+    // Only ERROR / unreadable / unrecognised maps to Unknown.
+
+    [Theory]
+    [InlineData("2")]
+    [InlineData(" 2 ")]
+    [InlineData("2\n")]
+    [InlineData("\n2\n")]
+    public void ClassifyIpSourceRouting_CleanTwo_IsHardenedEnabled(string raw) =>
+        Assert.Equal(Toggle.Enabled, NetworkAudit.ClassifyIpSourceRoutingValue(raw));
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("1")]
+    [InlineData(" 1 ")]
+    [InlineData("0\n")]
+    [InlineData("NOT_SET")]       // key absent => still exposed (not fully disabled by default)
+    [InlineData("not_set")]       // case-insensitive sentinel
+    public void ClassifyIpSourceRouting_ZeroOneOrMissing_IsDisabledExposed(string raw) =>
+        Assert.Equal(Toggle.Disabled, NetworkAudit.ClassifyIpSourceRoutingValue(raw));
+
+    [Theory]
+    [InlineData("ERROR")]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("garbage")]
+    [InlineData("3")]
+    [InlineData("22")]
+    public void ClassifyIpSourceRouting_ErroredOrUnrecognised_IsUnknown(string? raw) =>
+        Assert.Equal(Toggle.Unknown, NetworkAudit.ClassifyIpSourceRoutingValue(raw));
+
+    [Fact]
+    public void ClassifyIpSourceRouting_NoisyPrefixThenTwo_IsHardenedEnabled()
+    {
+        const string noisy = "WARNING: Get-ItemProperty provider error\n2";
+        Assert.Equal(Toggle.Enabled, NetworkAudit.ClassifyIpSourceRoutingValue(noisy));
+    }
+
+    [Fact]
+    public void ClassifyIpSourceRouting_NoisyPrefixThenOne_IsDisabledExposed()
+    {
+        const string noisy = "WARNING: verbose banner\n1";
+        Assert.Equal(Toggle.Disabled, NetworkAudit.ClassifyIpSourceRoutingValue(noisy));
+    }
 }
 

@@ -216,6 +216,24 @@ public static class NetworkPostureAnalyzer
         // ARP/name-resolution poisoning vectors already checked here.
         public Toggle IcmpRedirectHardened { get; set; } = Toggle.Unknown;
 
+        // IPv4 Source Routing hardening. Tracks the Microsoft-documented machine-wide
+        // control
+        // HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\DisableIPSourceRouting
+        // which governs whether the IPv4 stack honours source-routed packets (packets
+        // that carry their own hop-by-hop path in an IP option). Values: 0 = source
+        // routing fully allowed, 1 = source-routed packets forwarded but not received
+        // locally, 2 = source routing completely disabled ("highest protection", the
+        // CIS/MSS-recommended state). To avoid a double negative the toggle encodes the
+        // *posture*, not the raw value: Enabled = source routing is hardened OFF
+        // (DisableIPSourceRouting = 2, the secure state); Disabled = the value is 0, 1,
+        // or absent (Windows does not fully disable it by default, so a missing key is
+        // still exposed); Unknown = the value could not be read. Source-routed packets
+        // let an attacker dictate the return path of a spoofed packet - bypassing
+        // ingress/anti-spoofing filters and reaching hosts that a normal route would not
+        // - the same class of network-layer path manipulation as the ICMP redirect
+        // vector checked above.
+        public Toggle IpSourceRoutingHardened { get; set; } = Toggle.Unknown;
+
         // NetBIOS over TCP/IP - adapters where NBT is still enabled (option 0 or 1).
         public List<string> NetBiosEnabledAdapters { get; set; } = new();
         // Number of IP-enabled adapters seen at all (so "all disabled" can Pass).
@@ -274,6 +292,7 @@ public static class NetworkPostureAnalyzer
         findings.Add(CheckWpad(state));
         findings.Add(CheckMdns(state));
         findings.Add(CheckIcmpRedirect(state));
+        findings.Add(CheckIpSourceRouting(state));
         findings.Add(CheckArp(state));
         findings.AddRange(CheckIPv6(state));
         return findings;
@@ -901,6 +920,72 @@ public static class NetworkPostureAnalyzer
             // key exists by default on Windows, so Set-ItemProperty succeeds directly.
             @"Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' " +
             "-Name EnableICMPRedirect -Value 0");
+    }
+
+    // ── IPv4 Source Routing ────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Evaluates IPv4 source-routing acceptance - a network-layer path-manipulation
+    /// vector alongside the ICMP redirect check. A source-routed IP packet carries its
+    /// own hop-by-hop path in an IP option, letting the sender dictate the route
+    /// (including the return path of a spoofed packet). An attacker can use this to
+    /// bypass ingress/anti-spoofing filters and reach hosts that normal routing would
+    /// not expose.
+    ///
+    /// <para>The durable, machine-wide mitigation Microsoft documents is the
+    /// <c>DisableIPSourceRouting</c> DWORD under
+    /// <c>HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters</c> set to 2
+    /// ("highest protection" - source routing completely disabled), which is the CIS /
+    /// MSS-recommended value. The analyzer grades the collected posture in
+    /// <see cref="NetworkState.IpSourceRoutingHardened"/>: <see cref="Toggle.Enabled"/>
+    /// (DisableIPSourceRouting = 2, fully disabled) passes; <see cref="Toggle.Disabled"/>
+    /// (value is 0, 1, OR absent - Windows does not fully disable source routing by
+    /// default, so a missing or partial value is still exposed) warns;
+    /// <see cref="Toggle.Unknown"/> (unreadable) also warns, fail-safe, so a blocked
+    /// read surfaces the exposure rather than hiding it. Always returns exactly one
+    /// finding.</para>
+    /// </summary>
+    public static Finding CheckIpSourceRouting(NetworkState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+
+        if (state.IpSourceRoutingHardened == Toggle.Enabled)
+        {
+            return Finding.Pass(
+                "IPv4 Source Routing Disabled",
+                "IPv4 source routing is fully disabled machine-wide " +
+                "(Tcpip DisableIPSourceRouting = 2, 'highest protection'). An attacker " +
+                "cannot use source-routed packets to dictate a spoofed packet's return " +
+                "path and bypass this host's anti-spoofing / ingress filtering.",
+                Category);
+        }
+
+        var stateNote = state.IpSourceRoutingHardened == Toggle.Disabled
+            ? "The Tcpip 'DisableIPSourceRouting' value is 0, 1, or absent (Windows does " +
+              "not fully disable source routing by default), so the IPv4 stack still " +
+              "honours source-routed packets to some degree."
+            : "The Tcpip 'DisableIPSourceRouting' value could not be read, so source " +
+              "routing must be assumed active.";
+
+        return Finding.Warning(
+            "IPv4 Source Routing Accepted (Spoofing / Filter-Bypass Risk)",
+            stateNote + " A source-routed IP packet carries its own hop-by-hop path in " +
+            "an IP option, letting the sender - not the routers - choose the route, " +
+            "including the return path of a spoofed source address. An attacker can use " +
+            "this to bypass ingress/anti-spoofing filters and reach hosts normal routing " +
+            "would not expose - the same class of network-layer path manipulation as the " +
+            "ICMP redirect vector.",
+            Category,
+            "Fully disable IPv4 source routing machine-wide by setting the Tcpip " +
+            "DisableIPSourceRouting DWORD to 2 ('highest protection'), then reboot (the " +
+            "TCP/IP stack reads this at start-up). This aligns with the CIS Windows " +
+            "benchmark 'MSS: (DisableIPSourceRouting)' recommendation.",
+            // Single sanitizer-safe PowerShell statement (no ';'/'|'/'&&' chaining) so it
+            // survives InputSanitizer.CheckDangerousCommand and matches the PowerShell-only
+            // fix convention of the sibling network-layer checks. The Tcpip\Parameters key
+            // exists by default on Windows, so Set-ItemProperty succeeds directly.
+            @"Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' " +
+            "-Name DisableIPSourceRouting -Value 2");
     }
 
     // ── ARP ──────────────────────────────────────────────────────────────────────

@@ -37,6 +37,7 @@ public class NetworkPostureAnalyzerTests
         WpadHardened = Toggle.Enabled,
         MdnsHardened = Toggle.Enabled,
         IcmpRedirectHardened = Toggle.Enabled,
+        IpSourceRoutingHardened = Toggle.Enabled,
     };
 
     private static NetworkState InsecureState() => new()
@@ -712,6 +713,60 @@ public class NetworkPostureAnalyzerTests
     {
         Assert.Single(Analyze(SecureState()), x => x.Title.Contains("ICMP Redirect", StringComparison.OrdinalIgnoreCase));
         Assert.Single(Analyze(InsecureState()), x => x.Title.Contains("ICMP Redirect", StringComparison.OrdinalIgnoreCase));
+    }
+
+    // ---- IPv4 Source Routing -------------------------------------------------
+
+    [Fact]
+    public void IpSourceRouting_NullState_Throws() =>
+        Assert.Throws<ArgumentNullException>(() => CheckIpSourceRouting(null!));
+
+    [Fact]
+    public void IpSourceRouting_Hardened_Passes()
+    {
+        // Toggle.Enabled encodes "DisableIPSourceRouting = 2" (fully disabled).
+        var f = CheckIpSourceRouting(new NetworkState { IpSourceRoutingHardened = Toggle.Enabled });
+        Assert.Equal(Severity.Pass, f.Severity);
+        Assert.Contains("IPv4 Source Routing Disabled", f.Title);
+        Assert.Null(f.FixCommand);
+    }
+
+    [Theory]
+    [InlineData(Toggle.Disabled)] // DisableIPSourceRouting = 0/1 or absent (default) => exposed
+    [InlineData(Toggle.Unknown)]  // unreadable => fail safe, warn
+    public void IpSourceRouting_NotHardenedOrUnknown_Warns(Toggle posture)
+    {
+        var f = CheckIpSourceRouting(new NetworkState { IpSourceRoutingHardened = posture });
+        Assert.Equal(Severity.Warning, f.Severity);
+        Assert.Contains("IPv4 Source Routing Accepted", f.Title);
+    }
+
+    [Fact]
+    public void IpSourceRouting_Warning_HasSanitizerSafeFix()
+    {
+        var f = CheckIpSourceRouting(new NetworkState { IpSourceRoutingHardened = Toggle.Disabled });
+        Assert.False(string.IsNullOrWhiteSpace(f.FixCommand));
+        Assert.StartsWith("Set-ItemProperty ", f.FixCommand);
+        Assert.Contains("DisableIPSourceRouting", f.FixCommand);
+        Assert.DoesNotContain(";", f.FixCommand!);
+        Assert.DoesNotContain("|", f.FixCommand!);
+        Assert.Null(InputSanitizer.CheckDangerousCommand(f.FixCommand));
+    }
+
+    [Fact]
+    public void IpSourceRouting_UnknownAndDisabled_ExplainReadFailureDifferently()
+    {
+        var unknown = CheckIpSourceRouting(new NetworkState { IpSourceRoutingHardened = Toggle.Unknown });
+        var disabled = CheckIpSourceRouting(new NetworkState { IpSourceRoutingHardened = Toggle.Disabled });
+        Assert.Contains("could not be read", unknown.Description);
+        Assert.Contains("default", disabled.Description);
+    }
+
+    [Fact]
+    public void Analyze_Includes_ExactlyOneIpSourceRoutingFinding()
+    {
+        Assert.Single(Analyze(SecureState()), x => x.Title.Contains("Source Routing", StringComparison.OrdinalIgnoreCase));
+        Assert.Single(Analyze(InsecureState()), x => x.Title.Contains("Source Routing", StringComparison.OrdinalIgnoreCase));
     }
 
     // ---- ARP -----------------------------------------------------------------

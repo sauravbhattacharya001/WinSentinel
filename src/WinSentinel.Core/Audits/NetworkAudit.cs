@@ -68,6 +68,7 @@ public class NetworkAudit : AuditModuleBase
         await CollectMdns(state, ct);
         await CollectIcmpRedirect(state, ct);
         await CollectIpSourceRouting(state, ct);
+        await CollectIrdp(state, ct);
         await CollectArp(state, ct);
         await CollectIPv6(state, ct);
 
@@ -369,6 +370,22 @@ public class NetworkAudit : AuditModuleBase
             } catch { 'ERROR' }", ct);
 
         state.IpSourceRoutingHardened = ClassifyIpSourceRoutingValue(output);
+    }
+
+    private async Task CollectIrdp(NetworkState state, CancellationToken ct)
+    {
+        // Read the Microsoft-documented machine-wide ICMP Router Discovery control
+        // (HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\PerformRouterDiscovery;
+        // 0 = IRDP disabled, the secure state). Emit one of 0 / 1 / 2 / NOT_SET / ERROR
+        // so the classifier can decide the posture from a clean token line even if a
+        // CIM/registry banner is prepended.
+        var output = await ShellHelper.RunPowerShellAsync(
+            @"try {
+                $key = Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' -Name 'PerformRouterDiscovery' -ErrorAction SilentlyContinue
+                if ($key -ne $null -and $key.PSObject.Properties.Name -contains 'PerformRouterDiscovery') { $key.PerformRouterDiscovery } else { 'NOT_SET' }
+            } catch { 'ERROR' }", ct);
+
+        state.IrdpHardened = ClassifyIrdpValue(output);
     }
 
     private async Task CollectArp(NetworkState state, CancellationToken ct)
@@ -812,6 +829,38 @@ public class NetworkAudit : AuditModuleBase
             if (t == "2") return Toggle.Enabled;    // DisableIPSourceRouting = 2 => fully disabled (secure)
             if (t == "0" || t == "1") return Toggle.Disabled; // allowed / partial => still exposed
             // Key absent: Windows does not fully disable source routing by default.
+            if (t.Equals("NOT_SET", StringComparison.OrdinalIgnoreCase)) return Toggle.Disabled;
+            if (t.Equals("ERROR", StringComparison.OrdinalIgnoreCase)) return Toggle.Unknown;
+            // Unrecognised noise line (e.g. a registry warning): skip and keep scanning.
+        }
+        return Toggle.Unknown; // no recognised token -> unknown (analyzer warns, fail-safe)
+    }
+
+    /// <summary>
+    /// Classifies the <c>PerformRouterDiscovery</c> (Tcpip ICMP Router Discovery
+    /// control) reader output into the <see cref="NetworkState.IrdpHardened"/> posture
+    /// toggle. The reader emits one of <c>0</c> / <c>1</c> / <c>2</c> / <c>NOT_SET</c> /
+    /// <c>ERROR</c>. Because a CIM/registry warning line can be prepended, scan for the
+    /// FIRST line that is exactly a recognised token rather than testing the whole blob.
+    /// Only a clean <c>0</c> (IRDP disabled) =&gt; <see cref="Toggle.Enabled"/> (the only
+    /// Pass state). A clean <c>1</c> (always on) or <c>2</c> (on when DHCP requests it,
+    /// the Windows default) =&gt; <see cref="Toggle.Disabled"/>, as does a missing value
+    /// (<c>NOT_SET</c>) because Windows defaults to 2, so an absent key means IRDP is
+    /// still active. Only an <c>ERROR</c> (or no recognised token) maps to
+    /// <see cref="Toggle.Unknown"/>. The analyzer warns on both Disabled and Unknown, so
+    /// a default/enabled or unreadable state fails SAFE and surfaces the gateway-injection
+    /// exposure.
+    /// </summary>
+    internal static Toggle ClassifyIrdpValue(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return Toggle.Unknown;
+        foreach (var line in raw.Split('\n'))
+        {
+            var t = line.Trim();
+            if (t.Length == 0) continue;
+            if (t == "0") return Toggle.Enabled;    // PerformRouterDiscovery = 0 => IRDP disabled (secure)
+            if (t == "1" || t == "2") return Toggle.Disabled; // always-on / DHCP-gated => still active
+            // Key absent: Windows defaults to 2 (IRDP active when DHCP requests it).
             if (t.Equals("NOT_SET", StringComparison.OrdinalIgnoreCase)) return Toggle.Disabled;
             if (t.Equals("ERROR", StringComparison.OrdinalIgnoreCase)) return Toggle.Unknown;
             // Unrecognised noise line (e.g. a registry warning): skip and keep scanning.

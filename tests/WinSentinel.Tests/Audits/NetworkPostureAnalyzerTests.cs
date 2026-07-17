@@ -38,6 +38,7 @@ public class NetworkPostureAnalyzerTests
         MdnsHardened = Toggle.Enabled,
         IcmpRedirectHardened = Toggle.Enabled,
         IpSourceRoutingHardened = Toggle.Enabled,
+        IrdpHardened = Toggle.Enabled,
     };
 
     private static NetworkState InsecureState() => new()
@@ -767,6 +768,60 @@ public class NetworkPostureAnalyzerTests
     {
         Assert.Single(Analyze(SecureState()), x => x.Title.Contains("Source Routing", StringComparison.OrdinalIgnoreCase));
         Assert.Single(Analyze(InsecureState()), x => x.Title.Contains("Source Routing", StringComparison.OrdinalIgnoreCase));
+    }
+
+    // ---- ICMP Router Discovery (IRDP) ----------------------------------------
+
+    [Fact]
+    public void Irdp_NullState_Throws() =>
+        Assert.Throws<ArgumentNullException>(() => CheckIrdp(null!));
+
+    [Fact]
+    public void Irdp_Hardened_Passes()
+    {
+        // Toggle.Enabled encodes "PerformRouterDiscovery = 0" (IRDP disabled).
+        var f = CheckIrdp(new NetworkState { IrdpHardened = Toggle.Enabled });
+        Assert.Equal(Severity.Pass, f.Severity);
+        Assert.Contains("ICMP Router Discovery Disabled", f.Title);
+        Assert.Null(f.FixCommand);
+    }
+
+    [Theory]
+    [InlineData(Toggle.Disabled)] // PerformRouterDiscovery = 1/2 or absent (default) => exposed
+    [InlineData(Toggle.Unknown)]  // unreadable => fail safe, warn
+    public void Irdp_NotHardenedOrUnknown_Warns(Toggle posture)
+    {
+        var f = CheckIrdp(new NetworkState { IrdpHardened = posture });
+        Assert.Equal(Severity.Warning, f.Severity);
+        Assert.Contains("ICMP Router Discovery Enabled", f.Title);
+    }
+
+    [Fact]
+    public void Irdp_Warning_HasSanitizerSafeFix()
+    {
+        var f = CheckIrdp(new NetworkState { IrdpHardened = Toggle.Disabled });
+        Assert.False(string.IsNullOrWhiteSpace(f.FixCommand));
+        Assert.StartsWith("Set-ItemProperty ", f.FixCommand);
+        Assert.Contains("PerformRouterDiscovery", f.FixCommand);
+        Assert.DoesNotContain(";", f.FixCommand!);
+        Assert.DoesNotContain("|", f.FixCommand!);
+        Assert.Null(InputSanitizer.CheckDangerousCommand(f.FixCommand));
+    }
+
+    [Fact]
+    public void Irdp_UnknownAndDisabled_ExplainReadFailureDifferently()
+    {
+        var unknown = CheckIrdp(new NetworkState { IrdpHardened = Toggle.Unknown });
+        var disabled = CheckIrdp(new NetworkState { IrdpHardened = Toggle.Disabled });
+        Assert.Contains("could not be read", unknown.Description);
+        Assert.Contains("default", disabled.Description);
+    }
+
+    [Fact]
+    public void Analyze_Includes_ExactlyOneIrdpFinding()
+    {
+        Assert.Single(Analyze(SecureState()), x => x.Title.Contains("Router Discovery", StringComparison.OrdinalIgnoreCase));
+        Assert.Single(Analyze(InsecureState()), x => x.Title.Contains("Router Discovery", StringComparison.OrdinalIgnoreCase));
     }
 
     // ---- ARP -----------------------------------------------------------------

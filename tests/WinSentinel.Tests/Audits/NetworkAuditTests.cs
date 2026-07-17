@@ -1395,5 +1395,55 @@ public class NetworkAuditLlmnrNetBiosParsingTests
         const string noisy = "WARNING: verbose banner\n1";
         Assert.Equal(Toggle.Disabled, NetworkAudit.ClassifyIpSourceRoutingValue(noisy));
     }
+
+    // -- ClassifyIrdpValue --------------------------------------------------
+    //
+    // Only a clean "0" (PerformRouterDiscovery = 0, IRDP disabled) is the secure
+    // Enabled/hardened state. "1" (always on) and "2" (on when DHCP requests it,
+    // the Windows default) are Disabled/exposed, as is a missing key (NOT_SET)
+    // because Windows defaults to 2. Only ERROR / unreadable / unrecognised => Unknown.
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData(" 0 ")]
+    [InlineData("0\n")]
+    [InlineData("\n0\n")]
+    public void ClassifyIrdp_CleanZero_IsHardenedEnabled(string raw) =>
+        Assert.Equal(Toggle.Enabled, NetworkAudit.ClassifyIrdpValue(raw));
+
+    [Theory]
+    [InlineData("1")]
+    [InlineData("2")]
+    [InlineData(" 2 ")]
+    [InlineData("1\n")]
+    [InlineData("NOT_SET")]       // key absent => Windows defaults to 2 => still active
+    [InlineData("not_set")]       // case-insensitive sentinel
+    public void ClassifyIrdp_OneTwoOrMissing_IsDisabledExposed(string raw) =>
+        Assert.Equal(Toggle.Disabled, NetworkAudit.ClassifyIrdpValue(raw));
+
+    [Theory]
+    [InlineData("ERROR")]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("garbage")]
+    [InlineData("3")]
+    [InlineData("00")]
+    public void ClassifyIrdp_ErroredOrUnrecognised_IsUnknown(string? raw) =>
+        Assert.Equal(Toggle.Unknown, NetworkAudit.ClassifyIrdpValue(raw));
+
+    [Fact]
+    public void ClassifyIrdp_NoisyPrefixThenZero_IsHardenedEnabled()
+    {
+        const string noisy = "WARNING: Get-ItemProperty provider error\n0";
+        Assert.Equal(Toggle.Enabled, NetworkAudit.ClassifyIrdpValue(noisy));
+    }
+
+    [Fact]
+    public void ClassifyIrdp_NoisyPrefixThenTwo_IsDisabledExposed()
+    {
+        const string noisy = "WARNING: verbose banner\n2";
+        Assert.Equal(Toggle.Disabled, NetworkAudit.ClassifyIrdpValue(noisy));
+    }
 }
 

@@ -234,6 +234,23 @@ public static class NetworkPostureAnalyzer
         // vector checked above.
         public Toggle IpSourceRoutingHardened { get; set; } = Toggle.Unknown;
 
+        // ICMP Router Discovery (IRDP) hardening. Tracks the Microsoft-documented
+        // machine-wide control
+        // HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\PerformRouterDiscovery
+        // which governs whether the IPv4 stack solicits/accepts ICMP Router
+        // Discovery Protocol (RFC 1256) Router Advertisements to learn its default
+        // gateway. Values: 0 = disabled, 1 = enabled, 2 = enable only if DHCP sends
+        // the Perform Router Discovery option (the Windows default). To avoid a double
+        // negative the toggle encodes the *posture*, not the raw value: Enabled = IRDP
+        // is hardened OFF (PerformRouterDiscovery = 0, the secure state); Disabled =
+        // the value is 1, 2, or absent (Windows defaults to 2, so a missing key still
+        // leaves IRDP active); Unknown = the value could not be read. An attacker on
+        // the local segment who forges an ICMP Router Advertisement can install a
+        // rogue default gateway on the victim and man-in-the-middle or blackhole its
+        // traffic - the same route-injection class as the ICMP redirect and IPv4
+        // source-routing vectors checked above.
+        public Toggle IrdpHardened { get; set; } = Toggle.Unknown;
+
         // NetBIOS over TCP/IP - adapters where NBT is still enabled (option 0 or 1).
         public List<string> NetBiosEnabledAdapters { get; set; } = new();
         // Number of IP-enabled adapters seen at all (so "all disabled" can Pass).
@@ -293,6 +310,7 @@ public static class NetworkPostureAnalyzer
         findings.Add(CheckMdns(state));
         findings.Add(CheckIcmpRedirect(state));
         findings.Add(CheckIpSourceRouting(state));
+        findings.Add(CheckIrdp(state));
         findings.Add(CheckArp(state));
         findings.AddRange(CheckIPv6(state));
         return findings;
@@ -989,6 +1007,71 @@ public static class NetworkPostureAnalyzer
     }
 
     // ── ARP ──────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Evaluates ICMP Router Discovery Protocol (IRDP, RFC 1256) acceptance - a
+    /// network-layer default-gateway-injection vector alongside the ICMP redirect
+    /// and IPv4 source-routing checks. When IRDP is active the IPv4 stack learns its
+    /// default gateway from unauthenticated ICMP Router Advertisements; an attacker
+    /// on the same segment who forges a Router Advertisement (with a higher
+    /// preference) can install a rogue default gateway on the victim and
+    /// man-in-the-middle or blackhole its traffic, with no authentication on the
+    /// advertisement itself.
+    ///
+    /// <para>The durable, machine-wide mitigation Microsoft documents is the
+    /// <c>PerformRouterDiscovery</c> DWORD under
+    /// <c>HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters</c> set to 0,
+    /// which stops the stack from soliciting or honouring IRDP advertisements. The
+    /// analyzer grades the collected posture in
+    /// <see cref="NetworkState.IrdpHardened"/>: <see cref="Toggle.Enabled"/>
+    /// (PerformRouterDiscovery = 0, IRDP disabled) passes; <see cref="Toggle.Disabled"/>
+    /// (the value is 1, 2, OR absent - Windows defaults to 2, so a missing key still
+    /// leaves IRDP active) warns; <see cref="Toggle.Unknown"/> (unreadable) also warns,
+    /// fail-safe, so a blocked read surfaces the exposure rather than hiding it.
+    /// Always returns exactly one finding.</para>
+    /// </summary>
+    public static Finding CheckIrdp(NetworkState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+
+        if (state.IrdpHardened == Toggle.Enabled)
+        {
+            return Finding.Pass(
+                "ICMP Router Discovery Disabled",
+                "ICMP Router Discovery Protocol (IRDP) is disabled machine-wide " +
+                "(Tcpip PerformRouterDiscovery = 0). An attacker on the local segment " +
+                "cannot forge an ICMP Router Advertisement to install a rogue default " +
+                "gateway and man-in-the-middle or blackhole this host's traffic.",
+                Category);
+        }
+
+        var stateNote = state.IrdpHardened == Toggle.Disabled
+            ? "The Tcpip 'PerformRouterDiscovery' value is 1, 2, or absent (Windows " +
+              "defaults to 2, enabling IRDP whenever DHCP requests it), so the stack " +
+              "can still learn its default gateway from ICMP Router Advertisements."
+            : "The Tcpip 'PerformRouterDiscovery' value could not be read, so ICMP " +
+              "Router Discovery must be assumed active.";
+
+        return Finding.Warning(
+            "ICMP Router Discovery Enabled (Gateway Injection Risk)",
+            stateNote + " ICMP Router Discovery (IRDP, RFC 1256) lets a host learn its " +
+            "default gateway from ICMP Router Advertisements; because those " +
+            "advertisements carry no authentication, an attacker on the same segment " +
+            "can forge one to install a rogue default gateway on this machine and " +
+            "man-in-the-middle or blackhole its traffic - the same route-injection " +
+            "class as the ICMP redirect and IPv4 source-routing vectors.",
+            Category,
+            "Disable IRDP machine-wide by setting the Tcpip PerformRouterDiscovery " +
+            "DWORD to 0, then reboot (the TCP/IP stack reads this at start-up). This " +
+            "aligns with the CIS Windows benchmark 'MSS: (PerformRouterDiscovery)' " +
+            "recommendation.",
+            // Single sanitizer-safe PowerShell statement (no ';'/'|'/'&&' chaining) so it
+            // survives InputSanitizer.CheckDangerousCommand and matches the PowerShell-only
+            // fix convention of the sibling network-layer checks. The Tcpip\Parameters
+            // key exists by default on Windows, so Set-ItemProperty succeeds directly.
+            @"Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' " +
+            "-Name PerformRouterDiscovery -Value 0");
+    }
 
     /// <summary>
     /// Inspects the ARP table for duplicate MAC addresses (the same MAC claiming

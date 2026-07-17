@@ -348,6 +348,19 @@ public class PowerShellAudit : IAuditModule
             "(Get-Item WSMan:\\localhost\\Client\\AllowUnencrypted -ErrorAction SilentlyContinue).Value", ct);
         state.WinRmClientAllowUnencrypted =
             string.Equals(cliUnenc.Trim(), "true", StringComparison.OrdinalIgnoreCase);
+
+        // Check Basic authentication on the service (server) and client sides. Same
+        // WSMan: PSDrive; 'true'/'false' string values. Basic auth is base64, not
+        // encrypted, so it exposes credentials on any non-HTTPS transport.
+        var svcBasic = await ShellHelper.RunPowerShellAsync(
+            "(Get-Item WSMan:\\localhost\\Service\\Auth\\Basic -ErrorAction SilentlyContinue).Value", ct);
+        state.WinRmServiceBasicAuth =
+            string.Equals(svcBasic.Trim(), "true", StringComparison.OrdinalIgnoreCase);
+
+        var cliBasic = await ShellHelper.RunPowerShellAsync(
+            "(Get-Item WSMan:\\localhost\\Client\\Auth\\Basic -ErrorAction SilentlyContinue).Value", ct);
+        state.WinRmClientBasicAuth =
+            string.Equals(cliBasic.Trim(), "true", StringComparison.OrdinalIgnoreCase);
     }
 
     private void CollectInstalledVersions(PowerShellState state)

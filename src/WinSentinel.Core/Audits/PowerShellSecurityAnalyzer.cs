@@ -198,6 +198,19 @@ public static class PowerShellSecurityAnalyzer
         public bool WinRmServiceAllowUnencrypted { get; set; }
         public bool WinRmClientAllowUnencrypted { get; set; }
 
+        // WinRM Basic authentication: WSMan:\localhost\Service\Auth\Basic (server
+        // side) and \Client\Auth\Basic (client side). Basic auth transmits the
+        // username and password as a base64-encoded (NOT encrypted) blob, so unless
+        // the transport itself is HTTPS/encrypted the credentials are effectively
+        // cleartext on the wire (MITRE T1040 - Network Sniffing). It also cannot do
+        // mutual authentication, so it invites credential relay. CIS Windows L1
+        // requires Basic auth to be disabled on both the WinRM service and client;
+        // Kerberos/Negotiate should be used instead. Both default false (Basic is not
+        // enabled by default), so either being true is a real posture gap once WinRM
+        // is running - and it compounds the AllowUnencrypted finding above.
+        public bool WinRmServiceBasicAuth { get; set; }
+        public bool WinRmClientBasicAuth { get; set; }
+
         // PowerShell versions found on disk / in the registry
         public List<string> InstalledVersions { get; set; } = new();
 
@@ -747,6 +760,32 @@ public static class PowerShellSecurityAnalyzer
                 "traffic on both the service and client.",
                 "Set-Item WSMan:\\localhost\\Service\\AllowUnencrypted -Value $false; " +
                 "Set-Item WSMan:\\localhost\\Client\\AllowUnencrypted -Value $false"));
+        }
+
+        // Basic authentication: sends credentials as a base64 blob (not encrypted)
+        // and cannot mutually authenticate, so on any non-HTTPS transport it hands
+        // creds to an on-path attacker (MITRE T1040) and invites relay. CIS L1
+        // requires it disabled on both the service and client.
+        if (state.WinRmServiceBasicAuth || state.WinRmClientBasicAuth)
+        {
+            var sides = new List<string>();
+            if (state.WinRmServiceBasicAuth) sides.Add("service (server)");
+            if (state.WinRmClientBasicAuth) sides.Add("client");
+            var sideText = string.Join(" and ", sides);
+            findings.Add(Finding.Warning(
+                "WinRM Basic Authentication Enabled",
+                $"WinRM Basic authentication is enabled on the {sideText} side. Basic " +
+                "auth transmits the username and password as a base64-encoded (not " +
+                "encrypted) value and cannot perform mutual authentication, so on any " +
+                "transport that is not HTTPS/message-encrypted the credentials are " +
+                "effectively cleartext and can be captured or relayed by an on-path " +
+                "attacker (MITRE T1040 - Network Sniffing). CIS Windows L1 requires " +
+                "Basic authentication to be disabled.",
+                Category,
+                "Disable WinRM Basic authentication on both the service and client and " +
+                "use Kerberos/Negotiate instead.",
+                "Set-Item WSMan:\\localhost\\Service\\Auth\\Basic -Value $false; " +
+                "Set-Item WSMan:\\localhost\\Client\\Auth\\Basic -Value $false"));
         }
 
         if (state.WinRmPublicAccess)

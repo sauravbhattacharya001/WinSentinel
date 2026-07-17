@@ -677,6 +677,64 @@ public class PowerShellSecurityAnalyzerTests
         Assert.DoesNotContain(findings, f => f.Title.Contains("Allows Unencrypted"));
     }
 
+    [Fact]
+    public void CheckRemoting_ServiceBasicAuth_IsWarning()
+    {
+        var findings = CheckRemoting(new PowerShellState
+        {
+            WinRmRunning = true,
+            WinRmServiceBasicAuth = true
+        });
+        var f = Assert.Single(findings, x => x.Title.Contains("Basic Authentication"));
+        Assert.Equal(Severity.Warning, f.Severity);
+        Assert.Contains("service (server)", f.Description);
+    }
+
+    [Fact]
+    public void CheckRemoting_ClientBasicAuth_IsWarning()
+    {
+        var findings = CheckRemoting(new PowerShellState
+        {
+            WinRmRunning = true,
+            WinRmClientBasicAuth = true
+        });
+        var f = Assert.Single(findings, x => x.Title.Contains("Basic Authentication"));
+        Assert.Equal(Severity.Warning, f.Severity);
+        Assert.Contains("client", f.Description);
+    }
+
+    [Fact]
+    public void CheckRemoting_BothBasicAuth_NamesBothSides()
+    {
+        var findings = CheckRemoting(new PowerShellState
+        {
+            WinRmRunning = true,
+            WinRmServiceBasicAuth = true,
+            WinRmClientBasicAuth = true
+        });
+        var f = Assert.Single(findings, x => x.Title.Contains("Basic Authentication"));
+        Assert.Contains("service (server) and client", f.Description);
+    }
+
+    [Fact]
+    public void CheckRemoting_NotRunning_IgnoresBasicAuth()
+    {
+        var findings = CheckRemoting(new PowerShellState
+        {
+            WinRmRunning = false,
+            WinRmServiceBasicAuth = true,
+            WinRmClientBasicAuth = true
+        });
+        Assert.DoesNotContain(findings, f => f.Title.Contains("Basic Authentication"));
+    }
+
+    [Fact]
+    public void CheckRemoting_RunningNoBasic_NoBasicAuthFinding()
+    {
+        var findings = CheckRemoting(new PowerShellState { WinRmRunning = true });
+        Assert.DoesNotContain(findings, f => f.Title.Contains("Basic Authentication"));
+    }
+
     // ------------------------------------------------------------------
     // CheckVersions - nullable
     // ------------------------------------------------------------------

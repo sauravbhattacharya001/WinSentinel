@@ -361,6 +361,20 @@ public class PowerShellAudit : IAuditModule
             "(Get-Item WSMan:\\localhost\\Client\\Auth\\Basic -ErrorAction SilentlyContinue).Value", ct);
         state.WinRmClientBasicAuth =
             string.Equals(cliBasic.Trim(), "true", StringComparison.OrdinalIgnoreCase);
+
+        // Check CredSSP authentication on the service (server) and client sides. Same
+        // WSMan: PSDrive; 'true'/'false' string values. CredSSP delegates full
+        // credentials to the remote host, enabling lateral movement if it is
+        // compromised (MITRE T1550), so an enabled value is graded as a posture gap.
+        var svcCredSsp = await ShellHelper.RunPowerShellAsync(
+            "(Get-Item WSMan:\\localhost\\Service\\Auth\\CredSSP -ErrorAction SilentlyContinue).Value", ct);
+        state.WinRmServiceCredSsp =
+            string.Equals(svcCredSsp.Trim(), "true", StringComparison.OrdinalIgnoreCase);
+
+        var cliCredSsp = await ShellHelper.RunPowerShellAsync(
+            "(Get-Item WSMan:\\localhost\\Client\\Auth\\CredSSP -ErrorAction SilentlyContinue).Value", ct);
+        state.WinRmClientCredSsp =
+            string.Equals(cliCredSsp.Trim(), "true", StringComparison.OrdinalIgnoreCase);
     }
 
     private void CollectInstalledVersions(PowerShellState state)

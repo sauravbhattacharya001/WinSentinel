@@ -211,6 +211,21 @@ public static class PowerShellSecurityAnalyzer
         public bool WinRmServiceBasicAuth { get; set; }
         public bool WinRmClientBasicAuth { get; set; }
 
+        // WinRM CredSSP authentication: WSMan:\localhost\Service\Auth\CredSSP
+        // (server side) and \Client\Auth\CredSSP (client side). CredSSP delegates
+        // the user's FULL plaintext-equivalent credentials to the remote host so that
+        // host can act as the user (the classic "second hop" enabler). A compromised
+        // or malicious target then holds usable credentials, and CredSSP has a long
+        // history of relay/downgrade weaknesses (e.g. CVE-2018-0886). Attackers abuse
+        // delegated credentials for lateral movement (MITRE T1550 - Use Alternate
+        // Authentication Material). CIS Windows L1 requires CredSSP to be disabled on
+        // both the WinRM service and client; use Kerberos constrained delegation or
+        // resource-based delegation instead when a second hop is genuinely needed.
+        // Both default false (CredSSP is not enabled by default), so either being
+        // true is a real credential-exposure gap once WinRM is running.
+        public bool WinRmServiceCredSsp { get; set; }
+        public bool WinRmClientCredSsp { get; set; }
+
         // PowerShell versions found on disk / in the registry
         public List<string> InstalledVersions { get; set; } = new();
 
@@ -786,6 +801,34 @@ public static class PowerShellSecurityAnalyzer
                 "use Kerberos/Negotiate instead.",
                 "Set-Item WSMan:\\localhost\\Service\\Auth\\Basic -Value $false; " +
                 "Set-Item WSMan:\\localhost\\Client\\Auth\\Basic -Value $false"));
+        }
+
+        // CredSSP authentication: delegates the user's full plaintext-equivalent
+        // credentials to the remote host (the "second hop" enabler), so a compromised
+        // target then holds usable creds for lateral movement (MITRE T1550). CredSSP
+        // also has a history of relay/downgrade CVEs (e.g. CVE-2018-0886). CIS L1
+        // requires it disabled on both the service and client.
+        if (state.WinRmServiceCredSsp || state.WinRmClientCredSsp)
+        {
+            var sides = new List<string>();
+            if (state.WinRmServiceCredSsp) sides.Add("service (server)");
+            if (state.WinRmClientCredSsp) sides.Add("client");
+            var sideText = string.Join(" and ", sides);
+            findings.Add(Finding.Warning(
+                "WinRM CredSSP Authentication Enabled",
+                $"WinRM CredSSP authentication is enabled on the {sideText} side. CredSSP " +
+                "delegates the user's full (plaintext-equivalent) credentials to the " +
+                "remote host so it can act as the user - the classic 'second hop' " +
+                "mechanism. A compromised or malicious target then holds usable " +
+                "credentials for lateral movement (MITRE T1550 - Use Alternate " +
+                "Authentication Material), and CredSSP has a history of relay/downgrade " +
+                "weaknesses (e.g. CVE-2018-0886). CIS Windows L1 requires CredSSP to be " +
+                "disabled.",
+                Category,
+                "Disable WinRM CredSSP on both the service and client; use Kerberos " +
+                "constrained or resource-based delegation when a second hop is required.",
+                "Set-Item WSMan:\\localhost\\Service\\Auth\\CredSSP -Value $false; " +
+                "Set-Item WSMan:\\localhost\\Client\\Auth\\CredSSP -Value $false"));
         }
 
         if (state.WinRmPublicAccess)

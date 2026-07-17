@@ -736,6 +736,68 @@ public class PowerShellSecurityAnalyzerTests
     }
 
     // ------------------------------------------------------------------
+    // CheckRemoting - CredSSP authentication
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void CheckRemoting_ServiceCredSsp_IsWarning()
+    {
+        var findings = CheckRemoting(new PowerShellState
+        {
+            WinRmRunning = true,
+            WinRmServiceCredSsp = true
+        });
+        var f = Assert.Single(findings, x => x.Title.Contains("CredSSP Authentication"));
+        Assert.Equal(Severity.Warning, f.Severity);
+        Assert.Contains("service (server)", f.Description);
+    }
+
+    [Fact]
+    public void CheckRemoting_ClientCredSsp_IsWarning()
+    {
+        var findings = CheckRemoting(new PowerShellState
+        {
+            WinRmRunning = true,
+            WinRmClientCredSsp = true
+        });
+        var f = Assert.Single(findings, x => x.Title.Contains("CredSSP Authentication"));
+        Assert.Equal(Severity.Warning, f.Severity);
+        Assert.Contains("client", f.Description);
+    }
+
+    [Fact]
+    public void CheckRemoting_BothCredSsp_NamesBothSides()
+    {
+        var findings = CheckRemoting(new PowerShellState
+        {
+            WinRmRunning = true,
+            WinRmServiceCredSsp = true,
+            WinRmClientCredSsp = true
+        });
+        var f = Assert.Single(findings, x => x.Title.Contains("CredSSP Authentication"));
+        Assert.Contains("service (server) and client", f.Description);
+    }
+
+    [Fact]
+    public void CheckRemoting_NotRunning_IgnoresCredSsp()
+    {
+        var findings = CheckRemoting(new PowerShellState
+        {
+            WinRmRunning = false,
+            WinRmServiceCredSsp = true,
+            WinRmClientCredSsp = true
+        });
+        Assert.DoesNotContain(findings, f => f.Title.Contains("CredSSP Authentication"));
+    }
+
+    [Fact]
+    public void CheckRemoting_RunningNoCredSsp_NoCredSspFinding()
+    {
+        var findings = CheckRemoting(new PowerShellState { WinRmRunning = true });
+        Assert.DoesNotContain(findings, f => f.Title.Contains("CredSSP Authentication"));
+    }
+
+    // ------------------------------------------------------------------
     // CheckVersions - nullable
     // ------------------------------------------------------------------
 

@@ -58,6 +58,17 @@ public class AttackSurfaceReductionAnalyzerTests
         Assert.Equal(rules.Count, rules.Select(r => r.Id).Distinct().Count());
     }
 
+    [Fact]
+    public void RecommendedRules_IncludeSafeModeAndSystemToolImpersonationRules()
+    {
+        var ids = AttackSurfaceReductionAnalyzer.RecommendedRules.Select(r => r.Id).ToHashSet();
+        // "Block rebooting machine in Safe Mode" and "Block use of copied or
+        // impersonated system tools" are Microsoft-recommended ASR rules; both
+        // should be evaluated by the hardened-endpoint baseline.
+        Assert.Contains("33ddedf1-c6e0-47cb-833e-de6133960387", ids);
+        Assert.Contains("c0033c00-d16d-4114-a5a0-dc9b3a7d2ceb", ids);
+    }
+
     // ──────────────────────────────────────────────────────────────────────
     // ParseConfiguredRules
     // ──────────────────────────────────────────────────────────────────────

@@ -1445,5 +1445,55 @@ public class NetworkAuditLlmnrNetBiosParsingTests
         const string noisy = "WARNING: verbose banner\n2";
         Assert.Equal(Toggle.Disabled, NetworkAudit.ClassifyIrdpValue(noisy));
     }
+
+    // -- ClassifyDeadGatewayValue -------------------------------------------
+    //
+    // Only a clean "0" (EnableDeadGWDetect = 0, detection off) is the secure
+    // Enabled/hardened state. "1" (detection on) is Disabled/exposed, as is a
+    // missing key (NOT_SET) because Windows enables dead-gateway detection by
+    // default. Only ERROR / unreadable / unrecognised => Unknown.
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData(" 0 ")]
+    [InlineData("0\n")]
+    [InlineData("\n0\n")]
+    public void ClassifyDeadGateway_CleanZero_IsHardenedEnabled(string raw) =>
+        Assert.Equal(Toggle.Enabled, NetworkAudit.ClassifyDeadGatewayValue(raw));
+
+    [Theory]
+    [InlineData("1")]
+    [InlineData(" 1 ")]
+    [InlineData("1\n")]
+    [InlineData("NOT_SET")]       // key absent => Windows enables it by default => still active
+    [InlineData("not_set")]       // case-insensitive sentinel
+    public void ClassifyDeadGateway_OneOrMissing_IsDisabledExposed(string raw) =>
+        Assert.Equal(Toggle.Disabled, NetworkAudit.ClassifyDeadGatewayValue(raw));
+
+    [Theory]
+    [InlineData("ERROR")]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("garbage")]
+    [InlineData("2")]
+    [InlineData("00")]
+    public void ClassifyDeadGateway_ErroredOrUnrecognised_IsUnknown(string? raw) =>
+        Assert.Equal(Toggle.Unknown, NetworkAudit.ClassifyDeadGatewayValue(raw));
+
+    [Fact]
+    public void ClassifyDeadGateway_NoisyPrefixThenZero_IsHardenedEnabled()
+    {
+        const string noisy = "WARNING: Get-ItemProperty provider error\n0";
+        Assert.Equal(Toggle.Enabled, NetworkAudit.ClassifyDeadGatewayValue(noisy));
+    }
+
+    [Fact]
+    public void ClassifyDeadGateway_NoisyPrefixThenOne_IsDisabledExposed()
+    {
+        const string noisy = "WARNING: verbose banner\n1";
+        Assert.Equal(Toggle.Disabled, NetworkAudit.ClassifyDeadGatewayValue(noisy));
+    }
 }
+
 

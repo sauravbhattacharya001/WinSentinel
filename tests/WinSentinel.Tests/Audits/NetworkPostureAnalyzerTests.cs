@@ -39,6 +39,7 @@ public class NetworkPostureAnalyzerTests
         IcmpRedirectHardened = Toggle.Enabled,
         IpSourceRoutingHardened = Toggle.Enabled,
         IrdpHardened = Toggle.Enabled,
+        DeadGatewayHardened = Toggle.Enabled,
     };
 
     private static NetworkState InsecureState() => new()
@@ -824,6 +825,60 @@ public class NetworkPostureAnalyzerTests
         Assert.Single(Analyze(InsecureState()), x => x.Title.Contains("Router Discovery", StringComparison.OrdinalIgnoreCase));
     }
 
+    // ---- Dead Gateway Detection ----------------------------------------------
+
+    [Fact]
+    public void DeadGateway_NullState_Throws() =>
+        Assert.Throws<ArgumentNullException>(() => CheckDeadGateway(null!));
+
+    [Fact]
+    public void DeadGateway_Hardened_Passes()
+    {
+        // Toggle.Enabled encodes "EnableDeadGWDetect = 0" (detection disabled).
+        var f = CheckDeadGateway(new NetworkState { DeadGatewayHardened = Toggle.Enabled });
+        Assert.Equal(Severity.Pass, f.Severity);
+        Assert.Contains("Dead Gateway Detection Disabled", f.Title);
+        Assert.Null(f.FixCommand);
+    }
+
+    [Theory]
+    [InlineData(Toggle.Disabled)] // EnableDeadGWDetect = 1 or absent (default) => exposed
+    [InlineData(Toggle.Unknown)]  // unreadable => fail safe, warn
+    public void DeadGateway_NotHardenedOrUnknown_Warns(Toggle posture)
+    {
+        var f = CheckDeadGateway(new NetworkState { DeadGatewayHardened = posture });
+        Assert.Equal(Severity.Warning, f.Severity);
+        Assert.Contains("Dead Gateway Detection Enabled", f.Title);
+    }
+
+    [Fact]
+    public void DeadGateway_Warning_HasSanitizerSafeFix()
+    {
+        var f = CheckDeadGateway(new NetworkState { DeadGatewayHardened = Toggle.Disabled });
+        Assert.False(string.IsNullOrWhiteSpace(f.FixCommand));
+        Assert.StartsWith("Set-ItemProperty ", f.FixCommand);
+        Assert.Contains("EnableDeadGWDetect", f.FixCommand);
+        Assert.DoesNotContain(";", f.FixCommand!);
+        Assert.DoesNotContain("|", f.FixCommand!);
+        Assert.Null(InputSanitizer.CheckDangerousCommand(f.FixCommand));
+    }
+
+    [Fact]
+    public void DeadGateway_UnknownAndDisabled_ExplainReadFailureDifferently()
+    {
+        var unknown = CheckDeadGateway(new NetworkState { DeadGatewayHardened = Toggle.Unknown });
+        var disabled = CheckDeadGateway(new NetworkState { DeadGatewayHardened = Toggle.Disabled });
+        Assert.Contains("could not be read", unknown.Description);
+        Assert.Contains("default", disabled.Description);
+    }
+
+    [Fact]
+    public void Analyze_Includes_ExactlyOneDeadGatewayFinding()
+    {
+        Assert.Single(Analyze(SecureState()), x => x.Title.Contains("Dead Gateway", StringComparison.OrdinalIgnoreCase));
+        Assert.Single(Analyze(InsecureState()), x => x.Title.Contains("Dead Gateway", StringComparison.OrdinalIgnoreCase));
+    }
+
     // ---- ARP -----------------------------------------------------------------
 
     [Fact]
@@ -987,3 +1042,4 @@ public class NetworkPostureAnalyzerTests
         Assert.True(Has(f, Severity.Warning, "ISATAP"));
     }
 }
+

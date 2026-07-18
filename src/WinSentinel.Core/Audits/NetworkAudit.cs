@@ -69,6 +69,7 @@ public class NetworkAudit : AuditModuleBase
         await CollectIcmpRedirect(state, ct);
         await CollectIpSourceRouting(state, ct);
         await CollectIrdp(state, ct);
+        await CollectDeadGateway(state, ct);
         await CollectArp(state, ct);
         await CollectIPv6(state, ct);
 
@@ -386,6 +387,22 @@ public class NetworkAudit : AuditModuleBase
             } catch { 'ERROR' }", ct);
 
         state.IrdpHardened = ClassifyIrdpValue(output);
+    }
+
+    private async Task CollectDeadGateway(NetworkState state, CancellationToken ct)
+    {
+        // Read the Microsoft-documented machine-wide Dead Gateway Detection control
+        // (HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\EnableDeadGWDetect;
+        // 0 = detection disabled, the secure state). Emit one of 0 / 1 / NOT_SET / ERROR
+        // so the classifier can decide the posture from a clean token line even if a
+        // CIM/registry banner is prepended.
+        var output = await ShellHelper.RunPowerShellAsync(
+            @"try {
+                $key = Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' -Name 'EnableDeadGWDetect' -ErrorAction SilentlyContinue
+                if ($key -ne $null -and $key.PSObject.Properties.Name -contains 'EnableDeadGWDetect') { $key.EnableDeadGWDetect } else { 'NOT_SET' }
+            } catch { 'ERROR' }", ct);
+
+        state.DeadGatewayHardened = ClassifyDeadGatewayValue(output);
     }
 
     private async Task CollectArp(NetworkState state, CancellationToken ct)
@@ -869,6 +886,34 @@ public class NetworkAudit : AuditModuleBase
     }
 
     /// <summary>
+    /// Classifies the <c>EnableDeadGWDetect</c> (Tcpip Dead Gateway Detection control)
+    /// reader output into the <see cref="NetworkState.DeadGatewayHardened"/> posture
+    /// toggle. The reader emits one of <c>0</c> / <c>1</c> / <c>NOT_SET</c> /
+    /// <c>ERROR</c>. Scan for the FIRST line that is exactly a recognised token so a
+    /// prepended CIM/registry warning cannot fool the check. Only a clean <c>0</c>
+    /// (detection disabled) =&gt; <see cref="Toggle.Enabled"/> (the only Pass state).
+    /// A clean <c>1</c> (detection on) =&gt; <see cref="Toggle.Disabled"/>, as does a
+    /// missing value (<c>NOT_SET</c>) because Windows enables dead-gateway detection by
+    /// default. Only an <c>ERROR</c> (or no recognised token) maps to
+    /// <see cref="Toggle.Unknown"/>. The analyzer warns on both Disabled and Unknown.
+    /// </summary>
+    internal static Toggle ClassifyDeadGatewayValue(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return Toggle.Unknown;
+        foreach (var line in raw.Split('\n'))
+        {
+            var t = line.Trim();
+            if (t.Length == 0) continue;
+            if (t == "0") return Toggle.Enabled;    // EnableDeadGWDetect = 0 => detection off (secure)
+            if (t == "1") return Toggle.Disabled;   // detection on
+            if (t.Equals("NOT_SET", StringComparison.OrdinalIgnoreCase)) return Toggle.Disabled;
+            if (t.Equals("ERROR", StringComparison.OrdinalIgnoreCase)) return Toggle.Unknown;
+            // Unrecognised noise line (e.g. a registry warning): skip and keep scanning.
+        }
+        return Toggle.Unknown; // no recognised token -> unknown (analyzer warns, fail-safe)
+    }
+
+    /// <summary>
     /// True when an adapter's <c>TcpipNetbiosOptions</c> value means NetBIOS over
     /// TCP/IP is still ENABLED on that adapter (0 = default/DHCP-enabled, 1 =
     /// explicitly enabled; 2 = disabled). Fails SAFE: only a clean lone <c>2</c>
@@ -895,3 +940,6 @@ public class NetworkAudit : AuditModuleBase
         return v.Length == 0 ? null : v;
     }
 }
+
+
+

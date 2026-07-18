@@ -251,6 +251,23 @@ public static class NetworkPostureAnalyzer
         // source-routing vectors checked above.
         public Toggle IrdpHardened { get; set; } = Toggle.Unknown;
 
+        // Dead Gateway Detection (TCP/IP failover) hardening. Tracks the
+        // Microsoft-documented machine-wide control
+        // HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\EnableDeadGWDetect
+        // which governs whether TCP automatically fails a connection over to a
+        // configured backup default gateway when it sees repeated retransmissions.
+        // Values: 1 = dead-gateway detection ON (the Windows default), 0 = OFF. To
+        // avoid a double negative the toggle encodes the *posture*, not the raw value:
+        // Enabled = dead-gateway detection is hardened OFF (EnableDeadGWDetect = 0, the
+        // secure state); Disabled = the value is 1 OR absent (Windows enables it by
+        // default, so a missing key is still exposed); Unknown = the value could not be
+        // read. An attacker on the local segment who can forge TCP resets can drive the
+        // retransmission count up and trigger a silent failover to an attacker-supplied
+        // backup gateway, man-in-the-middling the victim's traffic - the same
+        // gateway/route-injection class as the ICMP redirect and IRDP vectors above.
+        // CIS/MSS recommend disabling it (EnableDeadGWDetect = 0).
+        public Toggle DeadGatewayHardened { get; set; } = Toggle.Unknown;
+
         // NetBIOS over TCP/IP - adapters where NBT is still enabled (option 0 or 1).
         public List<string> NetBiosEnabledAdapters { get; set; } = new();
         // Number of IP-enabled adapters seen at all (so "all disabled" can Pass).
@@ -311,6 +328,7 @@ public static class NetworkPostureAnalyzer
         findings.Add(CheckIcmpRedirect(state));
         findings.Add(CheckIpSourceRouting(state));
         findings.Add(CheckIrdp(state));
+        findings.Add(CheckDeadGateway(state));
         findings.Add(CheckArp(state));
         findings.AddRange(CheckIPv6(state));
         return findings;
@@ -1006,6 +1024,71 @@ public static class NetworkPostureAnalyzer
             "-Name DisableIPSourceRouting -Value 2");
     }
 
+    // ── Dead Gateway Detection ─────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Evaluates TCP/IP Dead Gateway Detection - a gateway-failover vector alongside
+    /// the ICMP redirect, IPv4 source-routing and IRDP checks. When dead-gateway
+    /// detection is on, TCP will silently move connections to a configured backup
+    /// default gateway after enough retransmissions. An attacker on the same segment
+    /// who can forge TCP resets/drops can drive the retransmission count up and force
+    /// a failover to an attacker-controlled backup gateway, man-in-the-middling the
+    /// victim's traffic.
+    ///
+    /// <para>The durable, machine-wide mitigation Microsoft documents is the
+    /// <c>EnableDeadGWDetect</c> DWORD under
+    /// <c>HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters</c> set to 0. The
+    /// analyzer grades the collected posture in
+    /// <see cref="NetworkState.DeadGatewayHardened"/>: <see cref="Toggle.Enabled"/>
+    /// (EnableDeadGWDetect = 0, detection off) passes; <see cref="Toggle.Disabled"/>
+    /// (the value is 1 OR absent - Windows enables it by default, so a missing key is
+    /// still exposed) warns; <see cref="Toggle.Unknown"/> (unreadable) also warns,
+    /// fail-safe, so a blocked read surfaces the exposure rather than hiding it. Always
+    /// returns exactly one finding.</para>
+    /// </summary>
+    public static Finding CheckDeadGateway(NetworkState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+
+        if (state.DeadGatewayHardened == Toggle.Enabled)
+        {
+            return Finding.Pass(
+                "Dead Gateway Detection Disabled",
+                "TCP/IP Dead Gateway Detection is disabled machine-wide " +
+                "(Tcpip EnableDeadGWDetect = 0). An attacker on the local segment " +
+                "cannot spoof TCP resets to force a silent failover to a rogue backup " +
+                "default gateway and man-in-the-middle this host's traffic.",
+                Category);
+        }
+
+        var stateNote = state.DeadGatewayHardened == Toggle.Disabled
+            ? "The Tcpip 'EnableDeadGWDetect' value is 1 or absent (Windows enables " +
+              "dead-gateway detection by default), so TCP can automatically fail " +
+              "connections over to a configured backup default gateway."
+            : "The Tcpip 'EnableDeadGWDetect' value could not be read, so dead-gateway " +
+              "detection must be assumed active.";
+
+        return Finding.Warning(
+            "Dead Gateway Detection Enabled (Gateway Failover Risk)",
+            stateNote + " With dead-gateway detection on, TCP silently moves " +
+            "connections to a backup default gateway after repeated retransmissions; " +
+            "an attacker on the same segment who forges TCP resets can drive that " +
+            "failover to an attacker-supplied gateway and man-in-the-middle the " +
+            "victim's traffic - the same gateway/route-injection class as the ICMP " +
+            "redirect and IRDP vectors.",
+            Category,
+            "Disable dead-gateway detection machine-wide by setting the Tcpip " +
+            "EnableDeadGWDetect DWORD to 0, then reboot (the TCP/IP stack reads this at " +
+            "start-up). This aligns with the CIS Windows benchmark 'MSS: " +
+            "(EnableDeadGWDetect)' recommendation.",
+            // Single sanitizer-safe PowerShell statement (no ';'/'|'/'&&' chaining) so it
+            // survives InputSanitizer.CheckDangerousCommand and matches the PowerShell-only
+            // fix convention of the sibling network-layer checks. The Tcpip\Parameters key
+            // exists by default on Windows, so Set-ItemProperty succeeds directly.
+            @"Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' " +
+            "-Name EnableDeadGWDetect -Value 0");
+    }
+
     // ── ARP ──────────────────────────────────────────────────────────────────────
 
     /// <summary>
@@ -1246,3 +1329,4 @@ public static class NetworkPostureAnalyzer
         return findings;
     }
 }
+

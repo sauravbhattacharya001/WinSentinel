@@ -234,6 +234,24 @@ public static class NetworkPostureAnalyzer
         // vector checked above.
         public Toggle IpSourceRoutingHardened { get; set; } = Toggle.Unknown;
 
+        // IPv6 Source Routing hardening. Tracks the Microsoft-documented machine-wide
+        // control
+        // HKLM\SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters\DisableIpSourceRouting
+        // which is the IPv6 stack's counterpart to the IPv4 DisableIPSourceRouting value
+        // and carries the same semantics: 0 = source routing fully allowed, 1 =
+        // source-routed packets forwarded but not received locally, 2 = source routing
+        // completely disabled ("highest protection", the CIS/MSS-recommended state). To
+        // avoid a double negative the toggle encodes the *posture*, not the raw value:
+        // Enabled = IPv6 source routing is hardened OFF (DisableIpSourceRouting = 2, the
+        // secure state); Disabled = the value is 0, 1, or absent (Windows does not fully
+        // disable it by default, so a missing key is still exposed); Unknown = the value
+        // could not be read. IPv6 source-routed packets (a Type 0 routing-header style
+        // path override) let an attacker dictate the return path of a spoofed packet,
+        // bypassing ingress/anti-spoofing filters - the IPv6 analogue of the IPv4
+        // source-routing vector checked above, and a control most hardening guides only
+        // apply to IPv4 while leaving the IPv6 stack open.
+        public Toggle Ipv6SourceRoutingHardened { get; set; } = Toggle.Unknown;
+
         // ICMP Router Discovery (IRDP) hardening. Tracks the Microsoft-documented
         // machine-wide control
         // HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\PerformRouterDiscovery
@@ -327,6 +345,7 @@ public static class NetworkPostureAnalyzer
         findings.Add(CheckMdns(state));
         findings.Add(CheckIcmpRedirect(state));
         findings.Add(CheckIpSourceRouting(state));
+        findings.Add(CheckIpv6SourceRouting(state));
         findings.Add(CheckIrdp(state));
         findings.Add(CheckDeadGateway(state));
         findings.Add(CheckArp(state));
@@ -1022,6 +1041,68 @@ public static class NetworkPostureAnalyzer
             // exists by default on Windows, so Set-ItemProperty succeeds directly.
             @"Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' " +
             "-Name DisableIPSourceRouting -Value 2");
+    }
+
+    // ── IPv6 Source Routing ────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Evaluates IPv6 source-routing acceptance - the IPv6 counterpart to
+    /// <see cref="CheckIpSourceRouting"/>. Most hardening guides disable source routing
+    /// on the IPv4 stack but leave the parallel IPv6 control untouched, so an attacker
+    /// can still use IPv6 source-routed packets to dictate a spoofed packet's path and
+    /// bypass ingress/anti-spoofing filtering on a dual-stack host.
+    ///
+    /// <para>The durable, machine-wide mitigation Microsoft documents is the
+    /// <c>DisableIpSourceRouting</c> DWORD under
+    /// <c>HKLM\SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters</c> set to 2
+    /// ("highest protection" - source routing completely disabled), the same value and
+    /// semantics as the IPv4 control. The analyzer grades the collected posture in
+    /// <see cref="NetworkState.Ipv6SourceRoutingHardened"/>: <see cref="Toggle.Enabled"/>
+    /// (DisableIpSourceRouting = 2, fully disabled) passes; <see cref="Toggle.Disabled"/>
+    /// (value is 0, 1, OR absent) warns; <see cref="Toggle.Unknown"/> (unreadable) also
+    /// warns, fail-safe. Always returns exactly one finding.</para>
+    /// </summary>
+    public static Finding CheckIpv6SourceRouting(NetworkState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+
+        if (state.Ipv6SourceRoutingHardened == Toggle.Enabled)
+        {
+            return Finding.Pass(
+                "IPv6 Source Routing Disabled",
+                "IPv6 source routing is fully disabled machine-wide " +
+                "(Tcpip6 DisableIpSourceRouting = 2, 'highest protection'). An attacker " +
+                "cannot use IPv6 source-routed packets to dictate a spoofed packet's " +
+                "return path and bypass this host's anti-spoofing / ingress filtering.",
+                Category);
+        }
+
+        var stateNote = state.Ipv6SourceRoutingHardened == Toggle.Disabled
+            ? "The Tcpip6 'DisableIpSourceRouting' value is 0, 1, or absent (Windows does " +
+              "not fully disable IPv6 source routing by default), so the IPv6 stack still " +
+              "honours source-routed packets to some degree."
+            : "The Tcpip6 'DisableIpSourceRouting' value could not be read, so IPv6 source " +
+              "routing must be assumed active.";
+
+        return Finding.Warning(
+            "IPv6 Source Routing Accepted (Spoofing / Filter-Bypass Risk)",
+            stateNote + " IPv6 source routing lets the sender - not the routers - choose " +
+            "the packet's path, including the return path of a spoofed source address. " +
+            "Because most hardening only disables the IPv4 control, a dual-stack host " +
+            "often leaves IPv6 source routing open, so an attacker can bypass " +
+            "ingress/anti-spoofing filters over IPv6 - the same network-layer path " +
+            "manipulation as the IPv4 source-routing and ICMP redirect vectors.",
+            Category,
+            "Fully disable IPv6 source routing machine-wide by setting the Tcpip6 " +
+            "DisableIpSourceRouting DWORD to 2 ('highest protection'), then reboot (the " +
+            "TCP/IP stack reads this at start-up). This complements the IPv4 'MSS: " +
+            "(DisableIPSourceRouting)' hardening on dual-stack hosts.",
+            // Single sanitizer-safe PowerShell statement (no ';'/'|'/'&&' chaining) so it
+            // survives InputSanitizer.CheckDangerousCommand and matches the PowerShell-only
+            // fix convention of the sibling network-layer checks. The Tcpip6\Parameters key
+            // exists by default on Windows, so Set-ItemProperty succeeds directly.
+            @"Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters' " +
+            "-Name DisableIpSourceRouting -Value 2");
     }
 
     // ── Dead Gateway Detection ─────────────────────────────────────────────────────

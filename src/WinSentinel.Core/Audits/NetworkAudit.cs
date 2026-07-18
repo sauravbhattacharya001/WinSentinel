@@ -68,6 +68,7 @@ public class NetworkAudit : AuditModuleBase
         await CollectMdns(state, ct);
         await CollectIcmpRedirect(state, ct);
         await CollectIpSourceRouting(state, ct);
+        await CollectIpv6SourceRouting(state, ct);
         await CollectIrdp(state, ct);
         await CollectDeadGateway(state, ct);
         await CollectArp(state, ct);
@@ -371,6 +372,24 @@ public class NetworkAudit : AuditModuleBase
             } catch { 'ERROR' }", ct);
 
         state.IpSourceRoutingHardened = ClassifyIpSourceRoutingValue(output);
+    }
+
+    private async Task CollectIpv6SourceRouting(NetworkState state, CancellationToken ct)
+    {
+        // Read the Microsoft-documented machine-wide IPv6 source-routing control
+        // (HKLM\SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters\DisableIpSourceRouting;
+        // 2 = source routing completely disabled, the CIS/MSS "highest protection"
+        // value - same semantics as the IPv4 Tcpip DisableIPSourceRouting value). Emit
+        // one of 0 / 1 / 2 / NOT_SET / ERROR so the shared classifier can decide the
+        // posture from a clean token line even if a CIM/registry banner is prepended.
+        var output = await ShellHelper.RunPowerShellAsync(
+            @"try {
+                $key = Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters' -Name 'DisableIpSourceRouting' -ErrorAction SilentlyContinue
+                if ($key -ne $null -and $key.PSObject.Properties.Name -contains 'DisableIpSourceRouting') { $key.DisableIpSourceRouting } else { 'NOT_SET' }
+            } catch { 'ERROR' }", ct);
+
+        // IPv6 source routing shares the IPv4 0/1/2/NOT_SET/ERROR grading exactly.
+        state.Ipv6SourceRoutingHardened = ClassifyIpSourceRoutingValue(output);
     }
 
     private async Task CollectIrdp(NetworkState state, CancellationToken ct)

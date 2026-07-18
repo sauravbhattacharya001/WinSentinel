@@ -38,6 +38,7 @@ public class NetworkPostureAnalyzerTests
         MdnsHardened = Toggle.Enabled,
         IcmpRedirectHardened = Toggle.Enabled,
         IpSourceRoutingHardened = Toggle.Enabled,
+        Ipv6SourceRoutingHardened = Toggle.Enabled,
         IrdpHardened = Toggle.Enabled,
         DeadGatewayHardened = Toggle.Enabled,
     };
@@ -767,8 +768,63 @@ public class NetworkPostureAnalyzerTests
     [Fact]
     public void Analyze_Includes_ExactlyOneIpSourceRoutingFinding()
     {
-        Assert.Single(Analyze(SecureState()), x => x.Title.Contains("Source Routing", StringComparison.OrdinalIgnoreCase));
-        Assert.Single(Analyze(InsecureState()), x => x.Title.Contains("Source Routing", StringComparison.OrdinalIgnoreCase));
+        Assert.Single(Analyze(SecureState()), x => x.Title.Contains("IPv4 Source Routing", StringComparison.OrdinalIgnoreCase));
+        Assert.Single(Analyze(InsecureState()), x => x.Title.Contains("IPv4 Source Routing", StringComparison.OrdinalIgnoreCase));
+    }
+
+    // ---- IPv6 Source Routing -------------------------------------------------
+
+    [Fact]
+    public void Ipv6SourceRouting_NullState_Throws() =>
+        Assert.Throws<ArgumentNullException>(() => CheckIpv6SourceRouting(null!));
+
+    [Fact]
+    public void Ipv6SourceRouting_Hardened_Passes()
+    {
+        // Toggle.Enabled encodes "Tcpip6 DisableIpSourceRouting = 2" (fully disabled).
+        var f = CheckIpv6SourceRouting(new NetworkState { Ipv6SourceRoutingHardened = Toggle.Enabled });
+        Assert.Equal(Severity.Pass, f.Severity);
+        Assert.Contains("IPv6 Source Routing Disabled", f.Title);
+        Assert.Null(f.FixCommand);
+    }
+
+    [Theory]
+    [InlineData(Toggle.Disabled)] // 0/1 or absent (default) => exposed
+    [InlineData(Toggle.Unknown)]  // unreadable => fail safe, warn
+    public void Ipv6SourceRouting_NotHardenedOrUnknown_Warns(Toggle posture)
+    {
+        var f = CheckIpv6SourceRouting(new NetworkState { Ipv6SourceRoutingHardened = posture });
+        Assert.Equal(Severity.Warning, f.Severity);
+        Assert.Contains("IPv6 Source Routing Accepted", f.Title);
+    }
+
+    [Fact]
+    public void Ipv6SourceRouting_Warning_HasSanitizerSafeFix()
+    {
+        var f = CheckIpv6SourceRouting(new NetworkState { Ipv6SourceRoutingHardened = Toggle.Disabled });
+        Assert.False(string.IsNullOrWhiteSpace(f.FixCommand));
+        Assert.StartsWith("Set-ItemProperty ", f.FixCommand);
+        Assert.Contains("Tcpip6", f.FixCommand);
+        Assert.Contains("DisableIpSourceRouting", f.FixCommand);
+        Assert.DoesNotContain(";", f.FixCommand!);
+        Assert.DoesNotContain("|", f.FixCommand!);
+        Assert.Null(InputSanitizer.CheckDangerousCommand(f.FixCommand));
+    }
+
+    [Fact]
+    public void Ipv6SourceRouting_UnknownAndDisabled_ExplainReadFailureDifferently()
+    {
+        var unknown = CheckIpv6SourceRouting(new NetworkState { Ipv6SourceRoutingHardened = Toggle.Unknown });
+        var disabled = CheckIpv6SourceRouting(new NetworkState { Ipv6SourceRoutingHardened = Toggle.Disabled });
+        Assert.Contains("could not be read", unknown.Description);
+        Assert.Contains("default", disabled.Description);
+    }
+
+    [Fact]
+    public void Analyze_Includes_ExactlyOneIpv6SourceRoutingFinding()
+    {
+        Assert.Single(Analyze(SecureState()), x => x.Title.Contains("IPv6 Source Routing", StringComparison.OrdinalIgnoreCase));
+        Assert.Single(Analyze(InsecureState()), x => x.Title.Contains("IPv6 Source Routing", StringComparison.OrdinalIgnoreCase));
     }
 
     // ---- ICMP Router Discovery (IRDP) ----------------------------------------

@@ -574,6 +574,57 @@ public class EventLogAnalyzerTests
     }
 
     // ----------------------------------------------------------------------
+    // Account creation / privileged group changes (4720/4728/4732/4756)
+    // ----------------------------------------------------------------------
+
+    [Fact]
+    public void BuildAccountCreationFinding_Zero_IsPass()
+    {
+        Assert.Equal(Severity.Pass, EventLogAnalyzer.BuildAccountCreationFinding(0, 0).Severity);
+    }
+
+    [Theory]
+    [InlineData(1, 0)]   // an account created, no group change
+    [InlineData(0, 1)]   // one privileged group add
+    [InlineData(2, 3)]   // group adds at the boundary (not > 3) => Warning
+    public void BuildAccountCreationFinding_SomeActivity_IsWarning(int accounts, int groupAdds)
+    {
+        Assert.Equal(Severity.Warning, EventLogAnalyzer.BuildAccountCreationFinding(accounts, groupAdds).Severity);
+    }
+
+    [Theory]
+    [InlineData(0, 4)]
+    [InlineData(1, 10)]
+    public void BuildAccountCreationFinding_ManyGroupAdds_IsCritical(int accounts, int groupAdds)
+    {
+        Assert.Equal(Severity.Critical, EventLogAnalyzer.BuildAccountCreationFinding(accounts, groupAdds).Severity);
+    }
+
+    [Fact]
+    public void BuildAccountCreationFinding_ManyAccountsButNoGroupAdd_StaysWarning()
+    {
+        // Lots of plain account creations without a privileged-group add is a
+        // Warning, not Critical - the escalation signal is the group add.
+        var f = EventLogAnalyzer.BuildAccountCreationFinding(50, 0);
+        Assert.Equal(Severity.Warning, f.Severity);
+    }
+
+    [Fact]
+    public void BuildAccountCreationFinding_OverflowSummary_ShowsRemainder()
+    {
+        var lines = Enumerable.Range(1, 12).Select(i => $"evt{i}").ToList();
+        var f = EventLogAnalyzer.BuildAccountCreationFinding(12, 0, lines);
+        Assert.Contains("and 2 more", f.Description);
+    }
+
+    [Fact]
+    public void BuildAccountCreationFinding_TitleCountsBothKinds()
+    {
+        var f = EventLogAnalyzer.BuildAccountCreationFinding(2, 1);
+        Assert.Contains("3 in 7 Days", f.Title);
+    }
+
+    // ----------------------------------------------------------------------
     // Suspicious PowerShell findings (4104)
     // ----------------------------------------------------------------------
 

@@ -76,6 +76,7 @@ public class EventLogAudit : IAuditModule
                 CheckPrivilegeEscalation(result, cancellationToken),
                 CheckAuditPolicyGaps(result, cancellationToken),
                 CheckServiceInstallations(result, cancellationToken),
+                CheckAccountCreation(result, cancellationToken),
                 CheckSuspiciousPowerShell(result, cancellationToken),
                 CheckDefenderDetections(result, cancellationToken),
                 CheckDefenderTampering(result, cancellationToken),
@@ -410,6 +411,74 @@ public class EventLogAudit : IAuditModule
             AddFinding(result, Finding.Info(
                 "Service Installation Check Error",
                 $"Could not check service installations: {ex.Message}",
+                Category));
+        }
+    }
+
+    #endregion
+
+    #region Account Creation / Privileged Group Changes (Event IDs 4720, 4728, 4732, 4756)
+
+    /// <summary>
+    /// Check for new local accounts (4720) and security-group additions
+    /// (4728 global, 4732 local, 4756 universal) in the Security log over the
+    /// last 7 days - a common persistence technique.
+    /// </summary>
+    private async Task CheckAccountCreation(AuditResult result, CancellationToken ct)
+    {
+        try
+        {
+            var query = "*[System[(EventID=4720 or EventID=4728 or EventID=4732 or EventID=4756) and TimeCreated[timediff(@SystemTime) <= 604800000]]]";
+
+            var events = await QueryEventLogAsync("Security", query, ct, maxEvents: 200);
+
+            if (events == null)
+            {
+                AddFinding(result, Finding.Info(
+                    "Account Creation Check - Error",
+                    "Could not read the Security event log for account-management events. This usually means WinSentinel is not running as Administrator, or 'Audit User Account Management' / 'Audit Security Group Management' is not enabled.",
+                    Category,
+                    "Run WinSentinel as Administrator and enable account-management auditing (auditpol /set /subcategory:\"User Account Management\" /success:enable)."));
+                return;
+            }
+
+            int accountsCreated = 0;
+            int privilegedGroupAdds = 0;
+            var details = new List<string>();
+            foreach (var evt in events)
+            {
+                try
+                {
+                    int id = evt.Id;
+                    if (id == 4720)
+                    {
+                        accountsCreated++;
+                        // 4720 property 0 = TargetUserName (the new account).
+                        string acct = evt.Properties.Count > 0 ? evt.Properties[0]?.Value?.ToString() ?? "Unknown" : "Unknown";
+                        details.Add($"• Account created: {acct} ({evt.TimeCreated:yyyy-MM-dd HH:mm})");
+                    }
+                    else
+                    {
+                        privilegedGroupAdds++;
+                        // 4728/4732/4756 property 2 = MemberName, property 4 = TargetUserName (group).
+                        string member = evt.Properties.Count > 2 ? evt.Properties[2]?.Value?.ToString() ?? "Unknown" : "Unknown";
+                        string group = evt.Properties.Count > 4 ? evt.Properties[4]?.Value?.ToString() ?? "Unknown" : "Unknown";
+                        details.Add($"• Added to group '{group}': {member} ({evt.TimeCreated:yyyy-MM-dd HH:mm})");
+                    }
+                }
+                catch
+                {
+                    details.Add($"• (malformed event at {evt.TimeCreated:yyyy-MM-dd HH:mm})");
+                }
+            }
+
+            AddFinding(result, EventLogAnalyzer.BuildAccountCreationFinding(accountsCreated, privilegedGroupAdds, details));
+        }
+        catch (Exception ex)
+        {
+            AddFinding(result, Finding.Info(
+                "Account Creation Check Error",
+                $"Could not check account-management events: {ex.Message}",
                 Category));
         }
     }

@@ -431,6 +431,56 @@ public static class EventLogAnalyzer
                 "Review installed services to ensure they are expected.");
     }
 
+    /// <summary>New privileged-group addition (4728/4732/4756) count above which the finding is Critical.</summary>
+    public const int PrivilegedGroupAddCriticalThreshold = 3;
+
+    /// <summary>
+    /// Classify local-account persistence activity from the Security log over the
+    /// last 7 days: new user accounts created (Event ID 4720) and additions to a
+    /// security-enabled group (4728 global, 4732 local, 4756 universal). Attackers
+    /// commonly create a new local account and add it to Administrators to keep a
+    /// foothold that survives a password reset, so any privileged-group addition
+    /// is treated as more serious than a plain account creation.
+    ///
+    /// Severity: any privileged-group addition &gt; threshold =&gt; Critical; any
+    /// account creation or group addition =&gt; Warning; nothing =&gt; Pass. Pure.
+    /// </summary>
+    /// <param name="accountsCreated">Count of 4720 events in the window.</param>
+    /// <param name="privilegedGroupAdds">Count of 4728/4732/4756 events in the window.</param>
+    /// <param name="details">Pre-formatted evidence lines (account / group names + timestamps).</param>
+    public static Finding BuildAccountCreationFinding(int accountsCreated, int privilegedGroupAdds,
+        IReadOnlyList<string>? details = null)
+    {
+        if (accountsCreated <= 0 && privilegedGroupAdds <= 0)
+        {
+            return Finding.Pass(
+                "No New Accounts or Privileged Group Changes",
+                "No new local accounts (Event ID 4720) or security-group additions (4728/4732/4756) detected in the last 7 days.",
+                Category);
+        }
+
+        var lines = details ?? Array.Empty<string>();
+        var description = $"{accountsCreated} account(s) created and {privilegedGroupAdds} security-group addition(s) recorded in the last 7 days. Creating a local account and adding it to a privileged group (e.g. Administrators) is a common persistence technique that survives a password reset.";
+        if (lines.Count > 0)
+            description += "\n" + string.Join("\n", lines.Take(10));
+        if (lines.Count > 10)
+            description += $"\n... and {lines.Count - 10} more.";
+
+        const string remediation = "Confirm every new account and group change was authorized. Remove unrecognized local accounts (`net user <name> /delete`) and revoke unexpected group memberships (`net localgroup Administrators <name> /delete`). Enable auditing of account management so these events are always recorded.";
+
+        return privilegedGroupAdds > PrivilegedGroupAddCriticalThreshold
+            ? Finding.Critical(
+                $"Account Creation / Privileged Group Changes - {accountsCreated + privilegedGroupAdds} in 7 Days",
+                description,
+                Category,
+                remediation)
+            : Finding.Warning(
+                $"Account Creation / Privileged Group Changes - {accountsCreated + privilegedGroupAdds} in 7 Days",
+                description,
+                Category,
+                remediation);
+    }
+
     // === Suspicious PowerShell (Event ID 4104) ===
 
     /// <summary>

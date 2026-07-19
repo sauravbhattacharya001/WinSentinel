@@ -23,6 +23,7 @@ public class RegistryAuditTests
     {
         EnableLua = 1,
         ConsentPromptBehaviorAdmin = 2,
+        FilterAdministratorToken = 1,
         EnableVirtualization = 1,
         DenyTsConnections = 1,
         NoDriveTypeAutoRun = 0xFF,
@@ -44,6 +45,7 @@ public class RegistryAuditTests
     {
         EnableLua = 0,
         ConsentPromptBehaviorAdmin = 0,
+        FilterAdministratorToken = 0,
         EnableVirtualization = 0,
         DenyTsConnections = 0,
         NlaRequired = 0,
@@ -156,6 +158,52 @@ public class RegistryAuditTests
         var result = MakeResult();
         _audit.AnalyzeState(state, result);
         Assert.Contains(result.Findings, f => f.Severity == Severity.Critical && f.Title.Contains("Auto-Elevate"));
+    }
+
+    [Fact]
+    public void FilterAdministratorTokenUnset_WithUacOn_IsWarning()
+    {
+        var state = MakeSecureState();
+        state.EnableLua = 1;
+        state.FilterAdministratorToken = null;
+        var result = MakeResult();
+        _audit.AnalyzeState(state, result);
+        var f = Assert.Single(result.Findings, x => x.Title.Contains("Built-in Administrator", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(Severity.Warning, f.Severity);
+        Assert.Contains("FilterAdministratorToken", (f.Remediation ?? "") + (f.FixCommand ?? ""));
+    }
+
+    [Fact]
+    public void FilterAdministratorTokenZero_WithUacOn_IsWarning()
+    {
+        var state = MakeSecureState();
+        state.EnableLua = 1;
+        state.FilterAdministratorToken = 0;
+        var result = MakeResult();
+        _audit.AnalyzeState(state, result);
+        Assert.Contains(result.Findings, x => x.Title == "Built-in Administrator Bypasses UAC" && x.Severity == Severity.Warning);
+    }
+
+    [Fact]
+    public void FilterAdministratorTokenOne_WithUacOn_IsPass()
+    {
+        var state = MakeSecureState();
+        state.EnableLua = 1;
+        state.FilterAdministratorToken = 1;
+        var result = MakeResult();
+        _audit.AnalyzeState(state, result);
+        Assert.Contains(result.Findings, x => x.Title == "Built-in Administrator in Admin Approval Mode" && x.Severity == Severity.Pass);
+    }
+
+    [Fact]
+    public void FilterAdministratorToken_NotReportedWhenUacDisabled()
+    {
+        var state = MakeSecureState();
+        state.EnableLua = 0;
+        state.FilterAdministratorToken = 0;
+        var result = MakeResult();
+        _audit.AnalyzeState(state, result);
+        Assert.DoesNotContain(result.Findings, x => x.Title.Contains("Built-in Administrator", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

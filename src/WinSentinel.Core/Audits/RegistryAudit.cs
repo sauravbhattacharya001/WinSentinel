@@ -54,6 +54,14 @@ public class RegistryAudit : IAuditModule
         public int? ConsentPromptBehaviorAdmin { get; set; }
 
         /// <summary>
+        /// <c>HKLM\...\Policies\System\FilterAdministratorToken</c>. When <c>0</c> or unset, the
+        /// built-in Administrator (RID 500) runs with a full, unfiltered admin token and is NOT
+        /// subject to UAC prompts even while UAC is otherwise enabled. Set to <c>1</c> to put the
+        /// built-in Administrator into Admin Approval Mode (CIS L1 2.3.17.1).
+        /// </summary>
+        public int? FilterAdministratorToken { get; set; }
+
+        /// <summary>
         /// <c>HKLM\...\Policies\System\EnableVirtualization</c>. <c>1</c> enables file/registry
         /// virtualization for legacy apps writing to protected areas.
         /// </summary>
@@ -240,6 +248,7 @@ public class RegistryAudit : IAuditModule
         var state = new RegistryState();
         state.EnableLua = RegistryHelper.GetValue<int>(RegistryHive.LocalMachine, @"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System", "EnableLUA");
         state.ConsentPromptBehaviorAdmin = RegistryHelper.GetValue<int>(RegistryHive.LocalMachine, @"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System", "ConsentPromptBehaviorAdmin");
+        state.FilterAdministratorToken = RegistryHelper.GetValue<int>(RegistryHive.LocalMachine, @"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System", "FilterAdministratorToken");
         state.EnableVirtualization = RegistryHelper.GetValue<int>(RegistryHive.LocalMachine, @"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System", "EnableVirtualization");
         state.DenyTsConnections = RegistryHelper.GetValue<int>(RegistryHive.LocalMachine, @"SYSTEM\CurrentControlSet\Control\Terminal Server", "fDenyTSConnections");
         state.NlaRequired = RegistryHelper.GetValue<int>(RegistryHive.LocalMachine, @"SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp", "UserAuthentication");
@@ -317,6 +326,20 @@ public class RegistryAudit : IAuditModule
 
         if (state.EnableVirtualization.HasValue && state.EnableVirtualization.Value == 0)
             result.Findings.Add(Finding.Warning("UAC Virtualization Disabled", "File and registry virtualization is disabled. Legacy applications writing to protected areas will fail rather than being redirected.", cat, "Enable virtualization: Set EnableVirtualization to 1."));
+
+        // Admin Approval Mode for the built-in Administrator (CIS L1 2.3.17.1).
+        // Only meaningful when UAC is on: with EnableLUA=0 the "UAC Disabled" finding
+        // above already dominates, so we don't double-report here. When UAC is on but
+        // FilterAdministratorToken is 0/unset, the RID-500 Administrator gets a full
+        // token and bypasses every elevation prompt.
+        bool uacOn = !state.EnableLua.HasValue || state.EnableLua.Value != 0;
+        if (uacOn)
+        {
+            if (state.FilterAdministratorToken.HasValue && state.FilterAdministratorToken.Value == 1)
+                result.Findings.Add(Finding.Pass("Built-in Administrator in Admin Approval Mode", "FilterAdministratorToken=1: the built-in Administrator account is subject to UAC elevation prompts like any other admin.", cat));
+            else
+                result.Findings.Add(Finding.Warning("Built-in Administrator Bypasses UAC", "FilterAdministratorToken is not set to 1: the built-in Administrator (RID 500) runs with a full, unfiltered token and is NOT prompted by UAC, even though UAC is enabled. Malware running in that account elevates silently.", cat, "Enable Admin Approval Mode for the built-in Administrator: Set FilterAdministratorToken to 1 (CIS L1 2.3.17.1).", "reg add \"HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\" /v FilterAdministratorToken /t REG_DWORD /d 1 /f"));
+        }
     }
 
     private static void CheckRemoteDesktop(RegistryState state, AuditResult result)

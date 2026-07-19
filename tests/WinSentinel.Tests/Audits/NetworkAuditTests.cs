@@ -1494,6 +1494,55 @@ public class NetworkAuditLlmnrNetBiosParsingTests
         const string noisy = "WARNING: verbose banner\n1";
         Assert.Equal(Toggle.Disabled, NetworkAudit.ClassifyDeadGatewayValue(noisy));
     }
+
+    // -- ClassifyNoNameReleaseValue -----------------------------------------
+    //
+    // Only a clean "1" (NoNameReleaseOnDemand = 1, release-on-demand refused) is
+    // the secure Enabled/hardened state. "0" (release honoured) is
+    // Disabled/exposed, as is a missing key (NOT_SET) because Windows honours
+    // release-on-demand by default. Only ERROR / unreadable / unrecognised => Unknown.
+
+    [Theory]
+    [InlineData("1")]
+    [InlineData(" 1 ")]
+    [InlineData("1\n")]
+    [InlineData("\n1\n")]
+    public void ClassifyNoNameRelease_CleanOne_IsHardenedEnabled(string raw) =>
+        Assert.Equal(Toggle.Enabled, NetworkAudit.ClassifyNoNameReleaseValue(raw));
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData(" 0 ")]
+    [InlineData("0\n")]
+    [InlineData("NOT_SET")]       // key absent => Windows honours release-on-demand => exposed
+    [InlineData("not_set")]       // case-insensitive sentinel
+    public void ClassifyNoNameRelease_ZeroOrMissing_IsDisabledExposed(string raw) =>
+        Assert.Equal(Toggle.Disabled, NetworkAudit.ClassifyNoNameReleaseValue(raw));
+
+    [Theory]
+    [InlineData("ERROR")]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("garbage")]
+    [InlineData("2")]
+    [InlineData("11")]
+    public void ClassifyNoNameRelease_ErroredOrUnrecognised_IsUnknown(string? raw) =>
+        Assert.Equal(Toggle.Unknown, NetworkAudit.ClassifyNoNameReleaseValue(raw));
+
+    [Fact]
+    public void ClassifyNoNameRelease_NoisyPrefixThenOne_IsHardenedEnabled()
+    {
+        const string noisy = "WARNING: Get-ItemProperty provider error\n1";
+        Assert.Equal(Toggle.Enabled, NetworkAudit.ClassifyNoNameReleaseValue(noisy));
+    }
+
+    [Fact]
+    public void ClassifyNoNameRelease_NoisyPrefixThenZero_IsDisabledExposed()
+    {
+        const string noisy = "WARNING: verbose banner\n0";
+        Assert.Equal(Toggle.Disabled, NetworkAudit.ClassifyNoNameReleaseValue(noisy));
+    }
 }
 
 

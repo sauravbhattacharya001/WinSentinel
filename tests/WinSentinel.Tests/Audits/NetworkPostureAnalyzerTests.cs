@@ -41,6 +41,7 @@ public class NetworkPostureAnalyzerTests
         Ipv6SourceRoutingHardened = Toggle.Enabled,
         IrdpHardened = Toggle.Enabled,
         DeadGatewayHardened = Toggle.Enabled,
+        NoNameReleaseHardened = Toggle.Enabled,
     };
 
     private static NetworkState InsecureState() => new()
@@ -933,6 +934,60 @@ public class NetworkPostureAnalyzerTests
     {
         Assert.Single(Analyze(SecureState()), x => x.Title.Contains("Dead Gateway", StringComparison.OrdinalIgnoreCase));
         Assert.Single(Analyze(InsecureState()), x => x.Title.Contains("Dead Gateway", StringComparison.OrdinalIgnoreCase));
+    }
+
+    // ---- NetBIOS Name-Release-on-Demand --------------------------------------
+
+    [Fact]
+    public void NoNameRelease_NullState_Throws() =>
+        Assert.Throws<ArgumentNullException>(() => CheckNoNameRelease(null!));
+
+    [Fact]
+    public void NoNameRelease_Hardened_Passes()
+    {
+        // Toggle.Enabled encodes "NoNameReleaseOnDemand = 1" (release-on-demand refused).
+        var f = CheckNoNameRelease(new NetworkState { NoNameReleaseHardened = Toggle.Enabled });
+        Assert.Equal(Severity.Pass, f.Severity);
+        Assert.Contains("Name-Release-on-Demand Disabled", f.Title);
+        Assert.Null(f.FixCommand);
+    }
+
+    [Theory]
+    [InlineData(Toggle.Disabled)] // NoNameReleaseOnDemand = 0 or absent (default) => exposed
+    [InlineData(Toggle.Unknown)]  // unreadable => fail safe, warn
+    public void NoNameRelease_NotHardenedOrUnknown_Warns(Toggle posture)
+    {
+        var f = CheckNoNameRelease(new NetworkState { NoNameReleaseHardened = posture });
+        Assert.Equal(Severity.Warning, f.Severity);
+        Assert.Contains("Name-Release-on-Demand Enabled", f.Title);
+    }
+
+    [Fact]
+    public void NoNameRelease_Warning_HasSanitizerSafeFix()
+    {
+        var f = CheckNoNameRelease(new NetworkState { NoNameReleaseHardened = Toggle.Disabled });
+        Assert.False(string.IsNullOrWhiteSpace(f.FixCommand));
+        Assert.StartsWith("Set-ItemProperty ", f.FixCommand);
+        Assert.Contains("NoNameReleaseOnDemand", f.FixCommand);
+        Assert.DoesNotContain(";", f.FixCommand!);
+        Assert.DoesNotContain("|", f.FixCommand!);
+        Assert.Null(InputSanitizer.CheckDangerousCommand(f.FixCommand));
+    }
+
+    [Fact]
+    public void NoNameRelease_UnknownAndDisabled_ExplainReadFailureDifferently()
+    {
+        var unknown = CheckNoNameRelease(new NetworkState { NoNameReleaseHardened = Toggle.Unknown });
+        var disabled = CheckNoNameRelease(new NetworkState { NoNameReleaseHardened = Toggle.Disabled });
+        Assert.Contains("could not be read", unknown.Description);
+        Assert.Contains("default", disabled.Description);
+    }
+
+    [Fact]
+    public void Analyze_Includes_ExactlyOneNoNameReleaseFinding()
+    {
+        Assert.Single(Analyze(SecureState()), x => x.Title.Contains("Name-Release", StringComparison.OrdinalIgnoreCase));
+        Assert.Single(Analyze(InsecureState()), x => x.Title.Contains("Name-Release", StringComparison.OrdinalIgnoreCase));
     }
 
     // ---- ARP -----------------------------------------------------------------

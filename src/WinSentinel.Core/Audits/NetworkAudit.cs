@@ -71,6 +71,7 @@ public class NetworkAudit : AuditModuleBase
         await CollectIpv6SourceRouting(state, ct);
         await CollectIrdp(state, ct);
         await CollectDeadGateway(state, ct);
+        await CollectNoNameRelease(state, ct);
         await CollectArp(state, ct);
         await CollectIPv6(state, ct);
 
@@ -422,6 +423,22 @@ public class NetworkAudit : AuditModuleBase
             } catch { 'ERROR' }", ct);
 
         state.DeadGatewayHardened = ClassifyDeadGatewayValue(output);
+    }
+
+    private async Task CollectNoNameRelease(NetworkState state, CancellationToken ct)
+    {
+        // Read the Microsoft-documented machine-wide NetBIOS Name-Release control
+        // (HKLM\SYSTEM\CurrentControlSet\Services\Netbt\Parameters\NoNameReleaseOnDemand;
+        // 1 = release-on-demand refused, the secure state). Emit one of 0 / 1 / NOT_SET /
+        // ERROR so the classifier can decide the posture from a clean token line even if
+        // a CIM/registry banner is prepended.
+        var output = await ShellHelper.RunPowerShellAsync(
+            @"try {
+                $key = Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Netbt\Parameters' -Name 'NoNameReleaseOnDemand' -ErrorAction SilentlyContinue
+                if ($key -ne $null -and $key.PSObject.Properties.Name -contains 'NoNameReleaseOnDemand') { $key.NoNameReleaseOnDemand } else { 'NOT_SET' }
+            } catch { 'ERROR' }", ct);
+
+        state.NoNameReleaseHardened = ClassifyNoNameReleaseValue(output);
     }
 
     private async Task CollectArp(NetworkState state, CancellationToken ct)
@@ -925,6 +942,36 @@ public class NetworkAudit : AuditModuleBase
             if (t.Length == 0) continue;
             if (t == "0") return Toggle.Enabled;    // EnableDeadGWDetect = 0 => detection off (secure)
             if (t == "1") return Toggle.Disabled;   // detection on
+            if (t.Equals("NOT_SET", StringComparison.OrdinalIgnoreCase)) return Toggle.Disabled;
+            if (t.Equals("ERROR", StringComparison.OrdinalIgnoreCase)) return Toggle.Unknown;
+            // Unrecognised noise line (e.g. a registry warning): skip and keep scanning.
+        }
+        return Toggle.Unknown; // no recognised token -> unknown (analyzer warns, fail-safe)
+    }
+
+    /// <summary>
+    /// Classifies the <c>NoNameReleaseOnDemand</c> (Netbt NetBIOS name-release control)
+    /// reader output into the <see cref="NetworkState.NoNameReleaseHardened"/> posture
+    /// toggle. The reader emits one of <c>0</c> / <c>1</c> / <c>NOT_SET</c> /
+    /// <c>ERROR</c>. Scan for the FIRST line that is exactly a recognised token so a
+    /// prepended CIM/registry warning cannot fool the check. Only a clean <c>1</c>
+    /// (release-on-demand refused) =&gt; <see cref="Toggle.Enabled"/> (the only Pass
+    /// state). A clean <c>0</c> (release-on-demand honoured) =&gt;
+    /// <see cref="Toggle.Disabled"/>, as does a missing value (<c>NOT_SET</c>) because
+    /// Windows honours release-on-demand by default. Only an <c>ERROR</c> (or no
+    /// recognised token) maps to <see cref="Toggle.Unknown"/>. The analyzer warns on
+    /// both Disabled and Unknown, so a default or unreadable state fails SAFE and
+    /// surfaces the NetBIOS name-hijack exposure.
+    /// </summary>
+    internal static Toggle ClassifyNoNameReleaseValue(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return Toggle.Unknown;
+        foreach (var line in raw.Split('\n'))
+        {
+            var t = line.Trim();
+            if (t.Length == 0) continue;
+            if (t == "1") return Toggle.Enabled;    // NoNameReleaseOnDemand = 1 => release refused (secure)
+            if (t == "0") return Toggle.Disabled;   // release-on-demand honoured => exposed
             if (t.Equals("NOT_SET", StringComparison.OrdinalIgnoreCase)) return Toggle.Disabled;
             if (t.Equals("ERROR", StringComparison.OrdinalIgnoreCase)) return Toggle.Unknown;
             // Unrecognised noise line (e.g. a registry warning): skip and keep scanning.

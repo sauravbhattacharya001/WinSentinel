@@ -120,6 +120,17 @@ public static class PowerShellSecurityAnalyzer
             ("mshta http",                 "remote script execution via the mshta LOLBin against a URL"),
             ("regsvr32 /i:http",           "remote scriptlet execution via the regsvr32 LOLBin (Squiblydoo, /i: URL)"),
             ("rundll32 javascript:",       "inline script execution via the rundll32 javascript: LOLBin"),
+            ("add-type -memberdefinition", "in-memory native-API compilation via Add-Type -MemberDefinition (shellcode/injection loader)"),
+            ("add-type -typedefinition",   "in-memory C# compilation via Add-Type -TypeDefinition (common in-memory loader)"),
+            ("wscript.shell",              "COM shell execution object (WScript.Shell) - runs arbitrary commands"),
+            ("shellexecute",               "ShellExecute invocation - launches arbitrary programs/URLs from the profile"),
+            ("installutil",                "code execution via the InstallUtil LOLBin (runs an installer's uninstall/install methods)"),
+            ("regasm",                     "code execution via the RegAsm LOLBin"),
+            ("regsvcs",                    "code execution via the RegSvcs LOLBin"),
+            (".load(",                     "raw-byte .NET assembly load ([Reflection.Assembly]::Load) - in-memory payload execution"),
+            ("currentdomain.load",         "in-memory .NET assembly load via [AppDomain]::CurrentDomain.Load"),
+            ("-verb runas",                "self-elevation relaunch (Start-Process -Verb RunAs) - triggers a UAC prompt for privilege escalation"),
+            ("convertto-securestring",     "in-line credential handling (ConvertTo-SecureString) - often a hardcoded/embedded password"),
         };
 
     /// <summary>

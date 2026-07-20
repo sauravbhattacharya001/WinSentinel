@@ -279,7 +279,29 @@ public class NetworkPostureAnalyzerTests
     public void Smb_SigningRequired_Passes()
     {
         var f = CheckSmb(new NetworkState { SmbSigningRequired = Toggle.Enabled });
-        Assert.True(Has(f, Severity.Pass, "SMB Signing Required"));
+        Assert.True(Has(f, Severity.Pass, "SMB Server Signing Required"));
+    }
+
+    [Fact]
+    public void Smb_ClientSigningNotRequired_Warns()
+    {
+        var f = CheckSmb(new NetworkState { SmbClientSigningRequired = Toggle.Disabled });
+        Assert.True(Has(f, Severity.Warning, "SMB Client Signing Not Required"));
+    }
+
+    [Fact]
+    public void Smb_ClientSigningRequired_Passes()
+    {
+        var f = CheckSmb(new NetworkState { SmbClientSigningRequired = Toggle.Enabled });
+        Assert.True(Has(f, Severity.Pass, "SMB Client Signing Required"));
+    }
+
+    [Fact]
+    public void Smb_ClientSigningUnknown_EmitsNoClientFinding()
+    {
+        // Unknown (unreadable) client-signing state must not fabricate a finding.
+        var f = CheckSmb(new NetworkState { SmbClientSigningRequired = Toggle.Unknown });
+        Assert.DoesNotContain(f, x => x.Title.Contains("SMB Client Signing"));
     }
 
     [Fact]

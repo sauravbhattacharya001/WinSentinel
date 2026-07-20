@@ -150,7 +150,13 @@ public static class NetworkPostureAnalyzer
 
         // SMB
         public Toggle Smbv1 { get; set; } = Toggle.Unknown;
+        // Server-side: this machine, acting as an SMB *server*, requires signing.
         public Toggle SmbSigningRequired { get; set; } = Toggle.Unknown;
+        // Client-side: this machine, acting as an SMB *client* (the far more common
+        // role for a workstation), requires signing on its outbound connections.
+        // Without it an on-path attacker can tamper with / relay the SMB session
+        // even when the remote server does not require signing. Enabled = secure.
+        public Toggle SmbClientSigningRequired { get; set; } = Toggle.Unknown;
         public List<string> NonDefaultShares { get; set; } = new();
 
         // RDP
@@ -495,8 +501,29 @@ public static class NetworkPostureAnalyzer
         else if (state.SmbSigningRequired == Toggle.Enabled)
         {
             findings.Add(Finding.Pass(
-                "SMB Signing Required",
-                "SMB packet signing is required for all connections.",
+                "SMB Server Signing Required",
+                "SMB packet signing is required for all inbound (server) connections.",
+                Category));
+        }
+
+        // SMB client signing: protects this machine's OUTBOUND SMB sessions from
+        // on-path tampering / NTLM relay regardless of what the remote server
+        // requires. A workstation is usually an SMB client, so this is the more
+        // relevant half of the pair on most endpoints.
+        if (state.SmbClientSigningRequired == Toggle.Disabled)
+        {
+            findings.Add(Finding.Warning(
+                "SMB Client Signing Not Required",
+                "This machine does not require SMB signing on its outbound (client) connections. An on-path attacker can tamper with or relay these SMB sessions even if the remote server does not require signing.",
+                Category,
+                "Require SMB signing for outbound client connections.",
+                "Set-SmbClientConfiguration -RequireSecuritySignature $true -Force"));
+        }
+        else if (state.SmbClientSigningRequired == Toggle.Enabled)
+        {
+            findings.Add(Finding.Pass(
+                "SMB Client Signing Required",
+                "SMB packet signing is required for all outbound (client) connections.",
                 Category));
         }
 

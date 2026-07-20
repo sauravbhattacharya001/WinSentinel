@@ -185,6 +185,7 @@ public class CertificateAudit : IAuditModule
             StoreName = storeName,
             DaysUntilExpiry = (int)(cert.NotAfter.ToUniversalTime() - now.UtcDateTime).TotalDays,
             IsExpired = now.UtcDateTime > cert.NotAfter.ToUniversalTime(),
+            IsNotYetValid = now.UtcDateTime < cert.NotBefore.ToUniversalTime(),
         };
     }
 
@@ -194,7 +195,7 @@ public class CertificateAudit : IAuditModule
     public void AnalyzeCertificates(List<CertificateInfo> certs, AuditResult result)
     {
         int expired = 0, expiringSoon = 0, weakAlgo = 0, weakKey = 0;
-        int selfSignedInTrust = 0, totalScanned = 0;
+        int selfSignedInTrust = 0, totalScanned = 0, notYetValid = 0;
 
         foreach (var cert in certs)
         {
@@ -212,6 +213,23 @@ public class CertificateAudit : IAuditModule
                     "Remove the expired certificate from the store or renew it.",
                     $"certutil -delstore \"{cert.StoreName}\" \"{cert.Thumbprint}\""));
                 continue; // Don't double-flag expired certs for other issues
+            }
+
+            // 1b. Not-yet-valid certificate (NotBefore in the future).
+            // Signals clock skew, a mis-issued cert, or a backdated/forged cert
+            // planted ahead of time. Windows will reject it until NotBefore.
+            if (cert.IsNotYetValid)
+            {
+                notYetValid++;
+                result.Findings.Add(Finding.Warning(
+                    $"Certificate not yet valid: {FormatSubject(cert.Subject)}",
+                    $"Certificate in '{cert.StoreLabel}' is not valid until {cert.NotBefore:yyyy-MM-dd} " +
+                    $"and will be rejected until then. This can indicate system clock skew or a " +
+                    $"mis-issued/backdated certificate. Thumbprint: {cert.Thumbprint}.",
+                    Category,
+                    "Verify the system clock is correct. If the clock is right, investigate why this " +
+                    "certificate was issued with a future start date and remove it if unexpected."));
+                continue; // Not-yet-valid certs can't be meaningfully checked for expiry/algo yet
             }
 
             // 2. Expiring soon (critical: within 7 days)
@@ -244,7 +262,7 @@ public class CertificateAudit : IAuditModule
                 result.Findings.Add(Finding.Warning(
                     $"Weak signature algorithm: {FormatSubject(cert.Subject)}",
                     $"Certificate in '{cert.StoreLabel}' uses {cert.SignatureAlgorithm} which is " +
-                    "considered cryptographically weak. Thumbprint: {cert.Thumbprint}.",
+                    $"considered cryptographically weak. Thumbprint: {cert.Thumbprint}.",
                     Category,
                     "Replace with a certificate using SHA-256 or stronger signature algorithm."));
             }
@@ -298,6 +316,7 @@ public class CertificateAudit : IAuditModule
             $"Scanned {StoresToScan.Count} certificate stores. " +
             $"Found: {expired} expired, {expiringSoon} expiring soon, " +
             $"{weakAlgo} weak algorithms, {weakKey} weak keys, " +
+            $"{notYetValid} not-yet-valid, " +
             $"{selfSignedInTrust} self-signed in trusted stores.",
             Category));
     }
@@ -351,5 +370,6 @@ public class CertificateAudit : IAuditModule
         public StoreName StoreName { get; set; }
         public int DaysUntilExpiry { get; set; }
         public bool IsExpired { get; set; }
+        public bool IsNotYetValid { get; set; }
     }
 }

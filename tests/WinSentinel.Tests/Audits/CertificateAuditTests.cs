@@ -373,4 +373,63 @@ public class CertificateAuditTests
         Assert.Equal("Certificates", _audit.Category);
         Assert.False(string.IsNullOrEmpty(_audit.Description));
     }
+
+    // ─── Not-Yet-Valid Certificates ───────────────────────────
+
+    [Fact]
+    public void AnalyzeCertificates_NotYetValidCert_CreatesWarningFinding()
+    {
+        var cert = MakeValidCert();
+        cert.NotBefore = DateTimeOffset.UtcNow.AddDays(10);
+        cert.IsNotYetValid = true;
+        var result = new AuditResult { ModuleName = "Certificate Audit", Category = "Certificates" };
+
+        _audit.AnalyzeCertificates(new List<CertificateInfo> { cert }, result);
+
+        Assert.Contains(result.Findings, f =>
+            f.Severity == Severity.Warning && f.Title.Contains("not yet valid"));
+    }
+
+    [Fact]
+    public void AnalyzeCertificates_NotYetValidCert_DoesNotAlsoFlagAsExpiringOrWeak()
+    {
+        // A not-yet-valid cert with a weak algo should only produce the not-yet-valid
+        // finding (we `continue` after it, like the expired-cert path).
+        var cert = MakeValidCert(algorithm: "sha1RSA", daysUntilExpiry: 3);
+        cert.NotBefore = DateTimeOffset.UtcNow.AddDays(5);
+        cert.IsNotYetValid = true;
+        var result = new AuditResult { ModuleName = "Certificate Audit", Category = "Certificates" };
+
+        _audit.AnalyzeCertificates(new List<CertificateInfo> { cert }, result);
+
+        Assert.Contains(result.Findings, f => f.Title.Contains("not yet valid"));
+        Assert.DoesNotContain(result.Findings, f => f.Title.Contains("Weak signature algorithm"));
+        Assert.DoesNotContain(result.Findings, f => f.Title.Contains("Certificate expiring"));
+    }
+
+    [Fact]
+    public void AnalyzeCertificates_ValidCert_NotFlaggedAsNotYetValid()
+    {
+        var cert = MakeValidCert();
+        var result = new AuditResult { ModuleName = "Certificate Audit", Category = "Certificates" };
+
+        _audit.AnalyzeCertificates(new List<CertificateInfo> { cert }, result);
+
+        Assert.DoesNotContain(result.Findings, f => f.Title.Contains("not yet valid"));
+    }
+
+    [Fact]
+    public void AnalyzeCertificates_WeakAlgo_InterpolatesThumbprintInDescription()
+    {
+        // Regression: the weak-algorithm description was missing its `$` prefix and
+        // emitted the literal "{cert.Thumbprint}" instead of the value.
+        var cert = MakeValidCert(algorithm: "sha1RSA");
+        var result = new AuditResult { ModuleName = "Certificate Audit", Category = "Certificates" };
+
+        _audit.AnalyzeCertificates(new List<CertificateInfo> { cert }, result);
+
+        var finding = result.Findings.First(f => f.Title.Contains("Weak signature algorithm"));
+        Assert.Contains(cert.Thumbprint, finding.Description);
+        Assert.DoesNotContain("{cert.Thumbprint}", finding.Description);
+    }
 }

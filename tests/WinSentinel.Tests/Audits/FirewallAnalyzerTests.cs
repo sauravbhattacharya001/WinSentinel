@@ -43,9 +43,9 @@ public class FirewallAnalyzerTests
     {
         Profiles = new()
         {
-            Prof("Domain", Toggle.Enabled),
-            Prof("Private", Toggle.Enabled),
-            Prof("Public", Toggle.Enabled),
+            new FirewallProfile("Domain", Toggle.Enabled, Toggle.Enabled),
+            new FirewallProfile("Private", Toggle.Enabled, Toggle.Enabled),
+            new FirewallProfile("Public", Toggle.Enabled, Toggle.Enabled),
         },
         InboundRules = new() { Rule(localPort: "443"), Rule(localPort: "80") },
         RulesQueried = true,
@@ -413,4 +413,74 @@ public class FirewallAnalyzerTests
             Enabled = true, Action = "allow", LocalPort = "any", RemoteIp = "ANY", Program = "Any",
         }.IsWideOpenInboundAllow);
     }
+
+    // ── Dropped-packet logging (CIS L1) ─────────────────────────────────────
+
+    [Fact]
+    public void CheckLoggingDroppedPackets_Enabled_Passes()
+    {
+        var state = new FirewallState
+        {
+            Profiles = new() { new FirewallProfile("Public", Toggle.Enabled, Toggle.Enabled) },
+        };
+        var f = CheckLoggingDroppedPackets(state);
+        Assert.True(Has(f, Severity.Pass, "Logs Dropped Packets"));
+        Assert.DoesNotContain(f, x => x.Severity == Severity.Warning);
+    }
+
+    [Fact]
+    public void CheckLoggingDroppedPackets_Disabled_WarnsWithFix()
+    {
+        var state = new FirewallState
+        {
+            Profiles = new() { new FirewallProfile("Public", Toggle.Enabled, Toggle.Disabled) },
+        };
+        var f = CheckLoggingDroppedPackets(state);
+        var warn = Assert.Single(f);
+        Assert.Equal(Severity.Warning, warn.Severity);
+        Assert.Contains("Not Logging Dropped Packets", warn.Title);
+        Assert.False(string.IsNullOrWhiteSpace(warn.Remediation));
+        Assert.Contains("logging droppedconnections enable", warn.FixCommand ?? "");
+        Assert.Contains("publicprofile", warn.FixCommand ?? "");
+    }
+
+    [Fact]
+    public void CheckLoggingDroppedPackets_Unknown_EmitsNothing()
+    {
+        var state = new FirewallState
+        {
+            Profiles = new() { new FirewallProfile("Public", Toggle.Enabled, Toggle.Unknown) },
+        };
+        Assert.Empty(CheckLoggingDroppedPackets(state));
+    }
+
+    [Fact]
+    public void Analyze_ProfileWithLoggingDisabled_SurfacesWarning()
+    {
+        var state = SecureState();
+        state.Profiles = new()
+        {
+            new FirewallProfile("Domain", Toggle.Enabled, Toggle.Enabled),
+            new FirewallProfile("Private", Toggle.Enabled, Toggle.Enabled),
+            new FirewallProfile("Public", Toggle.Enabled, Toggle.Disabled),
+        };
+        Assert.True(Has(Analyze(state), Severity.Warning, "Not Logging Dropped Packets"));
+    }
+
+    [Theory]
+    [InlineData("LogDroppedConnections                  Enable", true)]
+    [InlineData("LogDroppedConnections   Enable\r\nLogAllowedConnections   Disable", true)]
+    [InlineData("LogDroppedConnections                  Disable", false)]
+    public void ParseLogDroppedConnections_ReadsValue(string dump, bool expectEnabled)
+    {
+        var expected = expectEnabled ? Toggle.Enabled : Toggle.Disabled;
+        Assert.Equal(expected, ParseLogDroppedConnections(dump));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(null)]
+    [InlineData("LogAllowedConnections   Enable")]
+    public void ParseLogDroppedConnections_MissingOrEmpty_IsUnknown(string? dump) =>
+        Assert.Equal(Toggle.Unknown, ParseLogDroppedConnections(dump));
 }

@@ -46,11 +46,25 @@ public static class FirewallAnalyzer
         public string Name { get; set; } = "";
         public Toggle State { get; set; } = Toggle.Unknown;
 
+        /// <summary>
+        /// Whether this profile logs dropped (blocked) inbound connections
+        /// (netsh <c>LogDroppedConnections</c>). CIS L1 recommends this be enabled on
+        /// every profile so blocked-traffic evidence exists for incident response.
+        /// Unknown when the logging settings could not be read.
+        /// </summary>
+        public Toggle LogDroppedPackets { get; set; } = Toggle.Unknown;
+
         public FirewallProfile() { }
         public FirewallProfile(string name, Toggle state)
         {
             Name = name ?? "";
             State = state;
+        }
+        public FirewallProfile(string name, Toggle state, Toggle logDroppedPackets)
+        {
+            Name = name ?? "";
+            State = state;
+            LogDroppedPackets = logDroppedPackets;
         }
     }
 
@@ -133,6 +147,7 @@ public static class FirewallAnalyzer
 
         var findings = new List<Finding>();
         findings.AddRange(CheckProfiles(state));
+        findings.AddRange(CheckLoggingDroppedPackets(state));
         findings.AddRange(CheckRules(state));
         findings.AddRange(CheckWideOpenInboundRules(state));
         var def = CheckInboundDefault(state);
@@ -167,6 +182,50 @@ public static class FirewallAnalyzer
                     Category,
                     $"Enable the {profile.Name} firewall profile immediately.",
                     $"netsh advfirewall set {key} state on"));
+            }
+        }
+        return findings;
+    }
+
+    // ── Dropped-packet logging (CIS L1) ─────────────────────────────────────────
+
+    /// <summary>
+    /// One finding per profile that reports its dropped-connection logging posture.
+    /// CIS Windows L1 (9.1.5 / 9.2.5 / 9.3.5) recommends every firewall profile log
+    /// dropped packets so that blocked inbound traffic leaves an evidence trail for
+    /// incident response and tuning. A profile that silently drops packets gives an
+    /// investigator nothing to work with after a probe or intrusion attempt.
+    ///
+    /// <para>Enabled → Pass, Disabled → Warning (not Critical: absent logging weakens
+    /// forensics but does not itself open the machine up), Unknown → nothing (an
+    /// unreadable setting must never masquerade as a Pass or a Warning).</para>
+    /// </summary>
+    public static List<Finding> CheckLoggingDroppedPackets(FirewallState state)
+    {
+        var findings = new List<Finding>();
+        foreach (var profile in state.Profiles)
+        {
+            var key = profile.Name.ToLowerInvariant() + "profile";
+            if (profile.LogDroppedPackets == Toggle.Enabled)
+            {
+                findings.Add(Finding.Pass(
+                    $"{profile.Name} Firewall Logs Dropped Packets",
+                    $"The {profile.Name} firewall profile logs dropped (blocked) connections, " +
+                    "preserving an evidence trail of rejected inbound traffic.",
+                    Category));
+            }
+            else if (profile.LogDroppedPackets == Toggle.Disabled)
+            {
+                findings.Add(Finding.Warning(
+                    $"{profile.Name} Firewall Not Logging Dropped Packets",
+                    $"The {profile.Name} firewall profile does not log dropped connections. " +
+                    "Blocked inbound traffic is silently discarded, so a network probe or " +
+                    "intrusion attempt against this machine leaves no firewall evidence for " +
+                    "incident response. CIS Windows L1 recommends enabling dropped-packet logging " +
+                    "on every profile.",
+                    Category,
+                    $"Enable dropped-packet logging for the {profile.Name} profile.",
+                    $"netsh advfirewall set {key} logging droppedconnections enable"));
             }
         }
         return findings;
@@ -323,6 +382,30 @@ public static class FirewallAnalyzer
         return netshStateOutput.Contains("ON", StringComparison.OrdinalIgnoreCase)
             ? Toggle.Enabled
             : Toggle.Disabled;
+    }
+
+    /// <summary>
+    /// Reads the dropped-packet logging setting out of a
+    /// <c>netsh advfirewall show &lt;profile&gt; logging</c> dump. netsh prints a
+    /// "LogDroppedConnections   Enable/Disable" line. Returns Enabled when that line
+    /// says Enable, Disabled when it says Disable, and Unknown when neither can be
+    /// found (so an unreadable probe never masquerades as a configured value).
+    /// </summary>
+    public static Toggle ParseLogDroppedConnections(string? netshLoggingOutput)
+    {
+        if (string.IsNullOrWhiteSpace(netshLoggingOutput)) return Toggle.Unknown;
+
+        foreach (var raw in netshLoggingOutput.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var line = raw.Trim();
+            if (!line.StartsWith("LogDroppedConnections", StringComparison.OrdinalIgnoreCase)) continue;
+            // Everything after the key is the value token (Enable / Disable).
+            var value = line.Substring("LogDroppedConnections".Length).Trim();
+            if (value.StartsWith("Enable", StringComparison.OrdinalIgnoreCase)) return Toggle.Enabled;
+            if (value.StartsWith("Disable", StringComparison.OrdinalIgnoreCase)) return Toggle.Disabled;
+            return Toggle.Unknown;
+        }
+        return Toggle.Unknown;
     }
 
     /// <summary>

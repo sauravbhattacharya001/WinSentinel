@@ -17,7 +17,7 @@ public class FirewallAudit : AuditModuleBase
 {
     public override string Name => "Firewall Audit";
     public override string Category => FirewallAnalyzer.Category;
-    public override string Description => "Checks Windows Firewall profile states (Domain/Private/Public), the default inbound policy, the inbound allow-rule surface, and over-permissive wide-open inbound rules that let any program accept connections from any address on any port.";
+    public override string Description => "Checks Windows Firewall profile states (Domain/Private/Public), per-profile dropped-packet logging, the default inbound policy, the inbound allow-rule surface, and over-permissive wide-open inbound rules that let any program accept connections from any address on any port.";
 
     protected override async Task ExecuteAuditAsync(AuditResult result, CancellationToken cancellationToken)
     {
@@ -34,13 +34,17 @@ public class FirewallAudit : AuditModuleBase
     {
         var state = new FirewallState();
 
-        // ── Profiles ──────────────────────────────────────────────────────────
+        // ── Profiles (state + dropped-packet logging posture) ──────────────────
         var profiles = new[] { "domainprofile", "privateprofile", "publicprofile" };
         var profileNames = new[] { "Domain", "Private", "Public" };
         for (int i = 0; i < profiles.Length; i++)
         {
-            var output = await ShellHelper.RunNetshAsync($"advfirewall show {profiles[i]} state", ct);
-            state.Profiles.Add(new FirewallProfile(profileNames[i], ParseProfileState(output)));
+            var stateOutput = await ShellHelper.RunNetshAsync($"advfirewall show {profiles[i]} state", ct);
+            var loggingOutput = await ShellHelper.RunNetshAsync($"advfirewall show {profiles[i]} logging", ct);
+            state.Profiles.Add(new FirewallProfile(
+                profileNames[i],
+                ParseProfileState(stateOutput),
+                ParseLogDroppedConnections(loggingOutput)));
         }
 
         // ── Inbound rules ─────────────────────────────────────────────────────

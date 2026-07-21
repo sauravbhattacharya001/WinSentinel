@@ -175,6 +175,10 @@ public class NetworkAudit : AuditModuleBase
             @"try { (Get-SmbClientConfiguration).RequireSecuritySignature } catch { 'ERROR' }", ct);
         state.SmbClientSigningRequired = ParseToggle(smbClientSigning);
 
+        var smbEncrypt = await ShellHelper.RunPowerShellAsync(
+            @"try { (Get-SmbServerConfiguration).EncryptData } catch { 'ERROR' }", ct);
+        state.SmbEncryptionRequired = ParseToggle(smbEncrypt);
+
         var shares = await ShellHelper.RunPowerShellAsync(
             @"Get-SmbShare | Where-Object { $_.Name -notmatch '^\$' -and $_.Name -ne 'IPC$' } | Select-Object -ExpandProperty Name", ct);
         state.NonDefaultShares = shares

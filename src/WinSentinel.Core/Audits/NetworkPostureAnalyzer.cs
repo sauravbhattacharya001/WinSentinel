@@ -157,6 +157,11 @@ public static class NetworkPostureAnalyzer
         // Without it an on-path attacker can tamper with / relay the SMB session
         // even when the remote server does not require signing. Enabled = secure.
         public Toggle SmbClientSigningRequired { get; set; } = Toggle.Unknown;
+        // Whether this machine, acting as an SMB *server*, requires SMB3
+        // encryption (EncryptData) for all shares. Distinct from signing:
+        // signing protects integrity, encryption protects confidentiality of
+        // the payload on the wire. Enabled = secure. Requires SMB 3.0+ peers.
+        public Toggle SmbEncryptionRequired { get; set; } = Toggle.Unknown;
         public List<string> NonDefaultShares { get; set; } = new();
 
         // RDP
@@ -556,6 +561,26 @@ public static class NetworkPostureAnalyzer
             findings.Add(Finding.Pass(
                 "SMB Client Signing Required",
                 "SMB packet signing is required for all outbound (client) connections.",
+                Category));
+        }
+
+        // SMB encryption (SMB3 EncryptData): protects the confidentiality of
+        // share traffic on the wire. Signing alone leaves the payload readable
+        // to an on-path observer; encryption closes that gap for SMB 3.0+ peers.
+        if (state.SmbEncryptionRequired == Toggle.Disabled)
+        {
+            findings.Add(Finding.Warning(
+                "SMB Encryption Not Required",
+                "This machine does not require SMB encryption for its shares. File-sharing traffic is transmitted in cleartext (integrity may be protected by signing, but the payload is not confidential), so an on-path observer can read share contents.",
+                Category,
+                "Require SMB encryption on the server so all share traffic is encrypted for SMB 3.0+ clients.",
+                "Set-SmbServerConfiguration -EncryptData $true -Force"));
+        }
+        else if (state.SmbEncryptionRequired == Toggle.Enabled)
+        {
+            findings.Add(Finding.Pass(
+                "SMB Encryption Required",
+                "SMB encryption is required for all shares; share traffic is encrypted on the wire for SMB 3.0+ clients.",
                 Category));
         }
 

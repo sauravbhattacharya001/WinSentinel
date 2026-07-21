@@ -307,6 +307,27 @@ public class NetworkPostureAnalyzerTests
     }
 
     [Fact]
+    public void Smb_EncryptionNotRequired_Warns()
+    {
+        var f = CheckSmb(new NetworkState { SmbEncryptionRequired = Toggle.Disabled });
+        Assert.True(Has(f, Severity.Warning, "SMB Encryption Not Required"));
+    }
+
+    [Fact]
+    public void Smb_EncryptionRequired_Passes()
+    {
+        var f = CheckSmb(new NetworkState { SmbEncryptionRequired = Toggle.Enabled });
+        Assert.True(Has(f, Severity.Pass, "SMB Encryption Required"));
+    }
+
+    [Fact]
+    public void Smb_EncryptionUnknown_EmitsNoEncryptionFinding()
+    {
+        var f = CheckSmb(new NetworkState { SmbEncryptionRequired = Toggle.Unknown });
+        Assert.DoesNotContain(f, x => x.Title.Contains("SMB Encryption"));
+    }
+
+    [Fact]
     public void Smb_NonDefaultShares_AreReported()
     {
         var f = CheckSmb(new NetworkState { NonDefaultShares = new() { "Finance", "HR" } });

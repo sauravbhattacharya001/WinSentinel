@@ -59,6 +59,9 @@ public static class IdentityCredentialAnalyzer
     /// <summary>The Windows default cached-logon count when the value is unset.</summary>
     public const int DefaultCachedLogons = 10;
 
+    /// <summary>Most-secure LmCompatibilityLevel: send NTLMv2 only, refuse LM and NTLM (CIS Windows L1 2.3.11.7).</summary>
+    public const int SecureLmCompatibilityLevel = 5;
+
     // ──────────────────────────────────────────────────────────────────────
     // Pure JSON name extraction (shared with collection, but side-effect free)
     // ──────────────────────────────────────────────────────────────────────
@@ -455,6 +458,48 @@ public static class IdentityCredentialAnalyzer
     /// in the same order the audit produces them. This is the single entry point
     /// the audit module calls after collection.
     /// </summary>
+    public static Finding? BuildNtlmLevelFinding(IdentityState state)
+    {
+        if (!state.LmCompatibilityKeyReadable) return null;
+
+        int level = state.LmCompatibilityLevelSet ? state.LmCompatibilityLevel : -1;
+
+        if (level >= SecureLmCompatibilityLevel)
+        {
+            return Finding.Pass(
+                "NTLM Authentication Hardened (Level 5)",
+                "LmCompatibilityLevel is 5 - the host sends NTLMv2 responses only and refuses the " +
+                "legacy LM and NTLMv1 responses, blocking LM/NTLMv1 hash capture-and-crack and downgrade attacks.",
+                Category);
+        }
+
+        if (level == 3 || level == 4)
+        {
+            return Finding.Info(
+                "NTLM Authentication Partially Hardened (Level " + level + ")",
+                "LmCompatibilityLevel is " + level + ": this host sends NTLMv2 responses, but " +
+                (level == 3
+                    ? "servers still accept LM and NTLMv1 from clients."
+                    : "domain controllers still accept LM responses.") +
+                " CIS Windows L1 (2.3.11.7) recommends level 5 (send NTLMv2 only, refuse LM and NTLM).",
+                Category,
+                "Set LmCompatibilityLevel to 5 to refuse LM and NTLMv1 entirely.",
+                @"Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa' -Name 'LmCompatibilityLevel' -Value 5");
+        }
+
+        string detail = level < 0
+            ? "LmCompatibilityLevel is not explicitly set, so this host may fall back to sending and accepting the legacy, crackable LM / NTLMv1 responses."
+            : "LmCompatibilityLevel is " + level + ", so this host still produces and/or accepts the legacy LM / NTLMv1 responses.";
+
+        return Finding.Warning(
+            level < 0 ? "NTLM Authentication Level Not Hardened" : "Weak NTLM Authentication Level (" + level + ")",
+            detail + " LM and NTLMv1 hashes are trivially crackable and enable NTLM-relay / downgrade attacks " +
+            "(MITRE ATT&CK T1557.001, T1550.002). CIS Windows L1 (2.3.11.7) recommends level 5.",
+            Category,
+            "Set LmCompatibilityLevel to 5 (send NTLMv2 response only, refuse LM and NTLM).",
+            @"Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa' -Name 'LmCompatibilityLevel' -Value 5");
+    }
+
     public static IReadOnlyList<Finding> BuildFindings(IdentityState state)
     {
         var findings = new List<Finding>
@@ -472,6 +517,9 @@ public static class IdentityCredentialAnalyzer
 
         var wdigest = BuildWDigestFinding(state);
         if (wdigest is not null) findings.Add(wdigest);
+
+        var ntlm = BuildNtlmLevelFinding(state);
+        if (ntlm is not null) findings.Add(ntlm);
 
         findings.Add(BuildCredentialGuardFinding(state));
 
@@ -540,6 +588,14 @@ public static class IdentityCredentialAnalyzer
         public bool WDigestValueSet { get; set; }
         /// <summary>Value of WDigest UseLogonCredential (1 = plaintext caching on; 0 = off).</summary>
         public int WDigestUseLogonCredential { get; set; }
+
+        // LM/NTLM authentication level (LmCompatibilityLevel)
+        /// <summary>True when the LSA key holding LmCompatibilityLevel could be opened.</summary>
+        public bool LmCompatibilityKeyReadable { get; set; }
+        /// <summary>True when the LmCompatibilityLevel value is explicitly present.</summary>
+        public bool LmCompatibilityLevelSet { get; set; }
+        /// <summary>Value of LmCompatibilityLevel (0-5; 5 = NTLMv2 only, refuse LM and NTLM).</summary>
+        public int LmCompatibilityLevel { get; set; }
 
         // Credential Guard
         /// <summary>True when the DeviceGuard registry key is present.</summary>

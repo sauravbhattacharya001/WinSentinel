@@ -700,4 +700,69 @@ public class IdentityCredentialAnalyzerTests
         Assert.Contains(withWDigest, f =>
             f.Title.Contains("WDigest") && f.Severity == Severity.Warning);
     }
+
+    // ----------------------------------------------------------------------
+    // BuildNtlmLevelFinding (LmCompatibilityLevel)
+    // ----------------------------------------------------------------------
+
+    [Fact]
+    public void BuildNtlmLevelFinding_KeyUnreadable_ReturnsNull()
+    {
+        Assert.Null(IdentityCredentialAnalyzer.BuildNtlmLevelFinding(
+            new State { LmCompatibilityKeyReadable = false }));
+    }
+
+    [Fact]
+    public void BuildNtlmLevelFinding_LevelFive_Passes()
+    {
+        var f = IdentityCredentialAnalyzer.BuildNtlmLevelFinding(
+            new State { LmCompatibilityKeyReadable = true, LmCompatibilityLevelSet = true, LmCompatibilityLevel = 5 });
+        Assert.NotNull(f);
+        Assert.Equal(Severity.Pass, f!.Severity);
+        Assert.Contains("Hardened", f.Title);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void BuildNtlmLevelFinding_LowLevels_Warn(int level)
+    {
+        var f = IdentityCredentialAnalyzer.BuildNtlmLevelFinding(
+            new State { LmCompatibilityKeyReadable = true, LmCompatibilityLevelSet = true, LmCompatibilityLevel = level });
+        Assert.NotNull(f);
+        Assert.Equal(Severity.Warning, f!.Severity);
+        Assert.Contains("LmCompatibilityLevel", f.FixCommand);
+        Assert.Contains("Value 5", f.FixCommand);
+    }
+
+    [Theory]
+    [InlineData(3)]
+    [InlineData(4)]
+    public void BuildNtlmLevelFinding_MidLevels_Info(int level)
+    {
+        var f = IdentityCredentialAnalyzer.BuildNtlmLevelFinding(
+            new State { LmCompatibilityKeyReadable = true, LmCompatibilityLevelSet = true, LmCompatibilityLevel = level });
+        Assert.NotNull(f);
+        Assert.Equal(Severity.Info, f!.Severity);
+        Assert.Contains("Partially", f.Title);
+    }
+
+    [Fact]
+    public void BuildNtlmLevelFinding_ValueUnset_Warns()
+    {
+        var f = IdentityCredentialAnalyzer.BuildNtlmLevelFinding(
+            new State { LmCompatibilityKeyReadable = true, LmCompatibilityLevelSet = false });
+        Assert.NotNull(f);
+        Assert.Equal(Severity.Warning, f!.Severity);
+        Assert.Contains("Not Hardened", f.Title);
+    }
+
+    [Fact]
+    public void BuildFindings_IncludesNtlmWarning_WhenKeyReadableAndUnset()
+    {
+        var state = new State { LmCompatibilityKeyReadable = true, LmCompatibilityLevelSet = false };
+        Assert.Contains(IdentityCredentialAnalyzer.BuildFindings(state), f =>
+            f.Title.Contains("NTLM") && f.Severity == Severity.Warning);
+    }
 }

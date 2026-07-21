@@ -20,7 +20,7 @@ public class IdentityCredentialAudit : AuditModuleBase
     public override string Description =>
         "Audits local admin sprawl, stale accounts, password-never-expires flags, " +
         "LAPS deployment status, cached credential exposure, LSA Protection (RunAsPPL), " +
-        "WDigest cleartext credential caching, and Credential Guard.";
+        "WDigest cleartext credential caching, LM/NTLM authentication level, and Credential Guard.";
 
     protected override async Task ExecuteAuditAsync(AuditResult result, CancellationToken cancellationToken)
     {
@@ -48,6 +48,7 @@ public class IdentityCredentialAudit : AuditModuleBase
         CollectLsaProtection(state);
         CollectCredentialGuard(state);
         CollectWDigest(state);
+        CollectNtlmLevel(state);
 
         return state;
     }
@@ -226,6 +227,33 @@ public class IdentityCredentialAudit : AuditModuleBase
     /// <summary>
     /// Collects LSA Protection (RunAsPPL) status — protects lsass.exe from dumping.
     /// </summary>
+    /// <summary>
+    /// Collects LmCompatibilityLevel from HKLM\SYSTEM\CurrentControlSet\Control\Lsa (CIS Windows L1 2.3.11.7).
+    /// Level 5 sends NTLMv2 only and refuses LM/NTLMv1; lower levels still produce/accept crackable legacy responses.
+    /// </summary>
+    private void CollectNtlmLevel(IdentityCredentialAnalyzer.IdentityState state)
+    {
+        try
+        {
+            using var key = Registry.LocalMachine.OpenSubKey(
+                @"SYSTEM\CurrentControlSet\Control\Lsa");
+
+            if (key == null) return;
+
+            state.LmCompatibilityKeyReadable = true;
+            var level = key.GetValue("LmCompatibilityLevel");
+            if (level != null)
+            {
+                state.LmCompatibilityLevelSet = true;
+                state.LmCompatibilityLevel = Convert.ToInt32(level);
+            }
+        }
+        catch
+        {
+            // Registry access restricted - leave LmCompatibilityKeyReadable=false (audit stays quiet).
+        }
+    }
+
     private void CollectLsaProtection(IdentityCredentialAnalyzer.IdentityState state)
     {
         try

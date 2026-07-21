@@ -305,6 +305,23 @@ public static class NetworkPostureAnalyzer
         // fail-safe).
         public Toggle TcpMaxDataRetransmissionsHardened { get; set; } = Toggle.Unknown;
 
+        // TCP SYN-ACK retransmission cap (SYN-flood resilience). Tracks the
+        // Microsoft/CIS MSS control
+        // HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\TcpMaxConnectResponseRetransmissions,
+        // the number of times TCP retransmits an unacknowledged SYN-ACK (the reply to
+        // an inbound connection request) before it abandons the half-open connection.
+        // This is the direct SYN-flood defence knob: fewer retransmissions mean a
+        // spoofed SYN pins a half-open entry in the connection table for far less time.
+        // CIS Windows L1 (MSS: (TcpMaxConnectResponseRetransmissions)) recommends 2 so
+        // that after the second unanswered SYN-ACK the connection is torn down and (on
+        // supported stacks) SYN-attack protection engages. The toggle encodes posture,
+        // not the raw value: Enabled = hardened (value present and <= 2); Disabled =
+        // value > 2 OR absent (a missing key leaves the longer default window);
+        // Unknown = unreadable (warn, fail-safe). This complements the data-segment
+        // retransmission cap (TcpMaxDataRetransmissions) above - that one shortens the
+        // window for *established* stalled connections, this one for *half-open* ones.
+        public Toggle TcpMaxConnectResponseRetransmissionsHardened { get; set; } = Toggle.Unknown;
+
         // NetBIOS Name-Release attack hardening. Tracks the Microsoft-documented
         // machine-wide control
         // HKLM\SYSTEM\CurrentControlSet\Services\Netbt\Parameters\NoNameReleaseOnDemand
@@ -386,6 +403,7 @@ public static class NetworkPostureAnalyzer
         findings.Add(CheckIrdp(state));
         findings.Add(CheckDeadGateway(state));
         findings.Add(CheckTcpMaxDataRetransmissions(state));
+        findings.Add(CheckTcpMaxConnectResponseRetransmissions(state));
         findings.Add(CheckNoNameRelease(state));
         findings.Add(CheckArp(state));
         findings.AddRange(CheckIPv6(state));
@@ -1283,6 +1301,62 @@ public static class NetworkPostureAnalyzer
             "(TcpMaxDataRetransmissions)' recommendation.",
             @"Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' " +
             "-Name TcpMaxDataRetransmissions -Value 3");
+    }
+
+    /// <summary>
+    /// Evaluates the TCP SYN-ACK retransmission cap
+    /// (<c>TcpMaxConnectResponseRetransmissions</c> under
+    /// <c>HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters</c>), the number of
+    /// times TCP retransmits an unanswered SYN-ACK before abandoning a half-open
+    /// connection. This is the direct SYN-flood defence knob: the CIS Windows benchmark
+    /// (MSS: (TcpMaxConnectResponseRetransmissions)) recommends 2 so a spoofed SYN pins
+    /// a half-open connection-table entry for far less time and SYN-attack protection
+    /// engages sooner. It complements <see cref="CheckTcpMaxDataRetransmissions"/>,
+    /// which caps retransmissions on already-established connections.
+    ///
+    /// <para>The analyzer grades the collected posture in
+    /// <see cref="NetworkState.TcpMaxConnectResponseRetransmissionsHardened"/>:
+    /// <see cref="Toggle.Enabled"/> (value present and &lt;= 2) passes;
+    /// <see cref="Toggle.Disabled"/> (value &gt; 2 OR absent) warns; and
+    /// <see cref="Toggle.Unknown"/> (unreadable) also warns, fail-safe. Always returns
+    /// exactly one finding.</para>
+    /// </summary>
+    public static Finding CheckTcpMaxConnectResponseRetransmissions(NetworkState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+
+        if (state.TcpMaxConnectResponseRetransmissionsHardened == Toggle.Enabled)
+        {
+            return Finding.Pass(
+                "TCP SYN-ACK Retransmissions Hardened",
+                "TCP's SYN-ACK (connect-response) retransmission cap is set to the " +
+                "CIS-recommended value (Tcpip TcpMaxConnectResponseRetransmissions <= 2). " +
+                "After at most two unanswered SYN-ACKs TCP abandons the half-open " +
+                "connection and SYN-attack protection engages, so a spoofed SYN pins a " +
+                "connection-table entry for far less time during a SYN flood.",
+                Category);
+        }
+
+        var stateNote = state.TcpMaxConnectResponseRetransmissionsHardened == Toggle.Disabled
+            ? "The Tcpip 'TcpMaxConnectResponseRetransmissions' value is greater than 2 or " +
+              "absent, so TCP retransmits an unanswered SYN-ACK more times before tearing " +
+              "down the half-open connection."
+            : "The Tcpip 'TcpMaxConnectResponseRetransmissions' value could not be read, so " +
+              "the longer (default) SYN-ACK retransmission window must be assumed.";
+
+        return Finding.Warning(
+            "TCP SYN-ACK Retransmissions Not Hardened",
+            stateNote + " A longer SYN-ACK retransmission window keeps half-open " +
+            "connections alive longer, giving an attacker running a SYN flood more time " +
+            "to exhaust the connection table and memory on this host. Capping it also " +
+            "lets Windows' built-in SYN-attack protection kick in sooner.",
+            Category,
+            "Cap TCP SYN-ACK retransmissions machine-wide by setting the Tcpip " +
+            "TcpMaxConnectResponseRetransmissions DWORD to 2, then reboot (the TCP/IP " +
+            "stack reads this at start-up). This aligns with the CIS Windows benchmark " +
+            "'MSS: (TcpMaxConnectResponseRetransmissions)' recommendation.",
+            @"Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' " +
+            "-Name TcpMaxConnectResponseRetransmissions -Value 2");
     }
     // ── ARP ──────────────────────────────────────────────────────────────────────
 

@@ -72,6 +72,7 @@ public class NetworkAudit : AuditModuleBase
         await CollectIrdp(state, ct);
         await CollectDeadGateway(state, ct);
         await CollectTcpMaxDataRetransmissions(state, ct);
+        await CollectTcpMaxConnectResponseRetransmissions(state, ct);
         await CollectNoNameRelease(state, ct);
         await CollectArp(state, ct);
         await CollectIPv6(state, ct);
@@ -443,6 +444,21 @@ public class NetworkAudit : AuditModuleBase
             } catch { 'ERROR' }", ct);
 
         state.TcpMaxDataRetransmissionsHardened = ClassifyTcpMaxDataRetransmissionsValue(output);
+    }
+
+    private async Task CollectTcpMaxConnectResponseRetransmissions(NetworkState state, CancellationToken ct)
+    {
+        // Read the Microsoft/CIS MSS TCP SYN-ACK retransmission cap
+        // (HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\TcpMaxConnectResponseRetransmissions).
+        // Emit the raw integer, or NOT_SET / ERROR, so the classifier can decide the
+        // posture from a clean token line even if a CIM/registry banner is prepended.
+        var output = await ShellHelper.RunPowerShellAsync(
+            @"try {
+                $key = Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' -Name 'TcpMaxConnectResponseRetransmissions' -ErrorAction SilentlyContinue
+                if ($key -ne $null -and $key.PSObject.Properties.Name -contains 'TcpMaxConnectResponseRetransmissions') { $key.TcpMaxConnectResponseRetransmissions } else { 'NOT_SET' }
+            } catch { 'ERROR' }", ct);
+
+        state.TcpMaxConnectResponseRetransmissionsHardened = ClassifyTcpMaxConnectResponseRetransmissionsValue(output);
     }
 
     private async Task CollectNoNameRelease(NetworkState state, CancellationToken ct)
@@ -992,6 +1008,32 @@ public class NetworkAudit : AuditModuleBase
             if (int.TryParse(t, out var n))
                 return n <= 3 ? Toggle.Enabled : Toggle.Disabled;
             if (t.Equals("NOT_SET", StringComparison.OrdinalIgnoreCase)) return Toggle.Disabled; // default 5 => exposed
+            if (t.Equals("ERROR", StringComparison.OrdinalIgnoreCase)) return Toggle.Unknown;
+            // Unrecognised noise line (e.g. a registry warning): skip and keep scanning.
+        }
+        return Toggle.Unknown; // no recognised token -> unknown (analyzer warns, fail-safe)
+    }
+
+    /// <summary>
+    /// Classifies the <c>TcpMaxConnectResponseRetransmissions</c> (Tcpip TCP SYN-ACK
+    /// retransmission cap) reader output into the
+    /// <see cref="NetworkState.TcpMaxConnectResponseRetransmissionsHardened"/> posture
+    /// toggle. A clean integer &lt;= 2 (CIS-recommended) =&gt; <see cref="Toggle.Enabled"/>
+    /// (the only Pass state); an integer &gt; 2 =&gt; <see cref="Toggle.Disabled"/>, as
+    /// does a missing value (<c>NOT_SET</c>). Only an <c>ERROR</c> (or no recognised
+    /// token) maps to <see cref="Toggle.Unknown"/>. The analyzer warns on both Disabled
+    /// and Unknown, so a high/default or unreadable value fails SAFE.
+    /// </summary>
+    internal static Toggle ClassifyTcpMaxConnectResponseRetransmissionsValue(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return Toggle.Unknown;
+        foreach (var line in raw.Split('\n'))
+        {
+            var t = line.Trim();
+            if (t.Length == 0) continue;
+            if (int.TryParse(t, out var n))
+                return n <= 2 ? Toggle.Enabled : Toggle.Disabled;
+            if (t.Equals("NOT_SET", StringComparison.OrdinalIgnoreCase)) return Toggle.Disabled; // absent => exposed
             if (t.Equals("ERROR", StringComparison.OrdinalIgnoreCase)) return Toggle.Unknown;
             // Unrecognised noise line (e.g. a registry warning): skip and keep scanning.
         }

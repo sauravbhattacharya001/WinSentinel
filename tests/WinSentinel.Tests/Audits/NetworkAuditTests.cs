@@ -1537,6 +1537,48 @@ public class NetworkAuditLlmnrNetBiosParsingTests
         Assert.Equal(Toggle.Disabled, NetworkAudit.ClassifyTcpMaxDataRetransmissionsValue("WARNING: banner\n5"));
     }
 
+    // -- ClassifyTcpMaxConnectResponseRetransmissionsValue ------------------
+    //
+    // An integer <= 2 (the CIS-recommended SYN-ACK cap) is the secure
+    // Enabled/hardened state. An integer > 2 is Disabled/exposed, as is a
+    // missing key (NOT_SET). Only ERROR / unreadable / unrecognised => Unknown.
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("1")]
+    [InlineData("2")]
+    [InlineData(" 2 ")]
+    [InlineData("2\n")]
+    [InlineData("\n1\n")]
+    public void ClassifyTcpMaxConnResp_LeTwo_IsHardenedEnabled(string raw) =>
+        Assert.Equal(Toggle.Enabled, NetworkAudit.ClassifyTcpMaxConnectResponseRetransmissionsValue(raw));
+
+    [Theory]
+    [InlineData("3")]
+    [InlineData("5")]
+    [InlineData(" 4 ")]
+    [InlineData("10\n")]
+    [InlineData("NOT_SET")]       // key absent => longer default window => exposed
+    [InlineData("not_set")]       // case-insensitive sentinel
+    public void ClassifyTcpMaxConnResp_GtTwoOrMissing_IsDisabledExposed(string raw) =>
+        Assert.Equal(Toggle.Disabled, NetworkAudit.ClassifyTcpMaxConnectResponseRetransmissionsValue(raw));
+
+    [Theory]
+    [InlineData("ERROR")]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("garbage")]
+    public void ClassifyTcpMaxConnResp_ErroredOrUnrecognised_IsUnknown(string? raw) =>
+        Assert.Equal(Toggle.Unknown, NetworkAudit.ClassifyTcpMaxConnectResponseRetransmissionsValue(raw));
+
+    [Fact]
+    public void ClassifyTcpMaxConnResp_NoisyPrefixThenValue_IsClassified()
+    {
+        Assert.Equal(Toggle.Enabled, NetworkAudit.ClassifyTcpMaxConnectResponseRetransmissionsValue("WARNING: banner\n2"));
+        Assert.Equal(Toggle.Disabled, NetworkAudit.ClassifyTcpMaxConnectResponseRetransmissionsValue("WARNING: banner\n5"));
+    }
+
     // -- ClassifyNoNameReleaseValue -----------------------------------------
     //
     // Only a clean "1" (NoNameReleaseOnDemand = 1, release-on-demand refused) is

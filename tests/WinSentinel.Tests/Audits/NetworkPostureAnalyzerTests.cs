@@ -43,6 +43,7 @@ public class NetworkPostureAnalyzerTests
         DeadGatewayHardened = Toggle.Enabled,
         NoNameReleaseHardened = Toggle.Enabled,
         TcpMaxDataRetransmissionsHardened = Toggle.Enabled,
+        TcpMaxConnectResponseRetransmissionsHardened = Toggle.Enabled,
     };
 
     private static NetworkState InsecureState() => new()
@@ -1011,6 +1012,60 @@ public class NetworkPostureAnalyzerTests
     {
         Assert.Single(Analyze(SecureState()), x => x.Title.Contains("TCP Data Retransmissions", StringComparison.OrdinalIgnoreCase));
         Assert.Single(Analyze(InsecureState()), x => x.Title.Contains("TCP Data Retransmissions", StringComparison.OrdinalIgnoreCase));
+    }
+
+    // ---- TCP SYN-ACK Retransmissions (MSS: TcpMaxConnectResponseRetransmissions) ----
+
+    [Fact]
+    public void TcpMaxConnectResponseRetransmissions_NullState_Throws() =>
+        Assert.Throws<ArgumentNullException>(() => CheckTcpMaxConnectResponseRetransmissions(null!));
+
+    [Fact]
+    public void TcpMaxConnectResponseRetransmissions_Hardened_Passes()
+    {
+        // Toggle.Enabled encodes "TcpMaxConnectResponseRetransmissions <= 2".
+        var f = CheckTcpMaxConnectResponseRetransmissions(new NetworkState { TcpMaxConnectResponseRetransmissionsHardened = Toggle.Enabled });
+        Assert.Equal(Severity.Pass, f.Severity);
+        Assert.Contains("TCP SYN-ACK Retransmissions Hardened", f.Title);
+        Assert.Null(f.FixCommand);
+    }
+
+    [Theory]
+    [InlineData(Toggle.Disabled)] // > 2 or absent => exposed
+    [InlineData(Toggle.Unknown)]  // unreadable => fail safe, warn
+    public void TcpMaxConnectResponseRetransmissions_NotHardenedOrUnknown_Warns(Toggle posture)
+    {
+        var f = CheckTcpMaxConnectResponseRetransmissions(new NetworkState { TcpMaxConnectResponseRetransmissionsHardened = posture });
+        Assert.Equal(Severity.Warning, f.Severity);
+        Assert.Contains("TCP SYN-ACK Retransmissions Not Hardened", f.Title);
+    }
+
+    [Fact]
+    public void TcpMaxConnectResponseRetransmissions_Warning_HasSanitizerSafeFix()
+    {
+        var f = CheckTcpMaxConnectResponseRetransmissions(new NetworkState { TcpMaxConnectResponseRetransmissionsHardened = Toggle.Disabled });
+        Assert.False(string.IsNullOrWhiteSpace(f.FixCommand));
+        Assert.StartsWith("Set-ItemProperty ", f.FixCommand);
+        Assert.Contains("TcpMaxConnectResponseRetransmissions", f.FixCommand);
+        Assert.DoesNotContain(";", f.FixCommand!);
+        Assert.DoesNotContain("|", f.FixCommand!);
+        Assert.Null(InputSanitizer.CheckDangerousCommand(f.FixCommand));
+    }
+
+    [Fact]
+    public void TcpMaxConnectResponseRetransmissions_UnknownAndDisabled_ExplainReadFailureDifferently()
+    {
+        var unknown = CheckTcpMaxConnectResponseRetransmissions(new NetworkState { TcpMaxConnectResponseRetransmissionsHardened = Toggle.Unknown });
+        var disabled = CheckTcpMaxConnectResponseRetransmissions(new NetworkState { TcpMaxConnectResponseRetransmissionsHardened = Toggle.Disabled });
+        Assert.Contains("could not be read", unknown.Description);
+        Assert.Contains("absent", disabled.Description);
+    }
+
+    [Fact]
+    public void Analyze_Includes_ExactlyOneTcpMaxConnectResponseRetransmissionsFinding()
+    {
+        Assert.Single(Analyze(SecureState()), x => x.Title.Contains("SYN-ACK Retransmissions", StringComparison.OrdinalIgnoreCase));
+        Assert.Single(Analyze(InsecureState()), x => x.Title.Contains("SYN-ACK Retransmissions", StringComparison.OrdinalIgnoreCase));
     }
 
     // ---- NetBIOS Name-Release-on-Demand --------------------------------------

@@ -292,6 +292,19 @@ public static class NetworkPostureAnalyzer
         // CIS/MSS recommend disabling it (EnableDeadGWDetect = 0).
         public Toggle DeadGatewayHardened { get; set; } = Toggle.Unknown;
 
+        // TCP data-retransmission cap (SYN-flood resilience). Tracks the
+        // Microsoft/CIS MSS control
+        // HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\TcpMaxDataRetransmissions,
+        // the number of times TCP retransmits an unacknowledged data segment before
+        // aborting the connection. Windows defaults to 5; CIS Windows L1 (MSS:
+        // (TcpMaxDataRetransmissions)) recommends 3 to shorten how long half-open /
+        // stalled connections are held, reducing memory pressure during a SYN/data
+        // retransmission flood. The toggle encodes posture, not the raw value:
+        // Enabled = hardened (value present and <= 3); Disabled = value > 3 OR absent
+        // (Windows default 5 leaves the longer window); Unknown = unreadable (warn,
+        // fail-safe).
+        public Toggle TcpMaxDataRetransmissionsHardened { get; set; } = Toggle.Unknown;
+
         // NetBIOS Name-Release attack hardening. Tracks the Microsoft-documented
         // machine-wide control
         // HKLM\SYSTEM\CurrentControlSet\Services\Netbt\Parameters\NoNameReleaseOnDemand
@@ -372,6 +385,7 @@ public static class NetworkPostureAnalyzer
         findings.Add(CheckIpv6SourceRouting(state));
         findings.Add(CheckIrdp(state));
         findings.Add(CheckDeadGateway(state));
+        findings.Add(CheckTcpMaxDataRetransmissions(state));
         findings.Add(CheckNoNameRelease(state));
         findings.Add(CheckArp(state));
         findings.AddRange(CheckIPv6(state));
@@ -1216,6 +1230,60 @@ public static class NetworkPostureAnalyzer
             "-Name EnableDeadGWDetect -Value 0");
     }
 
+    /// <summary>
+    /// Evaluates the TCP data-retransmission cap (<c>TcpMaxDataRetransmissions</c>
+    /// under <c>HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters</c>), the
+    /// number of times TCP retransmits an unacknowledged data segment before it
+    /// aborts the connection. Windows defaults to 5; the CIS Windows benchmark
+    /// (MSS: (TcpMaxDataRetransmissions)) recommends 3 so stalled / half-open
+    /// connections are torn down sooner, reducing the resources an attacker can pin
+    /// during a SYN / data-retransmission flood.
+    ///
+    /// <para>The analyzer grades the collected posture in
+    /// <see cref="NetworkState.TcpMaxDataRetransmissionsHardened"/>:
+    /// <see cref="Toggle.Enabled"/> (value present and &lt;= 3) passes;
+    /// <see cref="Toggle.Disabled"/> (value &gt; 3 OR absent - Windows defaults to 5)
+    /// warns; and <see cref="Toggle.Unknown"/> (unreadable) also warns, fail-safe.
+    /// Always returns exactly one finding.</para>
+    /// </summary>
+    public static Finding CheckTcpMaxDataRetransmissions(NetworkState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+
+        if (state.TcpMaxDataRetransmissionsHardened == Toggle.Enabled)
+        {
+            return Finding.Pass(
+                "TCP Data Retransmissions Hardened",
+                "TCP's data-retransmission cap is set to the CIS-recommended value " +
+                "(Tcpip TcpMaxDataRetransmissions <= 3). TCP abandons an " +
+                "unacknowledged segment after at most three retransmissions instead " +
+                "of the Windows default of five, so stalled or half-open connections " +
+                "are torn down sooner and hold fewer resources during a " +
+                "retransmission / SYN flood.",
+                Category);
+        }
+
+        var stateNote = state.TcpMaxDataRetransmissionsHardened == Toggle.Disabled
+            ? "The Tcpip 'TcpMaxDataRetransmissions' value is greater than 3 or absent " +
+              "(Windows defaults to 5), so TCP retransmits an unacknowledged segment up " +
+              "to five times before giving up."
+            : "The Tcpip 'TcpMaxDataRetransmissions' value could not be read, so the " +
+              "default (longer) retransmission window must be assumed.";
+
+        return Finding.Warning(
+            "TCP Data Retransmissions Not Hardened",
+            stateNote + " A longer retransmission window keeps stalled and half-open " +
+            "connections alive longer, giving an attacker running a SYN or " +
+            "data-retransmission flood more time to exhaust connection-table and " +
+            "memory resources on this host.",
+            Category,
+            "Cap TCP data retransmissions machine-wide by setting the Tcpip " +
+            "TcpMaxDataRetransmissions DWORD to 3, then reboot (the TCP/IP stack reads " +
+            "this at start-up). This aligns with the CIS Windows benchmark 'MSS: " +
+            "(TcpMaxDataRetransmissions)' recommendation.",
+            @"Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' " +
+            "-Name TcpMaxDataRetransmissions -Value 3");
+    }
     // ── ARP ──────────────────────────────────────────────────────────────────────
 
     /// <summary>

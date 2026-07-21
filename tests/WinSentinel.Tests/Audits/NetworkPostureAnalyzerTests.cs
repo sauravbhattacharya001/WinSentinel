@@ -42,6 +42,7 @@ public class NetworkPostureAnalyzerTests
         IrdpHardened = Toggle.Enabled,
         DeadGatewayHardened = Toggle.Enabled,
         NoNameReleaseHardened = Toggle.Enabled,
+        TcpMaxDataRetransmissionsHardened = Toggle.Enabled,
     };
 
     private static NetworkState InsecureState() => new()
@@ -956,6 +957,60 @@ public class NetworkPostureAnalyzerTests
     {
         Assert.Single(Analyze(SecureState()), x => x.Title.Contains("Dead Gateway", StringComparison.OrdinalIgnoreCase));
         Assert.Single(Analyze(InsecureState()), x => x.Title.Contains("Dead Gateway", StringComparison.OrdinalIgnoreCase));
+    }
+
+    // ---- TCP Data Retransmissions (MSS: TcpMaxDataRetransmissions) ------------
+
+    [Fact]
+    public void TcpMaxDataRetransmissions_NullState_Throws() =>
+        Assert.Throws<ArgumentNullException>(() => CheckTcpMaxDataRetransmissions(null!));
+
+    [Fact]
+    public void TcpMaxDataRetransmissions_Hardened_Passes()
+    {
+        // Toggle.Enabled encodes "TcpMaxDataRetransmissions <= 3".
+        var f = CheckTcpMaxDataRetransmissions(new NetworkState { TcpMaxDataRetransmissionsHardened = Toggle.Enabled });
+        Assert.Equal(Severity.Pass, f.Severity);
+        Assert.Contains("TCP Data Retransmissions Hardened", f.Title);
+        Assert.Null(f.FixCommand);
+    }
+
+    [Theory]
+    [InlineData(Toggle.Disabled)] // > 3 or absent (default 5) => exposed
+    [InlineData(Toggle.Unknown)]  // unreadable => fail safe, warn
+    public void TcpMaxDataRetransmissions_NotHardenedOrUnknown_Warns(Toggle posture)
+    {
+        var f = CheckTcpMaxDataRetransmissions(new NetworkState { TcpMaxDataRetransmissionsHardened = posture });
+        Assert.Equal(Severity.Warning, f.Severity);
+        Assert.Contains("TCP Data Retransmissions Not Hardened", f.Title);
+    }
+
+    [Fact]
+    public void TcpMaxDataRetransmissions_Warning_HasSanitizerSafeFix()
+    {
+        var f = CheckTcpMaxDataRetransmissions(new NetworkState { TcpMaxDataRetransmissionsHardened = Toggle.Disabled });
+        Assert.False(string.IsNullOrWhiteSpace(f.FixCommand));
+        Assert.StartsWith("Set-ItemProperty ", f.FixCommand);
+        Assert.Contains("TcpMaxDataRetransmissions", f.FixCommand);
+        Assert.DoesNotContain(";", f.FixCommand!);
+        Assert.DoesNotContain("|", f.FixCommand!);
+        Assert.Null(InputSanitizer.CheckDangerousCommand(f.FixCommand));
+    }
+
+    [Fact]
+    public void TcpMaxDataRetransmissions_UnknownAndDisabled_ExplainReadFailureDifferently()
+    {
+        var unknown = CheckTcpMaxDataRetransmissions(new NetworkState { TcpMaxDataRetransmissionsHardened = Toggle.Unknown });
+        var disabled = CheckTcpMaxDataRetransmissions(new NetworkState { TcpMaxDataRetransmissionsHardened = Toggle.Disabled });
+        Assert.Contains("could not be read", unknown.Description);
+        Assert.Contains("default", disabled.Description);
+    }
+
+    [Fact]
+    public void Analyze_Includes_ExactlyOneTcpMaxDataRetransmissionsFinding()
+    {
+        Assert.Single(Analyze(SecureState()), x => x.Title.Contains("TCP Data Retransmissions", StringComparison.OrdinalIgnoreCase));
+        Assert.Single(Analyze(InsecureState()), x => x.Title.Contains("TCP Data Retransmissions", StringComparison.OrdinalIgnoreCase));
     }
 
     // ---- NetBIOS Name-Release-on-Demand --------------------------------------

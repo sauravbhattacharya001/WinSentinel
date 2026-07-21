@@ -1495,6 +1495,48 @@ public class NetworkAuditLlmnrNetBiosParsingTests
         Assert.Equal(Toggle.Disabled, NetworkAudit.ClassifyDeadGatewayValue(noisy));
     }
 
+    // -- ClassifyTcpMaxDataRetransmissionsValue -----------------------------
+    //
+    // An integer <= 3 (the CIS-recommended cap) is the secure Enabled/hardened
+    // state. An integer > 3 is Disabled/exposed, as is a missing key (NOT_SET)
+    // because Windows defaults to 5. Only ERROR / unreadable / unrecognised => Unknown.
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("1")]
+    [InlineData("3")]
+    [InlineData(" 3 ")]
+    [InlineData("3\n")]
+    [InlineData("\n2\n")]
+    public void ClassifyTcpMaxDataRetx_LeThree_IsHardenedEnabled(string raw) =>
+        Assert.Equal(Toggle.Enabled, NetworkAudit.ClassifyTcpMaxDataRetransmissionsValue(raw));
+
+    [Theory]
+    [InlineData("4")]
+    [InlineData("5")]
+    [InlineData(" 5 ")]
+    [InlineData("10\n")]
+    [InlineData("NOT_SET")]       // key absent => Windows default 5 => exposed
+    [InlineData("not_set")]       // case-insensitive sentinel
+    public void ClassifyTcpMaxDataRetx_GtThreeOrMissing_IsDisabledExposed(string raw) =>
+        Assert.Equal(Toggle.Disabled, NetworkAudit.ClassifyTcpMaxDataRetransmissionsValue(raw));
+
+    [Theory]
+    [InlineData("ERROR")]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("garbage")]
+    public void ClassifyTcpMaxDataRetx_ErroredOrUnrecognised_IsUnknown(string? raw) =>
+        Assert.Equal(Toggle.Unknown, NetworkAudit.ClassifyTcpMaxDataRetransmissionsValue(raw));
+
+    [Fact]
+    public void ClassifyTcpMaxDataRetx_NoisyPrefixThenValue_IsClassified()
+    {
+        Assert.Equal(Toggle.Enabled, NetworkAudit.ClassifyTcpMaxDataRetransmissionsValue("WARNING: banner\n3"));
+        Assert.Equal(Toggle.Disabled, NetworkAudit.ClassifyTcpMaxDataRetransmissionsValue("WARNING: banner\n5"));
+    }
+
     // -- ClassifyNoNameReleaseValue -----------------------------------------
     //
     // Only a clean "1" (NoNameReleaseOnDemand = 1, release-on-demand refused) is

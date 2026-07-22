@@ -951,6 +951,36 @@ public class EventLogAnalyzerTests
     }
 
     // ----------------------------------------------------------------------
+    // System audit policy changed (Event ID 4719)
+    // ----------------------------------------------------------------------
+
+    [Fact]
+    public void BuildAuditPolicyChangeFinding_Zero_IsPass()
+    {
+        var f = EventLogAnalyzer.BuildAuditPolicyChangeFinding(0);
+        Assert.Equal(Severity.Pass, f.Severity);
+        Assert.Contains("4719", f.Description);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(9)]
+    public void BuildAuditPolicyChangeFinding_AnyChange_IsWarning(int count)
+    {
+        var f = EventLogAnalyzer.BuildAuditPolicyChangeFinding(count, new[] { "2026-07-20 by attacker" });
+        Assert.Equal(Severity.Warning, f.Severity);
+        Assert.Contains(count.ToString(), f.Title);
+        Assert.Contains("2026-07-20 by attacker", f.Description);
+    }
+
+    [Fact]
+    public void BuildAuditPolicyChangeFinding_NoDetails_StillRenders()
+    {
+        var f = EventLogAnalyzer.BuildAuditPolicyChangeFinding(2);
+        Assert.Equal(Severity.Warning, f.Severity);
+        Assert.Contains("details unavailable", f.Description);
+    }
+    // ----------------------------------------------------------------------
     // Remote logons from external IPs (4624, LogonType 3/10)
     // ----------------------------------------------------------------------
 

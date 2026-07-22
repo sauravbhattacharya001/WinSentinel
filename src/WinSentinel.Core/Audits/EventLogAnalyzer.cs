@@ -791,6 +791,35 @@ public static class EventLogAnalyzer
             "Investigate who cleared the logs and why. Implement log forwarding to a SIEM or remote log collector to prevent evidence destruction. Consider restricting 'Manage auditing and security log' privilege.");
     }
 
+    // === System audit policy changed (Event ID 4719) ===
+
+    /// <summary>
+    /// Classify system-audit-policy-change events (Event ID 4719). Legitimate audit
+    /// policy changes are rare on a steady-state machine and normally happen only at
+    /// build/hardening time; a burst of them — especially outside a known change
+    /// window — is a classic "attacker is turning off auditing to blind the defender"
+    /// signal (MITRE T1562.002 - Impair Defenses: Disable Windows Event Logging),
+    /// the natural precursor to clearing the log (1102). Any occurrence =&gt; Warning
+    /// (worth a human look, but far less destructive than an actual log clear); 0 =&gt;
+    /// Pass. <paramref name="changeLines"/> are pre-formatted "who/when" fragments.
+    /// </summary>
+    public static Finding BuildAuditPolicyChangeFinding(int count, IReadOnlyList<string>? changeLines = null)
+    {
+        if (count <= 0)
+        {
+            return Finding.Pass(
+                "No Audit Policy Changes",
+                "No system audit policy change events (Event ID 4719) detected in the last 30 days. Auditing configuration appears stable.",
+                Category);
+        }
+
+        var lines = changeLines is { Count: > 0 } ? string.Join("\n", changeLines) : "(details unavailable)";
+        return Finding.Warning(
+            $"System Audit Policy Changed - {count} Time(s)",
+            $"The system audit policy was changed {count} time(s) in the last 30 days (Event ID 4719). Outside a planned hardening/change window this can indicate an attacker disabling auditing to blind detection before further activity (a common precursor to clearing the log).\n\nChange events:\n{lines}",
+            Category,
+            "Confirm each change matches a known, authorized configuration/hardening action. If any change is unexplained, investigate the account that made it and re-apply your baseline audit policy. Forward audit-policy-change events to a SIEM so tampering is caught even if local logs are later cleared.");
+    }
     // === Successful remote logons from external IPs (Event ID 4624, LogonType 3/10) ===
 
     /// <summary>

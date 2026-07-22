@@ -83,6 +83,7 @@ public class EventLogAudit : IAuditModule
                 CheckSystemErrors(result, cancellationToken),
                 CheckSecurityLogSize(result, cancellationToken),
                 CheckLogCleared(result, cancellationToken),
+                CheckAuditPolicyChanged(result, cancellationToken),
                 CheckRemoteLogons(result, cancellationToken));
         }
         catch (Exception ex)
@@ -916,6 +917,67 @@ public class EventLogAudit : IAuditModule
 
     #endregion
 
+    /// <summary>Check for system audit policy change events (Event ID 4719) — someone
+    /// may be turning auditing off to blind detection before a log clear.</summary>
+    private async Task CheckAuditPolicyChanged(AuditResult result, CancellationToken ct)
+    {
+        try
+        {
+            // Event ID 4719 in Security log = "System audit policy was changed".
+            // Same 30-day window as the 1102 log-cleared check — a rare, high-signal event.
+            var query = "*[System[(EventID=4719) and TimeCreated[timediff(@SystemTime) <= 2592000000]]]";
+
+            var events = await QueryEventLogAsync("Security", query, ct);
+
+            if (events == null)
+            {
+                AddFinding(result, Finding.Info(
+                    "Audit Policy Change Check — Access Denied",
+                    "Could not check for audit-policy-change events. Administrator privileges required.",
+                    Category,
+                    "Run WinSentinel as Administrator."));
+                return;
+            }
+
+            if (events.Count == 0)
+            {
+                AddFinding(result, EventLogAnalyzer.BuildAuditPolicyChangeFinding(0));
+            }
+            else
+            {
+                var changeDetails = new List<string>();
+                foreach (var evt in events)
+                {
+                    try
+                    {
+                        string who = "Unknown";
+                        if (evt.Properties.Count > 1)
+                        {
+                            var domain = evt.Properties[2]?.Value?.ToString() ?? "";
+                            var user = evt.Properties[1]?.Value?.ToString() ?? "";
+                            who = !string.IsNullOrEmpty(domain) ? $"{domain}\\{user}" : user;
+                        }
+
+                        changeDetails.Add($"• {evt.TimeCreated:yyyy-MM-dd HH:mm} by {who}");
+                    }
+                    catch
+                    {
+                        changeDetails.Add($"• {evt.TimeCreated:yyyy-MM-dd HH:mm} by Unknown");
+                    }
+                }
+
+                AddFinding(result, EventLogAnalyzer.BuildAuditPolicyChangeFinding(events.Count, changeDetails));
+            }
+        }
+        catch (Exception ex)
+        {
+            AddFinding(result, Finding.Info(
+                "Audit Policy Change Check Error",
+                $"Could not check for audit-policy-change events: {ex.Message}",
+                Category,
+                "Run WinSentinel as Administrator."));
+        }
+    }
     #region Remote Logons (Event ID 4624, LogonType 3/10)
 
     /// <summary>

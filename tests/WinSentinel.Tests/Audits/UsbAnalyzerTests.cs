@@ -75,7 +75,7 @@ public class UsbAnalyzerTests
         // AutoRun, AutoPlay, WriteProtect, StorageDisable, BitLocker-to-Go,
         // DeviceHistory, RemovableEncryption, WPD/MTP = 8.
         var findings = UsbAnalyzer.Analyze(SecureState());
-        Assert.Equal(8, findings.Count);
+        Assert.Equal(9, findings.Count);
     }
 
     [Fact]
@@ -84,7 +84,7 @@ public class UsbAnalyzerTests
         var state = SecureState();
         state.BitLockerDataVolumeStatusAvailable = true;
         var findings = UsbAnalyzer.Analyze(state);
-        Assert.Equal(9, findings.Count);
+        Assert.Equal(10, findings.Count);
     }
 
     [Fact]
@@ -110,7 +110,7 @@ public class UsbAnalyzerTests
         var state = InsecureState(); // BitLocker info present
         var titles = UsbAnalyzer.Analyze(state).Select(f => f.Title).ToList();
 
-        Assert.Equal(9, titles.Count);
+        Assert.Equal(10, titles.Count);
         Assert.Contains("AutoRun", titles[0]);
         Assert.Contains("AutoPlay", titles[1]);
         Assert.Contains("write-protect", titles[2]);
@@ -120,6 +120,7 @@ public class UsbAnalyzerTests
         Assert.Contains("connection history", titles[6]);
         Assert.Contains("removable drive encryption", titles[7], StringComparison.OrdinalIgnoreCase);
         Assert.Contains("WPD/MTP", titles[8]);
+        Assert.Contains("Removable-disk read access", titles[9]);
     }
 
     // ── AutoRun ───────────────────────────────────────────────────────────────
@@ -412,5 +413,55 @@ public class UsbAnalyzerTests
         Assert.Equal(4, UsbStorDisabledStart);
         Assert.Equal(10, MaxRecentDevicesListed);
         Assert.Equal("USB", UsbAnalyzer.Category);
+    }
+
+    // -- Removable-disk READ restriction ---------------------------------------
+
+    [Fact]
+    public void ReadRestriction_DenyRead_Passes()
+    {
+        var f = Single(CheckRemovableDiskReadRestriction, new UsbState { RemovableDiskReadDenied = true });
+        Assert.Equal(Severity.Pass, f.Severity);
+        Assert.Contains("Deny_Read=1", f.Description);
+    }
+
+    [Fact]
+    public void ReadRestriction_DenyAll_PassesWithDenyAllWording()
+    {
+        var f = Single(CheckRemovableDiskReadRestriction, new UsbState { DenyAllRemovableStorage = true });
+        Assert.Equal(Severity.Pass, f.Severity);
+        Assert.Contains("Deny_All=1", f.Description);
+    }
+
+    [Fact]
+    public void ReadRestriction_DenyAllWins_EvenWhenDenyReadAlsoSet()
+    {
+        var f = Single(CheckRemovableDiskReadRestriction, new UsbState
+        {
+            DenyAllRemovableStorage = true,
+            RemovableDiskReadDenied = true,
+        });
+        Assert.Equal(Severity.Pass, f.Severity);
+        Assert.Contains("Deny_All=1", f.Description);
+    }
+
+    [Fact]
+    public void ReadRestriction_Neither_IsInfoNotWarning()
+    {
+        var f = Single(CheckRemovableDiskReadRestriction, new UsbState
+        {
+            DenyAllRemovableStorage = false,
+            RemovableDiskReadDenied = false,
+        });
+        Assert.Equal(Severity.Info, f.Severity);
+        Assert.Contains("READ access", f.Description);
+        Assert.False(string.IsNullOrWhiteSpace(f.Remediation));
+    }
+
+    [Fact]
+    public void ReadRestriction_IsIncludedInAnalyze()
+    {
+        var findings = UsbAnalyzer.Analyze(new UsbState());
+        Assert.Contains(findings, x => x.Title.Contains("Removable-disk read access"));
     }
 }

@@ -33,6 +33,7 @@ public class UsbAudit : AuditModuleBase
             RequireRemovableEncryption = CollectRequireRemovableEncryption(),
             DenyAllRemovableStorage = CollectDenyAllRemovableStorage(),
             WpdWriteDenied = CollectWpdWriteDenied(),
+            RemovableDiskReadDenied = CollectRemovableDiskReadDenied(),
         };
 
         CollectUsbDeviceHistory(state);
@@ -167,6 +168,28 @@ public class UsbAudit : AuditModuleBase
         using (var key = Registry.CurrentUser.OpenSubKey(wpdPath))
         {
             if (key?.GetValue("Deny_Write") is int val && val == 1) return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Removable Storage Access: the Removable Disks device-class
+    /// <c>Deny_Read=1</c> under
+    /// <c>SOFTWARE\Policies\Microsoft\Windows\RemovableStorageDevices\{53f5630d-b6bf-11d0-94f2-00a0c91efb8b}</c>.
+    /// Denies READ access to removable disks (data ingress / malware delivery),
+    /// distinct from the write-side controls. Checked in HKLM then HKCU.
+    /// </summary>
+    private static bool CollectRemovableDiskReadDenied()
+    {
+        const string diskGuid = "{53f5630d-b6bf-11d0-94f2-00a0c91efb8b}";
+        string diskPath = $@"SOFTWARE\Policies\Microsoft\Windows\RemovableStorageDevices\{diskGuid}";
+        using (var key = Registry.LocalMachine.OpenSubKey(diskPath))
+        {
+            if (key?.GetValue("Deny_Read") is int val && val == 1) return true;
+        }
+        using (var key = Registry.CurrentUser.OpenSubKey(diskPath))
+        {
+            if (key?.GetValue("Deny_Read") is int val && val == 1) return true;
         }
         return false;
     }

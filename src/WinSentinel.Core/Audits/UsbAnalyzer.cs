@@ -116,6 +116,18 @@ public static class UsbAnalyzer
         /// narrower fallback to <see cref="DenyAllRemovableStorage"/>.
         /// </summary>
         public bool WpdWriteDenied { get; set; }
+
+        /// <summary>
+        /// Removable Storage Access denies READ access to the Removable Disks device
+        /// class: <c>RemovableStorageDevices\{53f5630d-b6bf-11d0-94f2-00a0c91efb8b}\Deny_Read == 1</c>
+        /// (or the global <see cref="DenyAllRemovableStorage"/>). Blocking read closes
+        /// the data-ingress / malware-delivery direction that the write-side controls
+        /// (BitLocker-to-Go, WPD Deny_Write) leave open: a user can still plug in a USB
+        /// disk and run/copy content <em>from</em> it even when writing to removable
+        /// media is denied. Opt-in hardening (Info when absent), matching the
+        /// write-protect posture.
+        /// </summary>
+        public bool RemovableDiskReadDenied { get; set; }
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -146,6 +158,7 @@ public static class UsbAnalyzer
         findings.Add(CheckDeviceHistory(state));
         findings.Add(CheckRemovableDiskEncryption(state));
         findings.Add(CheckWpdMtpRestriction(state));
+        findings.Add(CheckRemovableDiskReadRestriction(state));
         return findings;
     }
 
@@ -399,5 +412,44 @@ public static class UsbAnalyzer
             "Enable 'Removable Storage Access: All Removable Storage classes: Deny all access' " +
             "(or the WPD-class 'Deny write access') under Computer Configuration > Administrative Templates > " +
             "System > Removable Storage Access.");
+    }
+
+    // -- Removable-disk READ restriction (data ingress / malware delivery) -----
+
+    /// <summary>
+    /// Whether READ access to removable disks is denied via Removable Storage Access
+    /// (the Removable Disks device-class <c>Deny_Read=1</c>, or the global
+    /// <c>Deny_All=1</c>). The other USB controls here are write-side (BitLocker-to-Go,
+    /// WPD Deny_Write, write-protect) - they stop exfiltration but do nothing about the
+    /// ingress direction: a user can still plug in a USB disk and read/execute content
+    /// off it, a classic malware-delivery and unauthorized-tooling vector. Opt-in
+    /// hardening, so Info (not Warning) when it is not configured - matching the
+    /// write-protect posture.
+    /// </summary>
+    public static Finding CheckRemovableDiskReadRestriction(UsbState state)
+    {
+        if (state.RemovableDiskReadDenied || state.DenyAllRemovableStorage)
+        {
+            return Finding.Pass(
+                "Removable-disk read access restricted",
+                state.DenyAllRemovableStorage
+                    ? "Removable Storage Access policy denies all removable storage classes (Deny_All=1), " +
+                      "which also blocks READING from removable disks."
+                    : "Read access to removable disks is denied via the Removable Disks device-class policy " +
+                      "(Deny_Read=1), blocking data and executables from being read off USB media.",
+                Category);
+        }
+
+        return Finding.Info(
+            "Removable-disk read access not restricted",
+            "There is no policy denying READ access to removable disks. Write-side controls " +
+            "(BitLocker-to-Go, write-protect) only stop exfiltration; they do not prevent a user from " +
+            "plugging in a USB disk and reading or executing content off it - a common malware-delivery " +
+            "and unauthorized-tooling vector. Consider denying removable-disk read access in high-security " +
+            "environments.",
+            Category,
+            "Enable 'Removable Storage Access: Removable Disks: Deny read access' (or the broader " +
+            "'All Removable Storage classes: Deny all access') under Computer Configuration > " +
+            "Administrative Templates > System > Removable Storage Access.");
     }
 }

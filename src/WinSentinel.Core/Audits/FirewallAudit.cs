@@ -17,7 +17,7 @@ public class FirewallAudit : AuditModuleBase
 {
     public override string Name => "Firewall Audit";
     public override string Category => FirewallAnalyzer.Category;
-    public override string Description => "Checks Windows Firewall profile states (Domain/Private/Public), per-profile dropped-packet logging, the default inbound policy, the inbound allow-rule surface, and over-permissive wide-open inbound rules that let any program accept connections from any address on any port.";
+    public override string Description => "Checks Windows Firewall profile states (Domain/Private/Public), per-profile dropped-packet logging, the default inbound and outbound policies, the inbound allow-rule surface, and over-permissive wide-open inbound rules that let any program accept connections from any address on any port.";
 
     protected override async Task ExecuteAuditAsync(AuditResult result, CancellationToken cancellationToken)
     {
@@ -63,6 +63,7 @@ public class FirewallAudit : AuditModuleBase
         var policy = await ShellHelper.RunNetshAsync(
             "advfirewall show currentprofile firewallpolicy", ct);
         state.DefaultInboundBlock = ParseDefaultInbound(policy);
+        state.DefaultOutboundBlock = ParseDefaultOutbound(policy);
 
         return state;
     }

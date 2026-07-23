@@ -483,4 +483,49 @@ public class FirewallAnalyzerTests
     [InlineData("LogAllowedConnections   Enable")]
     public void ParseLogDroppedConnections_MissingOrEmpty_IsUnknown(string? dump) =>
         Assert.Equal(Toggle.Unknown, ParseLogDroppedConnections(dump));
+
+    // ── Default outbound policy ─────────────────────────────────────────────────
+
+    [Fact]
+    public void DefaultOutbound_Block_Passes()
+    {
+        var f = CheckOutboundDefault(new FirewallState { DefaultOutboundBlock = Toggle.Enabled });
+        Assert.NotNull(f);
+        Assert.Equal(Severity.Pass, f!.Severity);
+        Assert.Contains("Block", f.Title);
+    }
+
+    [Fact]
+    public void DefaultOutbound_Allow_IsInfoNotCritical()
+    {
+        // Allow-outbound is the Windows default, so it is an Info hardening hint,
+        // NOT a Critical the way default-inbound-Allow is.
+        var f = CheckOutboundDefault(new FirewallState { DefaultOutboundBlock = Toggle.Disabled });
+        Assert.NotNull(f);
+        Assert.Equal(Severity.Info, f!.Severity);
+        Assert.False(string.IsNullOrWhiteSpace(f.FixCommand));
+        Assert.Contains("blockoutbound", f.FixCommand, System.StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void DefaultOutbound_Unknown_ReturnsNull() =>
+        Assert.Null(CheckOutboundDefault(new FirewallState { DefaultOutboundBlock = Toggle.Unknown }));
+
+    [Fact]
+    public void Analyze_IncludesOutboundDefaultFinding()
+    {
+        var state = new FirewallState { DefaultOutboundBlock = Toggle.Enabled };
+        Assert.True(Has(Analyze(state), Severity.Pass, "Default Outbound Policy: Block"));
+    }
+
+    [Theory]
+    [InlineData("BlockInbound,BlockOutbound", Toggle.Enabled)]
+    [InlineData("BlockInbound,AllowOutbound", Toggle.Disabled)]
+    [InlineData("AllowInbound,AllowOutbound", Toggle.Disabled)]
+    // A bare "Block" describes the inbound half only and must NOT classify outbound.
+    [InlineData("Block", Toggle.Unknown)]
+    [InlineData("", Toggle.Unknown)]
+    [InlineData(null, Toggle.Unknown)]
+    public void ParseDefaultOutbound_Classifies(string? input, Toggle expected) =>
+        Assert.Equal(expected, ParseDefaultOutbound(input));
 }

@@ -124,6 +124,14 @@ public static class FirewallAnalyzer
 
         /// <summary>Default inbound policy of the current profile.</summary>
         public Toggle DefaultInboundBlock { get; set; } = Toggle.Unknown;
+        /// <summary>
+        /// Default OUTBOUND policy of the current profile. Windows ships with outbound
+        /// set to Allow, so <see cref="Toggle.Disabled"/> (Allow) is the common, low-severity
+        /// default rather than a misconfiguration; <see cref="Toggle.Enabled"/> (Block) is a
+        /// hardened, defense-in-depth posture that also contains malware beaconing/exfiltration.
+        /// Unknown when the policy could not be read.
+        /// </summary>
+        public Toggle DefaultOutboundBlock { get; set; } = Toggle.Unknown;
 
         /// <summary>
         /// Name of the profile the wide-open inbound rules are evaluated against
@@ -152,6 +160,8 @@ public static class FirewallAnalyzer
         findings.AddRange(CheckWideOpenInboundRules(state));
         var def = CheckInboundDefault(state);
         if (def != null) findings.Add(def);
+        var outDef = CheckOutboundDefault(state);
+        if (outDef != null) findings.Add(outDef);
         return findings;
     }
 
@@ -366,6 +376,52 @@ public static class FirewallAnalyzer
         return null;
     }
 
+    // -- Default outbound policy --------------------------------------------------
+
+    /// <summary>
+    /// Classifies the current profile's default OUTBOUND policy. Unlike inbound (where
+    /// Allow-by-default is Critical), Windows ships every profile with outbound = Allow,
+    /// so that is the expected baseline and is reported only as an informational hardening
+    /// opportunity - blocking outbound by default is a defense-in-depth control (CIS L2 /
+    /// high-security profiles) that contains malware command-and-control beaconing and data
+    /// exfiltration, but it also breaks applications that lack an explicit allow rule, so it
+    /// is a deliberate opt-in rather than a "should always be on" setting. Returns Pass when
+    /// outbound is Block, Info when it is the default Allow, and <c>null</c> when the policy
+    /// could not be read (an unreadable probe never invents a finding).
+    /// </summary>
+    public static Finding? CheckOutboundDefault(FirewallState state)
+    {
+        if (state.DefaultOutboundBlock == Toggle.Enabled)
+        {
+            return Finding.Pass(
+                "Default Outbound Policy: Block",
+                "The default outbound firewall policy is set to Block. This is a hardened, " +
+                "defense-in-depth posture: unsolicited outbound traffic (e.g. malware " +
+                "command-and-control beaconing or data exfiltration) is denied unless an " +
+                "explicit allow rule exists.",
+                Category);
+        }
+
+        if (state.DefaultOutboundBlock == Toggle.Disabled)
+        {
+            return Finding.Info(
+                "Default Outbound Policy: Allow (Windows default)",
+                "The default outbound firewall policy is set to Allow, which is the Windows " +
+                "default - every process may open outbound connections unless a block rule " +
+                "stops it. This is normal and expected on most machines. For high-security " +
+                "environments, switching the default to Block (and allow-listing the outbound " +
+                "traffic each application needs) contains malware C2 beaconing and exfiltration; " +
+                "it is a deliberate opt-in because it will break apps that have no explicit " +
+                "outbound allow rule.",
+                Category,
+                "Optional hardening: set the current profile's default outbound policy to Block " +
+                "AFTER building outbound allow rules for the applications that need network access.",
+                "netsh advfirewall set currentprofile firewallpolicy blockinbound,blockoutbound");
+        }
+
+        return null;
+    }
+
     // ──────────────────────────────────────────────────────────────────────
     // netsh parsing (pure)
     // ──────────────────────────────────────────────────────────────────────
@@ -427,6 +483,25 @@ public static class FirewallAnalyzer
         if (firewallPolicyOutput.Contains("Block", StringComparison.OrdinalIgnoreCase))
             return Toggle.Enabled;
         if (firewallPolicyOutput.Contains("Allow", StringComparison.OrdinalIgnoreCase))
+            return Toggle.Disabled;
+        return Toggle.Unknown;
+    }
+
+    /// <summary>
+    /// Reads the default OUTBOUND policy out of a
+    /// <c>netsh advfirewall show currentprofile firewallpolicy</c> dump. The policy is
+    /// reported as "&lt;inbound&gt;,&lt;outbound&gt;" (e.g. "BlockInbound,AllowOutbound").
+    /// Returns Enabled (blocks) when the outbound half says Block, Disabled when it says
+    /// Allow, Unknown when neither can be found. Only the explicit "*Outbound" tokens are
+    /// matched so a bare "Block"/"Allow" (which describes the inbound half) never leaks into
+    /// the outbound classification.
+    /// </summary>
+    public static Toggle ParseDefaultOutbound(string? firewallPolicyOutput)
+    {
+        if (string.IsNullOrWhiteSpace(firewallPolicyOutput)) return Toggle.Unknown;
+        if (firewallPolicyOutput.Contains("BlockOutbound", StringComparison.OrdinalIgnoreCase))
+            return Toggle.Enabled;
+        if (firewallPolicyOutput.Contains("AllowOutbound", StringComparison.OrdinalIgnoreCase))
             return Toggle.Disabled;
         return Toggle.Unknown;
     }

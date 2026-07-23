@@ -86,7 +86,9 @@ public class SarifExporterTests
         var driver = doc.GetProperty("runs")[0].GetProperty("tool").GetProperty("driver");
 
         Assert.Equal("WinSentinel", driver.GetProperty("name").GetString());
-        Assert.Equal("1.1.0", driver.GetProperty("version").GetString());
+        var expectedVersion = WinSentinel.Core.Services.AssemblyVersionInfo.CoreVersion;
+        Assert.Equal(expectedVersion, driver.GetProperty("version").GetString());
+        Assert.False(string.IsNullOrWhiteSpace(driver.GetProperty("version").GetString()));
         Assert.Contains("WinSentinel", driver.GetProperty("informationUri").GetString()!);
     }
 
@@ -732,5 +734,78 @@ public class SarifExporterTests
             var ruleId = results[i].GetProperty("ruleId").GetString();
             Assert.Equal(ruleId, rules[ruleIndex].GetProperty("id").GetString());
         }
+    }
+    // ──────────── helpUri + partialFingerprints (GitHub Code Scanning) ────────────
+
+    [Fact]
+    public void GenerateSarif_Rule_HasHelpUri()
+    {
+        var report = CreateReport(
+            CreateAuditResult("FirewallAudit", "Firewall",
+                Finding.Critical("Firewall disabled", "The domain firewall is off", "Firewall")));
+
+        var doc = ParseJson(_exporter.GenerateSarif(report));
+        var rule = doc.GetProperty("runs")[0].GetProperty("tool").GetProperty("driver")
+            .GetProperty("rules")[0];
+
+        Assert.True(rule.TryGetProperty("helpUri", out var helpUri));
+        var uri = helpUri.GetString();
+        Assert.False(string.IsNullOrWhiteSpace(uri));
+        Assert.StartsWith("https://github.com/sauravbhattacharya001/WinSentinel", uri);
+        Assert.Contains("#firewall", uri);
+    }
+
+    [Fact]
+    public void GenerateSarif_Result_HasStablePartialFingerprint()
+    {
+        var report = CreateReport(
+            CreateAuditResult("FirewallAudit", "Firewall",
+                Finding.Critical("Firewall disabled", "The domain firewall is off", "Firewall")));
+
+        var doc = ParseJson(_exporter.GenerateSarif(report));
+        var result = doc.GetProperty("runs")[0].GetProperty("results")[0];
+
+        Assert.True(result.TryGetProperty("partialFingerprints", out var fps));
+        Assert.True(fps.TryGetProperty("winSentinelFindingId/v1", out var fp));
+        Assert.Matches("^[0-9a-f]{16}$", fp.GetString());
+    }
+
+    [Fact]
+    public void GenerateSarif_SameFinding_ProducesSameFingerprintAcrossRuns()
+    {
+        Finding MakeFinding() => Finding.Critical("Firewall disabled", "off", "Firewall");
+        var reportA = CreateReport(CreateAuditResult("FirewallAudit", "Firewall", MakeFinding()));
+        var reportB = CreateReport(CreateAuditResult("FirewallAudit", "Firewall", MakeFinding()));
+
+        var fpA = ParseJson(_exporter.GenerateSarif(reportA)).GetProperty("runs")[0]
+            .GetProperty("results")[0].GetProperty("partialFingerprints")
+            .GetProperty("winSentinelFindingId/v1").GetString();
+        var fpB = ParseJson(_exporter.GenerateSarif(reportB)).GetProperty("runs")[0]
+            .GetProperty("results")[0].GetProperty("partialFingerprints")
+            .GetProperty("winSentinelFindingId/v1").GetString();
+
+        Assert.Equal(fpA, fpB);
+    }
+
+    [Fact]
+    public void BuildFindingFingerprint_DiffersByModule()
+    {
+        var ruleId = SarifExporter.GenerateRuleId("Firewall", "Firewall disabled");
+        var a = SarifExporter.BuildFindingFingerprint(ruleId, "ModuleA", "Firewall disabled");
+        var b = SarifExporter.BuildFindingFingerprint(ruleId, "ModuleB", "Firewall disabled");
+        Assert.NotEqual(a, b);
+    }
+
+    [Fact]
+    public void GenerateSarif_ToolVersion_MatchesCoreAssembly()
+    {
+        var report = CreateReport();
+        var doc = ParseJson(_exporter.GenerateSarif(report));
+        var driver = doc.GetProperty("runs")[0].GetProperty("tool").GetProperty("driver");
+
+        var expected = AssemblyVersionInfo.CoreVersion;
+        Assert.Equal(expected, driver.GetProperty("version").GetString());
+        Assert.Equal(expected, driver.GetProperty("semanticVersion").GetString());
+        Assert.False(string.IsNullOrWhiteSpace(expected));
     }
 }

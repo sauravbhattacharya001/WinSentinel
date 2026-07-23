@@ -17,8 +17,16 @@ public class SarifExporter
     private const string SarifVersion = "2.1.0";
     private const string SchemaUri = "https://docs.oasis-open.org/sarif/sarif/v2.1.0/os/schemas/sarif-schema-2.1.0.json";
     private const string ToolName = "WinSentinel";
-    private const string ToolVersion = "1.1.0";
     private const string ToolUri = "https://github.com/sauravbhattacharya001/WinSentinel";
+
+    /// <summary>
+    /// Reported tool version. Resolved from the running Core assembly's
+    /// informational version (MinVer/git-tag driven) instead of a hard-coded
+    /// literal, so it always tracks the shipped release. GitHub Code Scanning
+    /// surfaces this as the tool version, so a stale value misleads consumers
+    /// (see issue #192 for the AssemblyVersion vs InformationalVersion trap).
+    /// </summary>
+    private static readonly string ToolVersion = AssemblyVersionInfo.CoreVersion;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -199,6 +207,9 @@ public class SarifExporter
             Name = finding.Title,
             ShortDescription = new SarifMessage { Text = finding.Title },
             FullDescription = new SarifMessage { Text = finding.Description },
+            // GitHub Code Scanning renders a "View rule" link from helpUri. Point it
+            // at the docs anchor for the finding's category so alerts are actionable.
+            HelpUri = BuildHelpUri(category),
             DefaultConfiguration = new SarifRuleConfiguration
             {
                 Level = MapSeverityToLevel(finding.Severity),
@@ -221,6 +232,19 @@ public class SarifExporter
         }
 
         return rule;
+    }
+
+    /// <summary>
+    /// Build a documentation URL for a finding category. Returns a stable anchor
+    /// on the OSS docs page so GitHub alerts link somewhere useful. The category
+    /// is normalized to the same slug form used by the docs' module anchors.
+    /// </summary>
+    public static string BuildHelpUri(string category)
+    {
+        var slug = NormalizeForId(category);
+        return string.IsNullOrEmpty(slug)
+            ? $"{ToolUri}#readme"
+            : $"{ToolUri}/blob/main/docs/modules.md#{slug}";
     }
 
     private SarifResult CreateResult(string ruleId, int ruleIndex, Finding finding, AuditResult auditResult)
@@ -248,6 +272,14 @@ public class SarifExporter
                         }
                     }
                 }
+            },
+            // partialFingerprints let GitHub Code Scanning track the "same" alert
+            // across runs even as order shifts, instead of churning open/closed
+            // alerts. WinSentinel findings aren't file/line anchored, so we derive
+            // a stable key from ruleId + module + normalized title.
+            PartialFingerprints = new Dictionary<string, string>
+            {
+                ["winSentinelFindingId/v1"] = BuildFindingFingerprint(ruleId, auditResult.ModuleName, finding.Title)
             },
             Properties = new Dictionary<string, object>
             {
@@ -277,6 +309,21 @@ public class SarifExporter
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Produce a stable, order-independent fingerprint for a finding so GitHub
+    /// Code Scanning can correlate the same alert across runs. Combines the rule
+    /// id, the producing module, and the normalized title; the module is included
+    /// so the same generic finding raised by two different modules stays distinct.
+    /// </summary>
+    public static string BuildFindingFingerprint(string ruleId, string moduleName, string title)
+    {
+        var raw = $"{ruleId}|{moduleName}|{NormalizeForId(title)}";
+        var bytes = System.Text.Encoding.UTF8.GetBytes(raw);
+        var hash = System.Security.Cryptography.SHA256.HashData(bytes);
+        // 16 hex chars (64 bits) is ample for dedup and keeps the SARIF compact.
+        return Convert.ToHexString(hash, 0, 8).ToLowerInvariant();
     }
 
     private List<SarifNotification>? GetNotifications(SecurityReport report)
@@ -405,6 +452,9 @@ public class SarifExporter
         /// <summary>Remediation guidance in text and/or markdown.</summary>
         public SarifMessage? Help { get; set; }
 
+        /// <summary>URI to documentation for this rule (GitHub "View rule" link).</summary>
+        public string? HelpUri { get; set; }
+
         /// <summary>Default severity level and enabled state.</summary>
         public SarifRuleConfiguration? DefaultConfiguration { get; set; }
 
@@ -443,6 +493,12 @@ public class SarifExporter
 
         /// <summary>Where in the system this finding was detected.</summary>
         public List<SarifLocation>? Locations { get; set; }
+
+        /// <summary>
+        /// Stable key/value fingerprints GitHub Code Scanning uses to correlate
+        /// the same alert across runs (dedup / open-close tracking).
+        /// </summary>
+        public Dictionary<string, string>? PartialFingerprints { get; set; }
 
         /// <summary>Suggested fixes for this finding.</summary>
         public List<SarifFix>? Fixes { get; set; }
@@ -554,4 +610,3 @@ public class SarifExporter
         public SarifMessage? Description { get; set; }
     }
 }
-

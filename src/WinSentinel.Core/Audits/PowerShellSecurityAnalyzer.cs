@@ -150,6 +150,15 @@ public static class PowerShellSecurityAnalyzer
 
         // Logging
         public bool ScriptBlockLoggingEnabled { get; set; }
+
+        // Script block INVOCATION logging (EnableScriptBlockInvocationLogging under
+        // the same ScriptBlockLogging policy key). When enabled it emits a start/stop
+        // event (EID 4105/4106) for every script block execution, so investigators can
+        // see not just the block TEXT (captured by base script block logging) but the
+        // timing and count of each invocation. It is verbose, so Microsoft/CIS treat it
+        // as an enhanced-visibility recommendation rather than a hard requirement; we
+        // grade its absence as Info and only when base script block logging is on.
+        public bool ScriptBlockInvocationLoggingEnabled { get; set; }
         public bool ModuleLoggingEnabled { get; set; }
         public bool TranscriptionEnabled { get; set; }
         public string? TranscriptionOutputDir { get; set; }
@@ -307,6 +316,7 @@ public static class PowerShellSecurityAnalyzer
         var findings = new List<Finding>();
         findings.AddRange(CheckExecutionPolicy(state));
         findings.Add(CheckScriptBlockLogging(state));
+        findings.Add(CheckScriptBlockInvocationLogging(state));
         findings.Add(CheckModuleLogging(state));
         findings.Add(CheckTranscription(state));
         findings.Add(CheckLanguageMode(state));
@@ -467,6 +477,52 @@ public static class PowerShellSecurityAnalyzer
     }
 
     // ── Module logging ─────────────────────────────────────────────────────
+
+    // Script block INVOCATION logging (EnableScriptBlockInvocationLogging). Records a
+    // start/stop event per script block execution on top of the block-text capture
+    // that base script block logging provides. It is an enhanced-visibility control
+    // (verbose), so its absence is graded Info, and only when base script block
+    // logging is actually enabled - recommending invocation logging on a machine that
+    // is not even capturing block text would be noise (the base-logging finding covers
+    // that bigger gap first).
+    public static Finding CheckScriptBlockInvocationLogging(PowerShellState state)
+    {
+        if (!state.ScriptBlockLoggingEnabled)
+        {
+            // Base script block logging is off (already flagged by
+            // CheckScriptBlockLogging); invocation logging is moot until that is on.
+            return Finding.Info(
+                "Script Block Invocation Logging Not Applicable",
+                "Script block invocation logging was not evaluated because base script " +
+                "block logging is not enabled. Enable base script block logging first " +
+                "(see the related finding); invocation logging is an add-on to it.",
+                Category);
+        }
+
+        if (!state.ScriptBlockInvocationLoggingEnabled)
+        {
+            return Finding.Info(
+                "Script Block Invocation Logging Disabled",
+                "Base script block logging is enabled, but script block INVOCATION " +
+                "logging (EnableScriptBlockInvocationLogging) is not. Invocation logging " +
+                "emits a start/stop event (EID 4105/4106) for every script block that " +
+                "runs, so investigators can see the timing and count of each execution, " +
+                "not just the block text. It is verbose, so it is an enhanced-visibility " +
+                "recommendation rather than a hard requirement.",
+                Category,
+                "Enable invocation logging via Group Policy or registry: " +
+                @"HKLM\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging\EnableScriptBlockInvocationLogging = 1",
+                @"New-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\PowerShell\ScriptBlockLogging' " +
+                "-Name EnableScriptBlockInvocationLogging -Value 1 -PropertyType DWord -Force");
+        }
+
+        return Finding.Pass(
+            "Script Block Invocation Logging Enabled",
+            "Script block invocation logging is enabled, emitting per-execution " +
+            "start/stop events (EID 4105/4106) on top of block-text capture for " +
+            "complete forensic visibility of PowerShell execution.",
+            Category);
+    }
 
     public static Finding CheckModuleLogging(PowerShellState state)
     {

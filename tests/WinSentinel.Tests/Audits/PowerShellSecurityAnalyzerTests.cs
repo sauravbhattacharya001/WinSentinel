@@ -21,6 +21,7 @@ public class PowerShellSecurityAnalyzerTests
         EffectivePolicy = "RemoteSigned",
         LocalMachinePolicy = "RemoteSigned",
         ScriptBlockLoggingEnabled = true,
+        ScriptBlockInvocationLoggingEnabled = true,
         ModuleLoggingEnabled = true,
         TranscriptionEnabled = true,
         TranscriptionInvocationHeaderEnabled = true,
@@ -1155,5 +1156,52 @@ public class PowerShellSecurityAnalyzerTests
         var findings = Analyze(new PowerShellState());
         Assert.Contains(findings, f =>
             f.Category == Category && f.Title.Contains("Protected Event Logging"));
+    }
+
+    // ── Script Block Invocation Logging ───────────────────────────────
+
+    [Fact]
+    public void CheckScriptBlockInvocationLogging_BaseOff_NotApplicable_Info()
+    {
+        var f = CheckScriptBlockInvocationLogging(new PowerShellState
+        {
+            ScriptBlockLoggingEnabled = false,
+            ScriptBlockInvocationLoggingEnabled = false
+        });
+        Assert.Equal(Severity.Info, f.Severity);
+        Assert.Contains("Not Applicable", f.Title);
+    }
+
+    [Fact]
+    public void CheckScriptBlockInvocationLogging_BaseOnInvocationOff_Info_WithFix()
+    {
+        var f = CheckScriptBlockInvocationLogging(new PowerShellState
+        {
+            ScriptBlockLoggingEnabled = true,
+            ScriptBlockInvocationLoggingEnabled = false
+        });
+        Assert.Equal(Severity.Info, f.Severity);
+        Assert.Contains("Invocation Logging Disabled", f.Title);
+        Assert.Contains("EnableScriptBlockInvocationLogging", f.Remediation);
+    }
+
+    [Fact]
+    public void CheckScriptBlockInvocationLogging_Enabled_Pass()
+    {
+        var f = CheckScriptBlockInvocationLogging(new PowerShellState
+        {
+            ScriptBlockLoggingEnabled = true,
+            ScriptBlockInvocationLoggingEnabled = true
+        });
+        Assert.Equal(Severity.Pass, f.Severity);
+        Assert.Contains("4105", f.Description);
+    }
+
+    [Fact]
+    public void Analyze_IncludesScriptBlockInvocationLoggingFinding()
+    {
+        var findings = Analyze(new PowerShellState());
+        Assert.Contains(findings, f =>
+            f.Category == Category && f.Title.Contains("Invocation Logging"));
     }
 }

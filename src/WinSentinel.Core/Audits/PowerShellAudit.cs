@@ -149,6 +149,15 @@ public class PowerShellAudit : IAuditModule
                 // Distinguish an explicit 0 (someone turned it OFF = tamper signal)
                 // from an absent value (never configured = hygiene gap).
                 state.ScriptBlockLoggingExplicitlyDisabled = val is int d && d == 0;
+
+                // Script block INVOCATION logging is a separate DWORD under the same
+                // key (EnableScriptBlockInvocationLogging). It records a start/stop
+                // event for every script block that runs; without it, only the block
+                // text is logged, not the fact/timing of each invocation - which
+                // weakens forensic reconstruction of "what ran when". Only meaningful
+                // when base script block logging is on.
+                var invVal = key.GetValue("EnableScriptBlockInvocationLogging");
+                state.ScriptBlockInvocationLoggingEnabled = invVal is int iv && iv == 1;
             }
         }
         catch { /* Access denied */ }

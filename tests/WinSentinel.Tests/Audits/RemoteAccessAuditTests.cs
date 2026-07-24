@@ -176,6 +176,58 @@ public class RemoteAccessAuditTests
     }
 
     [Fact]
+    public void SshTcpForwardingEnabled_WarningFinding()
+    {
+        var state = MakeSecureState();
+        state.SshServerInstalled = true;
+        state.SshServerRunning = true;
+        state.SshTcpForwardingEnabled = true;
+        state.SshGatewayPortsEnabled = false;
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.Contains(result.Findings, f => f.Title.Contains("TCP Port Forwarding Enabled") && f.Severity == Severity.Warning);
+    }
+
+    [Fact]
+    public void SshTcpForwardingDisabled_PassFinding()
+    {
+        var state = MakeSecureState();
+        state.SshServerInstalled = true;
+        state.SshServerRunning = true;
+        state.SshTcpForwardingEnabled = false;
+        state.SshGatewayPortsEnabled = false;
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.Contains(result.Findings, f => f.Title.Contains("TCP Port Forwarding Disabled") && f.Severity == Severity.Pass);
+    }
+
+    [Fact]
+    public void SshGatewayPortsEnabled_WarningFinding()
+    {
+        var state = MakeSecureState();
+        state.SshServerInstalled = true;
+        state.SshServerRunning = true;
+        state.SshTcpForwardingEnabled = false;
+        state.SshGatewayPortsEnabled = true;
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.Contains(result.Findings, f => f.Title.Contains("GatewayPorts Enabled") && f.Severity == Severity.Warning);
+    }
+
+    [Fact]
+    public void SshGatewayPortsDisabled_NoGatewayFinding()
+    {
+        var state = MakeSecureState();
+        state.SshServerInstalled = true;
+        state.SshServerRunning = true;
+        state.SshTcpForwardingEnabled = false;
+        state.SshGatewayPortsEnabled = false;
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.DoesNotContain(result.Findings, f => f.Title.Contains("GatewayPorts"));
+    }
+
+    [Fact]
     public void RdpWeakEncryption_WarningFinding()
     {
         var state = MakeSecureState();

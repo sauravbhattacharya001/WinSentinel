@@ -203,6 +203,16 @@ public class RemoteAccessAudit : IAuditModule
         /// <summary>Whether SSH allows root/admin login.</summary>
         public bool SshRootLoginEnabled { get; set; }
 
+        /// <summary>Whether SSH TCP port forwarding is enabled (AllowTcpForwarding not set to "no").
+        /// Port forwarding lets an authenticated client tunnel arbitrary TCP connections through the
+        /// host - a common lateral-movement pivot and data-exfiltration channel.</summary>
+        public bool SshTcpForwardingEnabled { get; set; } = true;
+
+        /// <summary>Whether SSH GatewayPorts is enabled (GatewayPorts set to "yes"/"clientspecified").
+        /// GatewayPorts exposes forwarded ports on all host interfaces, turning the machine into an
+        /// open relay reachable from the network rather than loopback-only.</summary>
+        public bool SshGatewayPortsEnabled { get; set; }
+
         /// <summary>Running third-party remote access tool process names.</summary>
         public List<string> RunningRemoteTools { get; set; } = new();
 
@@ -440,6 +450,20 @@ public class RemoteAccessAudit : IAuditModule
                 var portMatch = System.Text.RegularExpressions.Regex.Match(sshConfig, @"^\s*Port\s+(\d+)", System.Text.RegularExpressions.RegexOptions.Multiline);
                 if (portMatch.Success && int.TryParse(portMatch.Groups[1].Value, out var sshPort))
                     state.SshPort = sshPort;
+                // AllowTcpForwarding defaults to "yes" when unset; only explicit "no"/"false" disables the tunneling pivot.
+                var fwdMatch = System.Text.RegularExpressions.Regex.Match(sshConfig, @"^\s*AllowTcpForwarding\s+(\S+)", System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                if (fwdMatch.Success)
+                {
+                    var fv = fwdMatch.Groups[1].Value.Trim().ToLowerInvariant();
+                    state.SshTcpForwardingEnabled = !(fv == "no" || fv == "false");
+                }
+                // GatewayPorts defaults to "no"; only explicit "yes"/"clientspecified" exposes forwards on all interfaces.
+                var gwMatch = System.Text.RegularExpressions.Regex.Match(sshConfig, @"^\s*GatewayPorts\s+(\S+)", System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                if (gwMatch.Success)
+                {
+                    var gv = gwMatch.Groups[1].Value.Trim().ToLowerInvariant();
+                    state.SshGatewayPortsEnabled = (gv == "yes" || gv == "true" || gv == "clientspecified");
+                }
             }
         }
         catch { /* Non-fatal */ }
@@ -926,6 +950,32 @@ public class RemoteAccessAudit : IAuditModule
                 "SSH is on the default port 22. Changing it reduces automated scanning noise.",
                 cat,
                 "Change Port in %ProgramData%\\ssh\\sshd_config"));
+        }
+
+        if (state.SshTcpForwardingEnabled)
+        {
+            result.Findings.Add(Finding.Warning("SSH: TCP Port Forwarding Enabled",
+                "SSH TCP port forwarding is enabled (AllowTcpForwarding is not set to 'no'). An authenticated " +
+                "user - or an attacker with stolen credentials/keys - can tunnel arbitrary TCP connections " +
+                "through this host, using it as a lateral-movement pivot into the internal network and as a " +
+                "data-exfiltration channel that bypasses egress controls.",
+                cat,
+                "If forwarding is not required, add 'AllowTcpForwarding no' to %ProgramData%\\ssh\\sshd_config and restart sshd"));
+        }
+        else
+        {
+            result.Findings.Add(Finding.Pass("SSH: TCP Port Forwarding Disabled",
+                "SSH port forwarding is disabled, preventing the host from being used as a tunneling pivot.", cat));
+        }
+
+        if (state.SshGatewayPortsEnabled)
+        {
+            result.Findings.Add(Finding.Warning("SSH: GatewayPorts Enabled",
+                "SSH GatewayPorts is enabled, so remote-forwarded ports bind to all host interfaces instead of " +
+                "loopback only. This turns the machine into an open relay whose forwarded services are reachable " +
+                "from anywhere on the network, widening exposure well beyond the SSH session itself.",
+                cat,
+                "Set 'GatewayPorts no' in %ProgramData%\\ssh\\sshd_config (the secure default) and restart sshd"));
         }
     }
 

@@ -1204,4 +1204,63 @@ public class PowerShellSecurityAnalyzerTests
         Assert.Contains(findings, f =>
             f.Category == Category && f.Title.Contains("Invocation Logging"));
     }
+
+    // ------------------------------------------------------------------
+    // CheckLockdownPolicyEnvVar - __PSLockdownPolicy CLM bypass
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void CheckLockdownPolicyEnvVar_NotSet_Passes()
+    {
+        var f = CheckLockdownPolicyEnvVar(new PowerShellState());
+        Assert.Equal(Severity.Pass, f.Severity);
+        Assert.Equal("PowerShell", f.Category);
+    }
+
+    [Fact]
+    public void CheckLockdownPolicyEnvVar_Persisted_IsCriticalWithRemediation()
+    {
+        var state = new PowerShellState
+        {
+            PsLockdownPolicyEnvVarSet = true,
+            PsLockdownPolicyEnvVarScope = "Machine",
+            PsLockdownPolicyEnvVarValue = "8"
+        };
+        var f = CheckLockdownPolicyEnvVar(state);
+        Assert.Equal(Severity.Critical, f.Severity);
+        Assert.False(string.IsNullOrWhiteSpace(f.Remediation));
+        Assert.Contains("Machine", f.Description);
+        Assert.Contains("8", f.Description);
+    }
+
+    [Fact]
+    public void CheckLockdownPolicyEnvVar_SetWithoutScope_StillCritical()
+    {
+        var state = new PowerShellState { PsLockdownPolicyEnvVarSet = true };
+        var f = CheckLockdownPolicyEnvVar(state);
+        Assert.Equal(Severity.Critical, f.Severity);
+        Assert.Contains("environment", f.Description);
+    }
+
+    [Fact]
+    public void Analyze_LockdownPolicyEnvVarSet_SurfacesCriticalFinding()
+    {
+        var state = SecureState();
+        state.PsLockdownPolicyEnvVarSet = true;
+        state.PsLockdownPolicyEnvVarScope = "User, Machine";
+        state.PsLockdownPolicyEnvVarValue = "8";
+        var findings = Analyze(state);
+        Assert.Contains(findings, f =>
+            f.Severity == Severity.Critical &&
+            f.Title.Contains("__PSLockdownPolicy"));
+    }
+
+    [Fact]
+    public void Analyze_SecureState_LockdownPolicyEnvVarPasses()
+    {
+        var findings = Analyze(SecureState());
+        Assert.Contains(findings, f =>
+            f.Severity == Severity.Pass &&
+            f.Title.Contains("__PSLockdownPolicy"));
+    }
 }

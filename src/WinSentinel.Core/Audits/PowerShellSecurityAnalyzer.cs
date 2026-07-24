@@ -274,6 +274,28 @@ public static class PowerShellSecurityAnalyzer
         // EnableProtectedEventLogging = 1 (+ an EncryptionCertificate). Defaults
         // false (not configured) - a defense-in-depth gap once logging is on.
         public bool ProtectedEventLoggingEnabled { get; set; }
+
+        // __PSLockdownPolicy environment variable. This process-scoped variable is
+        // read by the Windows Lockdown Policy (WLDP) engine to decide PowerShell's
+        // language mode BEFORE any AppLocker/WDAC evaluation. A value of 8
+        // (SystemEnforcementMode.None) forces FullLanguage, letting an attacker
+        // escape a Constrained Language Mode deployment enforced by WDAC/AppLocker
+        // - a documented CLM bypass (MITRE T1562.001 - Impair Defenses: Disable or
+        // Modify Tools). It is meant to be transient/process-scoped; a value
+        // persisted at the USER or MACHINE environment scope is a strong tamper
+        // signal because it survives reboots and affects every new PowerShell
+        // session. Collector sets these; both default to the safe "not set" state.
+        public bool PsLockdownPolicyEnvVarSet { get; set; }
+
+        // The persisted scope the __PSLockdownPolicy variable was found in ("User",
+        // "Machine", or "User, Machine" when both). Null/empty when it is not
+        // persisted in the environment (the safe default). Purely for finding text.
+        public string? PsLockdownPolicyEnvVarScope { get; set; }
+
+        // The raw value the persisted __PSLockdownPolicy variable was set to (e.g.
+        // "8"). Null when not set. Surfaced in the finding so the reader can see
+        // exactly what the machine was configured with.
+        public string? PsLockdownPolicyEnvVarValue { get; set; }
     }
 
     /// <summary>
@@ -320,6 +342,7 @@ public static class PowerShellSecurityAnalyzer
         findings.Add(CheckModuleLogging(state));
         findings.Add(CheckTranscription(state));
         findings.Add(CheckLanguageMode(state));
+        findings.Add(CheckLockdownPolicyEnvVar(state));
         findings.Add(CheckV2Engine(state));
         findings.Add(CheckAmsi(state));
         findings.AddRange(CheckRemoting(state));
@@ -703,6 +726,53 @@ public static class PowerShellSecurityAnalyzer
             $"Language Mode: {state.LanguageMode}",
             $"PowerShell language mode is set to '{state.LanguageMode}'.",
             Category);
+    }
+
+    // ── __PSLockdownPolicy CLM bypass ──────────────────────────────────────
+
+    /// <summary>
+    /// Evaluates the __PSLockdownPolicy environment-variable CLM bypass. When the
+    /// variable is persisted at the User or Machine environment scope it forces
+    /// PowerShell's language mode ahead of any WDAC/AppLocker enforcement (a value
+    /// of 8 = SystemEnforcementMode.None yields FullLanguage), letting an attacker
+    /// escape a Constrained Language Mode deployment (MITRE T1562.001). A persisted
+    /// value is a tamper signal because it survives reboots and affects every new
+    /// session; absence is the safe default and passes.
+    /// </summary>
+    public static Finding CheckLockdownPolicyEnvVar(PowerShellState state)
+    {
+        if (!state.PsLockdownPolicyEnvVarSet)
+        {
+            return Finding.Pass(
+                "__PSLockdownPolicy Not Set",
+                "The __PSLockdownPolicy environment variable is not persisted at the " +
+                "User or Machine scope. This variable, when set, overrides PowerShell's " +
+                "language mode ahead of WDAC/AppLocker enforcement, so its absence means " +
+                "no environment-level Constrained Language Mode bypass is configured.",
+                Category);
+        }
+
+        var scope = string.IsNullOrEmpty(state.PsLockdownPolicyEnvVarScope)
+            ? "the environment"
+            : state.PsLockdownPolicyEnvVarScope + " scope";
+        var valueNote = string.IsNullOrEmpty(state.PsLockdownPolicyEnvVarValue)
+            ? string.Empty
+            : $" (value: {state.PsLockdownPolicyEnvVarValue})";
+
+        return Finding.Critical(
+            "__PSLockdownPolicy Environment Variable Set",
+            $"The __PSLockdownPolicy environment variable is persisted at {scope}{valueNote}. " +
+            "PowerShell reads this variable to decide its language mode BEFORE WDAC/AppLocker " +
+            "is consulted, so a value of 8 (SystemEnforcementMode.None) forces FullLanguage and " +
+            "escapes any Constrained Language Mode enforced by application-control policy. Because " +
+            "it is persisted (not merely process-scoped) it survives reboots and applies to every " +
+            "new PowerShell session - a strong Constrained Language Mode tamper/bypass signal " +
+            "(MITRE T1562.001 - Impair Defenses: Disable or Modify Tools).",
+            Category,
+            "Remove the persisted __PSLockdownPolicy variable from the User and Machine " +
+            "environment; it should never be set outside a transient, per-process context.",
+            "[Environment]::SetEnvironmentVariable('__PSLockdownPolicy', $null, 'User'); " +
+            "[Environment]::SetEnvironmentVariable('__PSLockdownPolicy', $null, 'Machine')");
     }
 
     // ── PowerShell v2 engine ───────────────────────────────────────────────

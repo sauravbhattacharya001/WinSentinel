@@ -85,6 +85,7 @@ public class PowerShellAudit : IAuditModule
         await CollectLanguageMode(state, ct);
         CollectV2EngineState(state);
         CollectAmsiState(state);
+        CollectLockdownPolicyEnvVar(state);
         await CollectRemotingState(state, ct);
         CollectInstalledVersions(state);
         CollectProfilesState(state);
@@ -317,6 +318,45 @@ public class PowerShellAudit : IAuditModule
                 disabledHives.Add(label);
         }
         catch { /* Access denied — treat as not-disabled to avoid false alarms */ }
+    }
+
+    private void CollectLockdownPolicyEnvVar(PowerShellState state)
+    {
+        // __PSLockdownPolicy is consulted by the WLDP engine to set PowerShell's
+        // language mode ahead of WDAC/AppLocker. A PROCESS-scoped value is normal
+        // and transient, so we only flag it when it is PERSISTED at the User or
+        // Machine environment scope (survives reboots, affects every new session).
+        var persistedHives = new List<string>();
+        string? foundValue = null;
+        CheckLockdownPolicyHive(EnvironmentVariableTarget.Machine, "Machine", persistedHives, ref foundValue);
+        CheckLockdownPolicyHive(EnvironmentVariableTarget.User, "User", persistedHives, ref foundValue);
+        if (persistedHives.Count > 0)
+        {
+            state.PsLockdownPolicyEnvVarSet = true;
+            state.PsLockdownPolicyEnvVarScope = string.Join(", ", persistedHives);
+            state.PsLockdownPolicyEnvVarValue = foundValue;
+        }
+    }
+
+    /// <summary>
+    /// Reads the persisted __PSLockdownPolicy environment variable for the given
+    /// target (User/Machine) and, when present and non-empty, records the scope
+    /// label and value. An absent variable (the safe default) is a no-op so a
+    /// machine that never set it does not false-alarm.
+    /// </summary>
+    private static void CheckLockdownPolicyHive(
+        EnvironmentVariableTarget target, string label, List<string> persistedHives, ref string? foundValue)
+    {
+        try
+        {
+            var val = Environment.GetEnvironmentVariable("__PSLockdownPolicy", target);
+            if (!string.IsNullOrWhiteSpace(val))
+            {
+                persistedHives.Add(label);
+                foundValue ??= val.Trim();
+            }
+        }
+        catch { /* Access denied — treat as not-set to avoid false alarms */ }
     }
 
     private async Task CollectRemotingState(PowerShellState state, CancellationToken ct)

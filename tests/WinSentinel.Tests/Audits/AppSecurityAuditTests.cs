@@ -422,4 +422,54 @@ public class AppSecurityAuditTests
     }
 
     #endregion
+
+    #region Remote-Access / RMM Tool Detection
+
+    [Theory]
+    [InlineData("AnyDesk", "AnyDesk")]
+    [InlineData("TeamViewer", "TeamViewer")]
+    [InlineData("TeamViewer 15", "TeamViewer")]
+    [InlineData("ScreenConnect Client (abc123)", "ConnectWise ScreenConnect")]
+    [InlineData("ConnectWise Control", "ConnectWise ScreenConnect")]
+    [InlineData("RustDesk", "RustDesk")]
+    [InlineData("Atera Agent", "Atera")]
+    [InlineData("Splashtop Streamer", "Splashtop")]
+    [InlineData("UltraViewer_setup", "UltraViewer")]
+    [InlineData("Chrome Remote Desktop Host", "Chrome Remote Desktop")]
+    [InlineData("Zoho Assist Unattended Agent", "Zoho Assist")]
+    public void MatchRemoteAccessTool_KnownTool_ReturnsProduct(string displayName, string expected)
+    {
+        Assert.Equal(expected, AppSecurityAudit.MatchRemoteAccessTool(displayName));
+    }
+
+    [Theory]
+    [InlineData("Google Chrome")]
+    [InlineData("7-Zip 24.09")]
+    [InlineData("Microsoft Edge")]
+    [InlineData("Notepad++")]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void MatchRemoteAccessTool_NonRemoteOrEmpty_ReturnsNull(string? displayName)
+    {
+        Assert.Null(AppSecurityAudit.MatchRemoteAccessTool(displayName));
+    }
+
+    [Fact]
+    public void MatchRemoteAccessTool_IsCaseInsensitive()
+    {
+        Assert.Equal("AnyDesk", AppSecurityAudit.MatchRemoteAccessTool("ANYDESK MSI"));
+        Assert.Equal("TeamViewer", AppSecurityAudit.MatchRemoteAccessTool("teamviewer host"));
+    }
+
+    [Fact]
+    public async Task RunAuditAsync_EmitsRemoteAccessFinding()
+    {
+        var result = await _audit.RunAuditAsync();
+        Assert.Contains(result.Findings, f =>
+            f.Title.Contains("Remote-Access", StringComparison.OrdinalIgnoreCase) ||
+            f.Title.Contains("RMM", StringComparison.OrdinalIgnoreCase));
+    }
+
+    #endregion
 }

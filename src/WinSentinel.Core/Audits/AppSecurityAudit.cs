@@ -17,7 +17,8 @@ public class AppSecurityAudit : IAuditModule
     public string Description =>
         "Detects outdated, end-of-life, and insecure software by scanning installed programs " +
         "against known-safe minimum versions, flagging EOL products, suspicious installs, " +
-        "duplicate x86/x64 installations, and MSIX/AppX sideloading & developer-mode posture.";
+        "duplicate x86/x64 installations, MSIX/AppX sideloading & developer-mode posture, " +
+        "and installed remote-access/RMM tools (T1219 foothold surface).";
 
     /// <summary>Threshold for total installed programs — above this suggests potential bloatware.</summary>
     private const int BloatwareThreshold = 120;
@@ -165,6 +166,7 @@ public class AppSecurityAudit : IAuditModule
             CheckVisualCppRedistributables(result, programs);
             CheckStoreAutoUpdate(result);
             CheckSideloadingPolicy(result);
+            CheckRemoteAccessTools(result, programs);
             CheckTotalProgramsSummary(result, programs);
         }
         catch (Exception ex)
@@ -731,6 +733,111 @@ public class AppSecurityAudit : IAuditModule
                 "Windows Store app auto-update is not disabled by policy. Store apps should update automatically.",
                 "Applications"));
         }
+    }
+
+    #endregion
+
+    #region Remote Access / RMM Tool Detection
+
+    /// <summary>
+    /// Known remote-access / remote-monitoring-and-management (RMM) tools. These are legitimate
+    /// products, but they are among the most heavily abused footholds in real intrusions: an
+    /// attacker who drops a signed copy of AnyDesk / TeamViewer / ScreenConnect gets a durable,
+    /// often AV-trusted, interactive backdoor and remote file transfer without writing any custom
+    /// malware (MITRE ATT&amp;CK T1219 - Remote Access Software). Ransomware crews routinely install
+    /// a second RMM tool alongside the org's sanctioned one precisely because it blends in. The
+    /// audit's job is not to say "this is malware" - it is to surface every remote-access product
+    /// on the box so the operator can confirm each one is sanctioned. Matched case-insensitively
+    /// as a substring of the installed DisplayName.
+    /// </summary>
+    private static readonly (string Product, string[] NameNeedles)[] RemoteAccessTools = new[]
+    {
+        ("AnyDesk",                 new[] { "anydesk" }),
+        ("TeamViewer",              new[] { "teamviewer" }),
+        ("ConnectWise ScreenConnect", new[] { "screenconnect", "connectwise control" }),
+        ("RustDesk",                new[] { "rustdesk" }),
+        ("Atera",                   new[] { "atera" }),
+        ("Splashtop",               new[] { "splashtop" }),
+        ("LogMeIn",                 new[] { "logmein" }),
+        ("GoTo/GoToMyPC",           new[] { "gotomypc", "goto resolve", "goto opener" }),
+        ("Remote Utilities",        new[] { "remote utilities" }),
+        ("Ammyy Admin",             new[] { "ammyy" }),
+        ("UltraViewer",             new[] { "ultraviewer" }),
+        ("NoMachine",               new[] { "nomachine" }),
+        ("Chrome Remote Desktop",   new[] { "chrome remote desktop" }),
+        ("DWService",               new[] { "dwservice", "dwagent" }),
+        ("Zoho Assist",             new[] { "zoho assist" }),
+        ("N-able / N-central",      new[] { "n-able", "n-central", "take control" }),
+        ("Kaseya VSA",              new[] { "kaseya", "agentmon" }),
+        ("Pulseway",                new[] { "pulseway" }),
+        ("Action1",                new[] { "action1" }),
+        ("Syncro",                  new[] { "syncro" }),
+    };
+
+    /// <summary>
+    /// Returns the canonical product name of a remote-access/RMM tool whose name is a substring
+    /// of <paramref name="displayName"/>, or <c>null</c> when the name matches no known tool.
+    /// Pure - no registry access - so the detection list can be unit tested directly. This is the
+    /// single source of truth used by <see cref="CheckRemoteAccessTools"/>.
+    /// </summary>
+    public static string? MatchRemoteAccessTool(string? displayName)
+    {
+        if (string.IsNullOrWhiteSpace(displayName)) return null;
+        foreach (var (product, needles) in RemoteAccessTools)
+        {
+            if (needles.Any(n => displayName.Contains(n, StringComparison.OrdinalIgnoreCase)))
+                return product;
+        }
+        return null;
+    }
+
+    private static void CheckRemoteAccessTools(AuditResult result, List<InstalledProgram> programs)
+    {
+        // De-dupe by canonical product so an x86 + x64 pair (or HKLM + HKCU) yields one finding.
+        var detected = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var program in programs.Where(p => !p.IsSystemComponent))
+        {
+            var product = MatchRemoteAccessTool(program.DisplayName);
+            if (product != null) detected.Add(product);
+        }
+
+        if (detected.Count == 0)
+        {
+            result.Findings.Add(Finding.Pass(
+                "No Remote-Access/RMM Tools Detected",
+                "No known remote-access or remote-monitoring-and-management (RMM) products " +
+                "(AnyDesk, TeamViewer, ScreenConnect, RustDesk, Atera, ...) were found installed. " +
+                "These tools are a common attacker foothold (MITRE ATT&CK T1219), so their absence " +
+                "is a good sign on an endpoint that is not expected to be remotely administered.",
+                "Applications"));
+            return;
+        }
+
+        var list = string.Join("\n", detected.Select(p => $"\u2022 {p}"));
+        var severity = detected.Count >= 2 ? Severity.Warning : Severity.Info;
+        var multiNote = detected.Count >= 2
+            ? " Multiple remote-access products are installed at once - attackers frequently add a " +
+              "second RMM tool alongside a sanctioned one precisely because it blends in, so an " +
+              "unexpected extra tool here deserves immediate scrutiny."
+            : "";
+
+        var description =
+            $"{detected.Count} remote-access/RMM tool(s) are installed:\n{list}\n\n" +
+            "These are legitimate products, but they provide durable interactive remote control and " +
+            "file transfer and are one of the most heavily abused intrusion footholds (MITRE ATT&CK " +
+            "T1219). Confirm every tool above is sanctioned and actively used; an unexpected one may " +
+            "be an attacker's backdoor." + multiNote;
+
+        const string remediation =
+            "Confirm each listed tool is approved for this machine. Uninstall any you do not recognise " +
+            "via Programs and Features, and restrict/allow-list the sanctioned one (unattended-access " +
+            "password, MFA, IP allow-list).";
+
+        result.Findings.Add(severity == Severity.Warning
+            ? Finding.Warning("Remote-Access/RMM Tools Installed", description, "Applications",
+                remediation, "Start-Process -FilePath 'appwiz.cpl'")
+            : Finding.Info("Remote-Access/RMM Tool Installed", description, "Applications",
+                remediation));
     }
 
     #endregion

@@ -1171,4 +1171,90 @@ public static class EncryptionAnalyzer
             "protecting DHE key exchange against Logjam weak-DH attacks.",
             Category);
     }
+
+    // === UEFI Secure Boot ==================================================
+
+    /// <summary>
+    /// Normalized UEFI Secure Boot posture. Secure Boot is the firmware root-of-trust
+    /// that only allows cryptographically-signed boot components (bootloader, kernel,
+    /// early drivers) to load, blocking bootkits / rootkits that would otherwise run
+    /// before Windows and subvert the whole encryption stack (including BitLocker's
+    /// measured-boot chain). It is a prerequisite for a trustworthy TPM measured boot
+    /// and for Credential Guard / VBS. This is a single-machine hardware/firmware
+    /// posture check.
+    /// </summary>
+    public enum SecureBootStatus
+    {
+        /// <summary>Secure Boot state could not be determined (query failed / not elevated).</summary>
+        Unknown,
+        /// <summary>Firmware is legacy BIOS / CSM - Secure Boot is not supported at all.</summary>
+        NotSupported,
+        /// <summary>UEFI firmware supports Secure Boot but it is turned OFF.</summary>
+        Disabled,
+        /// <summary>UEFI Secure Boot is enabled and enforcing signed boot components.</summary>
+        Enabled
+    }
+
+    /// <summary>
+    /// Pure classifier for UEFI Secure Boot posture, derived from the
+    /// <c>HKLM\SYSTEM\CurrentControlSet\Control\SecureBoot\State\UEFISecureBootEnabled</c>
+    /// registry DWORD plus a flag for whether the platform firmware is UEFI.
+    /// <list type="bullet">
+    ///   <item><paramref name="querySucceeded"/> false =&gt; <see cref="SecureBootStatus.Unknown"/>.</item>
+    ///   <item>non-UEFI (legacy BIOS/CSM) firmware =&gt; <see cref="SecureBootStatus.NotSupported"/>.</item>
+    ///   <item>UEFI + registry value 1 =&gt; <see cref="SecureBootStatus.Enabled"/>.</item>
+    ///   <item>UEFI + value 0 / absent (-1) =&gt; <see cref="SecureBootStatus.Disabled"/>.</item>
+    /// </list>
+    /// Kept I/O-free so it can be unit-tested with synthetic input.
+    /// </summary>
+    public static SecureBootStatus ClassifySecureBoot(bool querySucceeded, bool isUefiFirmware, int uefiSecureBootEnabled)
+    {
+        if (!querySucceeded) return SecureBootStatus.Unknown;
+        if (!isUefiFirmware) return SecureBootStatus.NotSupported;
+        return uefiSecureBootEnabled == 1 ? SecureBootStatus.Enabled : SecureBootStatus.Disabled;
+    }
+
+    /// <summary>Build the UEFI Secure Boot finding from a classified status.</summary>
+    public static Finding BuildSecureBootFinding(SecureBootStatus status)
+    {
+        switch (status)
+        {
+            case SecureBootStatus.Enabled:
+                return Finding.Pass(
+                    "UEFI Secure Boot Enabled",
+                    "UEFI Secure Boot is enabled. The firmware only loads cryptographically-signed boot " +
+                    "components, blocking bootkits/rootkits that would run before Windows and subvert the " +
+                    "boot chain (including BitLocker's measured boot).",
+                    Category);
+
+            case SecureBootStatus.Disabled:
+                return Finding.Critical(
+                    "UEFI Secure Boot Disabled",
+                    "The platform firmware is UEFI and supports Secure Boot, but Secure Boot is turned OFF. " +
+                    "Without it, unsigned or tampered boot components (bootkits/rootkits) can load before " +
+                    "Windows starts, defeating measured boot and undermining BitLocker and Credential Guard.",
+                    Category,
+                    "Enable Secure Boot in UEFI firmware settings (may require switching from Legacy/CSM to " +
+                    "UEFI boot mode first and confirming the OS is installed in UEFI/GPT mode). Reboot into " +
+                    "firmware setup to change this - it cannot be safely toggled from within Windows.");
+
+            case SecureBootStatus.NotSupported:
+                return Finding.Warning(
+                    "UEFI Secure Boot Not Supported (Legacy BIOS)",
+                    "The system is booting in legacy BIOS / CSM mode, so UEFI Secure Boot is not available. " +
+                    "Legacy boot has no firmware root-of-trust: a bootkit can load before Windows unchallenged, " +
+                    "and TPM measured boot / Credential Guard / modern BitLocker protections are weakened.",
+                    Category,
+                    "Migrate the system to UEFI boot (convert the disk to GPT with mbr2gpt if needed), then " +
+                    "enable Secure Boot in firmware. This is a firmware/boot-mode change done outside Windows.");
+
+            default:
+                return Finding.Info(
+                    "UEFI Secure Boot Status Unknown",
+                    "UEFI Secure Boot status could not be determined. Reading the SecureBoot\\State registry key " +
+                    "or the Confirm-SecureBootUEFI cmdlet usually requires elevation and UEFI firmware.",
+                    Category,
+                    "Run WinSentinel as Administrator, or check msinfo32 -> System Summary -> 'Secure Boot State'.");
+        }
+    }
 }

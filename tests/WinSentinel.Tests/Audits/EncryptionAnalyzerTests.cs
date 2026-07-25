@@ -1116,4 +1116,47 @@ ManufacturerVersionFull20       : 7.2.2.0";
         var f = EncryptionAnalyzer.BuildKernelDmaFinding(s);
         Assert.Equal(Severity.Pass, f.Severity);
     }
+
+    // === UEFI Secure Boot =================================================
+
+    [Fact]
+    public void SecureBoot_QueryFailed_IsUnknown()
+    {
+        var s = EncryptionAnalyzer.ClassifySecureBoot(querySucceeded: false, isUefiFirmware: true, uefiSecureBootEnabled: 1);
+        Assert.Equal(EncryptionAnalyzer.SecureBootStatus.Unknown, s);
+        Assert.Equal(Severity.Info, EncryptionAnalyzer.BuildSecureBootFinding(s).Severity);
+    }
+
+    [Fact]
+    public void SecureBoot_LegacyBios_IsNotSupported_Warning()
+    {
+        // Non-UEFI firmware: Secure Boot cannot exist regardless of the enabled value.
+        var s = EncryptionAnalyzer.ClassifySecureBoot(querySucceeded: true, isUefiFirmware: false, uefiSecureBootEnabled: 1);
+        Assert.Equal(EncryptionAnalyzer.SecureBootStatus.NotSupported, s);
+        Assert.Equal(Severity.Warning, EncryptionAnalyzer.BuildSecureBootFinding(s).Severity);
+    }
+
+    [Fact]
+    public void SecureBoot_UefiEnabled_IsPass()
+    {
+        var s = EncryptionAnalyzer.ClassifySecureBoot(querySucceeded: true, isUefiFirmware: true, uefiSecureBootEnabled: 1);
+        Assert.Equal(EncryptionAnalyzer.SecureBootStatus.Enabled, s);
+        Assert.Equal(Severity.Pass, EncryptionAnalyzer.BuildSecureBootFinding(s).Severity);
+    }
+
+    [Fact]
+    public void SecureBoot_UefiDisabled_IsCritical()
+    {
+        var s = EncryptionAnalyzer.ClassifySecureBoot(querySucceeded: true, isUefiFirmware: true, uefiSecureBootEnabled: 0);
+        Assert.Equal(EncryptionAnalyzer.SecureBootStatus.Disabled, s);
+        Assert.Equal(Severity.Critical, EncryptionAnalyzer.BuildSecureBootFinding(s).Severity);
+    }
+
+    [Fact]
+    public void SecureBoot_UefiValueAbsent_IsDisabled()
+    {
+        // UEFI firmware but the UEFISecureBootEnabled value is absent (-1) -> treated as OFF.
+        var s = EncryptionAnalyzer.ClassifySecureBoot(querySucceeded: true, isUefiFirmware: true, uefiSecureBootEnabled: -1);
+        Assert.Equal(EncryptionAnalyzer.SecureBootStatus.Disabled, s);
+    }
 }

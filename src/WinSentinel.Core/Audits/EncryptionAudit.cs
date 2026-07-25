@@ -14,7 +14,7 @@ public class EncryptionAudit : AuditModuleBase
 {
     public override string Name => "Encryption Audit";
     public override string Category => "Encryption";
-    public override string Description => "Checks BitLocker status, TPM availability, EFS usage, certificate store health, TLS/SSL configuration, Credential Guard, DPAPI protection, and Kernel DMA Protection.";
+    public override string Description => "Checks BitLocker status, TPM availability, EFS usage, certificate store health, TLS/SSL configuration, Credential Guard, DPAPI protection, and Kernel DMA Protection, and UEFI Secure Boot.";
 
     private const string SchannelProtocolsPath =
         @"SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols";
@@ -32,6 +32,7 @@ public class EncryptionAudit : AuditModuleBase
         await CheckCredentialGuard(result, cancellationToken);
         await CheckDpapiProtection(result, cancellationToken);
         CheckKernelDmaProtection(result);
+        CheckSecureBoot(result);
     }
 
     #region BitLocker
@@ -1006,6 +1007,56 @@ public class EncryptionAudit : AuditModuleBase
                 $"Could not determine Kernel DMA Protection status: {ex.Message}",
                 Category,
                 "Run WinSentinel as Administrator to check Kernel DMA Protection."));
+        }
+    }
+
+    #endregion
+
+    #region UEFI Secure Boot
+
+    /// <summary>
+    /// Checks UEFI Secure Boot posture. Secure Boot is the firmware root-of-trust that
+    /// only loads cryptographically-signed boot components, blocking bootkits/rootkits
+    /// that would run before Windows and subvert the boot chain (including BitLocker's
+    /// measured boot). Availability/state is read from the SecureBoot\State registry key;
+    /// UEFI vs legacy BIOS firmware is inferred from the PEFirmwareType registry value.
+    /// All grading is delegated to the pure, unit-tested <see cref="EncryptionAnalyzer"/>.
+    /// </summary>
+    private void CheckSecureBoot(AuditResult result)
+    {
+        try
+        {
+            bool querySucceeded = false;
+            bool isUefi = false;
+
+            // PEFirmwareType: 1 = BIOS (legacy), 2 = UEFI. Absent on very old systems.
+            var firmwareType = RegistryHelper.GetValue<int>(
+                RegistryHive.LocalMachine,
+                @"SYSTEM\CurrentControlSet\Control",
+                "PEFirmwareType", -1);
+            if (firmwareType != -1)
+            {
+                querySucceeded = true;
+                isUefi = firmwareType == 2;
+            }
+
+            // UEFISecureBootEnabled: 1 = on, 0 = off. Only meaningful on UEFI firmware.
+            var secureBootEnabled = RegistryHelper.GetValue<int>(
+                RegistryHive.LocalMachine,
+                @"SYSTEM\CurrentControlSet\Control\SecureBoot\State",
+                "UEFISecureBootEnabled", -1);
+            if (secureBootEnabled != -1) querySucceeded = true;
+
+            var status = EncryptionAnalyzer.ClassifySecureBoot(querySucceeded, isUefi, secureBootEnabled);
+            result.Findings.Add(EncryptionAnalyzer.BuildSecureBootFinding(status));
+        }
+        catch (Exception ex)
+        {
+            result.Findings.Add(Finding.Info(
+                "UEFI Secure Boot Check Error",
+                $"Could not determine UEFI Secure Boot status: {ex.Message}",
+                Category,
+                "Run WinSentinel as Administrator to check Secure Boot state."));
         }
     }
 

@@ -42,6 +42,7 @@ public class IdentityCredentialAudit : AuditModuleBase
 
         await CollectPasswordNeverExpires(state, ct);
         await CollectStaleAccounts(state, ct);
+        await CollectGuestAccount(state, ct);
         await CollectLocalAdminSprawl(state, ct);
         await CollectLapsPosture(state, ct);
         CollectCachedCredentials(state);
@@ -93,6 +94,38 @@ public class IdentityCredentialAudit : AuditModuleBase
         catch
         {
             state.StaleAccountCheckFailed = true;
+        }
+    }
+
+    /// <summary>
+    /// Determines whether the built-in Guest account exists and is enabled.
+    /// CIS Windows L1 (2.3.1.1): the Guest account must be disabled.
+    /// </summary>
+    private async Task CollectGuestAccount(IdentityCredentialAnalyzer.IdentityState state, CancellationToken ct)
+    {
+        try
+        {
+            // SID ending in -501 is the well-known built-in Guest RID, independent
+            // of any localized/renamed account name.
+            var output = await ShellHelper.RunPowerShellAsync(
+                "Get-LocalUser | Where-Object { $_.SID.Value -like '*-501' } | " +
+                "Select-Object -First 1 -ExpandProperty Enabled", ct);
+
+            var trimmed = (output ?? string.Empty).Trim();
+            if (trimmed.Length == 0)
+            {
+                // No -501 account returned: Guest is absent (or removed).
+                state.GuestAccountExists = false;
+                state.GuestAccountEnabled = false;
+                return;
+            }
+
+            state.GuestAccountExists = true;
+            state.GuestAccountEnabled = trimmed.Equals("True", StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            state.GuestAccountCheckFailed = true;
         }
     }
 

@@ -506,8 +506,8 @@ public class IdentityCredentialAnalyzerTests
 
         var findings = IdentityCredentialAnalyzer.BuildFindings(state);
 
-        // password + stale + (no sprawl) + laps + cached + lsa + credguard = 6
-        Assert.Equal(6, findings.Count);
+        // password + stale + (no sprawl) + laps + cached + lsa + credguard + guest = 7
+        Assert.Equal(7, findings.Count);
         Assert.All(findings, f => Assert.Equal(Cat, f.Category));
         Assert.All(findings, f => Assert.False(string.IsNullOrWhiteSpace(f.Title)));
         Assert.All(findings, f => Assert.False(string.IsNullOrWhiteSpace(f.Description)));
@@ -584,8 +584,8 @@ public class IdentityCredentialAnalyzerTests
 
         var findings = IdentityCredentialAnalyzer.BuildFindings(state);
 
-        // password + stale + laps + cached + credguard (no sprawl, no lsa) = 5
-        Assert.Equal(5, findings.Count);
+        // password + stale + laps + cached + credguard + guest (no sprawl, no lsa) = 6
+        Assert.Equal(6, findings.Count);
         Assert.All(findings, f => Assert.Equal(Cat, f.Category));
         // Nothing should be a false-positive warning when we simply couldn't read.
         Assert.DoesNotContain(findings, f => f.Severity == Severity.Warning);
@@ -764,5 +764,47 @@ public class IdentityCredentialAnalyzerTests
         var state = new State { LmCompatibilityKeyReadable = true, LmCompatibilityLevelSet = false };
         Assert.Contains(IdentityCredentialAnalyzer.BuildFindings(state), f =>
             f.Title.Contains("NTLM") && f.Severity == Severity.Warning);
+    }
+
+    [Fact]
+    public void BuildGuestAccountFinding_CheckFailed_Info()
+    {
+        var f = IdentityCredentialAnalyzer.BuildGuestAccountFinding(new State { GuestAccountCheckFailed = true });
+        Assert.Equal(Severity.Info, f.Severity);
+        Assert.Contains("Guest", f.Title);
+    }
+
+    [Fact]
+    public void BuildGuestAccountFinding_Disabled_Pass()
+    {
+        var f = IdentityCredentialAnalyzer.BuildGuestAccountFinding(
+            new State { GuestAccountExists = true, GuestAccountEnabled = false });
+        Assert.Equal(Severity.Pass, f.Severity);
+    }
+
+    [Fact]
+    public void BuildGuestAccountFinding_Absent_Pass()
+    {
+        var f = IdentityCredentialAnalyzer.BuildGuestAccountFinding(
+            new State { GuestAccountExists = false, GuestAccountEnabled = false });
+        Assert.Equal(Severity.Pass, f.Severity);
+        Assert.Contains("not present", f.Description);
+    }
+
+    [Fact]
+    public void BuildGuestAccountFinding_Enabled_Warning()
+    {
+        var f = IdentityCredentialAnalyzer.BuildGuestAccountFinding(
+            new State { GuestAccountExists = true, GuestAccountEnabled = true });
+        Assert.Equal(Severity.Warning, f.Severity);
+        Assert.Contains("2.3.1.1", f.Description);
+    }
+
+    [Fact]
+    public void BuildFindings_IncludesGuestAccountFinding_WhenEnabled()
+    {
+        var state = new State { GuestAccountExists = true, GuestAccountEnabled = true };
+        Assert.Contains(IdentityCredentialAnalyzer.BuildFindings(state), f =>
+            f.Title.Contains("Guest") && f.Severity == Severity.Warning);
     }
 }

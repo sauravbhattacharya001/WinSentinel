@@ -500,6 +500,42 @@ public static class IdentityCredentialAnalyzer
             @"Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa' -Name 'LmCompatibilityLevel' -Value 5");
     }
 
+    /// <summary>
+    /// Built-in Guest account posture. The Guest account is disabled by default
+    /// on modern Windows; if it is enabled it grants anonymous, unaudited local
+    /// access and is a CIS Windows L1 (2.3.1.1) hard fail. Check skipped -> Info;
+    /// account absent or disabled -> Pass; enabled -> Warning.
+    /// </summary>
+    public static Finding BuildGuestAccountFinding(IdentityState state)
+    {
+        if (state.GuestAccountCheckFailed)
+        {
+            return Finding.Info(
+                "Guest Account Check Skipped",
+                "Unable to determine whether the built-in Guest account is enabled.",
+                Category);
+        }
+
+        if (!state.GuestAccountEnabled)
+        {
+            return Finding.Pass(
+                "Guest Account Disabled",
+                state.GuestAccountExists
+                    ? "The built-in Guest account is disabled."
+                    : "The built-in Guest account is not present.",
+                Category);
+        }
+
+        return Finding.Warning(
+            "Guest Account Enabled",
+            "The built-in Guest account is enabled. It permits anonymous, unaudited "
+            + "local logon and is a common foothold for attackers. CIS Windows L1 "
+            + "(2.3.1.1) requires the Guest account to be disabled.",
+            Category,
+            "Disable the built-in Guest account.",
+            "Disable-LocalUser -Name 'Guest'");
+    }
+
     public static IReadOnlyList<Finding> BuildFindings(IdentityState state)
     {
         var findings = new List<Finding>
@@ -522,6 +558,7 @@ public static class IdentityCredentialAnalyzer
         if (ntlm is not null) findings.Add(ntlm);
 
         findings.Add(BuildCredentialGuardFinding(state));
+        findings.Add(BuildGuestAccountFinding(state));
 
         return findings;
     }
@@ -572,6 +609,14 @@ public static class IdentityCredentialAnalyzer
         public bool CachedLogonsConfigured { get; set; }
         /// <summary>The configured cached-logon count (valid only when configured).</summary>
         public int CachedLogonsCount { get; set; }
+
+        // Built-in Guest account
+        /// <summary>True when the Guest-account state could not be determined.</summary>
+        public bool GuestAccountCheckFailed { get; set; }
+        /// <summary>True when a built-in Guest account exists on the machine.</summary>
+        public bool GuestAccountExists { get; set; }
+        /// <summary>True when the built-in Guest account is enabled.</summary>
+        public bool GuestAccountEnabled { get; set; }
 
         // LSA protection
         /// <summary>True when the LSA registry key could be opened.</summary>

@@ -131,6 +131,19 @@ public static class PowerShellSecurityAnalyzer
             ("currentdomain.load",         "in-memory .NET assembly load via [AppDomain]::CurrentDomain.Load"),
             ("-verb runas",                "self-elevation relaunch (Start-Process -Verb RunAs) - triggers a UAC prompt for privilege escalation"),
             ("convertto-securestring",     "in-line credential handling (ConvertTo-SecureString) - often a hardcoded/embedded password"),
+            ("net user ",                  "local account manipulation via the net LOLBin (net user) - account creation/backdoor"),
+            ("net localgroup administrators", "local admin-group manipulation (net localgroup administrators) - privilege-escalation/persistence"),
+            ("add-localgroupmember",        "local admin-group manipulation (Add-LocalGroupMember) - privilege-escalation/persistence"),
+            ("vssadmin delete shadows",     "Volume Shadow Copy deletion (vssadmin delete shadows) - classic ransomware anti-recovery step"),
+            ("wevtutil cl ",               "event-log clearing via the wevtutil LOLBin (cl) - defense evasion (MITRE T1070.001)"),
+            ("clear-eventlog",              "event-log clearing (Clear-EventLog) - defense evasion (MITRE T1070.001)"),
+            ("rundll32 comsvcs.dll",        "LSASS credential dump via the comsvcs.dll MiniDump LOLBin (rundll32 comsvcs.dll)"),
+            ("out-minidump",                "process-memory dumping (Out-Minidump) - commonly used to dump LSASS for credential theft"),
+            ("invoke-dllinjection",         "in-memory DLL injection (Invoke-DllInjection) from PowerSploit"),
+            ("invoke-reflectivepeinjection","reflective PE injection (Invoke-ReflectivePEInjection) - in-memory payload execution"),
+            ("get-keystrokes",              "keystroke logging (Get-Keystrokes) from PowerSploit"),
+            ("cmstp /s",                    "UAC bypass / arbitrary code execution via the cmstp LOLBin (cmstp /s)"),
+            ("bcdedit /set",               "boot-configuration tampering via the bcdedit LOLBin (bcdedit /set) - disables recovery/safe-boot protections"),
         };
 
     /// <summary>

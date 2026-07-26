@@ -1159,4 +1159,63 @@ ManufacturerVersionFull20       : 7.2.2.0";
         var s = EncryptionAnalyzer.ClassifySecureBoot(querySucceeded: true, isUefiFirmware: true, uefiSecureBootEnabled: -1);
         Assert.Equal(EncryptionAnalyzer.SecureBootStatus.Disabled, s);
     }
+
+    // === Hibernation / Fast Startup ======================================
+
+    [Fact]
+    public void Hibernation_QueryFailed_IsInfoUnknown()
+    {
+        var s = EncryptionAnalyzer.ClassifyHibernation(-1, -1, osVolumeEncrypted: false, querySucceeded: false);
+        var f = EncryptionAnalyzer.BuildHibernationFinding(s);
+        Assert.Equal(Severity.Info, f.Severity);
+        Assert.Contains("Unknown", f.Title);
+    }
+
+    [Fact]
+    public void Hibernation_Disabled_Passes()
+    {
+        var s = EncryptionAnalyzer.ClassifyHibernation(0, 0, osVolumeEncrypted: false, querySucceeded: true);
+        Assert.False(s.HibernationOn);
+        var f = EncryptionAnalyzer.BuildHibernationFinding(s);
+        Assert.Equal(Severity.Pass, f.Severity);
+        Assert.Contains("Disabled", f.Title);
+    }
+
+    [Fact]
+    public void Hibernation_Enabled_Unencrypted_Warns()
+    {
+        var s = EncryptionAnalyzer.ClassifyHibernation(1, 0, osVolumeEncrypted: false, querySucceeded: true);
+        Assert.True(s.HibernationOn);
+        var f = EncryptionAnalyzer.BuildHibernationFinding(s);
+        Assert.Equal(Severity.Warning, f.Severity);
+        Assert.Contains("hiberfil.sys", f.Description);
+        Assert.Equal("powercfg /hibernate off", f.FixCommand);
+    }
+
+    [Fact]
+    public void Hibernation_Enabled_Unencrypted_FastStartup_MentionsFastStartup()
+    {
+        var s = EncryptionAnalyzer.ClassifyHibernation(1, 1, osVolumeEncrypted: false, querySucceeded: true);
+        Assert.True(s.FastStartupOn);
+        var f = EncryptionAnalyzer.BuildHibernationFinding(s);
+        Assert.Equal(Severity.Warning, f.Severity);
+        Assert.Contains("Fast Startup", f.Description);
+    }
+
+    [Fact]
+    public void Hibernation_Enabled_Encrypted_FastStartup_IsInfo()
+    {
+        var s = EncryptionAnalyzer.ClassifyHibernation(1, 1, osVolumeEncrypted: true, querySucceeded: true);
+        var f = EncryptionAnalyzer.BuildHibernationFinding(s);
+        Assert.Equal(Severity.Info, f.Severity);
+        Assert.Contains("Fast Startup", f.Title);
+    }
+
+    [Fact]
+    public void Hibernation_Enabled_Encrypted_NoFastStartup_Passes()
+    {
+        var s = EncryptionAnalyzer.ClassifyHibernation(1, 0, osVolumeEncrypted: true, querySucceeded: true);
+        var f = EncryptionAnalyzer.BuildHibernationFinding(s);
+        Assert.Equal(Severity.Pass, f.Severity);
+    }
 }

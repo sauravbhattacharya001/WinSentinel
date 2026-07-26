@@ -14,7 +14,7 @@ public class EncryptionAudit : AuditModuleBase
 {
     public override string Name => "Encryption Audit";
     public override string Category => "Encryption";
-    public override string Description => "Checks BitLocker status, TPM availability, EFS usage, certificate store health, TLS/SSL configuration, Credential Guard, DPAPI protection, and Kernel DMA Protection, and UEFI Secure Boot.";
+    public override string Description => "Checks BitLocker status, TPM availability, EFS usage, certificate store health, TLS/SSL configuration, Credential Guard, DPAPI protection, hibernation / Fast Startup RAM-at-rest exposure, and Kernel DMA Protection, and UEFI Secure Boot.";
 
     private const string SchannelProtocolsPath =
         @"SYSTEM\CurrentControlSet\Control\SecurityProviders\SCHANNEL\Protocols";
@@ -32,6 +32,7 @@ public class EncryptionAudit : AuditModuleBase
         await CheckCredentialGuard(result, cancellationToken);
         await CheckDpapiProtection(result, cancellationToken);
         CheckKernelDmaProtection(result);
+        await CheckHibernationPosture(result, cancellationToken);
         CheckSecureBoot(result);
     }
 
@@ -1007,6 +1008,93 @@ public class EncryptionAudit : AuditModuleBase
                 $"Could not determine Kernel DMA Protection status: {ex.Message}",
                 Category,
                 "Run WinSentinel as Administrator to check Kernel DMA Protection."));
+        }
+    }
+
+    #endregion
+
+    #region Hibernation / Fast Startup
+
+    /// <summary>
+    /// Checks hibernation / Fast Startup posture. When hibernation is enabled the full
+    /// contents of RAM are written to <c>hiberfil.sys</c> on disk; on an unencrypted OS
+    /// volume that persists in-memory secrets (credentials, keys, tokens) at rest where a
+    /// thief with the powered-off drive can carve them out. Fast Startup additionally turns
+    /// a normal "shutdown" into a hybrid hibernate. State is read from the Power policy
+    /// registry (<c>HibernateEnabled</c> / <c>HiberbootEnabled</c>) and combined with the
+    /// OS-volume BitLocker status; all grading is delegated to the pure, unit-tested
+    /// <see cref="EncryptionAnalyzer"/>. Single-machine, local posture check.
+    /// </summary>
+    private async Task CheckHibernationPosture(AuditResult result, CancellationToken ct)
+    {
+        try
+        {
+            bool querySucceeded = false;
+
+            var hibernateEnabled = RegistryHelper.GetValue<int>(
+                RegistryHive.LocalMachine,
+                @"SYSTEM\CurrentControlSet\Control\Power",
+                "HibernateEnabled", -1);
+            if (hibernateEnabled == -1)
+            {
+                // Older/newer builds expose the default under HibernateEnabledDefault.
+                hibernateEnabled = RegistryHelper.GetValue<int>(
+                    RegistryHive.LocalMachine,
+                    @"SYSTEM\CurrentControlSet\Control\Power",
+                    "HibernateEnabledDefault", -1);
+            }
+            if (hibernateEnabled != -1) querySucceeded = true;
+
+            var hiberbootEnabled = RegistryHelper.GetValue<int>(
+                RegistryHive.LocalMachine,
+                @"SYSTEM\CurrentControlSet\Control\Session Manager\Power",
+                "HiberbootEnabled", -1);
+            if (hiberbootEnabled != -1) querySucceeded = true;
+
+            // Determine whether the OS/system volume is BitLocker-encrypted. If we can't
+            // tell, err on the side of "not encrypted" so the RAM-at-rest exposure is still
+            // surfaced rather than silently downgraded.
+            bool osVolumeEncrypted = await IsSystemVolumeEncrypted(ct);
+
+            var state = EncryptionAnalyzer.ClassifyHibernation(
+                hibernateEnabled, hiberbootEnabled, osVolumeEncrypted, querySucceeded);
+            result.Findings.Add(EncryptionAnalyzer.BuildHibernationFinding(state));
+        }
+        catch (Exception ex)
+        {
+            result.Findings.Add(Finding.Info(
+                "Hibernation Posture Check Error",
+                $"Could not determine hibernation / Fast Startup status: {ex.Message}",
+                Category,
+                "Run 'powercfg /a' to view sleep/hibernate availability."));
+        }
+    }
+
+    /// <summary>
+    /// Best-effort check of whether the OS/system volume is protected by BitLocker,
+    /// reusing the same manage-bde parsing as the BitLocker module.
+    /// </summary>
+    private static async Task<bool> IsSystemVolumeEncrypted(CancellationToken ct)
+    {
+        try
+        {
+            var systemRoot = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
+            if (string.IsNullOrEmpty(systemRoot) || systemRoot.Length < 2) return false;
+            var driveLetter = systemRoot.Substring(0, 2); // e.g. "C:"
+
+            var output = await ShellHelper.RunCmdAsync($"manage-bde -status {driveLetter}", ct);
+            if (string.IsNullOrWhiteSpace(output))
+            {
+                output = await ShellHelper.RunPowerShellAsync(
+                    $"Get-BitLockerVolume -MountPoint '{driveLetter}' | Format-List *", ct);
+            }
+
+            var blState = EncryptionAnalyzer.ParseBitLockerStatus(output);
+            return blState.Status == EncryptionAnalyzer.BitLockerStatus.Encrypted;
+        }
+        catch
+        {
+            return false;
         }
     }
 

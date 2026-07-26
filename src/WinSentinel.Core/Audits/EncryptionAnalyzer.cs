@@ -1089,6 +1089,131 @@ public static class EncryptionAnalyzer
             Category);
     }
 
+    // === Hibernation / Fast Startup ==========================================
+
+    /// <summary>
+    /// Normalized hibernation posture derived from the
+    /// <c>HKLM\SYSTEM\CurrentControlSet\Control\Power</c> <c>HibernateEnabled</c> and
+    /// <c>HiberbootEnabled</c> (Fast Startup) policy values, combined with whether the
+    /// OS volume is BitLocker-encrypted. When hibernation is enabled, the full contents
+    /// of RAM - including decrypted secrets, credentials and, on some configurations,
+    /// key material - are written to <c>hiberfil.sys</c> on disk. On an UNENCRYPTED
+    /// volume that turns volatile in-memory secrets into an offline, at-rest artifact
+    /// an attacker with the disk can carve. Fast Startup additionally leaves the machine
+    /// in a hybrid-hibernation state on "shutdown", which can leave BitLocker volumes
+    /// mounted/unlocked across a power cycle and complicate a clean lock. This is a
+    /// single-machine, local hardware/OS posture check.
+    /// </summary>
+    public sealed class HibernationState
+    {
+        /// <summary>True when the Power policy could be read at all.</summary>
+        public bool QuerySucceeded { get; set; }
+
+        /// <summary>
+        /// Value of Power\HibernateEnabled (or Power\HibernateEnabledDefault), or -1 when absent.
+        /// 1 = hibernation (and thus hiberfil.sys) is enabled; 0 = disabled.
+        /// </summary>
+        public int HibernateEnabled { get; set; } = -1;
+
+        /// <summary>
+        /// Value of Power\HiberbootEnabled (Fast Startup), or -1 when absent.
+        /// 1 / absent-on-supporting-hardware = Fast Startup on; 0 = off.
+        /// </summary>
+        public int HiberbootEnabled { get; set; } = -1;
+
+        /// <summary>
+        /// True when the OS/system volume is protected by BitLocker (or an equivalent
+        /// full-volume encryption). When true, hiberfil.sys is written to encrypted
+        /// storage, so the at-rest RAM-image exposure is largely mitigated.
+        /// </summary>
+        public bool OsVolumeEncrypted { get; set; }
+
+        /// <summary>True when hibernation is explicitly enabled.</summary>
+        public bool HibernationOn => HibernateEnabled == 1;
+
+        /// <summary>True when Fast Startup is explicitly enabled.</summary>
+        public bool FastStartupOn => HiberbootEnabled == 1;
+    }
+
+    /// <summary>
+    /// Pure classifier: given the raw Power policy values and whether the OS volume is
+    /// encrypted, produce a normalized <see cref="HibernationState"/>. I/O-free for tests.
+    /// </summary>
+    public static HibernationState ClassifyHibernation(int hibernateEnabled, int hiberbootEnabled, bool osVolumeEncrypted, bool querySucceeded)
+    {
+        return new HibernationState
+        {
+            QuerySucceeded = querySucceeded,
+            HibernateEnabled = hibernateEnabled,
+            HiberbootEnabled = hiberbootEnabled,
+            OsVolumeEncrypted = osVolumeEncrypted,
+        };
+    }
+
+    /// <summary>Build the hibernation / Fast Startup finding from collected state.</summary>
+    public static Finding BuildHibernationFinding(HibernationState state)
+    {
+        if (!state.QuerySucceeded)
+        {
+            return Finding.Info(
+                "Hibernation Posture Unknown",
+                "Hibernation / Fast Startup status could not be determined (the Power policy registry key " +
+                "could not be read). When hibernation is enabled, the contents of RAM are written to " +
+                "hiberfil.sys on disk - on an unencrypted volume that persists in-memory secrets at rest.",
+                Category,
+                "Check 'powercfg /a' and HKLM\\SYSTEM\\CurrentControlSet\\Control\\Power (HibernateEnabled).");
+        }
+
+        if (!state.HibernationOn)
+        {
+            return Finding.Pass(
+                "Hibernation Disabled",
+                "Hibernation is disabled, so no full RAM image (hiberfil.sys) is written to disk. This " +
+                "removes an at-rest exposure path for in-memory secrets and keeps the powered-off machine " +
+                "free of a carve-able memory dump.",
+                Category);
+        }
+
+        // Hibernation is on. The RAM image lands on disk; grade by encryption.
+        if (!state.OsVolumeEncrypted)
+        {
+            return Finding.Warning(
+                "Hibernation Enabled on Unencrypted Volume (RAM Image at Rest)",
+                "Hibernation is enabled but the OS volume is not BitLocker-encrypted. On hibernate/Fast " +
+                "Startup shutdown, the full contents of RAM - decrypted secrets, credentials and session " +
+                "tokens - are written to hiberfil.sys in the clear on disk. An attacker with physical " +
+                "access to the powered-off drive can carve those secrets out of the hibernation file, " +
+                "defeating the assumption that memory secrets vanish at power-off." +
+                (state.FastStartupOn
+                    ? " Fast Startup is also on, so a normal 'shutdown' actually hibernates the kernel session rather than fully powering off."
+                    : ""),
+                Category,
+                "Encrypt the OS volume with BitLocker, or disable hibernation to stop writing hiberfil.sys.",
+                "powercfg /hibernate off");
+        }
+
+        if (state.FastStartupOn)
+        {
+            return Finding.Info(
+                "Fast Startup Enabled (BitLocker Volume)",
+                "Hibernation is enabled with Fast Startup on. The RAM image (hiberfil.sys) is written to a " +
+                "BitLocker-encrypted volume, so the at-rest exposure is mitigated. Note that Fast Startup " +
+                "makes a normal 'shutdown' a hybrid hibernate rather than a full power-off, which can leave " +
+                "the system session (and unlocked volumes) resumed across a power cycle. For the strongest " +
+                "posture on portable machines, consider disabling Fast Startup so shutdown fully clears RAM.",
+                Category,
+                "Optionally disable Fast Startup: powercfg /hibernate off, or the 'Turn on fast startup' " +
+                "power-options setting.");
+        }
+
+        return Finding.Pass(
+            "Hibernation Enabled on Encrypted Volume",
+            "Hibernation is enabled but the OS volume is BitLocker-encrypted, so hiberfil.sys (the RAM " +
+            "image) is written to encrypted storage. In-memory secrets persisted to the hibernation file " +
+            "are protected at rest by full-volume encryption.",
+            Category);
+    }
+
     // === Diffie-Hellman key exchange strength (Logjam) =====================
 
     /// <summary>

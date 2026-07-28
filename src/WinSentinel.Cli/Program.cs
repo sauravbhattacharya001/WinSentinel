@@ -1786,6 +1786,7 @@ static AuditEngine BuildEngine(string? modulesFilter)
         new ServiceAudit(),
         new RegistryAudit(),
         new IdentityCredentialAudit(),
+        new SmbSecurityAudit(),
     };
 
     var filtered = allModules.Where(m =>

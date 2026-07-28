@@ -37,6 +37,7 @@ public class AuditEngine
             new ServiceAudit(),
             new RegistryAudit(),
             new SmbShareAudit(),
+            new SmbSecurityAudit(),
             new EnvironmentAudit(),
             new DriverAudit(),
             new ProcessLineageAudit(),

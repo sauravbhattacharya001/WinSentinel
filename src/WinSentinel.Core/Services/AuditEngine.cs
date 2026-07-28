@@ -43,6 +43,7 @@ public class AuditEngine
             new ProcessLineageAudit(),
             new UsbAudit(),
                 new IdentityCredentialAudit(),
+            new WinRmSecurityAudit(),
         };
     }
 

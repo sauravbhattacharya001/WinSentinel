@@ -44,7 +44,8 @@ public class FirewallAudit : AuditModuleBase
             state.Profiles.Add(new FirewallProfile(
                 profileNames[i],
                 ParseProfileState(stateOutput),
-                ParseLogDroppedConnections(loggingOutput)));
+                ParseLogDroppedConnections(loggingOutput),
+                ParseLogMaxSize(loggingOutput)));
         }
 
         // ── Inbound rules ─────────────────────────────────────────────────────

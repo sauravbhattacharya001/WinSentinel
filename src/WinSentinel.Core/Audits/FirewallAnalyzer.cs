@@ -33,6 +33,17 @@ public static class FirewallAnalyzer
     /// <summary>Number of "any TCP port" inbound rules above which to warn.</summary>
     public const int AnyTcpPortRuleWarnThreshold = 5;
 
+    /// <summary>
+    /// Minimum recommended firewall log size in KB. Windows caps every profile's log at
+    /// 4096 KB by default, which on a busy host fills within minutes and silently rolls,
+    /// overwriting the evidence window before it is read. CIS Windows L1 (9.1.4 / 9.2.4 /
+    /// 9.3.4) and Microsoft's security baselines recommend at least 16384 KB per profile.
+    /// </summary>
+    public const int MinLogSizeKb = 16384;
+
+    /// <summary>Sentinel for <see cref="FirewallProfile.LogMaxSizeKb"/> when the size could not be read.</summary>
+    public const int LogSizeUnknown = -1;
+
     // ──────────────────────────────────────────────────────────────────────
     // State DTO
     // ──────────────────────────────────────────────────────────────────────
@@ -54,6 +65,15 @@ public static class FirewallAnalyzer
         /// </summary>
         public Toggle LogDroppedPackets { get; set; } = Toggle.Unknown;
 
+        /// <summary>
+        /// The configured firewall-log maximum size in KB (netsh <c>MaxFileSize</c>), or
+        /// <see cref="LogSizeUnknown"/> (-1) when it could not be read. The Windows default
+        /// of 4096 KB is undersized: on a busy host it rolls within minutes and overwrites
+        /// the evidence window logging was enabled to capture. Compared against
+        /// <see cref="MinLogSizeKb"/>.
+        /// </summary>
+        public int LogMaxSizeKb { get; set; } = LogSizeUnknown;
+
         public FirewallProfile() { }
         public FirewallProfile(string name, Toggle state)
         {
@@ -65,6 +85,13 @@ public static class FirewallAnalyzer
             Name = name ?? "";
             State = state;
             LogDroppedPackets = logDroppedPackets;
+        }
+        public FirewallProfile(string name, Toggle state, Toggle logDroppedPackets, int logMaxSizeKb)
+        {
+            Name = name ?? "";
+            State = state;
+            LogDroppedPackets = logDroppedPackets;
+            LogMaxSizeKb = logMaxSizeKb;
         }
     }
 
@@ -156,6 +183,7 @@ public static class FirewallAnalyzer
         var findings = new List<Finding>();
         findings.AddRange(CheckProfiles(state));
         findings.AddRange(CheckLoggingDroppedPackets(state));
+        findings.AddRange(CheckLoggingFileSize(state));
         findings.AddRange(CheckRules(state));
         findings.AddRange(CheckWideOpenInboundRules(state));
         var def = CheckInboundDefault(state);
@@ -241,7 +269,56 @@ public static class FirewallAnalyzer
         return findings;
     }
 
+    // ── Firewall log size (CIS L1) ───────────────────────────────────────────────
+
+    /// <summary>
+    /// One finding per profile that reports its firewall-log maximum size. Enabling
+    /// logging is only half the job: Windows caps every profile's log at 4096 KB by
+    /// default, which on a busy host rolls within minutes and silently overwrites the
+    /// exact window an investigator needs. CIS Windows L1 (9.1.4 / 9.2.4 / 9.3.4) and
+    /// Microsoft's security baselines recommend at least <see cref="MinLogSizeKb"/> KB.
+    ///
+    /// <para>Size &gt;= <see cref="MinLogSizeKb"/> -&gt; Pass; below it -&gt; Warning with the
+    /// exact remediation command; unknown (unreadable / not collected) -&gt; nothing, so an
+    /// unread size never masquerades as a Pass or a Warning.</para>
+    /// </summary>
+    public static List<Finding> CheckLoggingFileSize(FirewallState state)
+    {
+        var findings = new List<Finding>();
+        foreach (var profile in state.Profiles)
+        {
+            if (profile.LogMaxSizeKb == LogSizeUnknown) continue;
+
+            var key = profile.Name.ToLowerInvariant() + "profile";
+            if (profile.LogMaxSizeKb >= MinLogSizeKb)
+            {
+                findings.Add(Finding.Pass(
+                    $"{profile.Name} Firewall Log Size Adequate",
+                    $"The {profile.Name} firewall log is capped at {profile.LogMaxSizeKb} KB " +
+                    $"(>= {MinLogSizeKb} KB recommended), leaving enough room to retain " +
+                    "dropped/allowed-connection evidence before the log rolls.",
+                    Category));
+            }
+            else
+            {
+                findings.Add(Finding.Warning(
+                    $"{profile.Name} Firewall Log Size Too Small",
+                    $"The {profile.Name} firewall log is capped at {profile.LogMaxSizeKb} KB, " +
+                    $"below the recommended {MinLogSizeKb} KB. A log this small (the Windows " +
+                    "default is 4096 KB) fills within minutes on a busy host and silently rolls, " +
+                    "so the record of a probe or intrusion attempt is overwritten before it can be " +
+                    "reviewed. CIS Windows L1 recommends at least 16384 KB per profile (or shipping " +
+                    "the log to a SIEM before it rolls).",
+                    Category,
+                    $"Raise the {profile.Name} firewall log size to at least {MinLogSizeKb} KB.",
+                    $"netsh advfirewall set {key} logging maxfilesize {MinLogSizeKb}"));
+            }
+        }
+        return findings;
+    }
+
     // ── Rule counts ─────────────────────────────────────────────────────────────
+
 
     /// <summary>
     /// Evaluates the enabled inbound allow-rule count and the number of rules that
@@ -462,6 +539,30 @@ public static class FirewallAnalyzer
             return Toggle.Unknown;
         }
         return Toggle.Unknown;
+    }
+
+    /// <summary>
+    /// Reads the firewall-log <c>MaxFileSize</c> (in KB) out of a
+    /// <c>netsh advfirewall show &lt;profile&gt; logging</c> dump. netsh prints a
+    /// "MaxFileSize   4096" line. Returns the parsed KB value, or
+    /// <see cref="LogSizeUnknown"/> (-1) when the line is absent or unparseable so an
+    /// unreadable probe never masquerades as a configured size.
+    /// </summary>
+    public static int ParseLogMaxSize(string? netshLoggingOutput)
+    {
+        if (string.IsNullOrWhiteSpace(netshLoggingOutput)) return LogSizeUnknown;
+
+        foreach (var raw in netshLoggingOutput.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var line = raw.Trim();
+            if (!line.StartsWith("MaxFileSize", StringComparison.OrdinalIgnoreCase)) continue;
+            var value = line.Substring("MaxFileSize".Length).Trim();
+            // Value may carry a trailing unit or extra tokens; take the leading integer.
+            var digits = new string(value.TakeWhile(char.IsDigit).ToArray());
+            if (int.TryParse(digits, out var kb)) return kb;
+            return LogSizeUnknown;
+        }
+        return LogSizeUnknown;
     }
 
     /// <summary>

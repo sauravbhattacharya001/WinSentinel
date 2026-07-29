@@ -528,4 +528,72 @@ public class FirewallAnalyzerTests
     [InlineData(null, Toggle.Unknown)]
     public void ParseDefaultOutbound_Classifies(string? input, Toggle expected) =>
         Assert.Equal(expected, ParseDefaultOutbound(input));
+
+    // ── Firewall log size (CIS L1) ──────────────────────────────────────────
+
+    [Fact]
+    public void CheckLoggingFileSize_Adequate_Passes()
+    {
+        var state = new FirewallState
+        {
+            Profiles = new() { new FirewallProfile("Public", Toggle.Enabled, Toggle.Enabled, MinLogSizeKb) },
+        };
+        var f = CheckLoggingFileSize(state);
+        Assert.True(Has(f, Severity.Pass, "Log Size Adequate"));
+        Assert.DoesNotContain(f, x => x.Severity == Severity.Warning);
+    }
+
+    [Fact]
+    public void CheckLoggingFileSize_BelowMin_WarnsWithFix()
+    {
+        // The Windows default 4096 KB is below the 16384 KB recommendation.
+        var state = new FirewallState
+        {
+            Profiles = new() { new FirewallProfile("Public", Toggle.Enabled, Toggle.Enabled, 4096) },
+        };
+        var warn = Assert.Single(CheckLoggingFileSize(state));
+        Assert.Equal(Severity.Warning, warn.Severity);
+        Assert.Contains("Log Size Too Small", warn.Title);
+        Assert.Contains("4096", warn.Description);
+        Assert.Contains("logging maxfilesize 16384", warn.FixCommand ?? "");
+        Assert.Contains("publicprofile", warn.FixCommand ?? "");
+    }
+
+    [Fact]
+    public void CheckLoggingFileSize_Unknown_EmitsNothing()
+    {
+        var state = new FirewallState
+        {
+            Profiles = new() { new FirewallProfile("Public", Toggle.Enabled, Toggle.Enabled, LogSizeUnknown) },
+        };
+        Assert.Empty(CheckLoggingFileSize(state));
+    }
+
+    [Fact]
+    public void Analyze_ProfileWithSmallLog_SurfacesWarning()
+    {
+        var state = SecureState();
+        state.Profiles = new()
+        {
+            new FirewallProfile("Domain", Toggle.Enabled, Toggle.Enabled, MinLogSizeKb),
+            new FirewallProfile("Private", Toggle.Enabled, Toggle.Enabled, MinLogSizeKb),
+            new FirewallProfile("Public", Toggle.Enabled, Toggle.Enabled, 4096),
+        };
+        Assert.True(Has(Analyze(state), Severity.Warning, "Log Size Too Small"));
+    }
+
+    [Theory]
+    [InlineData("MaxFileSize                           4096", 4096)]
+    [InlineData("MaxFileSize   16384\r\nLogDroppedConnections   Enable", 16384)]
+    [InlineData("MaxFileSize                           32000 KB", 32000)]
+    public void ParseLogMaxSize_ReadsValue(string dump, int expected) =>
+        Assert.Equal(expected, ParseLogMaxSize(dump));
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(null)]
+    [InlineData("LogDroppedConnections   Enable")]
+    [InlineData("MaxFileSize   NotANumber")]
+    public void ParseLogMaxSize_MissingOrUnparseable_IsUnknown(string? dump) =>
+        Assert.Equal(LogSizeUnknown, ParseLogMaxSize(dump));
 }

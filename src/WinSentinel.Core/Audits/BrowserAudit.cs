@@ -39,6 +39,7 @@ public class BrowserAudit : AuditModuleBase
         result.Findings.AddRange(BrowserSecurityAnalyzer.AnalyzePopupBlocker(policy));
         result.Findings.Add(BrowserSecurityAnalyzer.BuildTrackingProtectionFinding(policy));
         result.Findings.AddRange(BrowserSecurityAnalyzer.AnalyzeSecurityPolicies(policy));
+        result.Findings.AddRange(BrowserSecurityAnalyzer.AnalyzeDnsOverHttps(policy));
         return Task.CompletedTask;
     }
 
@@ -316,6 +317,10 @@ public class BrowserAudit : AuditModuleBase
         // Minimum TLS version (string policy: tls1 / tls1.1 / tls1.2 / tls1.3)
         state.ChromeSslVersionMin = ReadString(Registry.LocalMachine, @"SOFTWARE\Policies\Google\Chrome", "SSLVersionMin");
         state.EdgeSslVersionMin = ReadString(Registry.LocalMachine, @"SOFTWARE\Policies\Microsoft\Edge", "SSLVersionMin");
+
+        // DNS-over-HTTPS mode (string policy: off / automatic / secure)
+        state.ChromeDnsOverHttpsMode = ReadString(Registry.LocalMachine, @"SOFTWARE\Policies\Google\Chrome", "DnsOverHttpsMode");
+        state.EdgeDnsOverHttpsMode = ReadString(Registry.LocalMachine, @"SOFTWARE\Policies\Microsoft\Edge", "DnsOverHttpsMode");
 
         return state;
     }

@@ -651,4 +651,59 @@ public class BrowserSecurityAnalyzerTests
 
         Assert.All(all, f => Assert.Equal("Browser", f.Category));
     }
+
+    // --- DNS-over-HTTPS (DoH) ---------------------------------------------
+
+    [Fact]
+    public void Doh_NoPolicy_IsPass()
+    {
+        var f = Assert.Single(AnalyzeDnsOverHttps(new BrowserPolicyState()));
+        Assert.Equal(Severity.Pass, f.Severity);
+        Assert.Equal("DNS-over-HTTPS Not Disabled", f.Title);
+        Assert.Equal("Browser", f.Category);
+    }
+
+    [Theory]
+    [InlineData("automatic")]
+    [InlineData("secure")]
+    [InlineData("Automatic")]
+    public void Doh_AutomaticOrSecure_IsNotFlagged(string mode)
+    {
+        var f = Assert.Single(AnalyzeDnsOverHttps(new BrowserPolicyState { ChromeDnsOverHttpsMode = mode, EdgeDnsOverHttpsMode = mode }));
+        Assert.Equal(Severity.Pass, f.Severity);
+    }
+
+    [Fact]
+    public void Doh_ChromeOff_IsWarningWithFix()
+    {
+        var f = Assert.Single(AnalyzeDnsOverHttps(new BrowserPolicyState { ChromeDnsOverHttpsMode = "off" }));
+        Assert.Equal(Severity.Warning, f.Severity);
+        Assert.Equal("Chrome DNS-over-HTTPS Disabled", f.Title);
+        Assert.False(string.IsNullOrWhiteSpace(f.FixCommand));
+    }
+
+    [Fact]
+    public void Doh_EdgeOff_CaseInsensitive_IsWarning()
+    {
+        var f = Assert.Single(AnalyzeDnsOverHttps(new BrowserPolicyState { EdgeDnsOverHttpsMode = "OFF" }));
+        Assert.Equal(Severity.Warning, f.Severity);
+        Assert.Equal("Edge DNS-over-HTTPS Disabled", f.Title);
+    }
+
+    [Fact]
+    public void Doh_BothOff_YieldsTwoWarnings_NoPass()
+    {
+        var findings = AnalyzeDnsOverHttps(new BrowserPolicyState { ChromeDnsOverHttpsMode = "off", EdgeDnsOverHttpsMode = "off" });
+        Assert.Equal(2, findings.Count);
+        Assert.All(findings, f => Assert.Equal(Severity.Warning, f.Severity));
+    }
+
+    [Fact]
+    public void IsDohDisabled_OnlyExplicitOff()
+    {
+        Assert.True(IsDohDisabled("off"));
+        Assert.False(IsDohDisabled(null));
+        Assert.False(IsDohDisabled(""));
+        Assert.False(IsDohDisabled("automatic"));
+    }
 }

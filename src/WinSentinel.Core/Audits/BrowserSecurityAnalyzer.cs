@@ -127,6 +127,15 @@ public static class BrowserSecurityAnalyzer
         // to accept obsolete, vulnerable TLS (POODLE, BEAST) - a real downgrade.
         public string? ChromeSslVersionMin { get; set; }
         public string? EdgeSslVersionMin { get; set; }
+
+        // DNS-over-HTTPS (DoH) mode: the DnsOverHttpsMode policy is a string -
+        // "off" (DoH disabled), "automatic" (opportunistic), or "secure"
+        // (enforced). null = policy not set (browser default is "automatic").
+        // Explicitly "off" is a downgrade: DNS queries go out in cleartext,
+        // re-exposing name resolution to on-path spoofing and ISP/observer
+        // tracking that DoH is meant to close.
+        public string? ChromeDnsOverHttpsMode { get; set; }
+        public string? EdgeDnsOverHttpsMode { get; set; }
     }
 
     /// <summary>Saved-password DB presence/size for Chrome and Edge.</summary>
@@ -594,6 +603,69 @@ public static class BrowserSecurityAnalyzer
             @"HKLM:\SOFTWARE\Policies\Google\Chrome");
         AddMinimumTlsFinding(findings, "Edge", "Microsoft Edge", p.EdgeSslVersionMin,
             @"HKLM:\SOFTWARE\Policies\Microsoft\Edge");
+
+        return findings;
+    }
+
+    // ---------------------------------------------------------------------
+    // DNS-over-HTTPS (DoH)
+    // ---------------------------------------------------------------------
+
+    /// <summary>
+    /// True when a browser's <c>DnsOverHttpsMode</c> policy is explicitly set to
+    /// "off", disabling encrypted DNS. Only an explicit "off" is a finding - a
+    /// null/unset policy leaves the secure browser default ("automatic") in
+    /// place, and "automatic"/"secure" are fine. Case-insensitive.
+    /// </summary>
+    public static bool IsDohDisabled(string? dnsOverHttpsMode) =>
+        !string.IsNullOrWhiteSpace(dnsOverHttpsMode)
+        && dnsOverHttpsMode.Trim().Equals("off", StringComparison.OrdinalIgnoreCase);
+
+    public static bool IsChromeDohDisabled(BrowserPolicyState p) => IsDohDisabled(p.ChromeDnsOverHttpsMode);
+    public static bool IsEdgeDohDisabled(BrowserPolicyState p) => IsDohDisabled(p.EdgeDnsOverHttpsMode);
+
+    /// <summary>
+    /// DNS-over-HTTPS findings: one Warning per browser whose policy explicitly
+    /// turns DoH off (cleartext DNS re-exposes name resolution to on-path
+    /// spoofing and observer tracking). When neither browser disables it, a
+    /// single Pass. Pure - operates only on the collected policy state.
+    /// </summary>
+    public static List<Finding> AnalyzeDnsOverHttps(BrowserPolicyState p)
+    {
+        var findings = new List<Finding>();
+        var chrome = IsChromeDohDisabled(p);
+        var edge = IsEdgeDohDisabled(p);
+
+        if (chrome)
+        {
+            findings.Add(Finding.Warning(
+                "Chrome DNS-over-HTTPS Disabled",
+                "Chrome's DnsOverHttpsMode policy is set to 'off'. DNS queries are sent in cleartext, " +
+                "re-exposing name resolution to on-path spoofing/redirection and network-level tracking.",
+                Category,
+                "Set DnsOverHttpsMode to 'automatic' (opportunistic) or 'secure' (enforced) via Chrome policy.",
+                @"Set-ItemProperty -Path 'HKLM:SOFTWAREPoliciesGoogleChrome' -Name 'DnsOverHttpsMode' -Value 'automatic'"));
+        }
+
+        if (edge)
+        {
+            findings.Add(Finding.Warning(
+                "Edge DNS-over-HTTPS Disabled",
+                "Edge's DnsOverHttpsMode policy is set to 'off'. DNS queries are sent in cleartext, " +
+                "re-exposing name resolution to on-path spoofing/redirection and network-level tracking.",
+                Category,
+                "Set DnsOverHttpsMode to 'automatic' (opportunistic) or 'secure' (enforced) via Edge policy.",
+                @"Set-ItemProperty -Path 'HKLM:SOFTWAREPoliciesMicrosoftEdge' -Name 'DnsOverHttpsMode' -Value 'automatic'"));
+        }
+
+        if (!chrome && !edge)
+        {
+            findings.Add(Finding.Pass(
+                "DNS-over-HTTPS Not Disabled",
+                "No browser policy disables DNS-over-HTTPS. Encrypted DNS (the secure browser default) " +
+                "remains available to protect name resolution from spoofing and observation.",
+                Category));
+        }
 
         return findings;
     }

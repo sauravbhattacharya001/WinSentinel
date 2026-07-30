@@ -47,6 +47,7 @@ public static class WindowsScriptHostAnalyzer
         return new List<Finding>
         {
             AnalyzeEnabled(state),
+            AnalyzeUserOverride(state),
             AnalyzeRemote(state),
             AnalyzeTrustPolicy(state),
         };
@@ -79,6 +80,40 @@ public static class WindowsScriptHostAnalyzer
                          "Settings\\Enabled = 0 (DWORD) to disable WSH machine-wide.",
             fixCommand: "New-Item -Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows Script Host\\Settings' -Force | Out-Null; " +
                         "Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows Script Host\\Settings' -Name Enabled -Type DWord -Value 0");
+    }
+
+    /// <summary>
+    /// A per-user HKCU Enabled=1 re-enables WSH for that user even when the
+    /// machine-wide HKLM Enabled=0 tried to disable it - a real hardening bypass.
+    /// Only flagged when the machine policy actually disabled WSH (HKLM=0) and the
+    /// user value explicitly re-enables it (HKCU=1); otherwise it is a Pass/no-op.
+    /// </summary>
+    public static Finding AnalyzeUserOverride(WindowsScriptHostState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        // Only meaningful when the machine tried to disable WSH. If HKLM is not 0
+        // (WSH already enabled/default), the per-user value changes nothing worth
+        // reporting here - AnalyzeEnabled already covers the enabled case.
+        if (state.Enabled == 0 && state.UserEnabled == 1)
+        {
+            return Finding.Warning(
+                "Windows Script Host re-enabled for the current user",
+                "The machine-wide Windows Script Host Enabled value is 0, but the per-user " +
+                "HKCU Enabled value is 1, which overrides the machine policy and re-enables " +
+                "wscript.exe/cscript.exe for this user. The intended hardening is silently " +
+                "bypassed for that account.",
+                Category,
+                remediation: "Remove or set the per-user override HKCU\\SOFTWARE\\Microsoft\\Windows Script Host\\" +
+                             "Settings\\Enabled to 0 so the machine-wide disable takes effect.",
+                fixCommand: "Set-ItemProperty -Path 'HKCU:\\SOFTWARE\\Microsoft\\Windows Script Host\\Settings' -Name Enabled -Type DWord -Value 0");
+        }
+
+        return Finding.Pass(
+            "No per-user Windows Script Host override weakening the machine policy",
+            "There is no per-user HKCU Enabled=1 value re-enabling Windows Script Host on top " +
+            "of a machine-wide disable, so the machine policy is not being bypassed for the " +
+            "current user.",
+            Category);
     }
 
     /// <summary>Remote=1 lets WSH run scripts from remote/UNC paths, widening delivery.</summary>
@@ -157,6 +192,10 @@ public sealed record WindowsScriptHostState
 {
     /// <summary>Settings\Enabled (DWORD). 0 = WSH disabled; absent/1 = enabled (default).</summary>
     public int? Enabled { get; init; }
+
+    /// <summary>Per-user HKCU Settings\Enabled (DWORD). 1 = re-enables WSH for this user;
+    /// absent = no per-user override. Overrides the machine-wide HKLM Enabled value.</summary>
+    public int? UserEnabled { get; init; }
 
     /// <summary>Settings\Remote (DWORD). 1 = allow remote scripts; 0/absent = local only.</summary>
     public int? Remote { get; init; }

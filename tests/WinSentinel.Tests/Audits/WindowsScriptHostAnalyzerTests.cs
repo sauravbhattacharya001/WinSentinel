@@ -29,7 +29,7 @@ public class WindowsScriptHostAnalyzerTests
     public void Analyze_HardenedState_IsAllPass()
     {
         var findings = Analyze(HardenedState());
-        Assert.Equal(3, findings.Count);
+        Assert.Equal(4, findings.Count);
         Assert.All(findings, f => Assert.Equal(Severity.Pass, f.Severity));
         Assert.All(findings, f => Assert.Equal("Windows Script Host", f.Category));
     }
@@ -40,9 +40,9 @@ public class WindowsScriptHostAnalyzerTests
         // All-null state = Windows default: WSH enabled, no remote flag, no signing.
         // Enabled + TrustPolicy are flagged Info; Remote-absent is safe (local only) = Pass.
         var findings = Analyze(new WindowsScriptHostState());
-        Assert.Equal(3, findings.Count);
+        Assert.Equal(4, findings.Count);
         Assert.Equal(2, findings.Count(f => f.Severity == Severity.Info));
-        Assert.Equal(1, findings.Count(f => f.Severity == Severity.Pass));
+        Assert.Equal(2, findings.Count(f => f.Severity == Severity.Pass));
     }
 
     // ---- Enabled -----------------------------------------------------------
@@ -116,5 +116,30 @@ public class WindowsScriptHostAnalyzerTests
     public void TrustPolicy_Absent_IsInfo()
     {
         Assert.Equal(Severity.Info, AnalyzeTrustPolicy(HardenedState() with { TrustPolicy = null }).Severity);
+    }
+
+    // ---- Per-user override -------------------------------------------------
+
+    [Fact]
+    public void UserOverride_MachineDisabled_UserReEnabled_IsWarning()
+    {
+        // HKLM Enabled=0 (machine disabled) but HKCU Enabled=1 re-enables it.
+        var f = AnalyzeUserOverride(HardenedState() with { Enabled = 0, UserEnabled = 1 });
+        Assert.Equal(Severity.Warning, f.Severity);
+        Assert.False(string.IsNullOrWhiteSpace(f.FixCommand));
+    }
+
+    [Fact]
+    public void UserOverride_MachineDisabled_NoUserValue_Passes()
+    {
+        Assert.Equal(Severity.Pass, AnalyzeUserOverride(HardenedState() with { Enabled = 0, UserEnabled = null }).Severity);
+    }
+
+    [Fact]
+    public void UserOverride_MachineEnabled_UserValueIrrelevant_Passes()
+    {
+        // When the machine is not disabled, the per-user value is not an override worth flagging.
+        Assert.Equal(Severity.Pass, AnalyzeUserOverride(HardenedState() with { Enabled = 1, UserEnabled = 1 }).Severity);
+        Assert.Equal(Severity.Pass, AnalyzeUserOverride(HardenedState() with { Enabled = null, UserEnabled = 1 }).Severity);
     }
 }

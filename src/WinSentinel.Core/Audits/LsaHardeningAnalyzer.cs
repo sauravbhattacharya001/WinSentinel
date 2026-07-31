@@ -19,6 +19,10 @@ namespace WinSentinel.Core.Audits;
 ///                          must be 0 / absent.
 ///   * NoLMHash           - stops the weak LM hash of the password from being
 ///                          stored. Should be 1.
+///   * LmCompatibilityLevel - which NTLM dialects the box will send/accept. &lt;3
+///                          still allows the weak LM/NTLMv1 responses that are
+///                          trivially crackable / relayable; the hardened value
+///                          is 5 (send NTLMv2 only, refuse LM &amp; NTLM).
 ///   * CachedLogonsCount  - number of domain logons cached for offline use; a
 ///                          large value means more replayable secrets on a lost
 ///                          laptop. 10 is the default; &gt;10 is worth flagging.
@@ -45,6 +49,13 @@ public static class LsaHardeningAnalyzer
     public const int DefaultCachedLogons = 10;
 
     /// <summary>
+    /// The hardened LmCompatibilityLevel: "Send NTLMv2 response only. Refuse LM
+    /// &amp; NTLM." Anything below this still emits/accepts the weak LM or NTLMv1
+    /// responses that are crackable offline and usable for NTLM relay.
+    /// </summary>
+    public const int HardenedLmCompatibilityLevel = 5;
+
+    /// <summary>
     /// Evaluate the collected LSA hardening state and return one finding per
     /// check (a Pass when the setting is already safe, a Warning/Critical when
     /// it is not). Ordering is stable and deterministic for diffable reports.
@@ -57,6 +68,7 @@ public static class LsaHardeningAnalyzer
             AnalyzeRunAsPpl(state),
             AnalyzeWDigest(state),
             AnalyzeNoLmHash(state),
+            AnalyzeLmCompatibilityLevel(state),
             AnalyzeCachedLogons(state),
             AnalyzeAutoLogon(state),
         };
@@ -132,6 +144,46 @@ public static class LsaHardeningAnalyzer
             Category,
             remediation: "Set HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa\\NoLMHash = 1 (DWORD) and have users change passwords once.",
             fixCommand: "Set-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa' -Name NoLMHash -Type DWord -Value 1");
+    }
+
+    /// <summary>
+    /// LmCompatibilityLevel controls which NTLM authentication dialects the
+    /// machine sends and accepts. The hardened setting is 5 (send NTLMv2 only,
+    /// refuse LM &amp; NTLM). Levels 0-2 still SEND the weak LM/NTLMv1 responses;
+    /// levels 3-4 send NTLMv2 but still ACCEPT the weak ones. Only level 5 both
+    /// sends and refuses correctly. Absence is treated as the modern OS default
+    /// (3), which is a Warning because it still accepts LM/NTLMv1 inbound.
+    /// </summary>
+    public static Finding AnalyzeLmCompatibilityLevel(LsaHardeningState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        int level = state.LmCompatibilityLevel ?? 3; // modern OS default when unset
+        if (level >= HardenedLmCompatibilityLevel)
+        {
+            return Finding.Pass(
+                "NTLM is restricted to NTLMv2 (LmCompatibilityLevel 5)",
+                $"LmCompatibilityLevel is {level}: the machine sends only NTLMv2 and refuses the weak " +
+                "LM and NTLMv1 responses, which are crackable offline and usable for NTLM relay.",
+                Category);
+        }
+
+        var severity = level <= 2 ? Severity.Critical : Severity.Warning;
+        var detail = level <= 2
+            ? $"LmCompatibilityLevel is {level}: the machine still SENDS the weak LM/NTLMv1 responses, " +
+              "which can be captured and cracked offline in seconds or relayed to other hosts."
+            : $"LmCompatibilityLevel is {level}: the machine sends NTLMv2 but still ACCEPTS inbound " +
+              "LM/NTLMv1, leaving it exposed to downgrade and relay from weaker peers.";
+
+        return new Finding
+        {
+            Title = "NTLM allows weak LM/NTLMv1 authentication",
+            Description = detail,
+            Severity = severity,
+            Category = Category,
+            Remediation = "Set HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa\\LmCompatibilityLevel = 5 (DWORD) " +
+                          "to send NTLMv2 only and refuse LM & NTLM. Test legacy peers first.",
+            FixCommand = "Set-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa' -Name LmCompatibilityLevel -Type DWord -Value 5",
+        };
     }
 
     /// <summary>Flag a cached-logon count above the Windows default of 10.</summary>
@@ -215,6 +267,9 @@ public sealed record LsaHardeningState
 
     /// <summary>HKLM\SYSTEM\...\Control\Lsa\NoLMHash (DWORD). 1 = LM hash storage disabled.</summary>
     public int? NoLmHash { get; init; }
+
+    /// <summary>HKLM\SYSTEM\...\Control\Lsa\LmCompatibilityLevel (DWORD). 5 = NTLMv2 only, refuse LM &amp; NTLM. Null = OS default (3).</summary>
+    public int? LmCompatibilityLevel { get; init; }
 
     /// <summary>Winlogon\CachedLogonsCount (parsed from the REG_SZ). Null = unset/default.</summary>
     public int? CachedLogonsCount { get; init; }

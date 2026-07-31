@@ -7,8 +7,8 @@ namespace WinSentinel.Tests.Audits;
 /// <summary>
 /// Deterministic unit tests for the pure <see cref="LsaHardeningAnalyzer"/> - the
 /// single-machine LSA / credential-protection registry checks (RunAsPPL, WDigest
-/// plaintext caching, NoLMHash, cached-logon count, cleartext autologon).
-/// Every rule is exercised directly against a synthetic
+/// plaintext caching, NoLMHash, LmCompatibilityLevel, cached-logon count,
+/// cleartext autologon). Every rule is exercised directly against a synthetic
 /// <see cref="LsaHardeningState"/>; no registry or I/O is touched.
 /// </summary>
 public class LsaHardeningAnalyzerTests
@@ -18,6 +18,7 @@ public class LsaHardeningAnalyzerTests
         RunAsPpl = 1,
         WDigestUseLogonCredential = 0,
         NoLmHash = 1,
+        LmCompatibilityLevel = 5,
         CachedLogonsCount = 10,
         AutoAdminLogon = false,
         DefaultPassword = null,
@@ -33,7 +34,7 @@ public class LsaHardeningAnalyzerTests
     public void Analyze_HardenedState_IsAllPass()
     {
         var findings = Analyze(HardenedState());
-        Assert.Equal(5, findings.Count);
+        Assert.Equal(6, findings.Count);
         Assert.All(findings, f => Assert.Equal(Severity.Pass, f.Severity));
         Assert.All(findings, f => Assert.Equal("Credentials", f.Category));
     }
@@ -72,6 +73,30 @@ public class LsaHardeningAnalyzerTests
     {
         Assert.Equal(Severity.Warning, AnalyzeNoLmHash(HardenedState() with { NoLmHash = 0 }).Severity);
         Assert.Equal(Severity.Pass, AnalyzeNoLmHash(HardenedState() with { NoLmHash = 1 }).Severity);
+    }
+
+    [Theory]
+    [InlineData(5, Severity.Pass)]
+    [InlineData(6, Severity.Pass)]
+    [InlineData(4, Severity.Warning)]
+    [InlineData(3, Severity.Warning)]
+    [InlineData(2, Severity.Critical)]
+    [InlineData(0, Severity.Critical)]
+    public void LmCompatibilityLevel_Threshold(int level, Severity expected)
+    {
+        var f = AnalyzeLmCompatibilityLevel(HardenedState() with { LmCompatibilityLevel = level });
+        Assert.Equal(expected, f.Severity);
+        if (expected != Severity.Pass)
+        {
+            Assert.Contains("LmCompatibilityLevel", f.FixCommand);
+        }
+    }
+
+    [Fact]
+    public void LmCompatibilityLevel_Null_TreatedAsDefault3_Warns()
+    {
+        // Unset -> modern OS default of 3, which still accepts inbound LM/NTLMv1.
+        Assert.Equal(Severity.Warning, AnalyzeLmCompatibilityLevel(HardenedState() with { LmCompatibilityLevel = null }).Severity);
     }
 
     [Theory]
@@ -119,11 +144,12 @@ public class LsaHardeningAnalyzerTests
             RunAsPpl = 0,
             WDigestUseLogonCredential = 1,
             NoLmHash = 0,
+            LmCompatibilityLevel = 0,
             CachedLogonsCount = 25,
             AutoAdminLogon = true,
             DefaultPassword = "P@ssw0rd",
         });
-        Assert.Equal(5, findings.Count);
+        Assert.Equal(6, findings.Count);
         Assert.Contains(findings, f => f.Severity == Severity.Critical);
         Assert.DoesNotContain(findings, f => f.Severity == Severity.Pass);
     }

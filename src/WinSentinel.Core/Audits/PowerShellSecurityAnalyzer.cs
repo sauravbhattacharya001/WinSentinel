@@ -144,6 +144,14 @@ public static class PowerShellSecurityAnalyzer
             ("get-keystrokes",              "keystroke logging (Get-Keystrokes) from PowerSploit"),
             ("cmstp /s",                    "UAC bypass / arbitrary code execution via the cmstp LOLBin (cmstp /s)"),
             ("bcdedit /set",               "boot-configuration tampering via the bcdedit LOLBin (bcdedit /set) - disables recovery/safe-boot protections"),
+            ("mavinject",                  "process injection via the mavinject LOLBin (mavinject /injectrunning) - in-memory DLL injection / defense evasion"),
+            ("wmic process call create",   "process spawn via the WMIC LOLBin (wmic process call create) - execution / defense evasion (MITRE T1047)"),
+            ("netsh advfirewall set",      "Windows Firewall tampering via netsh (netsh advfirewall set) - disables/relaxes the firewall for defense evasion"),
+            ("winrm quickconfig",          "enables PowerShell remoting from a profile (winrm quickconfig) - opens a remote-execution/lateral-movement listener"),
+            ("takeown /f",                 "seizes file ownership via the takeown LOLBin (takeown /f) - precursor to tampering with protected system files"),
+            ("icacls",                     "modifies file ACLs via the icacls LOLBin - commonly used to grant Everyone access or lock out defenders"),
+            ("msbuild",                    "in-line code execution via the MSBuild LOLBin (compiles/runs an inline task from XML) - AppLocker/WDAC bypass"),
+            ("invoke-command -computername","remote command execution (Invoke-Command -ComputerName) staged from a profile - lateral movement"),
         };
 
     /// <summary>

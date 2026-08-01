@@ -22,6 +22,11 @@ namespace WinSentinel.Core.Audits;
 ///                             it (DisableCAD = 1) weakens that protection.
 ///   * DontDisplayLockedUserId - controls whether user details are shown on the
 ///                             locked screen; 3 = "do not display user information".
+///   * AutoAdminLogon        - HKLM\...\Winlogon\AutoAdminLogon. When "1", Windows
+///                             signs a stored account in automatically at boot with
+///                             no password prompt, leaving the machine unlocked for
+///                             anyone who powers it on - and the password is stored in
+///                             cleartext under DefaultPassword. A serious exposure.
 ///
 /// Everything here is single-machine and therefore FREE / OSS: it reads local
 /// registry / policy state only. Nothing multi-machine, nothing license-gated.
@@ -53,6 +58,7 @@ public static class ScreenLockAnalyzer
             AnalyzeLastUserName(state),
             AnalyzeSecureAttentionSequence(state),
             AnalyzeLockedUserInfo(state),
+            AnalyzeAutomaticLogon(state),
         };
     }
 
@@ -204,6 +210,38 @@ public static class ScreenLockAnalyzer
             remediation: "Set HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System\\DontDisplayLockedUserId = 3 (DWORD).",
             fixCommand: "Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System' -Name DontDisplayLockedUserId -Type DWord -Value 3");
     }
+
+    /// <summary>
+    /// Automatic (passwordless) console logon must be disabled. AutoAdminLogon = "1"
+    /// signs a stored account in at boot with no prompt, leaving the desktop unlocked
+    /// for anyone who powers the machine on, and stores the account password in
+    /// cleartext under Winlogon\DefaultPassword.
+    /// </summary>
+    public static Finding AnalyzeAutomaticLogon(ScreenLockState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        if (state.AutoAdminLogon == 1)
+        {
+            string extra = state.DefaultPasswordPresent
+                ? " A cleartext DefaultPassword is also stored in the registry to enable it, readable by any local admin."
+                : string.Empty;
+            return Finding.Warning(
+                "Automatic (passwordless) console logon is enabled",
+                "AutoAdminLogon is 1, so Windows signs a stored account in automatically at " +
+                "boot with no password prompt. Anyone who powers the machine on gets an " +
+                "unlocked, authenticated desktop." + extra,
+                Category,
+                remediation: "Set HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon\\AutoAdminLogon = 0 " +
+                             "and delete the DefaultPassword value if present.",
+                fixCommand: "Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon' -Name AutoAdminLogon -Type String -Value '0'; Remove-ItemProperty -Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon' -Name DefaultPassword -ErrorAction SilentlyContinue");
+        }
+
+        return Finding.Pass(
+            "Automatic console logon is disabled",
+            "AutoAdminLogon is 0 or absent, so sign-in requires interactive authentication " +
+            "and the machine is not left unlocked at boot.",
+            Category);
+    }
 }
 
 /// <summary>
@@ -235,4 +273,10 @@ public sealed record ScreenLockState
 
     /// <summary>HKLM\...\Policies\System\DontDisplayLockedUserId (DWORD). 3 = hide user info on locked screen.</summary>
     public int? DontDisplayLockedUserId { get; init; }
+
+    /// <summary>HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\AutoAdminLogon (parsed). 1 = automatic passwordless logon on.</summary>
+    public int? AutoAdminLogon { get; init; }
+
+    /// <summary>True when a cleartext Winlogon\DefaultPassword value is present (used only to enrich the AutoAdminLogon warning).</summary>
+    public bool DefaultPasswordPresent { get; init; }
 }

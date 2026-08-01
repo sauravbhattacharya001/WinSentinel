@@ -22,6 +22,8 @@ public class ScreenLockAnalyzerTests
         DontDisplayLastUserName = 1,
         DisableCad = 0,
         DontDisplayLockedUserId = 3,
+        AutoAdminLogon = 0,
+        DefaultPasswordPresent = false,
     };
 
     [Fact]
@@ -34,7 +36,7 @@ public class ScreenLockAnalyzerTests
     public void Analyze_HardenedState_IsAllPass()
     {
         var findings = Analyze(HardenedState());
-        Assert.Equal(5, findings.Count);
+        Assert.Equal(6, findings.Count);
         Assert.All(findings, f => Assert.Equal(Severity.Pass, f.Severity));
         Assert.All(findings, f => Assert.Equal("Session Security", f.Category));
     }
@@ -178,5 +180,35 @@ public class ScreenLockAnalyzerTests
         var f = AnalyzeLockedUserInfo(HardenedState() with { DontDisplayLockedUserId = 1 });
         Assert.Equal(Severity.Warning, f.Severity);
         Assert.Contains("DontDisplayLockedUserId", f.FixCommand);
+    }
+
+    // ---- Automatic (passwordless) logon -----------------------------------
+
+    [Fact]
+    public void AutoLogon_Disabled_Passes()
+    {
+        Assert.Equal(Severity.Pass, AnalyzeAutomaticLogon(HardenedState()).Severity);
+    }
+
+    [Fact]
+    public void AutoLogon_Null_Passes()
+    {
+        Assert.Equal(Severity.Pass, AnalyzeAutomaticLogon(HardenedState() with { AutoAdminLogon = null }).Severity);
+    }
+
+    [Fact]
+    public void AutoLogon_Enabled_Warns()
+    {
+        var f = AnalyzeAutomaticLogon(HardenedState() with { AutoAdminLogon = 1 });
+        Assert.Equal(Severity.Warning, f.Severity);
+        Assert.Contains("AutoAdminLogon", f.FixCommand);
+    }
+
+    [Fact]
+    public void AutoLogon_Enabled_WithStoredPassword_MentionsCleartext()
+    {
+        var f = AnalyzeAutomaticLogon(HardenedState() with { AutoAdminLogon = 1, DefaultPasswordPresent = true });
+        Assert.Equal(Severity.Warning, f.Severity);
+        Assert.Contains("cleartext", f.Description, System.StringComparison.OrdinalIgnoreCase);
     }
 }

@@ -23,6 +23,13 @@ namespace WinSentinel.Core.Audits;
 ///                          still allows the weak LM/NTLMv1 responses that are
 ///                          trivially crackable / relayable; the hardened value
 ///                          is 5 (send NTLMv2 only, refuse LM &amp; NTLM).
+///   * RestrictAnonymous / RestrictAnonymousSam / EveryoneIncludesAnonymous -
+///                          control whether an UNauthenticated (null-session)
+///                          caller can enumerate local accounts, shares, and SAM
+///                          data over the network. Weak values hand an attacker a
+///                          free reconnaissance channel (user lists to spray, the
+///                          real admin account name, share paths) before they
+///                          have any credential at all.
 ///   * CachedLogonsCount  - number of domain logons cached for offline use; a
 ///                          large value means more replayable secrets on a lost
 ///                          laptop. 10 is the default; &gt;10 is worth flagging.
@@ -69,6 +76,7 @@ public static class LsaHardeningAnalyzer
             AnalyzeWDigest(state),
             AnalyzeNoLmHash(state),
             AnalyzeLmCompatibilityLevel(state),
+            AnalyzeAnonymousAccess(state),
             AnalyzeCachedLogons(state),
             AnalyzeAutoLogon(state),
         };
@@ -186,6 +194,71 @@ public static class LsaHardeningAnalyzer
         };
     }
 
+    /// <summary>
+    /// Anonymous (null-session) network access hardening. Three related Lsa keys
+    /// decide how much an UNauthenticated caller can enumerate over the network
+    /// before presenting any credential:
+    ///
+    ///   * RestrictAnonymous          - 1 blocks anonymous enumeration of SAM
+    ///                                  accounts and shares (the broad legacy control).
+    ///   * RestrictAnonymousSam       - 1 specifically blocks anonymous SAM account
+    ///                                  enumeration; the modern OS default is 1.
+    ///   * EveryoneIncludesAnonymous  - 1 folds anonymous logons into the Everyone
+    ///                                  group, GRANTING them Everyone's access. The
+    ///                                  safe value is 0 (the default).
+    ///
+    /// Hardened posture: RestrictAnonymousSam = 1 AND EveryoneIncludesAnonymous = 0.
+    /// Setting RestrictAnonymous = 1 as well is stronger still. Weak values leak a
+    /// free reconnaissance channel - user lists to password-spray, the real (renamed)
+    /// administrator account name, and share paths - to an attacker with no creds.
+    /// Absence is treated as the modern OS default (RestrictAnonymousSam = 1,
+    /// EveryoneIncludesAnonymous = 0), which is a Pass.
+    /// </summary>
+    public static Finding AnalyzeAnonymousAccess(LsaHardeningState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+
+        // Modern OS defaults when the value is unset/unreadable.
+        int restrictAnonymous = state.RestrictAnonymous ?? 0;      // legacy control, default 0
+        int restrictAnonymousSam = state.RestrictAnonymousSam ?? 1; // default 1 on modern Windows
+        int everyoneIncludesAnonymous = state.EveryoneIncludesAnonymous ?? 0; // default 0
+
+        // The single most dangerous state: anonymous logons are treated as
+        // Everyone, so they inherit whatever Everyone can reach.
+        if (everyoneIncludesAnonymous == 1)
+        {
+            return Finding.Critical(
+                "Anonymous users are granted Everyone-group access",
+                "EveryoneIncludesAnonymous is 1: unauthenticated (null-session) logons are " +
+                "folded into the Everyone group and inherit its access. An attacker with no " +
+                "credentials can reach any resource whose ACL trusts Everyone.",
+                Category,
+                remediation: "Set HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa\\EveryoneIncludesAnonymous = 0 (DWORD).",
+                fixCommand: "Set-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa' -Name EveryoneIncludesAnonymous -Type DWord -Value 0");
+        }
+
+        // SAM account enumeration left open to null sessions.
+        if (restrictAnonymousSam == 0 && restrictAnonymous == 0)
+        {
+            return Finding.Warning(
+                "Anonymous SAM account enumeration is allowed",
+                "RestrictAnonymousSam is 0 (and RestrictAnonymous is 0): a null-session caller " +
+                "can enumerate local accounts over the network - the real administrator name and " +
+                "a user list to password-spray - before presenting any credential.",
+                Category,
+                remediation: "Set HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa\\RestrictAnonymousSam = 1 (DWORD); " +
+                             "set RestrictAnonymous = 1 as well for the strongest posture (test legacy apps first).",
+                fixCommand: "Set-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa' -Name RestrictAnonymousSam -Type DWord -Value 1");
+        }
+
+        return Finding.Pass(
+            "Anonymous (null-session) access is restricted",
+            $"RestrictAnonymousSam is {restrictAnonymousSam} and EveryoneIncludesAnonymous is " +
+            $"{everyoneIncludesAnonymous}: unauthenticated callers cannot enumerate SAM accounts/shares " +
+            "and are not granted Everyone-group access.",
+            Category);
+    }
+
     /// <summary>Flag a cached-logon count above the Windows default of 10.</summary>
     public static Finding AnalyzeCachedLogons(LsaHardeningState state)
     {
@@ -270,6 +343,15 @@ public sealed record LsaHardeningState
 
     /// <summary>HKLM\SYSTEM\...\Control\Lsa\LmCompatibilityLevel (DWORD). 5 = NTLMv2 only, refuse LM &amp; NTLM. Null = OS default (3).</summary>
     public int? LmCompatibilityLevel { get; init; }
+
+    /// <summary>HKLM\SYSTEM\...\Control\Lsa\RestrictAnonymous (DWORD). 1 = block anonymous SAM/share enumeration. Null = OS default (0).</summary>
+    public int? RestrictAnonymous { get; init; }
+
+    /// <summary>HKLM\SYSTEM\...\Control\Lsa\RestrictAnonymousSam (DWORD). 1 = block anonymous SAM account enumeration. Null = OS default (1).</summary>
+    public int? RestrictAnonymousSam { get; init; }
+
+    /// <summary>HKLM\SYSTEM\...\Control\Lsa\EveryoneIncludesAnonymous (DWORD). 1 = anonymous logons inherit Everyone access. Null = OS default (0).</summary>
+    public int? EveryoneIncludesAnonymous { get; init; }
 
     /// <summary>Winlogon\CachedLogonsCount (parsed from the REG_SZ). Null = unset/default.</summary>
     public int? CachedLogonsCount { get; init; }

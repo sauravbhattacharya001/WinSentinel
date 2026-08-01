@@ -7,9 +7,10 @@ namespace WinSentinel.Tests.Audits;
 /// <summary>
 /// Deterministic unit tests for the pure <see cref="LsaHardeningAnalyzer"/> - the
 /// single-machine LSA / credential-protection registry checks (RunAsPPL, WDigest
-/// plaintext caching, NoLMHash, LmCompatibilityLevel, cached-logon count,
-/// cleartext autologon). Every rule is exercised directly against a synthetic
-/// <see cref="LsaHardeningState"/>; no registry or I/O is touched.
+/// plaintext caching, NoLMHash, LmCompatibilityLevel, anonymous null-session
+/// access, cached-logon count, cleartext autologon). Every rule is exercised
+/// directly against a synthetic <see cref="LsaHardeningState"/>; no registry or
+/// I/O is touched.
 /// </summary>
 public class LsaHardeningAnalyzerTests
 {
@@ -19,6 +20,9 @@ public class LsaHardeningAnalyzerTests
         WDigestUseLogonCredential = 0,
         NoLmHash = 1,
         LmCompatibilityLevel = 5,
+        RestrictAnonymous = 1,
+        RestrictAnonymousSam = 1,
+        EveryoneIncludesAnonymous = 0,
         CachedLogonsCount = 10,
         AutoAdminLogon = false,
         DefaultPassword = null,
@@ -34,7 +38,7 @@ public class LsaHardeningAnalyzerTests
     public void Analyze_HardenedState_IsAllPass()
     {
         var findings = Analyze(HardenedState());
-        Assert.Equal(6, findings.Count);
+        Assert.Equal(7, findings.Count);
         Assert.All(findings, f => Assert.Equal(Severity.Pass, f.Severity));
         Assert.All(findings, f => Assert.Equal("Credentials", f.Category));
     }
@@ -99,6 +103,44 @@ public class LsaHardeningAnalyzerTests
         Assert.Equal(Severity.Warning, AnalyzeLmCompatibilityLevel(HardenedState() with { LmCompatibilityLevel = null }).Severity);
     }
 
+    [Fact]
+    public void Anonymous_EveryoneIncludesAnonymous_IsCritical()
+    {
+        var f = AnalyzeAnonymousAccess(HardenedState() with { EveryoneIncludesAnonymous = 1 });
+        Assert.Equal(Severity.Critical, f.Severity);
+        Assert.Contains("EveryoneIncludesAnonymous", f.FixCommand);
+    }
+
+    [Fact]
+    public void Anonymous_SamEnumerationOpen_Warns()
+    {
+        // Both RestrictAnonymousSam and RestrictAnonymous off -> null sessions can enumerate SAM.
+        var f = AnalyzeAnonymousAccess(HardenedState() with { RestrictAnonymous = 0, RestrictAnonymousSam = 0 });
+        Assert.Equal(Severity.Warning, f.Severity);
+        Assert.Contains("RestrictAnonymousSam", f.FixCommand);
+    }
+
+    [Fact]
+    public void Anonymous_RestrictAnonymousCoversSamOff_Passes()
+    {
+        // Legacy broad control set even though the SAM-specific key is off -> Pass.
+        var f = AnalyzeAnonymousAccess(HardenedState() with { RestrictAnonymous = 1, RestrictAnonymousSam = 0 });
+        Assert.Equal(Severity.Pass, f.Severity);
+    }
+
+    [Fact]
+    public void Anonymous_Null_TreatedAsModernDefault_Passes()
+    {
+        // Unset -> RestrictAnonymousSam default 1, EveryoneIncludesAnonymous default 0.
+        var f = AnalyzeAnonymousAccess(HardenedState() with
+        {
+            RestrictAnonymous = null,
+            RestrictAnonymousSam = null,
+            EveryoneIncludesAnonymous = null,
+        });
+        Assert.Equal(Severity.Pass, f.Severity);
+    }
+
     [Theory]
     [InlineData(10, Severity.Pass)]
     [InlineData(0, Severity.Pass)]
@@ -145,11 +187,14 @@ public class LsaHardeningAnalyzerTests
             WDigestUseLogonCredential = 1,
             NoLmHash = 0,
             LmCompatibilityLevel = 0,
+            RestrictAnonymous = 0,
+            RestrictAnonymousSam = 0,
+            EveryoneIncludesAnonymous = 1,
             CachedLogonsCount = 25,
             AutoAdminLogon = true,
             DefaultPassword = "P@ssw0rd",
         });
-        Assert.Equal(6, findings.Count);
+        Assert.Equal(7, findings.Count);
         Assert.Contains(findings, f => f.Severity == Severity.Critical);
         Assert.DoesNotContain(findings, f => f.Severity == Severity.Pass);
     }

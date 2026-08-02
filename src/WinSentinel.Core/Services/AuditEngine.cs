@@ -44,6 +44,7 @@ public class AuditEngine
             new UsbAudit(),
                 new IdentityCredentialAudit(),
             new WinRmSecurityAudit(),
+            new UacHardeningAudit(),
         };
     }
 

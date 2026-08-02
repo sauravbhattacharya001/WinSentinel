@@ -8,9 +8,9 @@ namespace WinSentinel.Tests.Audits;
 /// Deterministic unit tests for the pure <see cref="SmbSecurityAnalyzer"/> - the
 /// single-machine SMB (Server Message Block) hardening checks: server/client
 /// signing (require + enable), SMBv1 server/client protocol, server encryption,
-/// and the insecure guest-logon fallback. Every rule is exercised directly against
-/// a synthetic <see cref="SmbSecurityState"/>; no registry or SMB cmdlet I/O is
-/// touched.
+/// null-session access, and the insecure guest-logon fallback. Every rule is
+/// exercised directly against a synthetic <see cref="SmbSecurityState"/>; no
+/// registry or SMB cmdlet I/O is touched.
 /// </summary>
 public class SmbSecurityAnalyzerTests
 {
@@ -20,6 +20,7 @@ public class SmbSecurityAnalyzerTests
         ServerEnableSigning = true,
         Smb1ServerEnabled = false,
         ServerEncryptData = true,
+        RestrictNullSessionAccess = true,
         ClientRequireSigning = true,
         ClientEnableSigning = true,
         Smb1ClientEnabled = false,
@@ -36,7 +37,7 @@ public class SmbSecurityAnalyzerTests
     public void Analyze_Fully_Hardened_Is_All_Pass()
     {
         var findings = SmbSecurityAnalyzer.Analyze(HardenedState());
-        Assert.Equal(8, findings.Count);
+        Assert.Equal(9, findings.Count);
         Assert.All(findings, f => Assert.Equal(Severity.Pass, f.Severity));
         Assert.All(findings, f => Assert.Equal(Category, f.Category));
     }
@@ -102,6 +103,23 @@ public class SmbSecurityAnalyzerTests
     }
 
     [Fact]
+    public void NullSessionAccess_Restricted_Is_Pass()
+    {
+        var f = AnalyzeNullSessionAccess(HardenedState());
+        Assert.Equal(Severity.Pass, f.Severity);
+        Assert.Contains("restricts null-session", f.Title);
+    }
+
+    [Fact]
+    public void NullSessionAccess_Allowed_Is_Warning()
+    {
+        var f = AnalyzeNullSessionAccess(HardenedState() with { RestrictNullSessionAccess = false });
+        Assert.Equal(Severity.Warning, f.Severity);
+        Assert.Contains("allows null-session", f.Title);
+        Assert.Contains("RestrictNullSessAccess", f.FixCommand);
+    }
+
+    [Fact]
     public void ClientRequireSigning_Off_Is_Warning()
     {
         Assert.Equal(Severity.Warning, AnalyzeClientRequireSigning(HardenedState() with { ClientRequireSigning = false }).Severity);
@@ -145,6 +163,7 @@ public class SmbSecurityAnalyzerTests
             ServerEnableSigning = false,
             Smb1ServerEnabled = true,
             ServerEncryptData = false,
+            RestrictNullSessionAccess = false,
             ClientRequireSigning = false,
             ClientEnableSigning = false,
             Smb1ClientEnabled = true,
@@ -154,5 +173,7 @@ public class SmbSecurityAnalyzerTests
         var criticals = findings.Count(f => f.Severity == Severity.Critical);
         Assert.Equal(3, criticals); // SMBv1 server, SMBv1 client, insecure guest
         Assert.DoesNotContain(findings, f => f.Severity == Severity.Pass);
+        // Null-session access is off -> its own Warning is present in the aggregate.
+        Assert.Contains(findings, f => f.Title.Contains("allows null-session"));
     }
 }

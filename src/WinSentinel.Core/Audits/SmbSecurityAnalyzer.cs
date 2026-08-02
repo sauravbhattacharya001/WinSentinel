@@ -20,6 +20,9 @@ namespace WinSentinel.Core.Audits;
 ///   * Smb1ServerEnabled     - The SMBv1 server protocol. SMBv1 is the WannaCry /
 ///                             EternalBlue vector and has no modern reason to be on.
 ///   * ServerEncryptData     - SMB server EncryptData. Encrypts share traffic in transit.
+///   * RestrictNullSessAccess - LanmanServer RestrictNullSessAccess. When on, the
+///                             server refuses anonymous (null-session) access to
+///                             named pipes and shares - blocks anonymous enumeration.
 ///
 ///   Client side (connecting to shares):
 ///   * ClientRequireSigning  - LanmanWorkstation RequireSecuritySignature. Client
@@ -57,6 +60,7 @@ public static class SmbSecurityAnalyzer
             AnalyzeServerEnableSigning(state),
             AnalyzeSmb1Server(state),
             AnalyzeServerEncryption(state),
+            AnalyzeNullSessionAccess(state),
             AnalyzeClientRequireSigning(state),
             AnalyzeClientEnableSigning(state),
             AnalyzeSmb1Client(state),
@@ -147,6 +151,37 @@ public static class SmbSecurityAnalyzer
             Category,
             remediation: "Enable SMB encryption on the server (globally or per share).",
             fixCommand: "Set-SmbServerConfiguration -EncryptData $true -Force");
+    }
+
+    /// <summary>
+    /// Anonymous (null-session) access to the SMB server should be restricted. When
+    /// LanmanServer RestrictNullSessAccess is off, an unauthenticated client can bind
+    /// to named pipes and shares with a null session and enumerate shares, accounts,
+    /// and other host information without credentials - the classic anonymous
+    /// reconnaissance foothold (MITRE T1135 - Network Share Discovery). CIS Windows
+    /// L1 requires this to be enabled (= 1).
+    /// </summary>
+    public static Finding AnalyzeNullSessionAccess(SmbSecurityState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        if (state.RestrictNullSessionAccess)
+        {
+            return Finding.Pass(
+                "SMB server restricts null-session access",
+                "The SMB server restricts anonymous (null-session) access (RestrictNullSessAccess), so an " +
+                "unauthenticated client cannot bind to named pipes or shares to enumerate shares, accounts, or host information.",
+                Category);
+        }
+
+        return Finding.Warning(
+            "SMB server allows null-session access",
+            "The SMB server does not restrict anonymous (null-session) access (RestrictNullSessAccess is off). An " +
+            "unauthenticated client can bind to named pipes and shares with a null session and enumerate shares, " +
+            "accounts, and other host information without any credentials, a common anonymous-reconnaissance foothold " +
+            "(MITRE T1135 - Network Share Discovery). CIS Windows L1 requires this to be enabled.",
+            Category,
+            remediation: "Restrict anonymous access to named pipes and shares (LanmanServer RestrictNullSessAccess = 1).",
+            fixCommand: "Set-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\LanmanServer\\Parameters' -Name RestrictNullSessAccess -Value 1 -Type DWord");
     }
 
     /// <summary>Client should require SMB signing so it refuses unsigned servers.</summary>
@@ -259,6 +294,13 @@ public sealed record SmbSecurityState
 
     /// <summary>SMB server EncryptData (encrypt share traffic in transit).</summary>
     public bool ServerEncryptData { get; init; }
+
+    /// <summary>
+    /// LanmanServer RestrictNullSessAccess (server refuses anonymous/null-session
+    /// access to named pipes and shares). Defaults <c>false</c>; the collector reports
+    /// it as a gap only when genuinely off.
+    /// </summary>
+    public bool RestrictNullSessionAccess { get; init; }
 
     /// <summary>LanmanWorkstation RequireSecuritySignature (client refuses unsigned servers).</summary>
     public bool ClientRequireSigning { get; init; }

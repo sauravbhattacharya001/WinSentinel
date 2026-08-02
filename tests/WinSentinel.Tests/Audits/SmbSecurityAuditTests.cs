@@ -34,10 +34,10 @@ public class SmbSecurityAuditTests
         var result = await _audit.RunAuditAsync();
 
         Assert.True(result.Success, result.Error);
-        // The analyzer emits exactly 8 findings (server require/enable signing,
-        // SMBv1 server, server encryption, client require/enable signing, SMBv1
-        // client, insecure guest auth); the module surfaces all of them.
-        Assert.Equal(8, result.Findings.Count);
+        // The analyzer emits exactly 9 findings (server require/enable signing,
+        // SMBv1 server, server encryption, null-session access, client require/enable
+        // signing, SMBv1 client, insecure guest auth); the module surfaces all of them.
+        Assert.Equal(9, result.Findings.Count);
         Assert.All(result.Findings, f => Assert.Equal(SmbSecurityAnalyzer.Category, f.Category));
     }
 

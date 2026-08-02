@@ -17,8 +17,8 @@ namespace WinSentinel.Core.Audits;
 /// license-gated.</para>
 ///
 /// <para>It is intentionally scoped to the SMB <i>protocol hardening</i> knobs
-/// (signing / SMBv1 / encryption / guest fallback) under the dedicated
-/// "<c>SMB / File Sharing</c>" category, complementing the broader
+/// (signing / SMBv1 / encryption / guest fallback / null-session access) under the
+/// dedicated "<c>SMB / File Sharing</c>" category, complementing the broader
 /// <see cref="SmbShareAudit"/> (share permissions, null sessions, hidden shares)
 /// which lives under the "<c>SMB</c>" category.</para>
 /// </summary>
@@ -28,7 +28,7 @@ public class SmbSecurityAudit : AuditModuleBase
     public override string Category => SmbSecurityAnalyzer.Category;
     public override string Description =>
         "Checks SMB server/client signing enforcement, the legacy SMBv1 protocol, " +
-        "SMB share encryption, and insecure guest-logon fallback against CIS Windows L1.";
+        "SMB share encryption, null-session access, and insecure guest-logon fallback against CIS Windows L1.";
 
     private const string ServerParams =
         @"SYSTEM\CurrentControlSet\Services\LanmanServer\Parameters";
@@ -63,6 +63,11 @@ public class SmbSecurityAudit : AuditModuleBase
         // when the value is absent we treat it as disabled (modern Windows removes SMBv1).
         bool smb1ServerEnabled = ReadDword(ServerParams, "SMB1", defaultValue: 0) == 1;
         bool serverEncryptData = ReadDword(ServerParams, "EncryptData") == 1;
+        // RestrictNullSessAccess: 1 = anonymous/null-session access to named pipes and
+        // shares is restricted (safe). Modern Windows defaults this to 1, but treat an
+        // unreadable/absent value as "not restricted" so we never miss the gap on an
+        // older or tampered host (conservative for a security check).
+        bool restrictNullSessAccess = ReadDword(ServerParams, "RestrictNullSessAccess") == 1;
 
         // ── Client side (LanmanWorkstation\Parameters) ──
         bool clientRequireSigning = ReadDword(WorkstationParams, "RequireSecuritySignature") == 1;
@@ -82,6 +87,7 @@ public class SmbSecurityAudit : AuditModuleBase
             ServerEnableSigning = serverEnableSigning,
             Smb1ServerEnabled = smb1ServerEnabled,
             ServerEncryptData = serverEncryptData,
+            RestrictNullSessionAccess = restrictNullSessAccess,
             ClientRequireSigning = clientRequireSigning,
             ClientEnableSigning = clientEnableSigning,
             Smb1ClientEnabled = smb1ClientEnabled,

@@ -47,6 +47,7 @@ public class AuditEngine
             new UacHardeningAudit(),
             new ApplicationControlAudit(),
             new WerExposureAudit(),
+            new ExploitMitigationAudit(),
         };
     }
 

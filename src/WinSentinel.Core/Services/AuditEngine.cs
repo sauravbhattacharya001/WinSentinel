@@ -45,6 +45,7 @@ public class AuditEngine
                 new IdentityCredentialAudit(),
             new WinRmSecurityAudit(),
             new UacHardeningAudit(),
+            new ApplicationControlAudit(),
         };
     }
 

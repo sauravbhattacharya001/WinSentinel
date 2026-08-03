@@ -46,6 +46,7 @@ public class AuditEngine
             new WinRmSecurityAudit(),
             new UacHardeningAudit(),
             new ApplicationControlAudit(),
+            new WerExposureAudit(),
         };
     }
 

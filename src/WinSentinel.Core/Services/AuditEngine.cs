@@ -49,6 +49,7 @@ public class AuditEngine
             new WerExposureAudit(),
             new ExploitMitigationAudit(),
             new TimeSyncSecurityAudit(),
+            new InteractiveLogonAudit(),
         };
     }
 

@@ -48,6 +48,7 @@ public class AuditEngine
             new ApplicationControlAudit(),
             new WerExposureAudit(),
             new ExploitMitigationAudit(),
+            new TimeSyncSecurityAudit(),
         };
     }
 

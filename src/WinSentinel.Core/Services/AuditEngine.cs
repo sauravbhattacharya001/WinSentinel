@@ -50,6 +50,7 @@ public class AuditEngine
             new ExploitMitigationAudit(),
             new TimeSyncSecurityAudit(),
             new InteractiveLogonAudit(),
+            new AutoSignOnAudit(),
         };
     }
 

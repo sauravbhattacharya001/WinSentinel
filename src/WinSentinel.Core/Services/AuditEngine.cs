@@ -53,6 +53,7 @@ public class AuditEngine
             new AutoSignOnAudit(),
             new RdpHardeningAudit(),
             new PrintSpoolerAudit(),
+            new KerberosHardeningAudit(),
         };
     }
 
@@ -203,4 +204,3 @@ public class AuditEngine
         return sb.ToString();
     }
 }
-

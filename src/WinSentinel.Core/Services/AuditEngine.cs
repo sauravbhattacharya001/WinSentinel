@@ -52,6 +52,7 @@ public class AuditEngine
             new InteractiveLogonAudit(),
             new AutoSignOnAudit(),
             new RdpHardeningAudit(),
+            new PrintSpoolerAudit(),
         };
     }
 

@@ -3,35 +3,33 @@ using WinSentinel.Core.Models;
 namespace WinSentinel.Core.Audits;
 
 /// <summary>
-/// Pure, I/O-free logic for Print Spooler / Point-and-Print hardening on a single
-/// machine. This is the local-registry surface behind the PrintNightmare family
-/// of bugs (CVE-2021-34527 and friends), where an attacker with a foothold abuses
-/// the Print Spooler service and permissive Point-and-Print driver installation to
-/// run code as SYSTEM.
+/// Pure, I/O-free logic for auditing Print Spooler / "PrintNightmare" hardening on a single
+/// machine. The Windows Print Spooler service (CVE-2021-34527 "PrintNightmare" and a long tail
+/// of related RCE/LPE bugs) is one of the most exploited local-privilege-escalation and remote
+/// code-execution surfaces on Windows: a running spooler that lets non-administrators install
+/// print drivers is a standard path from a normal user to SYSTEM. The checks here evaluate the
+/// spooler posture that matters most on a single host:
 ///
-/// The checks:
-///   * <b>Spooler running while no printers are shared</b> - the spooler service is
-///     a recurring attack surface. If the machine neither prints nor shares
-///     printers, the service can simply be disabled. Running + sharing is normal;
-///     running + not-needed is worth flagging (Info).
-///   * <b>RestrictDriverInstallationToAdministrators</b> - the definitive
-///     PrintNightmare mitigation. When 1, only admins can install printer drivers,
-///     which closes the remote code-execution path. Absent/0 = exposed.
-///   * <b>Point-and-Print NoWarningNoElevationOnInstall</b> - when 1, Windows
-///     installs printer drivers with NO UAC prompt and NO warning. This is the
-///     exact setting PrintNightmare exploits rely on. Must be 0/absent.
-///   * <b>Point-and-Print UpdatePromptSettings</b> - when non-zero, suppresses the
-///     elevation prompt on driver <i>update</i>. Same class of risk. Must be 0/absent.
-///   * <b>RegisterSpoolerRemoteRpcEndPoint</b> - when 2, the spooler stops
-///     accepting remote RPC print connections, shrinking the remote surface. On a
-///     workstation that does not act as a print server this is desirable.
+///   * Spooler running          - whether the Print Spooler service is running at all. On a
+///                                machine that never prints, a disabled spooler removes the
+///                                entire attack surface (Pass). Running is Info - legitimate,
+///                                but the hardening checks below then matter.
+///   * Restrict driver install  - RestrictDriverInstallationToAdministrators = 1 is the primary
+///     to admins                  PrintNightmare mitigation: only administrators may install
+///                                printer drivers. 0 or missing lets any user install a driver
+///                                (the exploited condition) - Warning.
+///   * Point-and-Print no-warn   - NoWarningNoElevationOnInstall = 1 suppresses the elevation
+///                                prompt when installing a Point-and-Print driver, silently
+///                                letting a malicious print server push a driver - Warning.
+///   * Point-and-Print update    - UpdatePromptSettings != 0 similarly suppresses prompts on
+///     prompt                     driver *update*, another silent-driver-push vector - Warning.
 ///
-/// Everything here is single-machine and therefore FREE / OSS: it reads local
-/// registry / service state only. Nothing multi-machine, nothing license-gated.
-/// All rules operate on a synthetic <see cref="PrintSpoolerState"/> so they can be
-/// unit tested directly, mirroring the established
-/// <see cref="LsaHardeningAnalyzer"/> analyzer pattern (collector owns I/O,
-/// analyzer owns decisions).
+/// <para>The checks read only local service state and Point-and-Print policy registry values
+/// (<c>HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Printers</c> and its
+/// <c>PointAndPrint</c> subkey), so this module is single-machine and therefore FREE / OSS:
+/// nothing multi-machine, nothing license-gated. Every rule operates on a synthetic
+/// <see cref="PrintSpoolerState"/> so it can be unit tested directly, mirroring the established
+/// <see cref="RdpHardeningAnalyzer"/> split (collector owns I/O, analyzer owns decisions).</para>
 /// </summary>
 public static class PrintSpoolerAnalyzer
 {
@@ -39,198 +37,166 @@ public static class PrintSpoolerAnalyzer
     public const string Category = "Print Spooler";
 
     /// <summary>
-    /// Evaluate the collected Print Spooler / Point-and-Print state and return one
-    /// finding per check (a Pass when the setting is already safe, otherwise
-    /// Info/Warning/Critical). Ordering is stable and deterministic for diffable
-    /// reports.
+    /// Evaluate the collected Print Spooler state and return one finding per check (a Pass when
+    /// the setting is already safe, otherwise Info/Warning). Ordering is stable and
+    /// deterministic for diffable reports.
     /// </summary>
     public static IReadOnlyList<Finding> Analyze(PrintSpoolerState state)
     {
         ArgumentNullException.ThrowIfNull(state);
+
         return new List<Finding>
         {
-            AnalyzeSpoolerService(state),
-            AnalyzeRestrictDriverInstallation(state),
+            AnalyzeSpoolerRunning(state),
+            AnalyzeRestrictDriverInstall(state),
             AnalyzeNoWarningNoElevation(state),
-            AnalyzeUpdatePromptSettings(state),
-            AnalyzeRemoteRpcEndpoint(state),
+            AnalyzeUpdatePrompt(state),
         };
     }
 
-    /// <summary>Spooler running while nothing is shared/printed is needless attack surface.</summary>
-    public static Finding AnalyzeSpoolerService(PrintSpoolerState state)
+    /// <summary>
+    /// Whether the Print Spooler service is running. A stopped/disabled spooler on a machine
+    /// that does not print removes the entire PrintNightmare-class attack surface and is
+    /// reported as Pass; a running spooler is Info (legitimate, but the hardening checks below
+    /// then apply).
+    /// </summary>
+    public static Finding AnalyzeSpoolerRunning(PrintSpoolerState state)
     {
         ArgumentNullException.ThrowIfNull(state);
         if (!state.SpoolerRunning)
         {
             return Finding.Pass(
                 "Print Spooler service is not running",
-                "The Print Spooler service is stopped/disabled, removing the entire " +
-                "PrintNightmare-class attack surface on this machine.",
-                Category);
-        }
-
-        if (state.SharesPrinters)
-        {
-            return Finding.Pass(
-                "Print Spooler is running and this machine shares printers",
-                "The spooler is running and the machine shares one or more printers, so " +
-                "the service is in legitimate use. Ensure the driver-install hardening " +
-                "below is in place.",
+                "The Print Spooler service is stopped, so this machine does not expose the spooler - removing the entire " +
+                "PrintNightmare-class (CVE-2021-34527 and related) print-driver attack surface. This is the safest posture " +
+                "on a machine that does not need to print.",
                 Category);
         }
 
         return Finding.Info(
-            "Print Spooler is running but no printers are shared",
-            "The Print Spooler service is running even though this machine does not " +
-            "share any printers. The spooler is a recurring attack surface " +
-            "(PrintNightmare); if the device never prints it can be disabled entirely.",
+            "Print Spooler service is running",
+            "The Print Spooler service is running. The spooler is a legitimate feature, but it has been the source of a " +
+            "long line of remote-code-execution and local-privilege-escalation bugs (PrintNightmare, CVE-2021-34527 and " +
+            "related). If this machine does not need to print, disabling the spooler removes the entire attack surface; " +
+            "otherwise ensure driver installation is restricted to administrators (see the checks below).",
             Category,
-            remediation: "If printing is not needed, disable the service: " +
-                         "Stop-Service Spooler; Set-Service Spooler -StartupType Disabled.",
-            fixCommand: "Stop-Service Spooler -Force; Set-Service Spooler -StartupType Disabled");
+            remediation: "If printing is not required, disable the Print Spooler service. If it is required, restrict " +
+                "printer-driver installation to administrators and lock down Point-and-Print.");
     }
 
-    /// <summary>The definitive PrintNightmare mitigation: restrict driver install to admins.</summary>
-    public static Finding AnalyzeRestrictDriverInstallation(PrintSpoolerState state)
+    /// <summary>
+    /// RestrictDriverInstallationToAdministrators = 1 is the primary PrintNightmare mitigation:
+    /// only administrators may install printer drivers. 0 or missing lets any user install a
+    /// driver (the exploited condition) and is a Warning.
+    /// </summary>
+    public static Finding AnalyzeRestrictDriverInstall(PrintSpoolerState state)
     {
         ArgumentNullException.ThrowIfNull(state);
-        // Absent (null) is treated as NOT restricted: the mitigation only applies
-        // when the value is explicitly present and set to 1.
-        if (state.RestrictDriverInstallationToAdministrators == 1)
+        if (state.RestrictDriverInstallationToAdministrators)
         {
             return Finding.Pass(
-                "Printer driver installation is restricted to administrators",
-                "RestrictDriverInstallationToAdministrators is 1, so only administrators " +
-                "can install printer drivers. This is the primary PrintNightmare " +
-                "(CVE-2021-34527) mitigation.",
+                "Printer-driver installation is restricted to administrators",
+                "RestrictDriverInstallationToAdministrators = 1, so only administrators may install printer drivers. This " +
+                "is the primary PrintNightmare (CVE-2021-34527) mitigation and blocks the standard non-admin-to-SYSTEM " +
+                "print-driver escalation path.",
                 Category);
         }
 
-        return Finding.Critical(
-            "Printer driver installation is NOT restricted to administrators",
-            "RestrictDriverInstallationToAdministrators is not enabled. Non-admins can " +
-            "trigger printer-driver installation, which is the code-execution path " +
-            "PrintNightmare-class exploits use to run code as SYSTEM.",
+        return Finding.Warning(
+            "Printer-driver installation is not restricted to administrators",
+            "RestrictDriverInstallationToAdministrators is not enabled (0 or missing), so a non-administrator can install " +
+            "printer drivers. This is exactly the condition exploited by PrintNightmare (CVE-2021-34527) and related bugs " +
+            "to escalate from a normal user to SYSTEM.",
             Category,
-            remediation: "Set HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint\\" +
-                         "RestrictDriverInstallationToAdministrators = 1 (DWORD).",
-            fixCommand: "New-Item -Path 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint' -Force | Out-Null; " +
-                        "Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint' -Name RestrictDriverInstallationToAdministrators -Type DWord -Value 1");
+            remediation: "Restrict printer-driver installation to administrators (RestrictDriverInstallationToAdministrators = 1).",
+            fixCommand: "Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint' -Name RestrictDriverInstallationToAdministrators -Value 1 -Type DWord");
     }
 
-    /// <summary>Point-and-Print NoWarningNoElevationOnInstall must be 0 / absent.</summary>
+    /// <summary>
+    /// Point-and-Print NoWarningNoElevationOnInstall = 1 suppresses the elevation prompt when
+    /// installing a driver from a print server, silently allowing a malicious server to push a
+    /// driver. Enabled is a Warning; disabled/absent is a Pass.
+    /// </summary>
     public static Finding AnalyzeNoWarningNoElevation(PrintSpoolerState state)
     {
         ArgumentNullException.ThrowIfNull(state);
-        if (state.NoWarningNoElevationOnInstall == 1)
-        {
-            return Finding.Critical(
-                "Point-and-Print installs drivers with no warning or elevation",
-                "NoWarningNoElevationOnInstall is 1: Windows installs printer drivers " +
-                "silently, with no UAC prompt and no warning. This is exactly the " +
-                "configuration PrintNightmare exploitation depends on.",
-                Category,
-                remediation: "Set the PointAndPrint\\NoWarningNoElevationOnInstall value to 0 (or remove it).",
-                fixCommand: "Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint' -Name NoWarningNoElevationOnInstall -Type DWord -Value 0");
-        }
-
-        return Finding.Pass(
-            "Point-and-Print prompts/elevates on driver install",
-            "NoWarningNoElevationOnInstall is 0 or absent, so driver installation is not " +
-            "silently elevated.",
-            Category);
-    }
-
-    /// <summary>Point-and-Print UpdatePromptSettings must be 0 / absent.</summary>
-    public static Finding AnalyzeUpdatePromptSettings(PrintSpoolerState state)
-    {
-        ArgumentNullException.ThrowIfNull(state);
-        // 0 = prompt on update (safe). 1/2 = suppress warning and/or elevation.
-        if ((state.UpdatePromptSettings ?? 0) != 0)
-        {
-            return Finding.Warning(
-                "Point-and-Print suppresses the prompt on driver update",
-                $"UpdatePromptSettings is {state.UpdatePromptSettings}, which suppresses the " +
-                "warning and/or elevation prompt when an existing printer driver is " +
-                "updated - the same class of risk as silent install.",
-                Category,
-                remediation: "Set the PointAndPrint\\UpdatePromptSettings value to 0 (or remove it).",
-                fixCommand: "Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint' -Name UpdatePromptSettings -Type DWord -Value 0");
-        }
-
-        return Finding.Pass(
-            "Point-and-Print prompts/elevates on driver update",
-            "UpdatePromptSettings is 0 or absent, so driver updates are not silently " +
-            "elevated.",
-            Category);
-    }
-
-    /// <summary>Disabling remote RPC print connections shrinks the remote spooler surface.</summary>
-    public static Finding AnalyzeRemoteRpcEndpoint(PrintSpoolerState state)
-    {
-        ArgumentNullException.ThrowIfNull(state);
-        // 1 = RPC over named pipes and TCP (default, remotely reachable).
-        // 2 = RPC over TCP only combined with RestrictDriverInstallation, or per
-        // MS guidance the value that limits remote connections. We flag anything
-        // other than 2 as Info on a non-print-server, since it is a hardening
-        // opportunity rather than a live vulnerability by itself.
-        if (state.RegisterSpoolerRemoteRpcEndPoint == 2)
+        if (!state.NoWarningNoElevationOnInstall)
         {
             return Finding.Pass(
-                "Remote spooler RPC endpoint is restricted",
-                "RegisterSpoolerRemoteRpcEndPoint is 2, so the spooler does not accept " +
-                "the default remote RPC print connections, shrinking the remote attack " +
-                "surface.",
+                "Point-and-Print does not suppress the install elevation prompt",
+                "NoWarningNoElevationOnInstall is not enabled, so users are still warned / prompted for elevation before a " +
+                "Point-and-Print driver is installed. This preserves a control against a malicious print server silently " +
+                "pushing a driver.",
                 Category);
         }
 
-        if (state.SharesPrinters)
-        {
-            return Finding.Pass(
-                "Remote spooler RPC endpoint is enabled (machine is a print server)",
-                "The spooler accepts remote RPC print connections, which is expected " +
-                "because this machine shares printers. Ensure driver-install hardening " +
-                "is applied.",
-                Category);
-        }
-
-        return Finding.Info(
-            "Remote spooler RPC endpoint is enabled but no printers are shared",
-            "RegisterSpoolerRemoteRpcEndPoint is not set to 2, so the spooler still " +
-            "accepts remote RPC print connections even though this machine does not " +
-            "share printers - unnecessary remote attack surface.",
+        return Finding.Warning(
+            "Point-and-Print suppresses the install elevation prompt",
+            "NoWarningNoElevationOnInstall = 1, so Point-and-Print installs printer drivers without warning or an elevation " +
+            "prompt. A malicious or compromised print server can silently push a driver of its choice, a known " +
+            "PrintNightmare-class code-execution vector.",
             Category,
-            remediation: "On a non-print-server, set HKLM\\SYSTEM\\CurrentControlSet\\Control\\Print\\" +
-                         "RegisterSpoolerRemoteRpcEndPoint = 2 (DWORD) to block inbound remote print RPC.",
-            fixCommand: "Set-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Print' -Name RegisterSpoolerRemoteRpcEndPoint -Type DWord -Value 2");
+            remediation: "Do not suppress the Point-and-Print install prompt (NoWarningNoElevationOnInstall = 0).",
+            fixCommand: "Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint' -Name NoWarningNoElevationOnInstall -Value 0 -Type DWord");
+    }
+
+    /// <summary>
+    /// Point-and-Print UpdatePromptSettings != 0 suppresses the prompt when a driver is
+    /// *updated* from a print server - another silent-driver-push vector. Non-zero is a
+    /// Warning; 0 (prompt) is a Pass.
+    /// </summary>
+    public static Finding AnalyzeUpdatePrompt(PrintSpoolerState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        if (state.UpdatePromptSettings == 0)
+        {
+            return Finding.Pass(
+                "Point-and-Print does not suppress the update elevation prompt",
+                "UpdatePromptSettings = 0, so users are still prompted before a Point-and-Print driver is updated. This " +
+                "keeps a control against a malicious print server silently pushing an updated driver.",
+                Category);
+        }
+
+        return Finding.Warning(
+            "Point-and-Print suppresses the update elevation prompt",
+            $"UpdatePromptSettings = {state.UpdatePromptSettings} (non-zero), so Point-and-Print updates printer drivers " +
+            "without warning or an elevation prompt. As with the install prompt, this lets a malicious print server " +
+            "silently push a driver update - a PrintNightmare-class code-execution vector.",
+            Category,
+            remediation: "Do not suppress the Point-and-Print update prompt (UpdatePromptSettings = 0).",
+            fixCommand: "Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows NT\\Printers\\PointAndPrint' -Name UpdatePromptSettings -Value 0 -Type DWord");
     }
 }
 
 /// <summary>
-/// Raw, collector-supplied Print Spooler / Point-and-Print state. Populated by the
-/// audit module's I/O layer and handed to <see cref="PrintSpoolerAnalyzer"/> for a
-/// pure decision. Null numeric fields mean "value absent / not readable"; the
-/// analyzer treats absence conservatively (a mitigation that is not explicitly
-/// present is treated as not applied).
+/// Raw, collector-supplied Print Spooler / PrintNightmare hardening state. Populated by the
+/// audit module's I/O layer (querying the Print Spooler service and reading
+/// <c>HKLM\SOFTWARE\Policies\Microsoft\Windows NT\Printers\PointAndPrint</c>) and handed to
+/// <see cref="PrintSpoolerAnalyzer"/> for a pure decision. Defaults are chosen so an unreadable
+/// value never false-positives the dangerous posture: the spooler defaults to not-running,
+/// driver installation defaults to restricted, and both Point-and-Print prompt-suppression
+/// settings default to the safe (prompting) value.
 /// </summary>
 public sealed record PrintSpoolerState
 {
-    /// <summary>Whether the Print Spooler (Spooler) service is currently running.</summary>
+    /// <summary>Whether the Print Spooler service is running. Secure default <c>false</c> (spooler off).</summary>
     public bool SpoolerRunning { get; init; }
 
-    /// <summary>Whether this machine shares one or more printers (acts as a print server).</summary>
-    public bool SharesPrinters { get; init; }
+    /// <summary>
+    /// Whether printer-driver installation is restricted to administrators
+    /// (RestrictDriverInstallationToAdministrators = 1). Secure default <c>true</c>.
+    /// </summary>
+    public bool RestrictDriverInstallationToAdministrators { get; init; } = true;
 
-    /// <summary>PointAndPrint\RestrictDriverInstallationToAdministrators (DWORD). 1 = admins only.</summary>
-    public int? RestrictDriverInstallationToAdministrators { get; init; }
+    /// <summary>
+    /// Whether Point-and-Print suppresses the install elevation prompt
+    /// (NoWarningNoElevationOnInstall = 1). Secure default <c>false</c> (prompt shown).
+    /// </summary>
+    public bool NoWarningNoElevationOnInstall { get; init; }
 
-    /// <summary>PointAndPrint\NoWarningNoElevationOnInstall (DWORD). 1 = silent, elevated install.</summary>
-    public int? NoWarningNoElevationOnInstall { get; init; }
-
-    /// <summary>PointAndPrint\UpdatePromptSettings (DWORD). non-zero = suppresses update prompt.</summary>
-    public int? UpdatePromptSettings { get; init; }
-
-    /// <summary>Control\Print\RegisterSpoolerRemoteRpcEndPoint (DWORD). 2 = remote RPC restricted.</summary>
-    public int? RegisterSpoolerRemoteRpcEndPoint { get; init; }
+    /// <summary>
+    /// Point-and-Print update prompt setting (UpdatePromptSettings). 0 = prompt (secure).
+    /// Secure default 0.
+    /// </summary>
+    public int UpdatePromptSettings { get; init; }
 }

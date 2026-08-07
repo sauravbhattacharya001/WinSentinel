@@ -30,6 +30,11 @@ namespace WinSentinel.Core.Audits;
 ///                          free reconnaissance channel (user lists to spray, the
 ///                          real admin account name, share paths) before they
 ///                          have any credential at all.
+///   * LimitBlankPasswordUse - when 1 (the OS default), accounts that have a
+///                          BLANK password can only be used at the physical
+///                          console, never over the network (RDP, SMB, remote
+///                          service logon). Set to 0 it lets a blank-password
+///                          account authenticate remotely - a trivial foothold.
 ///   * CachedLogonsCount  - number of domain logons cached for offline use; a
 ///                          large value means more replayable secrets on a lost
 ///                          laptop. 10 is the default; &gt;10 is worth flagging.
@@ -77,6 +82,7 @@ public static class LsaHardeningAnalyzer
             AnalyzeNoLmHash(state),
             AnalyzeLmCompatibilityLevel(state),
             AnalyzeAnonymousAccess(state),
+            AnalyzeLimitBlankPasswordUse(state),
             AnalyzeCachedLogons(state),
             AnalyzeAutoLogon(state),
         };
@@ -259,6 +265,43 @@ public static class LsaHardeningAnalyzer
             Category);
     }
 
+    /// <summary>
+    /// LimitBlankPasswordUse (HKLM\SYSTEM\...\Control\Lsa\LimitBlankPasswordUse)
+    /// restricts local accounts that have a BLANK password to console-only logon.
+    /// The Windows default and the CIS-hardened value is 1: such accounts can sign
+    /// in only at the physical keyboard, never over the network (RDP, SMB, remote
+    /// service logon, WinRM). Set to 0 it lets any local account with an empty
+    /// password authenticate remotely - a trivial, credential-free foothold on the
+    /// box. Absence is treated as the OS default (1), which is a Pass; only an
+    /// explicit 0 is flagged.
+    /// </summary>
+    public static Finding AnalyzeLimitBlankPasswordUse(LsaHardeningState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+
+        // Null / unreadable -> treat as the OS default (1); nothing to flag.
+        int value = state.LimitBlankPasswordUse ?? 1;
+        if (value != 0)
+        {
+            return Finding.Pass(
+                "Blank passwords are limited to console logon",
+                "LimitBlankPasswordUse is 1: local accounts with a blank password can only " +
+                "sign in at the physical console, not over the network (RDP, SMB, remote " +
+                "service logon).",
+                Category);
+        }
+
+        return Finding.Critical(
+            "Blank-password accounts can authenticate remotely",
+            "LimitBlankPasswordUse is 0: a local account that has an empty password can be " +
+            "used to authenticate OVER THE NETWORK (RDP, SMB, remote service logon), giving an " +
+            "attacker a credential-free remote foothold on this machine.",
+            Category,
+            remediation: "Set HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa\\LimitBlankPasswordUse = 1 (DWORD) " +
+                         "to confine blank-password accounts to console logon, and set real passwords on all accounts.",
+            fixCommand: "Set-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa' -Name LimitBlankPasswordUse -Type DWord -Value 1");
+    }
+
     /// <summary>Flag a cached-logon count above the Windows default of 10.</summary>
     public static Finding AnalyzeCachedLogons(LsaHardeningState state)
     {
@@ -352,6 +395,9 @@ public sealed record LsaHardeningState
 
     /// <summary>HKLM\SYSTEM\...\Control\Lsa\EveryoneIncludesAnonymous (DWORD). 1 = anonymous logons inherit Everyone access. Null = OS default (0).</summary>
     public int? EveryoneIncludesAnonymous { get; init; }
+
+    /// <summary>HKLM\SYSTEM\...\Control\Lsa\LimitBlankPasswordUse (DWORD). 1 = blank-password accounts limited to console logon. Null = OS default (1); only 0 is flagged.</summary>
+    public int? LimitBlankPasswordUse { get; init; }
 
     /// <summary>Winlogon\CachedLogonsCount (parsed from the REG_SZ). Null = unset/default.</summary>
     public int? CachedLogonsCount { get; init; }

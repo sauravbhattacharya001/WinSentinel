@@ -8,9 +8,9 @@ namespace WinSentinel.Tests.Audits;
 /// Deterministic unit tests for the pure <see cref="LsaHardeningAnalyzer"/> - the
 /// single-machine LSA / credential-protection registry checks (RunAsPPL, WDigest
 /// plaintext caching, NoLMHash, LmCompatibilityLevel, anonymous null-session
-/// access, cached-logon count, cleartext autologon). Every rule is exercised
-/// directly against a synthetic <see cref="LsaHardeningState"/>; no registry or
-/// I/O is touched.
+/// access, blank-password remote logon, cached-logon count, cleartext autologon).
+/// Every rule is exercised directly against a synthetic
+/// <see cref="LsaHardeningState"/>; no registry or I/O is touched.
 /// </summary>
 public class LsaHardeningAnalyzerTests
 {
@@ -23,6 +23,7 @@ public class LsaHardeningAnalyzerTests
         RestrictAnonymous = 1,
         RestrictAnonymousSam = 1,
         EveryoneIncludesAnonymous = 0,
+        LimitBlankPasswordUse = 1,
         CachedLogonsCount = 10,
         AutoAdminLogon = false,
         DefaultPassword = null,
@@ -38,7 +39,7 @@ public class LsaHardeningAnalyzerTests
     public void Analyze_HardenedState_IsAllPass()
     {
         var findings = Analyze(HardenedState());
-        Assert.Equal(7, findings.Count);
+        Assert.Equal(8, findings.Count);
         Assert.All(findings, f => Assert.Equal(Severity.Pass, f.Severity));
         Assert.All(findings, f => Assert.Equal("Credentials", f.Category));
     }
@@ -141,6 +142,23 @@ public class LsaHardeningAnalyzerTests
         Assert.Equal(Severity.Pass, f.Severity);
     }
 
+    [Fact]
+    public void LimitBlankPasswordUse_Zero_IsCritical_WithFix()
+    {
+        // Explicit 0 -> blank-password accounts can authenticate over the network.
+        var f = AnalyzeLimitBlankPasswordUse(HardenedState() with { LimitBlankPasswordUse = 0 });
+        Assert.Equal(Severity.Critical, f.Severity);
+        Assert.Contains("LimitBlankPasswordUse", f.FixCommand);
+    }
+
+    [Fact]
+    public void LimitBlankPasswordUse_OneOrNull_Passes()
+    {
+        // 1 = hardened; null = OS default (1). Both pass.
+        Assert.Equal(Severity.Pass, AnalyzeLimitBlankPasswordUse(HardenedState() with { LimitBlankPasswordUse = 1 }).Severity);
+        Assert.Equal(Severity.Pass, AnalyzeLimitBlankPasswordUse(HardenedState() with { LimitBlankPasswordUse = null }).Severity);
+    }
+
     [Theory]
     [InlineData(10, Severity.Pass)]
     [InlineData(0, Severity.Pass)]
@@ -190,11 +208,12 @@ public class LsaHardeningAnalyzerTests
             RestrictAnonymous = 0,
             RestrictAnonymousSam = 0,
             EveryoneIncludesAnonymous = 1,
+            LimitBlankPasswordUse = 0,
             CachedLogonsCount = 25,
             AutoAdminLogon = true,
             DefaultPassword = "P@ssw0rd",
         });
-        Assert.Equal(7, findings.Count);
+        Assert.Equal(8, findings.Count);
         Assert.Contains(findings, f => f.Severity == Severity.Critical);
         Assert.DoesNotContain(findings, f => f.Severity == Severity.Pass);
     }

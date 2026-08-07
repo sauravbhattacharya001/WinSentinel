@@ -54,6 +54,7 @@ public class AuditEngine
             new RdpHardeningAudit(),
             new PrintSpoolerAudit(),
             new KerberosHardeningAudit(),
+            new CredentialGuardAudit(),
         };
     }
 

@@ -22,7 +22,7 @@ jobs:
         target: [cli, service]
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
 
     - name: Determine image name
       id: image

@@ -55,6 +55,7 @@ public class AuditEngine
             new PrintSpoolerAudit(),
             new KerberosHardeningAudit(),
             new CredentialGuardAudit(),
+            new AttachmentManagerAudit(),
         };
     }
 

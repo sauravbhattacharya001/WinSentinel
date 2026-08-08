@@ -78,6 +78,23 @@ public class AuditEngineTests
     }
 
     [Fact]
+    public void DefaultConstructor_RegistersLsaHardeningAudit()
+    {
+        var engine = new AuditEngine();
+        Assert.Contains(engine.Modules, m => m is LsaHardeningAudit);
+    }
+
+    [Fact]
+    public void LsaHardeningAudit_CollectState_DoesNotThrow()
+    {
+        // The collector reads only local HKLM registry state; absent keys must map to null/false
+        // (the analyzer then applies the OS default per key) rather than throwing, so a scan on any
+        // host is safe and always yields the full finding set.
+        var state = LsaHardeningAudit.CollectState();
+        Assert.NotNull(state);
+        Assert.NotEmpty(LsaHardeningAnalyzer.Analyze(state));
+    }
+    [Fact]
     public void CustomConstructor_UsesProvidedModules()
     {
         var modules = new IAuditModule[] { new FirewallAudit() };

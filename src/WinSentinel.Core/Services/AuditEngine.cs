@@ -58,6 +58,7 @@ public class AuditEngine
             new AttachmentManagerAudit(),
             new ScreenLockAudit(),
             new WindowsScriptHostAudit(),
+            new LsaHardeningAudit(),
         };
     }
 

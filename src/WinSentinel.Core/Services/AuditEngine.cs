@@ -57,6 +57,7 @@ public class AuditEngine
             new CredentialGuardAudit(),
             new AttachmentManagerAudit(),
             new ScreenLockAudit(),
+            new WindowsScriptHostAudit(),
         };
     }
 

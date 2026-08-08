@@ -61,6 +61,23 @@ public class AuditEngineTests
     }
 
     [Fact]
+    public void DefaultConstructor_RegistersWindowsScriptHostAudit()
+    {
+        var engine = new AuditEngine();
+        Assert.Contains(engine.Modules, m => m is WindowsScriptHostAudit);
+    }
+
+    [Fact]
+    public void WindowsScriptHostAudit_CollectState_DoesNotThrow()
+    {
+        // The collector reads only local HKLM/HKCU registry state; absent keys must map to null
+        // (WSH-enabled default) rather than throwing, so a scan on any host is safe.
+        var state = WindowsScriptHostAudit.CollectState();
+        Assert.NotNull(state);
+        Assert.NotEmpty(WindowsScriptHostAnalyzer.Analyze(state));
+    }
+
+    [Fact]
     public void CustomConstructor_UsesProvidedModules()
     {
         var modules = new IAuditModule[] { new FirewallAudit() };

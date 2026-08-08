@@ -56,6 +56,7 @@ public class AuditEngine
             new KerberosHardeningAudit(),
             new CredentialGuardAudit(),
             new AttachmentManagerAudit(),
+            new ScreenLockAudit(),
         };
     }
 

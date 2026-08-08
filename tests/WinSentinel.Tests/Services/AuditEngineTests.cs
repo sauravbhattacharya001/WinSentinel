@@ -40,6 +40,24 @@ public class AuditEngineTests
         Assert.Contains("ScheduledTasks", categories);
         Assert.Contains("Services", categories);
         Assert.Contains("Registry", categories);
+        Assert.Contains("Session Security", categories);
+    }
+
+    [Fact]
+    public void DefaultConstructor_RegistersSessionLockAudit()
+    {
+        var engine = new AuditEngine();
+        Assert.Contains(engine.Modules, m => m is ScreenLockAudit);
+    }
+
+    [Fact]
+    public void ScreenLockAudit_CollectState_DoesNotThrow()
+    {
+        // The collector reads only local HKLM/HKCU registry state; absent keys must map to the
+        // insecure defaults (null/false) rather than throwing, so a scan on any host is safe.
+        var state = ScreenLockAudit.CollectState();
+        Assert.NotNull(state);
+        Assert.NotEmpty(ScreenLockAnalyzer.Analyze(state));
     }
 
     [Fact]

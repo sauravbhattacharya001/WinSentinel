@@ -60,6 +60,7 @@ public class AuditEngine
             new WindowsScriptHostAudit(),
             new LsaHardeningAudit(),
             new WindowsInstallerAudit(),
+            new WindowsRecallAudit(),
         };
     }
 

@@ -59,6 +59,7 @@ public class AuditEngine
             new ScreenLockAudit(),
             new WindowsScriptHostAudit(),
             new LsaHardeningAudit(),
+            new WindowsInstallerAudit(),
         };
     }
 

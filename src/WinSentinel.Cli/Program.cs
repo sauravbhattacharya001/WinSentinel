@@ -974,9 +974,12 @@ static async Task<int> HandleExport(CliOptions options)
     }
     var fmt = resolved ?? "json";
 
-    if (fmt is not ("json" or "csv" or "sarif" or "markdown"))
+    // Defense in depth: ResolveExportFormat already rejects unknown explicit
+    // formats, but a flag-inferred value must still be one we can emit. Both this
+    // check and the message read from ExportCommandHelpers.SupportedFormats.
+    if (!ExportCommandHelpers.IsSupportedFormat(fmt))
     {
-        ConsoleFormatter.PrintError($"Unknown export format: '{options.ExportFormat}'. Supported: json, csv, sarif, markdown.");
+        ConsoleFormatter.PrintError($"Unknown export format: '{options.ExportFormat}'. Supported: {ExportCommandHelpers.SupportedFormatsList}.");
         return 2;
     }
 

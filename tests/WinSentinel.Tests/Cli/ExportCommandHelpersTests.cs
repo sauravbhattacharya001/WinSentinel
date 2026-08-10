@@ -147,4 +147,36 @@ public class ExportCommandHelpersTests
     {
         Assert.Equal(string.Empty, ExportCommandHelpers.ExtensionForFormat(fmt));
     }
+
+    [Theory]
+    [InlineData("json")]
+    [InlineData("csv")]
+    [InlineData("sarif")]
+    [InlineData("markdown")]
+    [InlineData("JSON")]
+    [InlineData("  Sarif  ")]
+    public void IsSupportedFormat_KnownFormats_CaseInsensitiveAndTrimmed(string fmt)
+    {
+        Assert.True(ExportCommandHelpers.IsSupportedFormat(fmt));
+    }
+
+    [Theory]
+    [InlineData("yaml")]
+    [InlineData("xml")]
+    [InlineData("md")]   // alias, not accepted until ResolveExportFormat normalizes it
+    [InlineData("")]
+    [InlineData(null)]
+    public void IsSupportedFormat_UnknownOrAlias_IsFalse(string? fmt)
+    {
+        Assert.False(ExportCommandHelpers.IsSupportedFormat(fmt));
+    }
+
+    [Fact]
+    public void SupportedFormatsList_MatchesSupportedFormats()
+    {
+        Assert.Equal(string.Join(", ", ExportCommandHelpers.SupportedFormats),
+            ExportCommandHelpers.SupportedFormatsList);
+        Assert.Equal("json, csv, sarif, markdown", ExportCommandHelpers.SupportedFormatsList);
+    }
+
 }

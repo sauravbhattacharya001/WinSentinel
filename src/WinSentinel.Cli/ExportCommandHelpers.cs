@@ -12,6 +12,31 @@ namespace WinSentinel.Cli;
 public static class ExportCommandHelpers
 {
     /// <summary>
+    /// The set of export formats WinSentinel can emit, in stable display order.
+    /// Single source of truth: both <see cref="ResolveExportFormat"/>'s
+    /// unknown-format rejection and the handler's supported-list message read
+    /// from here, so they can never drift apart.
+    /// </summary>
+    public static readonly IReadOnlyList<string> SupportedFormats = new[]
+    {
+        "json", "csv", "sarif", "markdown",
+    };
+
+    /// <summary>
+    /// True when <paramref name="fmt"/> is a format WinSentinel can export
+    /// (case-insensitive). Aliases like <c>md</c> are NOT accepted here; they
+    /// are normalized first by <see cref="ResolveExportFormat"/>.
+    /// </summary>
+    public static bool IsSupportedFormat(string? fmt)
+        => fmt != null && SupportedFormats.Contains(fmt.Trim().ToLowerInvariant());
+
+    /// <summary>
+    /// A user-facing, comma-separated list of the supported export formats
+    /// (e.g. <c>"json, csv, sarif, markdown"</c>) for error messages.
+    /// </summary>
+    public static string SupportedFormatsList => string.Join(", ", SupportedFormats);
+
+    /// <summary>
     /// Derive the export format from positional/flag inputs.
     /// </summary>
     /// <remarks>
@@ -23,6 +48,8 @@ public static class ExportCommandHelpers
     ///   <item>Nothing set => default to <c>"json"</c> (CI-friendly).</item>
     /// </list>
     /// Two or more flag forms at once is a hard error to avoid silent surprises.
+    /// This method only resolves/normalizes; the caller validates the result
+    /// against <see cref="SupportedFormats"/> via <see cref="IsSupportedFormat"/>.
     /// </remarks>
     /// <returns>
     /// (Format, Error). Exactly one is non-null on a clean call:

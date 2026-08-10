@@ -175,24 +175,52 @@ public class NetworkAuditTests : IAsyncLifetime
     [Fact]
     public void RunAuditAsync_ChecksSmbV1()
     {
-        var smbv1Findings = _result.Findings
+        // Deterministic: SMBv1 emits a finding only for a known Enabled/Disabled state;
+        // an Unknown live read produces none, so drive the analyzer with a known state.
+        var state = new NetworkPostureAnalyzer.NetworkState
+        {
+            Smbv1 = Toggle.Enabled,
+        };
+        var result = new AuditResult
+        {
+            ModuleName = _audit.Name,
+            Category = _audit.Category,
+        };
+        _audit.AnalyzeState(state, result);
+
+        var smbv1Findings = result.Findings
             .Where(f => f.Title.Contains("SMBv1", StringComparison.OrdinalIgnoreCase) ||
                         f.Title.Contains("SMB1", StringComparison.OrdinalIgnoreCase))
             .ToList();
 
         Assert.True(smbv1Findings.Count >= 1,
-            "Expected at least 1 SMBv1 finding (enabled=Critical or disabled=Pass)");
+            "Expected at least 1 SMBv1 finding when SMBv1 is enabled (Critical)");
     }
 
     [Fact]
     public void RunAuditAsync_ChecksSmbSigning()
     {
-        var smbSigningFindings = _result.Findings
+        // Deterministic: the live host may report SMB signing as Unknown (unreadable),
+        // in which case the analyzer emits no SMB-signing sub-finding by design, so
+        // asserting on _result (live state) is host-dependent and flaky. Drive the pure
+        // analyzer with a known state so the SMB-signing check is verified on any runner.
+        var state = new NetworkPostureAnalyzer.NetworkState
+        {
+            SmbSigningRequired = Toggle.Disabled,
+        };
+        var result = new AuditResult
+        {
+            ModuleName = _audit.Name,
+            Category = _audit.Category,
+        };
+        _audit.AnalyzeState(state, result);
+
+        var smbSigningFindings = result.Findings
             .Where(f => f.Title.Contains("SMB Signing", StringComparison.OrdinalIgnoreCase))
             .ToList();
 
         Assert.True(smbSigningFindings.Count >= 1,
-            "Expected at least 1 SMB signing finding");
+            "Expected at least 1 SMB signing finding when server signing is not required");
     }
 
     [Fact]
@@ -320,18 +348,31 @@ public class NetworkAuditTests : IAsyncLifetime
     [Fact]
     public void RunAuditAsync_NetBiosWarningHasFixCommand()
     {
-        var nbWarning = _result.Findings
-            .FirstOrDefault(f => f.Title.Contains("NetBIOS", StringComparison.OrdinalIgnoreCase) &&
+        // Deterministic: several distinct NetBIOS-titled warnings can fire (NBT-NS over
+        // TCP/IP, and NetBIOS Name-Release-on-Demand), each with its own fix command, so
+        // FirstOrDefault on a live result is both host-dependent AND may grab the wrong
+        // one. Drive the analyzer with a state that has an adapter with NBT enabled and
+        // assert on the specific "NetBIOS over TCP/IP" warning.
+        var state = new NetworkPostureAnalyzer.NetworkState();
+        state.NetBiosAdapterCount = 1;
+        state.NetBiosEnabledAdapters.Add("Ethernet0");
+        var result = new AuditResult
+        {
+            ModuleName = _audit.Name,
+            Category = _audit.Category,
+        };
+        _audit.AnalyzeState(state, result);
+
+        var nbWarning = result.Findings
+            .FirstOrDefault(f => f.Title.Contains("NetBIOS over TCP/IP", StringComparison.OrdinalIgnoreCase) &&
                                  f.Severity == Severity.Warning);
 
-        if (nbWarning != null)
-        {
-            Assert.False(string.IsNullOrWhiteSpace(nbWarning.Remediation),
-                "NetBIOS warning should have remediation advice");
-            Assert.False(string.IsNullOrWhiteSpace(nbWarning.FixCommand),
-                "NetBIOS warning should have a fix command");
-            Assert.Contains("SetTcpipNetbios", nbWarning.FixCommand);
-        }
+        Assert.NotNull(nbWarning);
+        Assert.False(string.IsNullOrWhiteSpace(nbWarning.Remediation),
+            "NetBIOS warning should have remediation advice");
+        Assert.False(string.IsNullOrWhiteSpace(nbWarning.FixCommand),
+            "NetBIOS warning should have a fix command");
+        Assert.Contains("SetTcpipNetbios", nbWarning.FixCommand);
     }
 
     // ─────────────────────────────────────────────────────────────────────

@@ -61,6 +61,7 @@ public class AuditEngine
             new LsaHardeningAudit(),
             new WindowsInstallerAudit(),
             new WindowsRecallAudit(),
+            new OfficeMacroSecurityAudit(),
         };
     }
 

@@ -62,6 +62,7 @@ public class AuditEngine
             new WindowsInstallerAudit(),
             new WindowsRecallAudit(),
             new OfficeMacroSecurityAudit(),
+            new RemoteAccessAudit(),
         };
     }
 

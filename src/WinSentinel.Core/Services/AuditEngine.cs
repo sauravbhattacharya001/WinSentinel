@@ -63,6 +63,11 @@ public class AuditEngine
             new WindowsRecallAudit(),
             new OfficeMacroSecurityAudit(),
             new RemoteAccessAudit(),
+            new CredentialExposureAudit(),
+            new GroupPolicyAudit(),
+            new VirtualizationAudit(),
+            new WifiAudit(),
+            new BluetoothAudit(),
         };
     }
 

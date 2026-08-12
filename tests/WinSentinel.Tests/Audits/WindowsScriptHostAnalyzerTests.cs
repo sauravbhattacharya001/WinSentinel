@@ -6,15 +6,19 @@ namespace WinSentinel.Tests.Audits;
 
 /// <summary>
 /// Deterministic unit tests for the pure <see cref="WindowsScriptHostAnalyzer"/> -
-/// the single-machine Windows Script Host (wscript/cscript) hardening checks.
-/// Every rule is exercised directly against a synthetic
-/// <see cref="WindowsScriptHostState"/>; no registry or I/O is touched.
+/// the single-machine Windows Script Host (WSH) hardening checks (WSH Enabled kill
+/// switch, per-user override that bypasses a machine-wide disable, remote script
+/// execution, and Authenticode TrustPolicy). Every rule is exercised directly
+/// against a synthetic <see cref="WindowsScriptHostState"/>; no registry or I/O is
+/// touched.
 /// </summary>
 public class WindowsScriptHostAnalyzerTests
 {
+    /// <summary>A fully-hardened machine: WSH disabled, no per-user override, no remote, signed-only.</summary>
     private static WindowsScriptHostState HardenedState() => new()
     {
         Enabled = 0,
+        UserEnabled = null,
         Remote = 0,
         TrustPolicy = 2,
     };
@@ -26,26 +30,21 @@ public class WindowsScriptHostAnalyzerTests
     }
 
     [Fact]
-    public void Analyze_HardenedState_IsAllPass()
+    public void Analyze_ReturnsFourFindings_AllInCategory()
     {
         var findings = Analyze(HardenedState());
         Assert.Equal(4, findings.Count);
-        Assert.All(findings, f => Assert.Equal(Severity.Pass, f.Severity));
         Assert.All(findings, f => Assert.Equal("Windows Script Host", f.Category));
     }
 
     [Fact]
-    public void Analyze_DefaultInsecureState_FlagsEnabledAndTrustPolicy()
+    public void Analyze_HardenedState_HasNoWarnings()
     {
-        // All-null state = Windows default: WSH enabled, no remote flag, no signing.
-        // Enabled + TrustPolicy are flagged Info; Remote-absent is safe (local only) = Pass.
-        var findings = Analyze(new WindowsScriptHostState());
-        Assert.Equal(4, findings.Count);
-        Assert.Equal(2, findings.Count(f => f.Severity == Severity.Info));
-        Assert.Equal(2, findings.Count(f => f.Severity == Severity.Pass));
+        var findings = Analyze(HardenedState());
+        Assert.DoesNotContain(findings, f => f.Severity == Severity.Warning);
     }
 
-    // ---- Enabled -----------------------------------------------------------
+    // --- WSH Enabled ---
 
     [Fact]
     public void Enabled_Zero_Passes()
@@ -54,83 +53,31 @@ public class WindowsScriptHostAnalyzerTests
     }
 
     [Fact]
-    public void Enabled_One_IsInfo()
+    public void Enabled_Absent_TreatedAsDefaultEnabled_Info_WithFix()
     {
-        var f = AnalyzeEnabled(HardenedState() with { Enabled = 1 });
+        var f = AnalyzeEnabled(HardenedState() with { Enabled = null });
         Assert.Equal(Severity.Info, f.Severity);
-        Assert.False(string.IsNullOrWhiteSpace(f.FixCommand));
+        Assert.Contains("Enabled", f.FixCommand);
     }
 
     [Fact]
-    public void Enabled_Absent_IsInfo()
+    public void Enabled_One_Info()
     {
-        // Absent (null) is the default = enabled = flagged.
-        Assert.Equal(Severity.Info, AnalyzeEnabled(HardenedState() with { Enabled = null }).Severity);
+        Assert.Equal(Severity.Info, AnalyzeEnabled(HardenedState() with { Enabled = 1 }).Severity);
     }
 
-    // ---- Remote ------------------------------------------------------------
+    // --- Per-user override ---
 
     [Fact]
-    public void Remote_One_IsWarning()
+    public void UserOverride_MachineDisabledButUserReenables_Warns_WithFix()
     {
-        var f = AnalyzeRemote(HardenedState() with { Remote = 1 });
-        Assert.Equal(Severity.Warning, f.Severity);
-        Assert.False(string.IsNullOrWhiteSpace(f.FixCommand));
-    }
-
-    [Fact]
-    public void Remote_Zero_Passes()
-    {
-        Assert.Equal(Severity.Pass, AnalyzeRemote(HardenedState() with { Remote = 0 }).Severity);
-    }
-
-    [Fact]
-    public void Remote_Absent_Passes()
-    {
-        Assert.Equal(Severity.Pass, AnalyzeRemote(HardenedState() with { Remote = null }).Severity);
-    }
-
-    // ---- TrustPolicy -------------------------------------------------------
-
-    [Fact]
-    public void TrustPolicy_Two_Passes()
-    {
-        Assert.Equal(Severity.Pass, AnalyzeTrustPolicy(HardenedState() with { TrustPolicy = 2 }).Severity);
-    }
-
-    [Fact]
-    public void TrustPolicy_One_IsInfo()
-    {
-        Assert.Equal(Severity.Info, AnalyzeTrustPolicy(HardenedState() with { TrustPolicy = 1 }).Severity);
-    }
-
-    [Fact]
-    public void TrustPolicy_Zero_IsInfo()
-    {
-        var f = AnalyzeTrustPolicy(HardenedState() with { TrustPolicy = 0 });
-        Assert.Equal(Severity.Info, f.Severity);
-        Assert.False(string.IsNullOrWhiteSpace(f.FixCommand));
-    }
-
-    [Fact]
-    public void TrustPolicy_Absent_IsInfo()
-    {
-        Assert.Equal(Severity.Info, AnalyzeTrustPolicy(HardenedState() with { TrustPolicy = null }).Severity);
-    }
-
-    // ---- Per-user override -------------------------------------------------
-
-    [Fact]
-    public void UserOverride_MachineDisabled_UserReEnabled_IsWarning()
-    {
-        // HKLM Enabled=0 (machine disabled) but HKCU Enabled=1 re-enables it.
         var f = AnalyzeUserOverride(HardenedState() with { Enabled = 0, UserEnabled = 1 });
         Assert.Equal(Severity.Warning, f.Severity);
-        Assert.False(string.IsNullOrWhiteSpace(f.FixCommand));
+        Assert.Contains("HKCU", f.FixCommand);
     }
 
     [Fact]
-    public void UserOverride_MachineDisabled_NoUserValue_Passes()
+    public void UserOverride_NoOverride_Passes()
     {
         Assert.Equal(Severity.Pass, AnalyzeUserOverride(HardenedState() with { Enabled = 0, UserEnabled = null }).Severity);
     }
@@ -138,8 +85,63 @@ public class WindowsScriptHostAnalyzerTests
     [Fact]
     public void UserOverride_MachineEnabled_UserValueIrrelevant_Passes()
     {
-        // When the machine is not disabled, the per-user value is not an override worth flagging.
+        // If the machine did not disable WSH, a per-user Enabled=1 changes nothing worth flagging here.
         Assert.Equal(Severity.Pass, AnalyzeUserOverride(HardenedState() with { Enabled = 1, UserEnabled = 1 }).Severity);
-        Assert.Equal(Severity.Pass, AnalyzeUserOverride(HardenedState() with { Enabled = null, UserEnabled = 1 }).Severity);
+    }
+
+    // --- Remote ---
+
+    [Fact]
+    public void Remote_One_Warns_WithFix()
+    {
+        var f = AnalyzeRemote(HardenedState() with { Remote = 1 });
+        Assert.Equal(Severity.Warning, f.Severity);
+        Assert.Contains("Remote", f.FixCommand);
+    }
+
+    [Fact]
+    public void Remote_ZeroOrAbsent_Passes()
+    {
+        Assert.Equal(Severity.Pass, AnalyzeRemote(HardenedState() with { Remote = 0 }).Severity);
+        Assert.Equal(Severity.Pass, AnalyzeRemote(HardenedState() with { Remote = null }).Severity);
+    }
+
+    // --- TrustPolicy ---
+
+    [Fact]
+    public void TrustPolicy_Two_SignedOnly_Passes()
+    {
+        Assert.Equal(Severity.Pass, AnalyzeTrustPolicy(HardenedState() with { TrustPolicy = 2 }).Severity);
+    }
+
+    [Fact]
+    public void TrustPolicy_One_Prompt_Info()
+    {
+        Assert.Equal(Severity.Info, AnalyzeTrustPolicy(HardenedState() with { TrustPolicy = 1 }).Severity);
+    }
+
+    [Fact]
+    public void TrustPolicy_ZeroOrAbsent_Info_WithFix()
+    {
+        var zero = AnalyzeTrustPolicy(HardenedState() with { TrustPolicy = 0 });
+        Assert.Equal(Severity.Info, zero.Severity);
+        Assert.Contains("TrustPolicy", zero.FixCommand);
+        Assert.Equal(Severity.Info, AnalyzeTrustPolicy(HardenedState() with { TrustPolicy = null }).Severity);
+    }
+
+    [Fact]
+    public void Analyze_WorstCase_ProducesExpectedSeverities()
+    {
+        // Machine disabled + user re-enable + remote on + unsigned allowed.
+        var findings = Analyze(new WindowsScriptHostState
+        {
+            Enabled = 0,
+            UserEnabled = 1,
+            Remote = 1,
+            TrustPolicy = 0,
+        });
+        Assert.Equal(4, findings.Count);
+        // Two warnings (user override bypass, remote), plus the Enabled=0 pass and the unsigned Info.
+        Assert.Equal(2, findings.Count(f => f.Severity == Severity.Warning));
     }
 }

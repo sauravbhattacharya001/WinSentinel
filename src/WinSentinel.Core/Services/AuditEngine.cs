@@ -68,6 +68,7 @@ public class AuditEngine
             new VirtualizationAudit(),
             new WifiAudit(),
             new BluetoothAudit(),
+            new BackupAudit(),
         };
     }
 

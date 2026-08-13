@@ -48,6 +48,7 @@ public class IdentityCredentialAudit : AuditModuleBase
         CollectCachedCredentials(state);
         CollectLsaProtection(state);
         CollectCredentialGuard(state);
+        CollectWindowsHello(state);
         CollectWDigest(state);
         CollectNtlmLevel(state);
 
@@ -338,7 +339,43 @@ public class IdentityCredentialAudit : AuditModuleBase
         }
         catch
         {
-            // Registry access restricted — leave DeviceGuardKeyPresent=false.
+            // Registry access restricted -- leave DeviceGuardKeyPresent=false.
+        }
+    }
+
+    /// <summary>
+    /// Collects Windows Hello for Business posture from the PassportForWork policy key.
+    /// </summary>
+    private void CollectWindowsHello(IdentityCredentialAnalyzer.IdentityState state)
+    {
+        try
+        {
+            using var key = Registry.LocalMachine.OpenSubKey(
+                @"SOFTWARE\Policies\Microsoft\PassportForWork");
+
+            // Key readable even when absent (null) -- absence means WHfB simply not configured.
+            state.PassportKeyReadable = true;
+            if (key == null) return;
+
+            var enabled = key.GetValue("Enabled");
+            state.WindowsHelloEnabled = enabled != null && Convert.ToInt32(enabled) == 1;
+
+            var requireDevice = key.GetValue("RequireSecurityDevice");
+            state.WindowsHelloRequireSecurityDevice =
+                requireDevice != null && Convert.ToInt32(requireDevice) == 1;
+
+            using var pinKey = Registry.LocalMachine.OpenSubKey(
+                @"SOFTWARE\Policies\Microsoft\PassportForWork\PINComplexity");
+            var minPin = pinKey?.GetValue("MinimumPINLength");
+            if (minPin != null)
+            {
+                state.WindowsHelloPinLengthConfigured = true;
+                state.WindowsHelloMinPinLength = Convert.ToInt32(minPin);
+            }
+        }
+        catch
+        {
+            // Registry access restricted -- leave PassportKeyReadable=false (audit stays quiet).
         }
     }
 }

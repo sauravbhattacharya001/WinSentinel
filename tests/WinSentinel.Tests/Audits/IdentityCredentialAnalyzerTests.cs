@@ -807,4 +807,105 @@ public class IdentityCredentialAnalyzerTests
         Assert.Contains(IdentityCredentialAnalyzer.BuildFindings(state), f =>
             f.Title.Contains("Guest") && f.Severity == Severity.Warning);
     }
+
+    // ----------------------------------------------------------------------
+    // Windows Hello for Business (BuildWindowsHelloForBusinessFinding)
+    // ----------------------------------------------------------------------
+
+    [Fact]
+    public void Hello_ReturnsNull_WhenPassportKeyUnreadable()
+    {
+        Assert.Null(IdentityCredentialAnalyzer.BuildWindowsHelloForBusinessFinding(
+            new State { PassportKeyReadable = false }));
+    }
+
+    [Fact]
+    public void Hello_Info_WhenNotEnabled()
+    {
+        var f = IdentityCredentialAnalyzer.BuildWindowsHelloForBusinessFinding(
+            new State { PassportKeyReadable = true, WindowsHelloEnabled = false });
+        Assert.NotNull(f);
+        Assert.Equal(Severity.Info, f!.Severity);
+        Assert.Contains("Not Enabled", f.Title);
+    }
+
+    [Fact]
+    public void Hello_Warning_WhenSoftwareKeysAllowed()
+    {
+        var f = IdentityCredentialAnalyzer.BuildWindowsHelloForBusinessFinding(
+            new State
+            {
+                PassportKeyReadable = true,
+                WindowsHelloEnabled = true,
+                WindowsHelloRequireSecurityDevice = false
+            });
+        Assert.NotNull(f);
+        Assert.Equal(Severity.Warning, f!.Severity);
+        Assert.Contains("Software Keys", f.Title);
+    }
+
+    [Fact]
+    public void Hello_Warning_WhenPinPolicyWeak()
+    {
+        var f = IdentityCredentialAnalyzer.BuildWindowsHelloForBusinessFinding(
+            new State
+            {
+                PassportKeyReadable = true,
+                WindowsHelloEnabled = true,
+                WindowsHelloRequireSecurityDevice = true,
+                WindowsHelloPinLengthConfigured = true,
+                WindowsHelloMinPinLength = 4
+            });
+        Assert.NotNull(f);
+        Assert.Equal(Severity.Warning, f!.Severity);
+        Assert.Contains("Weak PIN Policy", f.Title);
+    }
+
+    [Fact]
+    public void Hello_Pass_WhenEnforcedWithStrongPin()
+    {
+        var f = IdentityCredentialAnalyzer.BuildWindowsHelloForBusinessFinding(
+            new State
+            {
+                PassportKeyReadable = true,
+                WindowsHelloEnabled = true,
+                WindowsHelloRequireSecurityDevice = true,
+                WindowsHelloPinLengthConfigured = true,
+                WindowsHelloMinPinLength = 6
+            });
+        Assert.NotNull(f);
+        Assert.Equal(Severity.Pass, f!.Severity);
+        Assert.Contains("Enforced", f.Title);
+    }
+
+    [Fact]
+    public void Hello_Pass_WhenEnforcedWithDefaultPinPolicy()
+    {
+        var f = IdentityCredentialAnalyzer.BuildWindowsHelloForBusinessFinding(
+            new State
+            {
+                PassportKeyReadable = true,
+                WindowsHelloEnabled = true,
+                WindowsHelloRequireSecurityDevice = true,
+                WindowsHelloPinLengthConfigured = false
+            });
+        Assert.NotNull(f);
+        Assert.Equal(Severity.Pass, f!.Severity);
+    }
+
+    [Fact]
+    public void BuildFindings_IncludesHelloFinding_WhenPassportReadable()
+    {
+        var state = new State { PassportKeyReadable = true, WindowsHelloEnabled = false };
+        Assert.Contains(IdentityCredentialAnalyzer.BuildFindings(state), f =>
+            f.Title.Contains("Windows Hello for Business"));
+    }
+
+    [Fact]
+    public void BuildFindings_OmitsHelloFinding_WhenPassportUnreadable()
+    {
+        var state = new State { PassportKeyReadable = false };
+        Assert.DoesNotContain(IdentityCredentialAnalyzer.BuildFindings(state), f =>
+            f.Title.Contains("Windows Hello for Business"));
+    }
 }

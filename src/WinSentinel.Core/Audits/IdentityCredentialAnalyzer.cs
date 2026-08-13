@@ -62,6 +62,13 @@ public static class IdentityCredentialAnalyzer
     /// <summary>Most-secure LmCompatibilityLevel: send NTLMv2 only, refuse LM and NTLM (CIS Windows L1 2.3.11.7).</summary>
     public const int SecureLmCompatibilityLevel = 5;
 
+    /// <summary>
+    /// CIS-aligned minimum acceptable Windows Hello for Business PIN length.
+    /// A 4-digit convenience PIN is trivially brute-forced on a stolen device;
+    /// 6+ digits (or complexity) is the accepted floor for a key-guarding gesture.
+    /// </summary>
+    public const int MinAcceptableHelloPinLength = 6;
+
     // ──────────────────────────────────────────────────────────────────────
     // Pure JSON name extraction (shared with collection, but side-effect free)
     // ──────────────────────────────────────────────────────────────────────
@@ -536,6 +543,65 @@ public static class IdentityCredentialAnalyzer
             "Disable-LocalUser -Name 'Guest'");
     }
 
+    /// <summary>
+    /// Windows Hello for Business posture. When the PassportForWork policy key is
+    /// unreadable the audit emits nothing (returns <c>null</c>). When WHfB is not
+    /// enabled -> Info. When enabled but a hardware security device is not required
+    /// (software key fallback allowed) -> Warning. When enabled and TPM-required but
+    /// the PIN policy is weak (&lt; <see cref="MinAcceptableHelloPinLength"/>) -> Warning.
+    /// When enabled, TPM-required, and PIN policy is sane -> Pass.
+    /// </summary>
+    public static Finding? BuildWindowsHelloForBusinessFinding(IdentityState state)
+    {
+        if (!state.PassportKeyReadable) return null;
+
+        if (!state.WindowsHelloEnabled)
+        {
+            return Finding.Info(
+                "Windows Hello for Business Not Enabled",
+                "Windows Hello for Business (WHfB) is not enabled on this machine. WHfB replaces the "
+                + "phishable password with a TPM-bound, key-based credential that is released only by a "
+                + "local PIN or biometric gesture, making it phishing-resistant.",
+                Category);
+        }
+
+        if (!state.WindowsHelloRequireSecurityDevice)
+        {
+            return Finding.Warning(
+                "Windows Hello for Business Allows Software Keys",
+                "Windows Hello for Business is enabled but RequireSecurityDevice is not set, so the "
+                + "credential key can be generated in software rather than the TPM. A software-protected "
+                + "key can be exported by a privileged attacker, erasing WHfB's hardware-backed, "
+                + "phishing-resistant guarantee.",
+                Category,
+                "Require a security device (TPM) for Windows Hello for Business so keys are hardware-bound.",
+                @"Set-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\PassportForWork' -Name 'RequireSecurityDevice' -Value 1");
+        }
+
+        if (state.WindowsHelloPinLengthConfigured
+            && state.WindowsHelloMinPinLength < MinAcceptableHelloPinLength)
+        {
+            return Finding.Warning(
+                $"Windows Hello for Business Weak PIN Policy ({state.WindowsHelloMinPinLength})",
+                $"Windows Hello for Business is enabled and TPM-bound, but the minimum PIN length is "
+                + $"{state.WindowsHelloMinPinLength}. The PIN is the local gesture that releases the "
+                + "hardware key; a short numeric PIN is brute-forceable on a lost or stolen device. "
+                + $"CIS recommends a minimum PIN length of at least {MinAcceptableHelloPinLength}.",
+                Category,
+                $"Set the Windows Hello for Business minimum PIN length to at least {MinAcceptableHelloPinLength}.",
+                @"Set-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\PassportForWork\PINComplexity' -Name 'MinimumPINLength' -Value 6");
+        }
+
+        return Finding.Pass(
+            "Windows Hello for Business Enforced",
+            "Windows Hello for Business is enabled, requires a security device (TPM-bound keys), "
+            + (state.WindowsHelloPinLengthConfigured
+                ? $"and enforces a minimum PIN length of {state.WindowsHelloMinPinLength}. "
+                : "with the default PIN policy. ")
+            + "Credentials are hardware-protected and phishing-resistant.",
+            Category);
+    }
+
     public static IReadOnlyList<Finding> BuildFindings(IdentityState state)
     {
         var findings = new List<Finding>
@@ -558,6 +624,10 @@ public static class IdentityCredentialAnalyzer
         if (ntlm is not null) findings.Add(ntlm);
 
         findings.Add(BuildCredentialGuardFinding(state));
+
+        var hello = BuildWindowsHelloForBusinessFinding(state);
+        if (hello is not null) findings.Add(hello);
+
         findings.Add(BuildGuestAccountFinding(state));
 
         return findings;
@@ -649,5 +719,17 @@ public static class IdentityCredentialAnalyzer
         public bool VbsEnabled { get; set; }
         /// <summary>Value of LsaCfgFlags (0 = off, 1 = with UEFI lock, 2 = without lock).</summary>
         public int LsaCfgFlags { get; set; }
+
+        // Windows Hello for Business (PassportForWork policy)
+        /// <summary>True when the PassportForWork policy key could be read (present or absent both count as readable).</summary>
+        public bool PassportKeyReadable { get; set; }
+        /// <summary>True when Windows Hello for Business is enabled (Enabled = 1).</summary>
+        public bool WindowsHelloEnabled { get; set; }
+        /// <summary>True when RequireSecurityDevice = 1 (TPM required; no software key fallback).</summary>
+        public bool WindowsHelloRequireSecurityDevice { get; set; }
+        /// <summary>True when a minimum PIN length policy is explicitly configured.</summary>
+        public bool WindowsHelloPinLengthConfigured { get; set; }
+        /// <summary>Configured minimum PIN length (valid only when configured).</summary>
+        public int WindowsHelloMinPinLength { get; set; }
     }
 }

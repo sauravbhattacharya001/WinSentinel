@@ -152,6 +152,14 @@ public static class PowerShellSecurityAnalyzer
             ("icacls",                     "modifies file ACLs via the icacls LOLBin - commonly used to grant Everyone access or lock out defenders"),
             ("msbuild",                    "in-line code execution via the MSBuild LOLBin (compiles/runs an inline task from XML) - AppLocker/WDAC bypass"),
             ("invoke-command -computername","remote command execution (Invoke-Command -ComputerName) staged from a profile - lateral movement"),
+            ("sc create",                   "creates a Windows service via the sc LOLBin (sc create) - execution/persistence (MITRE T1543.003)"),
+            ("sc.exe create",               "creates a Windows service via the sc LOLBin (sc.exe create) - execution/persistence (MITRE T1543.003)"),
+            ("new-service",                 "creates a Windows service from a profile (New-Service) - execution/persistence (MITRE T1543.003)"),
+            ("sc config",                   "reconfigures a Windows service via the sc LOLBin (sc config) - hijacks a service binPath for execution/persistence"),
+            ("set-service",                 "reconfigures a Windows service from a profile (Set-Service) - service hijack for execution/persistence"),
+            ("reg add",                     "registry write via the reg LOLBin (reg add) - commonly targets Run/RunOnce keys for autostart persistence (MITRE T1547.001)"),
+            ("currentversion\\run",         "writes an autostart Run key (CurrentVersion\\Run) - login persistence (MITRE T1547.001)"),
+            ("enter-pssession",             "opens an interactive remote PowerShell session (Enter-PSSession) staged from a profile - lateral movement (MITRE T1021.006)"),
         };
 
     /// <summary>

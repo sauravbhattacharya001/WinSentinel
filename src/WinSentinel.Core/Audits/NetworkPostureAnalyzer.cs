@@ -41,9 +41,15 @@ public static class NetworkPostureAnalyzer
         1433,  // SQL Server
         1434,  // SQL Browser
         3389,  // RDP
+        5432,  // PostgreSQL
+        3306,  // MySQL / MariaDB
         5900,  // VNC
         5985,  // WinRM HTTP
         5986,  // WinRM HTTPS
+        6379,  // Redis
+        9200,  // Elasticsearch
+        11211, // Memcached
+        27017, // MongoDB
     };
 
     // ──────────────────────────────────────────────────────────────────────

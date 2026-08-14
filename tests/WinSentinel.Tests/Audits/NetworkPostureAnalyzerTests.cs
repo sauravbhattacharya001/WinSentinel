@@ -141,6 +141,12 @@ public class NetworkPostureAnalyzerTests
     [InlineData(1433)]
     [InlineData(3389)]
     [InlineData(5985)]
+    [InlineData(3306)]
+    [InlineData(5432)]
+    [InlineData(6379)]
+    [InlineData(9200)]
+    [InlineData(11211)]
+    [InlineData(27017)]
     public void Ports_KnownHighRiskPortsAreFlagged(int port)
     {
         Assert.Contains(port, HighRiskPorts);

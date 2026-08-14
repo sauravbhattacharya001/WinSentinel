@@ -69,6 +69,7 @@ public class AuditEngine
             new WifiAudit(),
             new BluetoothAudit(),
             new BackupAudit(),
+            new FirewallRuleAudit(),
         };
     }
 

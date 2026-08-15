@@ -36,6 +36,7 @@ public class LsaHardeningAudit : AuditModuleBase
     private const string LsaSubKey = @"SYSTEM\CurrentControlSet\Control\Lsa";
     private const string WDigestSubKey = @"SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest";
     private const string WinlogonSubKey = @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon";
+    private const string Msv10SubKey = @"SYSTEM\CurrentControlSet\Control\Lsa\MSV1_0";
 
     protected override async Task ExecuteAuditAsync(AuditResult result, CancellationToken cancellationToken)
     {
@@ -67,6 +68,7 @@ public class LsaHardeningAudit : AuditModuleBase
             CachedLogonsCount = ReadIntString(RegistryHive.LocalMachine, WinlogonSubKey, "CachedLogonsCount"),
             AutoAdminLogon = ReadBoolString(RegistryHive.LocalMachine, WinlogonSubKey, "AutoAdminLogon"),
             DefaultPassword = ReadString(RegistryHive.LocalMachine, WinlogonSubKey, "DefaultPassword"),
+            RestrictSendingNtlmTraffic = ReadDword(RegistryHive.LocalMachine, Msv10SubKey, "RestrictSendingNTLMTraffic"),
         };
     }
 

@@ -27,6 +27,7 @@ public class LsaHardeningAnalyzerTests
         CachedLogonsCount = 10,
         AutoAdminLogon = false,
         DefaultPassword = null,
+        RestrictSendingNtlmTraffic = 2,
     };
 
     [Fact]
@@ -39,7 +40,7 @@ public class LsaHardeningAnalyzerTests
     public void Analyze_HardenedState_IsAllPass()
     {
         var findings = Analyze(HardenedState());
-        Assert.Equal(8, findings.Count);
+        Assert.Equal(9, findings.Count);
         Assert.All(findings, f => Assert.Equal(Severity.Pass, f.Severity));
         Assert.All(findings, f => Assert.Equal("Credentials", f.Category));
     }
@@ -213,8 +214,31 @@ public class LsaHardeningAnalyzerTests
             AutoAdminLogon = true,
             DefaultPassword = "P@ssw0rd",
         });
-        Assert.Equal(8, findings.Count);
+        Assert.Equal(9, findings.Count);
         Assert.Contains(findings, f => f.Severity == Severity.Critical);
         Assert.DoesNotContain(findings, f => f.Severity == Severity.Pass);
+    }
+
+    [Fact]
+    public void OutgoingNtlm_DenyAll_Passes()
+    {
+        var f = AnalyzeOutgoingNtlm(HardenedState() with { RestrictSendingNtlmTraffic = 2 });
+        Assert.Equal(Severity.Pass, f.Severity);
+    }
+
+    [Fact]
+    public void OutgoingNtlm_AuditOnly_Warns_WithFixToDeny()
+    {
+        var f = AnalyzeOutgoingNtlm(HardenedState() with { RestrictSendingNtlmTraffic = 1 });
+        Assert.Equal(Severity.Warning, f.Severity);
+        Assert.Contains("RestrictSendingNTLMTraffic", f.FixCommand);
+        Assert.Contains("Value 2", f.FixCommand);
+    }
+
+    [Fact]
+    public void OutgoingNtlm_AllowOrAbsent_Warns()
+    {
+        Assert.Equal(Severity.Warning, AnalyzeOutgoingNtlm(HardenedState() with { RestrictSendingNtlmTraffic = 0 }).Severity);
+        Assert.Equal(Severity.Warning, AnalyzeOutgoingNtlm(HardenedState() with { RestrictSendingNtlmTraffic = null }).Severity);
     }
 }

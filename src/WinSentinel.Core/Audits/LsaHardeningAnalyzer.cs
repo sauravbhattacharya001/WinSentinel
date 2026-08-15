@@ -68,6 +68,14 @@ public static class LsaHardeningAnalyzer
     public const int HardenedLmCompatibilityLevel = 5;
 
     /// <summary>
+    /// The hardened value for MSV1_0\RestrictSendingNTLMTraffic: 2 = "Deny all"
+    /// outgoing NTLM authentication to remote servers. 1 = "Audit all" (logs but
+    /// still sends) is a partial control; 0 / absent = "Allow all" (the OS default)
+    /// still leaks NTLM responses that can be captured and relayed.
+    /// </summary>
+    public const int DenyOutgoingNtlm = 2;
+
+    /// <summary>
     /// Evaluate the collected LSA hardening state and return one finding per
     /// check (a Pass when the setting is already safe, a Warning/Critical when
     /// it is not). Ordering is stable and deterministic for diffable reports.
@@ -85,6 +93,7 @@ public static class LsaHardeningAnalyzer
             AnalyzeLimitBlankPasswordUse(state),
             AnalyzeCachedLogons(state),
             AnalyzeAutoLogon(state),
+            AnalyzeOutgoingNtlm(state),
         };
         return findings;
     }
@@ -364,6 +373,57 @@ public static class LsaHardeningAnalyzer
             Category,
             remediation: "Disable autologon by setting Winlogon\\AutoAdminLogon = 0 unless it is required for a kiosk/appliance.");
     }
+
+    /// <summary>
+    /// MSV1_0\RestrictSendingNTLMTraffic controls whether this machine will SEND
+    /// NTLM authentication to remote servers. When it is 0 or absent (the OS
+    /// default), any service that can coerce the machine into authenticating - a
+    /// UNC path, a printer-bug/PetitPotam-style trigger, a malicious link - gets an
+    /// NTLM response it can capture and crack offline or relay to another host to
+    /// move laterally. 2 ("Deny all") refuses outbound NTLM outright (the hardened
+    /// state); 1 ("Audit all") only logs it. Absence is treated as the default
+    /// (Allow) and reported as a Warning.
+    /// </summary>
+    public static Finding AnalyzeOutgoingNtlm(LsaHardeningState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        int level = state.RestrictSendingNtlmTraffic ?? 0; // OS default = Allow all
+
+        if (level >= DenyOutgoingNtlm)
+        {
+            return Finding.Pass(
+                "Outgoing NTLM authentication is denied (RestrictSendingNTLMTraffic 2)",
+                "RestrictSendingNTLMTraffic is 2 (Deny all): the machine refuses to send NTLM " +
+                "to remote servers, so it cannot be coerced into leaking a relayable/crackable " +
+                "NTLM response.",
+                Category);
+        }
+
+        if (level == 1)
+        {
+            return Finding.Warning(
+                "Outgoing NTLM is only audited, not blocked",
+                "RestrictSendingNTLMTraffic is 1 (Audit all): outbound NTLM is logged but still " +
+                "SENT, so a coercion attack (UNC path, PetitPotam-style trigger) can still capture " +
+                "and relay this machine's NTLM response. Move to 2 (Deny all) once the audit logs " +
+                "show no legitimate NTLM is required.",
+                Category,
+                remediation: "After reviewing the NTLM audit events, set HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa\\MSV1_0\\RestrictSendingNTLMTraffic = 2 (DWORD).",
+                fixCommand: "Set-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa\\MSV1_0' -Name RestrictSendingNTLMTraffic -Type DWord -Value 2");
+        }
+
+        return Finding.Warning(
+            "Outgoing NTLM authentication is allowed (RestrictSendingNTLMTraffic off)",
+            "RestrictSendingNTLMTraffic is 0 or absent (Allow all): the machine will send NTLM " +
+            "to any remote server that asks. An attacker who can coerce authentication (a booby-trapped " +
+            "UNC path, a printer-bug/PetitPotam trigger, or a phishing link) captures an NTLMv2 response " +
+            "to crack offline or relay to another host for lateral movement. Start with 1 (Audit all) to " +
+            "find legitimate NTLM, then move to 2 (Deny all).",
+            Category,
+            remediation: "Set HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa\\MSV1_0\\RestrictSendingNTLMTraffic = 1 (Audit) first, " +
+                         "review the events, then set it to 2 (Deny all). Add server exceptions via RestrictSendingNTLMTraffic ClientExceptionServers if needed.",
+            fixCommand: "Set-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa\\MSV1_0' -Name RestrictSendingNTLMTraffic -Type DWord -Value 1");
+    }
 }
 
 /// <summary>
@@ -407,4 +467,10 @@ public sealed record LsaHardeningState
 
     /// <summary>Winlogon\DefaultPassword raw value, if present (indicates a cleartext stored password).</summary>
     public string? DefaultPassword { get; init; }
+
+    /// <summary>
+    /// MSV1_0\RestrictSendingNTLMTraffic: 0/absent = Allow all outbound NTLM (OS default),
+    /// 1 = Audit all, 2 = Deny all. Null means the value was absent / not readable.
+    /// </summary>
+    public int? RestrictSendingNtlmTraffic { get; init; }
 }

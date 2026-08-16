@@ -49,6 +49,7 @@ public class AuditEngine
             new WerExposureAudit(),
             new ExploitMitigationAudit(),
             new TimeSyncSecurityAudit(),
+            new NetworkProtectionAudit(),
             new InteractiveLogonAudit(),
             new AutoSignOnAudit(),
             new RdpHardeningAudit(),

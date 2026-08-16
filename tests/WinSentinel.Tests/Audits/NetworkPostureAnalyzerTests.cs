@@ -42,6 +42,7 @@ public class NetworkPostureAnalyzerTests
         IrdpHardened = Toggle.Enabled,
         DeadGatewayHardened = Toggle.Enabled,
         NoNameReleaseHardened = Toggle.Enabled,
+        NbtNodeTypeHardened = Toggle.Enabled,
         TcpMaxDataRetransmissionsHardened = Toggle.Enabled,
         TcpMaxConnectResponseRetransmissionsHardened = Toggle.Enabled,
     };
@@ -62,6 +63,7 @@ public class NetworkPostureAnalyzerTests
         Llmnr = Toggle.Enabled,
         NetBiosEnabledAdapters = new() { "Intel(R) Ethernet" },
         NetBiosAdapterCount = 1,
+        NbtNodeTypeHardened = Toggle.Disabled,
         ArpEntries = new() { new("192.168.1.1", "aa-bb-cc-dd-ee-ff"), new("192.168.1.2", "aa-bb-cc-dd-ee-ff") },
     };
 
@@ -1147,6 +1149,59 @@ public class NetworkPostureAnalyzerTests
     {
         Assert.Single(Analyze(SecureState()), x => x.Title.Contains("Name-Release", StringComparison.OrdinalIgnoreCase));
         Assert.Single(Analyze(InsecureState()), x => x.Title.Contains("Name-Release", StringComparison.OrdinalIgnoreCase));
+    }
+
+    // ---- NetBIOS Node Type ---------------------------------------------------
+
+    [Fact]
+    public void NbtNodeType_NullState_Throws() =>
+        Assert.Throws<ArgumentNullException>(() => CheckNbtNodeType(null!));
+
+    [Fact]
+    public void NbtNodeType_Hardened_Passes()
+    {
+        // Toggle.Enabled encodes "NodeType = 2" (P-node: WINS only, no broadcast).
+        var f = CheckNbtNodeType(new NetworkState { NbtNodeTypeHardened = Toggle.Enabled });
+        Assert.Equal(Severity.Pass, f.Severity);
+        Assert.Contains("P-node", f.Title);
+        Assert.Null(f.FixCommand);
+    }
+
+    [Theory]
+    [InlineData(Toggle.Disabled)] // broadcast-capable node type (1/4/8) or absent => exposed
+    [InlineData(Toggle.Unknown)]  // unreadable => fail safe, warn
+    public void NbtNodeType_NotHardenedOrUnknown_Warns(Toggle posture)
+    {
+        var f = CheckNbtNodeType(new NetworkState { NbtNodeTypeHardened = posture });
+        Assert.Equal(Severity.Warning, f.Severity);
+        Assert.Contains("Broadcast Name Resolution", f.Title);
+    }
+
+    [Fact]
+    public void NbtNodeType_Warning_HasSanitizerSafeFix()
+    {
+        var f = CheckNbtNodeType(new NetworkState { NbtNodeTypeHardened = Toggle.Disabled });
+        Assert.NotNull(f.FixCommand);
+        Assert.DoesNotContain(";", f.FixCommand);
+        Assert.DoesNotContain("|", f.FixCommand);
+        Assert.DoesNotContain("&&", f.FixCommand);
+        Assert.Contains("NodeType", f.FixCommand);
+    }
+
+    [Fact]
+    public void NbtNodeType_DisabledVsUnknown_DescriptionsDiffer()
+    {
+        var unknown = CheckNbtNodeType(new NetworkState { NbtNodeTypeHardened = Toggle.Unknown });
+        var disabled = CheckNbtNodeType(new NetworkState { NbtNodeTypeHardened = Toggle.Disabled });
+        Assert.Contains("could not be read", unknown.Description);
+        Assert.Contains("broadcast-capable", disabled.Description);
+    }
+
+    [Fact]
+    public void Analyze_Includes_ExactlyOneNbtNodeTypeFinding()
+    {
+        Assert.Single(Analyze(SecureState()), x => x.Title.Contains("Node Type", StringComparison.OrdinalIgnoreCase));
+        Assert.Single(Analyze(InsecureState()), x => x.Title.Contains("Node Type", StringComparison.OrdinalIgnoreCase));
     }
 
     // ---- ARP -----------------------------------------------------------------

@@ -351,6 +351,24 @@ public static class NetworkPostureAnalyzer
         // WPAD vectors already checked here.
         public Toggle NoNameReleaseHardened { get; set; } = Toggle.Unknown;
 
+        // NetBIOS node type (broadcast-based name resolution hardening). Tracks the
+        // Microsoft-documented machine-wide value
+        // HKLM\SYSTEM\CurrentControlSet\Services\Netbt\Parameters\NodeType
+        // (or the DHCP-supplied DhcpNodeType when NodeType is absent), which controls
+        // HOW the NBT resolver resolves NetBIOS names. Values: 1 = B-node (broadcast
+        // only), 4 = M-node (broadcast first, then WINS), 8 = H-node (WINS first, then
+        // broadcast - the Windows default when a WINS server is configured), and 2 =
+        // P-node (point-to-point: WINS only, NO broadcast at all). Only P-node stops the
+        // host from broadcasting NetBIOS name queries onto the local segment, which is
+        // exactly the traffic Responder/Inveigh answer to poison NBT-NS and harvest
+        // NTLM. To avoid a double negative the toggle encodes the *posture*: Enabled =
+        // node type is P-node (2, broadcast NBT name resolution off - the hardened
+        // state); Disabled = any broadcast-capable node type (1/4/8) OR absent (the
+        // default H-node still broadcasts, so a missing value is still exposed); Unknown
+        // = the value could not be read. This pairs with the NBT-NS/LLMNR poisoning and
+        // NoNameReleaseOnDemand checks above.
+        public Toggle NbtNodeTypeHardened { get; set; } = Toggle.Unknown;
+
         // NetBIOS over TCP/IP - adapters where NBT is still enabled (option 0 or 1).
         public List<string> NetBiosEnabledAdapters { get; set; } = new();
         // Number of IP-enabled adapters seen at all (so "all disabled" can Pass).
@@ -416,6 +434,7 @@ public static class NetworkPostureAnalyzer
         findings.Add(CheckTcpMaxDataRetransmissions(state));
         findings.Add(CheckTcpMaxConnectResponseRetransmissions(state));
         findings.Add(CheckNoNameRelease(state));
+        findings.Add(CheckNbtNodeType(state));
         findings.Add(CheckArp(state));
         findings.AddRange(CheckIPv6(state));
         return findings;
@@ -1517,6 +1536,53 @@ public static class NetworkPostureAnalyzer
             // key exists by default on Windows, so Set-ItemProperty succeeds directly.
             @"Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Netbt\Parameters' " +
             "-Name NoNameReleaseOnDemand -Value 1");
+    }
+
+    /// <summary>
+    /// Grades the NetBIOS node type - whether the NBT resolver broadcasts NetBIOS name
+    /// queries onto the local segment. Broadcast NBT name resolution (B-node, M-node, and
+    /// the default H-node broadcast fallback) is exactly the traffic Responder / Inveigh
+    /// answer to poison NBT-NS and coerce NTLM. P-node (2) uses WINS only and never
+    /// broadcasts, removing the poisoning surface at the resolver level. Reads
+    /// <see cref="NetworkState.NbtNodeTypeHardened"/>: Enabled (NodeType = 2 / P-node)
+    /// passes; Disabled (a broadcast-capable node type 1/4/8, or absent H-node default)
+    /// warns; Unknown (unreadable) also warns, fail-safe. Always one finding.</summary>
+    public static Finding CheckNbtNodeType(NetworkState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+
+        if (state.NbtNodeTypeHardened == Toggle.Enabled)
+        {
+            return Finding.Pass(
+                "NetBIOS Node Type is P-node (No Broadcast Name Resolution)",
+                "The NetBIOS-over-TCP/IP resolver is set to P-node (Netbt NodeType = 2), so it " +
+                "resolves NetBIOS names via WINS only and never broadcasts a name query onto the " +
+                "local segment. That removes the broadcast NBT-NS traffic that Responder/Inveigh " +
+                "answer to poison name resolution and coerce NTLM.",
+                Category);
+        }
+
+        var stateNote = state.NbtNodeTypeHardened == Toggle.Disabled
+            ? "The Netbt 'NodeType' value is a broadcast-capable node type (1/4/8) or is absent " +
+              "(Windows defaults to H-node, which falls back to broadcast), so the resolver still " +
+              "broadcasts NetBIOS name queries onto the local segment."
+            : "The Netbt 'NodeType' value could not be read, so a broadcast-capable node type must " +
+              "be assumed.";
+
+        return Finding.Warning(
+            "NetBIOS Node Type Allows Broadcast Name Resolution (Poisoning Risk)",
+            stateNote + " Broadcast NetBIOS name resolution is exactly the traffic an attacker on " +
+            "the same segment answers with Responder/Inveigh to poison NBT-NS, impersonate the " +
+            "requested host, and harvest NTLMv2 hashes - the same class of local name-resolution " +
+            "poisoning as LLMNR and mDNS. Forcing P-node makes the resolver use WINS only and " +
+            "stop broadcasting.",
+            Category,
+            "Set the NetBIOS node type to P-node machine-wide by setting the Netbt NodeType DWORD " +
+            "to 2, then reboot (the NBT driver reads this at start-up). Only do this where NetBIOS " +
+            "name resolution is still needed via WINS; otherwise disabling NetBIOS over TCP/IP " +
+            "entirely is stronger.",
+            @"Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Netbt\Parameters' " +
+            "-Name NodeType -Value 2");
     }
 
     /// <summary>

@@ -1668,6 +1668,49 @@ public class NetworkAuditLlmnrNetBiosParsingTests
         const string noisy = "WARNING: verbose banner\n0";
         Assert.Equal(Toggle.Disabled, NetworkAudit.ClassifyNoNameReleaseValue(noisy));
     }
+
+    // -- ClassifyNbtNodeTypeValue -------------------------------------------
+    //
+    // Only a clean "2" (P-node: WINS only, no broadcast) is the secure Enabled/
+    // hardened state. Broadcast-capable node types "1"/"4"/"8" (B/M/H-node) are
+    // Disabled/exposed, as is a missing key (NOT_SET) because the Windows default
+    // H-node still broadcasts. Only ERROR / unreadable / unrecognised => Unknown.
+
+    [Theory]
+    [InlineData("2")]
+    [InlineData(" 2 ")]
+    [InlineData("2\n")]
+    [InlineData("\n2\n")]
+    public void ClassifyNbtNodeType_CleanTwo_IsHardenedEnabled(string raw) =>
+        Assert.Equal(Toggle.Enabled, NetworkAudit.ClassifyNbtNodeTypeValue(raw));
+
+    [Theory]
+    [InlineData("1")]
+    [InlineData("4")]
+    [InlineData("8")]
+    [InlineData(" 8 ")]
+    [InlineData("NOT_SET")]       // key absent => default H-node broadcasts => exposed
+    [InlineData("not_set")]       // case-insensitive sentinel
+    public void ClassifyNbtNodeType_BroadcastOrMissing_IsDisabledExposed(string raw) =>
+        Assert.Equal(Toggle.Disabled, NetworkAudit.ClassifyNbtNodeTypeValue(raw));
+
+    [Theory]
+    [InlineData("ERROR")]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("garbage")]
+    [InlineData("3")]
+    [InlineData("22")]
+    public void ClassifyNbtNodeType_ErroredOrUnrecognised_IsUnknown(string? raw) =>
+        Assert.Equal(Toggle.Unknown, NetworkAudit.ClassifyNbtNodeTypeValue(raw));
+
+    [Fact]
+    public void ClassifyNbtNodeType_NoisyPrefixThenTwo_IsHardenedEnabled()
+    {
+        const string noisy = "WARNING: Get-ItemProperty provider error\n2";
+        Assert.Equal(Toggle.Enabled, NetworkAudit.ClassifyNbtNodeTypeValue(noisy));
+    }
 }
 
 

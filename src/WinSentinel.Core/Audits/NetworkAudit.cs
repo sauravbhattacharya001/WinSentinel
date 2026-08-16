@@ -74,6 +74,7 @@ public class NetworkAudit : AuditModuleBase
         await CollectTcpMaxDataRetransmissions(state, ct);
         await CollectTcpMaxConnectResponseRetransmissions(state, ct);
         await CollectNoNameRelease(state, ct);
+        await CollectNbtNodeType(state, ct);
         await CollectArp(state, ct);
         await CollectIPv6(state, ct);
 
@@ -479,6 +480,27 @@ public class NetworkAudit : AuditModuleBase
             } catch { 'ERROR' }", ct);
 
         state.NoNameReleaseHardened = ClassifyNoNameReleaseValue(output);
+    }
+
+    private async Task CollectNbtNodeType(NetworkState state, CancellationToken ct)
+    {
+        // Read the NetBIOS node type (HKLM\SYSTEM\CurrentControlSet\Services\Netbt\
+        // Parameters\NodeType). When an explicit NodeType is absent Windows uses the
+        // DHCP-supplied DhcpNodeType, so fall back to that. 2 = P-node (WINS only, no
+        // broadcast - the hardened state). Emit one of 1 / 2 / 4 / 8 / NOT_SET / ERROR
+        // so the classifier can decide the posture from a clean token line.
+        var output = await ShellHelper.RunPowerShellAsync(
+            @"try {
+                $p = 'HKLM:\SYSTEM\CurrentControlSet\Services\Netbt\Parameters'
+                $key = Get-ItemProperty -Path $p -Name 'NodeType' -ErrorAction SilentlyContinue
+                if ($key -ne $null -and $key.PSObject.Properties.Name -contains 'NodeType') { $key.NodeType }
+                else {
+                    $dk = Get-ItemProperty -Path $p -Name 'DhcpNodeType' -ErrorAction SilentlyContinue
+                    if ($dk -ne $null -and $dk.PSObject.Properties.Name -contains 'DhcpNodeType') { $dk.DhcpNodeType } else { 'NOT_SET' }
+                }
+            } catch { 'ERROR' }", ct);
+
+        state.NbtNodeTypeHardened = ClassifyNbtNodeTypeValue(output);
     }
 
     private async Task CollectArp(NetworkState state, CancellationToken ct)
@@ -1070,6 +1092,21 @@ public class NetworkAudit : AuditModuleBase
             if (t.Equals("NOT_SET", StringComparison.OrdinalIgnoreCase)) return Toggle.Disabled;
             if (t.Equals("ERROR", StringComparison.OrdinalIgnoreCase)) return Toggle.Unknown;
             // Unrecognised noise line (e.g. a registry warning): skip and keep scanning.
+        }
+        return Toggle.Unknown; // no recognised token -> unknown (analyzer warns, fail-safe)
+    }
+
+    internal static Toggle ClassifyNbtNodeTypeValue(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return Toggle.Unknown;
+        foreach (var line in raw.Split('\n'))
+        {
+            var t = line.Trim();
+            if (t.Length == 0) continue;
+            if (t == "2") return Toggle.Enabled;               // P-node: WINS only, no broadcast (secure)
+            if (t == "1" || t == "4" || t == "8") return Toggle.Disabled; // B/M/H-node: broadcasts => exposed
+            if (t.Equals("NOT_SET", StringComparison.OrdinalIgnoreCase)) return Toggle.Disabled; // default H-node broadcasts
+            if (t.Equals("ERROR", StringComparison.OrdinalIgnoreCase)) return Toggle.Unknown;
         }
         return Toggle.Unknown; // no recognised token -> unknown (analyzer warns, fail-safe)
     }

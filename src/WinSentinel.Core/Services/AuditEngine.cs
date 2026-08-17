@@ -59,6 +59,7 @@ public class AuditEngine
             new AttachmentManagerAudit(),
             new ScreenLockAudit(),
             new WindowsScriptHostAudit(),
+            new SmartScreenAudit(),
             new LsaHardeningAudit(),
             new WindowsInstallerAudit(),
             new WindowsRecallAudit(),

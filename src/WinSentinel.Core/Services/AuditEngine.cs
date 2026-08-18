@@ -73,6 +73,7 @@ public class AuditEngine
             new BluetoothAudit(),
             new BackupAudit(),
             new FirewallRuleAudit(),
+            new DeliveryOptimizationAudit(),
         };
     }
 

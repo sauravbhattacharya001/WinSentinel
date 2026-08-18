@@ -76,6 +76,14 @@ public static class LsaHardeningAnalyzer
     public const int DenyOutgoingNtlm = 2;
 
     /// <summary>
+    /// The hardened value for MSV1_0\RestrictReceivingNTLMTraffic: 2 = "Deny all"
+    /// INBOUND NTLM authentication. 1 = "Audit all" (logs but still accepts) is a
+    /// partial control; 0 / absent = "Allow all" (the OS default) leaves the box
+    /// accepting NTLM logons that can be relayed to it.
+    /// </summary>
+    public const int DenyIncomingNtlm = 2;
+
+    /// <summary>
     /// Evaluate the collected LSA hardening state and return one finding per
     /// check (a Pass when the setting is already safe, a Warning/Critical when
     /// it is not). Ordering is stable and deterministic for diffable reports.
@@ -94,6 +102,7 @@ public static class LsaHardeningAnalyzer
             AnalyzeCachedLogons(state),
             AnalyzeAutoLogon(state),
             AnalyzeOutgoingNtlm(state),
+            AnalyzeIncomingNtlm(state),
         };
         return findings;
     }
@@ -424,6 +433,56 @@ public static class LsaHardeningAnalyzer
                          "review the events, then set it to 2 (Deny all). Add server exceptions via RestrictSendingNTLMTraffic ClientExceptionServers if needed.",
             fixCommand: "Set-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa\\MSV1_0' -Name RestrictSendingNTLMTraffic -Type DWord -Value 1");
     }
+
+    /// <summary>
+    /// MSV1_0\RestrictReceivingNTLMTraffic controls whether this machine will
+    /// ACCEPT inbound NTLM authentication. When it is 0 or absent (the OS default),
+    /// the box happily accepts NTLM logons, which is exactly what makes it a viable
+    /// TARGET for an NTLM relay: an attacker who coerces some other host into
+    /// authenticating can forward (relay) that NTLM response to this machine to log
+    /// in as the coerced identity. 2 ("Deny all") refuses inbound NTLM outright (the
+    /// hardened state); 1 ("Audit all") only logs it. Absence is treated as the
+    /// default (Allow) and reported as a Warning. This is the inbound companion to
+    /// <see cref="AnalyzeOutgoingNtlm"/>: sending-deny stops this box being the
+    /// coercion victim, receiving-deny stops it being the relay destination.
+    /// </summary>
+    public static Finding AnalyzeIncomingNtlm(LsaHardeningState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        int level = state.RestrictReceivingNtlmTraffic ?? 0; // OS default = Allow all
+
+        if (level >= DenyIncomingNtlm)
+        {
+            return Finding.Pass(
+                "Inbound NTLM authentication is denied (RestrictReceivingNTLMTraffic 2)",
+                "RestrictReceivingNTLMTraffic is 2 (Deny all): the machine refuses inbound NTLM " +
+                "logons, so it cannot be used as the destination of an NTLM relay attack.",
+                Category);
+        }
+
+        if (level == 1)
+        {
+            return Finding.Warning(
+                "Inbound NTLM is only audited, not blocked",
+                "RestrictReceivingNTLMTraffic is 1 (Audit all): inbound NTLM is logged but still " +
+                "ACCEPTED, so a relayed NTLM response can still authenticate to this machine. Move to " +
+                "2 (Deny all) once the audit logs show no legitimate inbound NTLM is required.",
+                Category,
+                remediation: "After reviewing the NTLM audit events, set HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa\\MSV1_0\\RestrictReceivingNTLMTraffic = 2 (DWORD).",
+                fixCommand: "Set-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa\\MSV1_0' -Name RestrictReceivingNTLMTraffic -Type DWord -Value 2");
+        }
+
+        return Finding.Warning(
+            "Inbound NTLM authentication is allowed (RestrictReceivingNTLMTraffic off)",
+            "RestrictReceivingNTLMTraffic is 0 or absent (Allow all): the machine accepts inbound NTLM " +
+            "logons, which makes it a valid TARGET for an NTLM relay - an attacker who coerces another " +
+            "host to authenticate can relay that response here to log in as the coerced account. Start " +
+            "with 1 (Audit all) to find legitimate inbound NTLM, then move to 2 (Deny all).",
+            Category,
+            remediation: "Set HKLM\\SYSTEM\\CurrentControlSet\\Control\\Lsa\\MSV1_0\\RestrictReceivingNTLMTraffic = 1 (Audit) first, " +
+                         "review the events, then set it to 2 (Deny all). Prefer Kerberos and SMB signing/EPA alongside this.",
+            fixCommand: "Set-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Lsa\\MSV1_0' -Name RestrictReceivingNTLMTraffic -Type DWord -Value 1");
+    }
 }
 
 /// <summary>
@@ -473,4 +532,10 @@ public sealed record LsaHardeningState
     /// 1 = Audit all, 2 = Deny all. Null means the value was absent / not readable.
     /// </summary>
     public int? RestrictSendingNtlmTraffic { get; init; }
+
+    /// <summary>
+    /// MSV1_0\RestrictReceivingNTLMTraffic: 0/absent = Allow all inbound NTLM (OS default),
+    /// 1 = Audit all, 2 = Deny all. Null means the value was absent / not readable.
+    /// </summary>
+    public int? RestrictReceivingNtlmTraffic { get; init; }
 }

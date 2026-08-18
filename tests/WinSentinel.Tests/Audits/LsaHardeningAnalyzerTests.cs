@@ -8,9 +8,9 @@ namespace WinSentinel.Tests.Audits;
 /// Deterministic unit tests for the pure <see cref="LsaHardeningAnalyzer"/> - the
 /// single-machine LSA / credential-protection registry checks (RunAsPPL, WDigest
 /// plaintext caching, NoLMHash, LmCompatibilityLevel, anonymous null-session
-/// access, blank-password remote logon, cached-logon count, cleartext autologon).
-/// Every rule is exercised directly against a synthetic
-/// <see cref="LsaHardeningState"/>; no registry or I/O is touched.
+/// access, blank-password remote logon, cached-logon count, cleartext autologon,
+/// and outbound/inbound NTLM restriction). Every rule is exercised directly
+/// against a synthetic <see cref="LsaHardeningState"/>; no registry or I/O is touched.
 /// </summary>
 public class LsaHardeningAnalyzerTests
 {
@@ -28,6 +28,7 @@ public class LsaHardeningAnalyzerTests
         AutoAdminLogon = false,
         DefaultPassword = null,
         RestrictSendingNtlmTraffic = 2,
+        RestrictReceivingNtlmTraffic = 2,
     };
 
     [Fact]
@@ -40,7 +41,7 @@ public class LsaHardeningAnalyzerTests
     public void Analyze_HardenedState_IsAllPass()
     {
         var findings = Analyze(HardenedState());
-        Assert.Equal(9, findings.Count);
+        Assert.Equal(10, findings.Count);
         Assert.All(findings, f => Assert.Equal(Severity.Pass, f.Severity));
         Assert.All(findings, f => Assert.Equal("Credentials", f.Category));
     }
@@ -213,8 +214,10 @@ public class LsaHardeningAnalyzerTests
             CachedLogonsCount = 25,
             AutoAdminLogon = true,
             DefaultPassword = "P@ssw0rd",
+            RestrictSendingNtlmTraffic = 0,
+            RestrictReceivingNtlmTraffic = 0,
         });
-        Assert.Equal(9, findings.Count);
+        Assert.Equal(10, findings.Count);
         Assert.Contains(findings, f => f.Severity == Severity.Critical);
         Assert.DoesNotContain(findings, f => f.Severity == Severity.Pass);
     }
@@ -240,5 +243,28 @@ public class LsaHardeningAnalyzerTests
     {
         Assert.Equal(Severity.Warning, AnalyzeOutgoingNtlm(HardenedState() with { RestrictSendingNtlmTraffic = 0 }).Severity);
         Assert.Equal(Severity.Warning, AnalyzeOutgoingNtlm(HardenedState() with { RestrictSendingNtlmTraffic = null }).Severity);
+    }
+
+    [Fact]
+    public void IncomingNtlm_DenyAll_Passes()
+    {
+        var f = AnalyzeIncomingNtlm(HardenedState() with { RestrictReceivingNtlmTraffic = 2 });
+        Assert.Equal(Severity.Pass, f.Severity);
+    }
+
+    [Fact]
+    public void IncomingNtlm_AuditOnly_Warns_WithFixToDeny()
+    {
+        var f = AnalyzeIncomingNtlm(HardenedState() with { RestrictReceivingNtlmTraffic = 1 });
+        Assert.Equal(Severity.Warning, f.Severity);
+        Assert.Contains("RestrictReceivingNTLMTraffic", f.FixCommand);
+        Assert.Contains("Value 2", f.FixCommand);
+    }
+
+    [Fact]
+    public void IncomingNtlm_AllowOrAbsent_Warns()
+    {
+        Assert.Equal(Severity.Warning, AnalyzeIncomingNtlm(HardenedState() with { RestrictReceivingNtlmTraffic = 0 }).Severity);
+        Assert.Equal(Severity.Warning, AnalyzeIncomingNtlm(HardenedState() with { RestrictReceivingNtlmTraffic = null }).Severity);
     }
 }

@@ -13,7 +13,10 @@ namespace WinSentinel.Core.Audits;
 /// enumerate accounts/shares (RestrictAnonymous* / EveryoneIncludesAnonymous),
 /// whether blank-password accounts are confined to console logon
 /// (LimitBlankPasswordUse), how many domain logons are cached offline
-/// (CachedLogonsCount), and whether autologon stores a cleartext password.
+/// (CachedLogonsCount), whether autologon stores a cleartext password, and whether
+/// this machine will send/accept NTLM authentication over the network
+/// (RestrictSending/ReceivingNTLMTraffic - the coercion-victim and relay-target
+/// controls).
 ///
 /// <para>This is the thin I/O layer for <see cref="LsaHardeningAnalyzer"/>: it owns
 /// the reading of the HKLM Lsa, WDigest and Winlogon registry values and delegates
@@ -30,8 +33,9 @@ public class LsaHardeningAudit : AuditModuleBase
     public override string Description =>
         "Checks single-machine LSA / credential-protection hardening - LSASS Protected Process (RunAsPPL), " +
         "WDigest plaintext caching, LM hash storage, NTLM dialect restriction, anonymous null-session " +
-        "enumeration, blank-password remote logon, cached domain logon count, and cleartext autologon - " +
-        "the classic CIS L1 controls that decide how hard it is to lift or replay credentials on this box.";
+        "enumeration, blank-password remote logon, cached domain logon count, cleartext autologon, and " +
+        "outbound/inbound NTLM restriction (RestrictSending/ReceivingNTLMTraffic) - the classic CIS L1 " +
+        "controls that decide how hard it is to lift, replay, or relay credentials on this box.";
 
     private const string LsaSubKey = @"SYSTEM\CurrentControlSet\Control\Lsa";
     private const string WDigestSubKey = @"SYSTEM\CurrentControlSet\Control\SecurityProviders\WDigest";
@@ -69,6 +73,7 @@ public class LsaHardeningAudit : AuditModuleBase
             AutoAdminLogon = ReadBoolString(RegistryHive.LocalMachine, WinlogonSubKey, "AutoAdminLogon"),
             DefaultPassword = ReadString(RegistryHive.LocalMachine, WinlogonSubKey, "DefaultPassword"),
             RestrictSendingNtlmTraffic = ReadDword(RegistryHive.LocalMachine, Msv10SubKey, "RestrictSendingNTLMTraffic"),
+            RestrictReceivingNtlmTraffic = ReadDword(RegistryHive.LocalMachine, Msv10SubKey, "RestrictReceivingNTLMTraffic"),
         };
     }
 

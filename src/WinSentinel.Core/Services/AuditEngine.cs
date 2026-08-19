@@ -74,6 +74,7 @@ public class AuditEngine
             new BackupAudit(),
             new FirewallRuleAudit(),
             new DeliveryOptimizationAudit(),
+            new DiagnosticsHardeningAudit(),
         };
     }
 

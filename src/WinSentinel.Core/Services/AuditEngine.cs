@@ -65,6 +65,7 @@ public class AuditEngine
             new WindowsRecallAudit(),
             new HostsFileAudit(),
             new OfficeMacroSecurityAudit(),
+            new OptionalFeaturesAudit(),
             new RemoteAccessAudit(),
             new CredentialExposureAudit(),
             new GroupPolicyAudit(),

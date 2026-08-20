@@ -77,6 +77,7 @@ public class AuditEngine
             new DeliveryOptimizationAudit(),
             new DiagnosticsHardeningAudit(),
             new AuditPolicyAudit(),
+            new NameResolutionAudit(),
         };
     }
 

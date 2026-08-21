@@ -74,6 +74,7 @@ public class AuditEngine
             new BluetoothAudit(),
             new BackupAudit(),
             new FirewallRuleAudit(),
+            new FirewallLoggingAudit(),
             new DeliveryOptimizationAudit(),
             new DiagnosticsHardeningAudit(),
             new AuditPolicyAudit(),

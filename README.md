@@ -18,7 +18,7 @@
 
 **Not just an auditor - a living agent that monitors, detects, correlates, and responds 24/7.**
 
-*Real-time threat detection • 34 audit modules • Auto-remediation • Chat control plane • AI-powered correlation • Compliance profiles • Plugin system*
+*Real-time threat detection • 53 audit modules • Auto-remediation • Chat control plane • AI-powered correlation • Compliance profiles • Plugin system*
 
 [🚀 Quick Start](#-quick-start) · [📦 Install](#-installation) · [📖 Docs](https://docs.winsentinel.ai) · [🐛 Issues](https://github.com/sauravbhattacharya001/WinSentinel/issues) · [📋 Changelog](https://winsentinel.ai/changelog)
 
@@ -107,7 +107,7 @@ The agent runs continuously - even with the dashboard closed - watching processe
 | 🧠 **AI-Powered Brain** | Correlates individual events into attack chains. Detects multi-stage attacks that single-event analysis misses |
 | 🔧 **7 Auto-Remediation Actions** | Kill process, quarantine file, block IP, disable account, restore hosts, re-enable Defender, revert registry - **all with undo** |
 | 💬 **Chat Control Plane** | 25+ commands plus natural language. Run audits, query threats, configure policies - from the chat panel |
-| 📊 **34 Audit Modules** | Firewall, Updates, Defender, Accounts, Network, Processes, Startup, System, Privacy, Browser, App Security, Encryption, Event Log, Identity & Credentials, PowerShell, USB/Removable Media, DNS, Drivers, Certificates, Remote Access, and 14 more |
+| 📊 **53 Audit Modules** | Firewall, Updates, Defender, Accounts, Network, Processes, Startup, System, Privacy, Browser, App Security, Encryption, Event Log, Identity & Credentials, PowerShell, USB/Removable Media, DNS, Drivers, Certificates, Remote Access, and 33 more |
 | 📋 **Compliance Profiles** | Home, Enterprise, HIPAA, PCI-DSS, CIS L1 - context-aware scoring with per-profile severity adjustments |
 | 🔕 **Finding Suppression** | Ignore/suppress known-acceptable findings with regex rules, expiration dates, and audit trail |
 | 📈 **Score History** | SQLite-backed audit tracking with trends, heatmaps, and regression detection |
@@ -156,7 +156,7 @@ The agent runs continuously - even with the dashboard closed - watching processe
 ╠══════════════════════════════════════════════════════╣
 ║  Findings: 65 total | 0 critical | 5 warnings       ║
 ║  Suppressed: 2 (accepted risk)                       ║
-║  Modules scanned: 34                                 ║
+║  Modules scanned: 53                                 ║
 ╚══════════════════════════════════════════════════════╝
 ```
 
@@ -248,7 +248,7 @@ cd src\WinSentinel.Installer
 
 ---
 
-## 📊 The 34 Audit Modules
+## 📊 The Audit Modules
 
 | # | Module | What It Scans |
 |:---:|:---|:---|
@@ -328,7 +328,7 @@ Switch profiles via the dashboard or CLI to see how your system scores under dif
 ```
 > status                    # Agent uptime, active monitors
 > threats                   # Recent threat events
-> audit                     # Run full 34-module audit
+> audit                     # Run full audit
 > audit firewall            # Run specific module
 > score                     # Current score and grade
 > history                   # Score trend over time
@@ -463,7 +463,7 @@ Compliance profiles adjust these weights contextually - a finding that's info-le
 ```
 WinSentinel.sln
 ├── src/
-│   ├── WinSentinel.Core/          # Security audit engine (34 modules)
+│   ├── WinSentinel.Core/          # Security audit engine (53 modules)
 │   │   ├── Audits/                # Firewall, Network, Defender, Identity, etc.
 │   │   ├── Models/                # AuditResult, Finding, SecurityReport
 │   │   ├── Services/              # AuditEngine, Orchestrator, Scorer
@@ -648,7 +648,7 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 <div align="center">
 
-**Built with C# on .NET 8 · 111k+ LOC · 5,376 tests · 34 audit modules · Always watching 🛡️**
+**Built with C# on .NET 8 · 111k+ LOC · 5,376 tests · 53 audit modules · Always watching 🛡️**
 
 [⭐ Star](https://github.com/sauravbhattacharya001/WinSentinel) · [🐛 Report Bug](https://github.com/sauravbhattacharya001/WinSentinel/issues) · [💡 Request Feature](https://github.com/sauravbhattacharya001/WinSentinel/issues)
 

@@ -94,8 +94,13 @@ public partial class ThreatFeedPage : Page
         UpdateEmptyState();
     }
 
-    private void SeverityCombo_Changed(object sender, SelectionChangedEventArgs e)
+     private void SeverityCombo_Changed(object sender, SelectionChangedEventArgs e)
     {
+        if (_vm == null)
+        {
+            return;
+        }
+
         if (SeverityCombo.SelectedItem is ComboBoxItem item)
         {
             var content = item.Content?.ToString() ?? "All";
@@ -106,6 +111,11 @@ public partial class ThreatFeedPage : Page
 
     private void ModuleCombo_Changed(object sender, SelectionChangedEventArgs e)
     {
+        if (_vm == null)
+        {
+            return;
+        }
+
         if (ModuleCombo.SelectedItem is ComboBoxItem item)
         {
             var content = item.Content?.ToString() ?? "All";
@@ -116,6 +126,12 @@ public partial class ThreatFeedPage : Page
 
     private void TimeCombo_Changed(object sender, SelectionChangedEventArgs e)
     {
+        // Fix: Added guard clause to prevent the startup initialization crash
+        if (_vm == null)
+        {
+            return;
+        }
+
         if (TimeCombo.SelectedItem is ComboBoxItem item)
         {
             var content = item.Content?.ToString() ?? "All";

@@ -148,14 +148,17 @@ jobs:
     - name: Smoke test - score-only mode
       shell: pwsh
       run: |
+        # Scope to a fast, deterministic module subset. A full audit on a clean
+        # CI runner is slow/non-deterministic (many modules wait out their 30s
+        # shell-call timeouts querying tools/services that never respond), so an
+        # unscoped --score routinely ran 2-3 min and got killed by the step
+        # window with an orphaned child. --modules keeps it to a few seconds.
         # Exit codes 0 (pass), 1 (warnings), 2 (critical) are all valid audit
-        # completions. On a clean CI runner the score is routinely <100 (warnings),
-        # which returns exit 1; only >2 is a genuine CLI failure. Redirect stderr so
-        # the non-fatal plugin-host diagnostic doesn't trip pwsh's populated-error-
-        # stream = failure behaviour, and exit explicitly so the native exit code 1
-        # doesn't fail the step.
+        # completions; only >2 is a genuine CLI failure. Redirect stderr so the
+        # non-fatal plugin-host diagnostic doesn't trip pwsh's populated-error-
+        # stream = failure behaviour, and exit explicitly so native exit 1 passes.
         $ErrorActionPreference = 'Continue'
-        & ./artifacts/cli/winsentinel.exe --score --quiet 2>$null
+        & ./artifacts/cli/winsentinel.exe --score --modules firewall,defender --quiet 2>$null
         $code = $LASTEXITCODE
         if ($code -gt 2) { exit 1 }
         exit 0
@@ -175,8 +178,10 @@ jobs:
     - name: Smoke test - threshold gate (should pass with 0)
       shell: pwsh
       run: |
+        # Scope to a fast module subset for the same reason as the score step:
+        # an unscoped full audit is too slow/non-deterministic on a clean runner.
         $ErrorActionPreference = 'Continue'
-        & ./artifacts/cli/winsentinel.exe --audit --threshold 0 --quiet 2>$null
+        & ./artifacts/cli/winsentinel.exe --audit --modules firewall,defender --threshold 0 --quiet 2>$null
         $code = $LASTEXITCODE
         if ($code -gt 2) { exit 1 }
         exit 0

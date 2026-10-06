@@ -146,7 +146,13 @@ jobs:
         Write-Output "✅ CLI produced valid JSON with all required fields" >> $env:GITHUB_STEP_SUMMARY
 
     - name: Smoke test - score-only mode
-      run: ./artifacts/cli/winsentinel.exe --score --quiet
+      shell: pwsh
+      run: |
+        # Exit codes 0 (pass), 1 (warnings), 2 (critical) are all valid audit
+        # completions. On a clean CI runner the score is routinely <100 (warnings),
+        # which returns exit 1; only >2 is a genuine CLI failure.
+        & ./artifacts/cli/winsentinel.exe --score --quiet
+        if ($LASTEXITCODE -gt 2) { exit 1 }
 
     - name: Smoke test - specific module
       shell: pwsh

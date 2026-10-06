@@ -150,9 +150,15 @@ jobs:
       run: |
         # Exit codes 0 (pass), 1 (warnings), 2 (critical) are all valid audit
         # completions. On a clean CI runner the score is routinely <100 (warnings),
-        # which returns exit 1; only >2 is a genuine CLI failure.
-        & ./artifacts/cli/winsentinel.exe --score --quiet
-        if ($LASTEXITCODE -gt 2) { exit 1 }
+        # which returns exit 1; only >2 is a genuine CLI failure. Redirect stderr so
+        # the non-fatal plugin-host diagnostic doesn't trip pwsh's populated-error-
+        # stream = failure behaviour, and exit explicitly so the native exit code 1
+        # doesn't fail the step.
+        $ErrorActionPreference = 'Continue'
+        & ./artifacts/cli/winsentinel.exe --score --quiet 2>$null
+        $code = $LASTEXITCODE
+        if ($code -gt 2) { exit 1 }
+        exit 0
 
     - name: Smoke test - specific module
       shell: pwsh

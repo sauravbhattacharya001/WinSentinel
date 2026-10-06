@@ -40,27 +40,27 @@ jobs:
         key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj') }}
         restore-keys: nuget-${{ runner.os }}-
 
-    - name: Restore & Build
-      run: dotnet build --configuration Release -p:Platform=x64
-
+    # The CLI ships as an AnyCPU `dotnet tool` (PackAsTool forbids a target
+    # platform). Publishing it directly builds the project and its Core
+    # ProjectReference in one pass, which avoids the multi-TFM + forced-x64
+    # MSB3030 copy failure (Core.dll was looked for under bin\x64\... while the
+    # publish resolved the AnyCPU output). No need to force a Platform here.
     - name: Publish CLI
       run: >-
         dotnet publish src/WinSentinel.Cli/WinSentinel.Cli.csproj
         --configuration Release
-        -p:Platform=x64
         --output ./artifacts/cli
-        --no-build
 
     - name: Smoke test - CLI help
-      run: ./artifacts/cli/WinSentinel.Cli.exe --help
+      run: ./artifacts/cli/winsentinel.exe --help
 
     - name: Smoke test - version
-      run: ./artifacts/cli/WinSentinel.Cli.exe --version
+      run: ./artifacts/cli/winsentinel.exe --version
 
     - name: Smoke test - full audit (JSON)
       shell: pwsh
       run: |
-        $output = & ./artifacts/cli/WinSentinel.Cli.exe --audit --json 2>&1
+        $output = & ./artifacts/cli/winsentinel.exe --audit --json 2>&1
         $exitCode = $LASTEXITCODE
 
         # Exit codes 0 (pass), 1 (warnings), 2 (critical) are all valid audit completions
@@ -100,13 +100,13 @@ jobs:
         Write-Output "✅ CLI produced valid JSON with all required fields" >> $env:GITHUB_STEP_SUMMARY
 
     - name: Smoke test - score-only mode
-      run: ./artifacts/cli/WinSentinel.Cli.exe --score --quiet
+      run: ./artifacts/cli/winsentinel.exe --score --quiet
 
     - name: Smoke test - specific module
       shell: pwsh
       run: |
-        & ./artifacts/cli/WinSentinel.Cli.exe --audit --modules firewall --json | Out-Null
+        & ./artifacts/cli/winsentinel.exe --audit --modules firewall --json | Out-Null
         if ($LASTEXITCODE -gt 2) { exit 1 }
 
     - name: Smoke test - threshold gate (should pass with 0)
-      run: ./artifacts/cli/WinSentinel.Cli.exe --audit --threshold 0 --quiet
+      run: ./artifacts/cli/winsentinel.exe --audit --threshold 0 --quiet

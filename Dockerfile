@@ -31,7 +31,12 @@ COPY src/WinSentinel.App/WinSentinel.App.csproj src/WinSentinel.App/
 COPY src/WinSentinel.Installer/WinSentinel.Installer.csproj src/WinSentinel.Installer/
 COPY tests/WinSentinel.Tests/WinSentinel.Tests.csproj tests/WinSentinel.Tests/
 
-RUN dotnet restore WinSentinel.sln -r win-x64
+# Restore only the projects this image builds (Core -> CLI, Core -> Service).
+# Restoring the whole solution would drag in the test plugin projects
+# (WinSentinel.TestPlugin / WinSentinel.NaughtyTestPlugin) whose csproj files
+# are intentionally not copied here, causing NETSDK1004 "assets file not found".
+RUN dotnet restore src/WinSentinel.Cli/WinSentinel.Cli.csproj -r win-x64 \
+ && dotnet restore src/WinSentinel.Service/WinSentinel.Service.csproj -r win-x64
 
 # Copy remaining source
 COPY src/ src/
@@ -53,8 +58,10 @@ RUN dotnet publish src/WinSentinel.Service/WinSentinel.Service.csproj \
 
 # --- Test Stage (opt-in via --target test) ---
 FROM build AS test
+# The base build stage only restored CLI/Service, so restore the test project here.
+RUN dotnet restore tests/WinSentinel.Tests/WinSentinel.Tests.csproj
 RUN dotnet test tests/WinSentinel.Tests/WinSentinel.Tests.csproj \
-    -c Release --no-restore \
+    -c Release \
     --logger "console;verbosity=minimal" \
     --results-directory /test-results
 

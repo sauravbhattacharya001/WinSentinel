@@ -60,8 +60,21 @@ jobs:
     - name: Smoke test - full audit (JSON)
       shell: pwsh
       run: |
-        $output = & ./artifacts/cli/winsentinel.exe --audit --json 2>&1
+        # Capture STDOUT only for the JSON payload. The CLI writes diagnostic
+        # warnings (e.g. the plugin-host "[plugin:warning]" line on machines
+        # with no %LOCALAPPDATA%\WinSentinel\plugins dir, like a clean CI
+        # runner) to STDERR. Merging them with 2>&1 both corrupts the JSON and
+        # makes pwsh treat the populated error stream as a step failure, which
+        # is exactly what broke this step (exit 1, no usable output). Route
+        # stderr to a file so warnings are visible but non-fatal.
+        $ErrorActionPreference = 'Continue'
+        $output = & ./artifacts/cli/winsentinel.exe --audit --json 2> audit-stderr.log
         $exitCode = $LASTEXITCODE
+
+        if (Test-Path audit-stderr.log) {
+          $stderr = Get-Content audit-stderr.log -Raw
+          if ($stderr.Trim()) { Write-Host "CLI diagnostics (stderr, non-fatal):`n$stderr" }
+        }
 
         # Exit codes 0 (pass), 1 (warnings), 2 (critical) are all valid audit completions
         if ($exitCode -gt 2) {

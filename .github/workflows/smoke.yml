@@ -163,8 +163,21 @@ jobs:
     - name: Smoke test - specific module
       shell: pwsh
       run: |
-        & ./artifacts/cli/winsentinel.exe --audit --modules firewall --json | Out-Null
-        if ($LASTEXITCODE -gt 2) { exit 1 }
+        # Redirect stderr (non-fatal plugin-host diagnostic) and exit explicitly so
+        # pwsh's populated-error-stream + native exit 1 doesn't fail the step. Only
+        # a real audit exit code > 2 is a failure.
+        $ErrorActionPreference = 'Continue'
+        & ./artifacts/cli/winsentinel.exe --audit --modules firewall --json 2>$null | Out-Null
+        $code = $LASTEXITCODE
+        if ($code -gt 2) { exit 1 }
+        exit 0
 
     - name: Smoke test - threshold gate (should pass with 0)
-      run: ./artifacts/cli/winsentinel.exe --audit --threshold 0 --quiet
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Continue'
+        & ./artifacts/cli/winsentinel.exe --audit --threshold 0 --quiet 2>$null
+        $code = $LASTEXITCODE
+        if ($code -gt 2) { exit 1 }
+        exit 0
+

@@ -72,8 +72,11 @@ jobs:
         $exitCode = $LASTEXITCODE
 
         if (Test-Path audit-stderr.log) {
+          # -Raw on an empty file returns $null, so guard before any string method.
           $stderr = Get-Content audit-stderr.log -Raw
-          if ($stderr.Trim()) { Write-Host "CLI diagnostics (stderr, non-fatal):`n$stderr" }
+          if (-not [string]::IsNullOrWhiteSpace($stderr)) {
+            Write-Host "CLI diagnostics (stderr, non-fatal):`n$stderr"
+          }
         }
 
         # Exit codes 0 (pass), 1 (warnings), 2 (critical) are all valid audit completions

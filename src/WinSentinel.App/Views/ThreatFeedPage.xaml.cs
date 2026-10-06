@@ -96,6 +96,10 @@ public partial class ThreatFeedPage : Page
 
     private void SeverityCombo_Changed(object sender, SelectionChangedEventArgs e)
     {
+        // Guard: SelectionChanged can fire during InitializeComponent() before
+        // the view model is assigned in the constructor (issue #246).
+        if (_vm == null) return;
+
         if (SeverityCombo.SelectedItem is ComboBoxItem item)
         {
             var content = item.Content?.ToString() ?? "All";
@@ -106,6 +110,9 @@ public partial class ThreatFeedPage : Page
 
     private void ModuleCombo_Changed(object sender, SelectionChangedEventArgs e)
     {
+        // Guard: fires during XAML init before _vm is set (issue #246).
+        if (_vm == null) return;
+
         if (ModuleCombo.SelectedItem is ComboBoxItem item)
         {
             var content = item.Content?.ToString() ?? "All";
@@ -116,6 +123,9 @@ public partial class ThreatFeedPage : Page
 
     private void TimeCombo_Changed(object sender, SelectionChangedEventArgs e)
     {
+        // Guard: fires during XAML init before _vm is set (issue #246).
+        if (_vm == null) return;
+
         if (TimeCombo.SelectedItem is ComboBoxItem item)
         {
             var content = item.Content?.ToString() ?? "All";

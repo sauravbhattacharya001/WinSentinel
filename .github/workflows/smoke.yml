@@ -80,7 +80,10 @@ jobs:
         }
 
         # Verify expected top-level fields exist
-        $requiredFields = @("score", "grade", "modules")
+        # The full --audit --json report (ReportGenerator.GenerateJsonReport)
+        # emits overallScore/grade/modules at the top level (per-module objects
+        # carry their own nested "score"). Assert the real contract.
+        $requiredFields = @("overallScore", "grade", "modules")
         foreach ($field in $requiredFields) {
           if (-not ($json.PSObject.Properties.Name -contains $field)) {
             Write-Error "Missing required field '$field' in JSON output"
@@ -92,7 +95,7 @@ jobs:
         Write-Output "" >> $env:GITHUB_STEP_SUMMARY
         Write-Output "| Metric | Value |" >> $env:GITHUB_STEP_SUMMARY
         Write-Output "|--------|-------|" >> $env:GITHUB_STEP_SUMMARY
-        Write-Output "| Score | **$($json.score)** |" >> $env:GITHUB_STEP_SUMMARY
+        Write-Output "| Score | **$($json.overallScore)** |" >> $env:GITHUB_STEP_SUMMARY
         Write-Output "| Grade | **$($json.grade)** |" >> $env:GITHUB_STEP_SUMMARY
         Write-Output "| Modules | $($json.modules.Count) |" >> $env:GITHUB_STEP_SUMMARY
         Write-Output "| Exit Code | $exitCode |" >> $env:GITHUB_STEP_SUMMARY

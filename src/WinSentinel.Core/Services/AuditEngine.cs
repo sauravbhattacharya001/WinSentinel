@@ -58,6 +58,7 @@ public class AuditEngine
             new CredentialGuardAudit(),
             new AttachmentManagerAudit(),
             new ScreenLockAudit(),
+            new BootIntegrityAudit(),
             new WindowsScriptHostAudit(),
             new SmartScreenAudit(),
             new LsaHardeningAudit(),

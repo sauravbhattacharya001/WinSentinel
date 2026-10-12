@@ -32,6 +32,18 @@ public class FindingTagManager
         public static FindingKey From(Finding f) => new(f.Title, f.Category);
     }
 
+    private sealed class FindingKeyComparer : IEqualityComparer<FindingKey>
+    {
+        public bool Equals(FindingKey x, FindingKey y) =>
+            StringComparer.OrdinalIgnoreCase.Equals(x.Title, y.Title) &&
+            StringComparer.OrdinalIgnoreCase.Equals(x.Category, y.Category);
+
+        public int GetHashCode(FindingKey obj) =>
+            HashCode.Combine(
+                StringComparer.OrdinalIgnoreCase.GetHashCode(obj.Title),
+                StringComparer.OrdinalIgnoreCase.GetHashCode(obj.Category));
+    }
+
     /// <summary>Metadata attached to a tagged finding.</summary>
     public class TaggedFinding
     {
@@ -96,7 +108,7 @@ public class FindingTagManager
 
     // ── State ────────────────────────────────────────────────────
 
-    private readonly Dictionary<FindingKey, TaggedFinding> _findings = new();
+    private readonly Dictionary<FindingKey, TaggedFinding> _findings = new(new FindingKeyComparer());
 
     /// <summary>All tracked findings.</summary>
     public IReadOnlyDictionary<FindingKey, TaggedFinding> Findings => _findings;
@@ -113,13 +125,20 @@ public class FindingTagManager
     /// <param name="category">Finding category/module.</param>
     /// <param name="tags">Tags to add.</param>
     /// <returns>The updated TaggedFinding.</returns>
-    /// <exception cref="ArgumentException">If title is empty or no tags provided.</exception>
+    /// <exception cref="ArgumentException">If title/category is empty or no non-empty tags are provided.</exception>
     public TaggedFinding Tag(string title, string category, params string[] tags)
     {
-        if (string.IsNullOrWhiteSpace(title))
-            throw new ArgumentException("Title cannot be empty.", nameof(title));
-        if (tags.Length == 0)
-            throw new ArgumentException("At least one tag is required.", nameof(tags));
+        ArgumentException.ThrowIfNullOrWhiteSpace(title);
+        ArgumentException.ThrowIfNullOrWhiteSpace(category);
+        ArgumentNullException.ThrowIfNull(tags);
+
+        var normalizedTags = tags
+            .Where(tag => !string.IsNullOrWhiteSpace(tag))
+            .Select(tag => tag.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (normalizedTags.Length == 0)
+            throw new ArgumentException("At least one non-empty tag is required.", nameof(tags));
 
         var key = new FindingKey(title, category);
         var now = DateTimeOffset.UtcNow;
@@ -136,13 +155,12 @@ public class FindingTagManager
             _findings[key] = tracked;
         }
 
-        foreach (var tag in tags)
-        {
-            if (!string.IsNullOrWhiteSpace(tag))
-                tracked.Tags.Add(tag.Trim());
-        }
+        var changed = false;
+        foreach (var tag in normalizedTags)
+            changed |= tracked.Tags.Add(tag);
 
-        tracked.LastModifiedAt = now;
+        if (changed)
+            tracked.LastModifiedAt = now;
         return tracked;
     }
 
@@ -248,10 +266,9 @@ public class FindingTagManager
     /// <returns>The updated TaggedFinding.</returns>
     public TaggedFinding Annotate(string title, string category, string text, string? author = null)
     {
-        if (string.IsNullOrWhiteSpace(title))
-            throw new ArgumentException("Title cannot be empty.", nameof(title));
-        if (string.IsNullOrWhiteSpace(text))
-            throw new ArgumentException("Annotation text cannot be empty.", nameof(text));
+        ArgumentException.ThrowIfNullOrWhiteSpace(title);
+        ArgumentException.ThrowIfNullOrWhiteSpace(category);
+        ArgumentException.ThrowIfNullOrWhiteSpace(text);
 
         var key = new FindingKey(title, category);
         var now = DateTimeOffset.UtcNow;
@@ -495,23 +512,21 @@ public class FindingTagManager
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
 
-        if (!root.TryGetProperty("findings", out var findingsEl))
-            throw new ArgumentException("JSON must contain a 'findings' array.");
+        if (!root.TryGetProperty("findings", out var findingsEl) || findingsEl.ValueKind != JsonValueKind.Array)
+            throw new ArgumentException("JSON must contain a 'findings' array.", nameof(json));
 
         int count = 0;
         foreach (var el in findingsEl.EnumerateArray())
         {
-            var title = el.GetProperty("Title").GetString() ?? "";
-            var category = el.GetProperty("Category").GetString() ?? "";
+            if (el.ValueKind != JsonValueKind.Object)
+                throw new ArgumentException("Each imported finding must be a JSON object.", nameof(json));
+
+            var title = GetRequiredString(el, "Title", json);
+            var category = GetRequiredString(el, "Category", json);
             var key = new FindingKey(title, category);
 
-            var firstTagged = el.TryGetProperty("FirstTaggedAt", out var ftEl)
-                ? ftEl.GetDateTimeOffset()
-                : DateTimeOffset.UtcNow;
-
-            var lastMod = el.TryGetProperty("LastModifiedAt", out var lmEl)
-                ? lmEl.GetDateTimeOffset()
-                : DateTimeOffset.UtcNow;
+            var firstTagged = GetOptionalDateTimeOffset(el, "FirstTaggedAt", json) ?? DateTimeOffset.UtcNow;
+            var lastMod = GetOptionalDateTimeOffset(el, "LastModifiedAt", json) ?? DateTimeOffset.UtcNow;
 
             if (!_findings.TryGetValue(key, out var tracked) || !merge)
             {
@@ -525,31 +540,36 @@ public class FindingTagManager
                 _findings[key] = tracked;
             }
 
-            // Import tags
             if (el.TryGetProperty("Tags", out var tagsEl))
             {
+                if (tagsEl.ValueKind != JsonValueKind.Array)
+                    throw new ArgumentException("Finding 'Tags' must be an array.", nameof(json));
+
                 foreach (var tagEl in tagsEl.EnumerateArray())
                 {
+                    if (tagEl.ValueKind != JsonValueKind.String)
+                        throw new ArgumentException("Every imported tag must be a string.", nameof(json));
                     var tag = tagEl.GetString();
                     if (!string.IsNullOrWhiteSpace(tag))
-                        tracked.Tags.Add(tag);
+                        tracked.Tags.Add(tag.Trim());
                 }
             }
 
-            // Import annotations
             if (el.TryGetProperty("Annotations", out var annsEl))
             {
+                if (annsEl.ValueKind != JsonValueKind.Array)
+                    throw new ArgumentException("Finding 'Annotations' must be an array.", nameof(json));
+
                 foreach (var annEl in annsEl.EnumerateArray())
                 {
-                    var text = annEl.GetProperty("Text").GetString() ?? "";
-                    var author = annEl.TryGetProperty("Author", out var authEl)
+                    if (annEl.ValueKind != JsonValueKind.Object)
+                        throw new ArgumentException("Every imported annotation must be an object.", nameof(json));
+                    var text = GetRequiredString(annEl, "Text", json);
+                    var author = annEl.TryGetProperty("Author", out var authEl) && authEl.ValueKind != JsonValueKind.Null
                         ? authEl.GetString()
                         : null;
-                    var created = annEl.TryGetProperty("CreatedAt", out var crEl)
-                        ? crEl.GetDateTimeOffset()
-                        : DateTimeOffset.UtcNow;
+                    var created = GetOptionalDateTimeOffset(annEl, "CreatedAt", json) ?? DateTimeOffset.UtcNow;
 
-                    // Avoid duplicate annotations on merge
                     if (!merge || !tracked.Annotations.Any(a =>
                         a.Text == text && a.CreatedAt == created))
                     {
@@ -570,5 +590,25 @@ public class FindingTagManager
         }
 
         return count;
+    }
+
+    private static string GetRequiredString(JsonElement element, string propertyName, string parameterName)
+    {
+        if (!element.TryGetProperty(propertyName, out var value) || value.ValueKind != JsonValueKind.String)
+            throw new ArgumentException($"Imported finding must contain a string '{propertyName}' property.", parameterName);
+
+        var text = value.GetString();
+        if (string.IsNullOrWhiteSpace(text))
+            throw new ArgumentException($"Imported finding '{propertyName}' cannot be empty.", parameterName);
+        return text;
+    }
+
+    private static DateTimeOffset? GetOptionalDateTimeOffset(JsonElement element, string propertyName, string parameterName)
+    {
+        if (!element.TryGetProperty(propertyName, out var value) || value.ValueKind == JsonValueKind.Null)
+            return null;
+        if (value.ValueKind != JsonValueKind.String || !value.TryGetDateTimeOffset(out var timestamp))
+            throw new ArgumentException($"Imported finding '{propertyName}' must be a valid timestamp.", parameterName);
+        return timestamp;
     }
 }

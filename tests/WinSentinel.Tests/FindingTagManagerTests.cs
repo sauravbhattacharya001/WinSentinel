@@ -10,8 +10,6 @@ public class FindingTagManagerTests
         string category = "Firewall", Severity severity = Severity.Warning) =>
         new() { Title = title, Description = "desc", Severity = severity, Category = category };
 
-    // ── Tag operations ───────────────────────────────────────────
-
     [Fact]
     public void Tag_Creates_Entry_And_Assigns_Tags()
     {
@@ -57,7 +55,22 @@ public class FindingTagManagerTests
         mgr.Tag("F1", "C1", "URGENT");
 
         var tracked = mgr.Get("F1", "C1");
-        Assert.Single(tracked!.Tags); // Same tag, different case
+        Assert.Single(tracked!.Tags);
+    }
+
+    [Fact]
+    public void Finding_Identity_Is_Case_Insensitive()
+    {
+        var mgr = new FindingTagManager();
+        mgr.Tag("Open RDP", "Firewall", "owner-infra");
+        mgr.Tag("open rdp", "FIREWALL", "urgent");
+
+        Assert.Equal(1, mgr.Count);
+        var tracked = mgr.Get("OPEN RDP", "firewall");
+        Assert.NotNull(tracked);
+        Assert.Equal(2, tracked!.Tags.Count);
+        Assert.True(mgr.Remove("oPeN RdP", "FireWall"));
+        Assert.Empty(mgr.Findings);
     }
 
     [Fact]
@@ -68,10 +81,26 @@ public class FindingTagManagerTests
     }
 
     [Fact]
+    public void Tag_Empty_Category_Throws()
+    {
+        var mgr = new FindingTagManager();
+        Assert.Throws<ArgumentException>(() => mgr.Tag("F1", " ", "tag"));
+    }
+
+    [Fact]
     public void Tag_No_Tags_Throws()
     {
         var mgr = new FindingTagManager();
         Assert.Throws<ArgumentException>(() => mgr.Tag("F1", "C1"));
+    }
+
+    [Fact]
+    public void Tag_Only_Blank_Tags_Throws_Without_Creating_Entry()
+    {
+        var mgr = new FindingTagManager();
+
+        Assert.Throws<ArgumentException>(() => mgr.Tag("F1", "C1", "", "  "));
+        Assert.Equal(0, mgr.Count);
     }
 
     [Fact]
@@ -80,8 +109,6 @@ public class FindingTagManagerTests
         var mgr = new FindingTagManager();
         Assert.Throws<ArgumentNullException>(() => mgr.Tag((Finding)null!, "tag"));
     }
-
-    // ── Untag ────────────────────────────────────────────────────
 
     [Fact]
     public void Untag_Removes_Specific_Tags()
@@ -113,8 +140,6 @@ public class FindingTagManagerTests
         Assert.False(mgr.Untag("F1", "C1", "nope"));
     }
 
-    // ── ClearTags ────────────────────────────────────────────────
-
     [Fact]
     public void ClearTags_Removes_All()
     {
@@ -133,8 +158,6 @@ public class FindingTagManagerTests
         var mgr = new FindingTagManager();
         Assert.False(mgr.ClearTags("Unknown", "Cat"));
     }
-
-    // ── RenameTag ────────────────────────────────────────────────
 
     [Fact]
     public void RenameTag_Updates_All_Findings()
@@ -159,8 +182,6 @@ public class FindingTagManagerTests
         Assert.Throws<ArgumentException>(() => mgr.RenameTag("", "new"));
     }
 
-    // ── DeleteTag ────────────────────────────────────────────────
-
     [Fact]
     public void DeleteTag_Removes_From_All()
     {
@@ -174,8 +195,6 @@ public class FindingTagManagerTests
         Assert.DoesNotContain("remove-me", mgr.Get("F1", "C1")!.Tags);
         Assert.Contains("keep", mgr.Get("F1", "C1")!.Tags);
     }
-
-    // ── Annotations ──────────────────────────────────────────────
 
     [Fact]
     public void Annotate_Adds_Note()
@@ -217,6 +236,13 @@ public class FindingTagManagerTests
     }
 
     [Fact]
+    public void Annotate_Empty_Category_Throws()
+    {
+        var mgr = new FindingTagManager();
+        Assert.Throws<ArgumentException>(() => mgr.Annotate("F1", " ", "note"));
+    }
+
+    [Fact]
     public void Annotate_Creates_Entry_If_New()
     {
         var mgr = new FindingTagManager();
@@ -225,8 +251,6 @@ public class FindingTagManagerTests
         Assert.Equal(1, mgr.Count);
         Assert.Empty(mgr.Get("New Finding", "Cat")!.Tags);
     }
-
-    // ── Queries ──────────────────────────────────────────────────
 
     [Fact]
     public void GetByTag_Returns_Matching()
@@ -318,8 +342,6 @@ public class FindingTagManagerTests
         Assert.Single(mgr.Search("sprint"));
     }
 
-    // ── Remove ───────────────────────────────────────────────────
-
     [Fact]
     public void Remove_Deletes_Entry()
     {
@@ -336,8 +358,6 @@ public class FindingTagManagerTests
         var mgr = new FindingTagManager();
         Assert.False(mgr.Remove("X", "Y"));
     }
-
-    // ── Bulk operations ──────────────────────────────────────────
 
     [Fact]
     public void TagFromReport_Tags_NonPass_Findings()
@@ -364,7 +384,7 @@ public class FindingTagManagerTests
         var mgr = new FindingTagManager();
         var count = mgr.TagFromReport(report, "scan-2026-03");
 
-        Assert.Equal(2, count);  // Pass is skipped
+        Assert.Equal(2, count);
         Assert.Equal(2, mgr.Count);
     }
 
@@ -401,8 +421,6 @@ public class FindingTagManagerTests
         Assert.Null(mgr.Get("P1", "Cat"));
     }
 
-    // ── Report ───────────────────────────────────────────────────
-
     [Fact]
     public void GenerateReport_Counts_Correct()
     {
@@ -411,16 +429,16 @@ public class FindingTagManagerTests
         mgr.Tag("F2", "C2", "a");
         mgr.Annotate("F1", "C1", "Note 1");
         mgr.Annotate("F1", "C1", "Note 2");
-        mgr.Annotate("F3", "C3", "Note 3"); // No tags, just annotation
+        mgr.Annotate("F3", "C3", "Note 3");
 
         var report = mgr.GenerateReport();
 
         Assert.Equal(3, report.TotalFindings);
-        Assert.Equal(2, report.TotalTags);  // "a" and "b"
+        Assert.Equal(2, report.TotalTags);
         Assert.Equal(3, report.TotalAnnotations);
         Assert.Equal(2, report.TagCounts["a"]);
         Assert.Equal(1, report.TagCounts["b"]);
-        Assert.Equal(1, report.UntaggedCount);  // F3 has no tags
+        Assert.Equal(1, report.UntaggedCount);
     }
 
     [Fact]
@@ -432,8 +450,6 @@ public class FindingTagManagerTests
         Assert.Equal(0, report.TotalFindings);
         Assert.Equal(0, report.TotalTags);
     }
-
-    // ── Export / Import ──────────────────────────────────────────
 
     [Fact]
     public void ExportJson_RoundTrips()
@@ -460,17 +476,18 @@ public class FindingTagManagerTests
     }
 
     [Fact]
-    public void ImportJson_Merge_Combines_Tags()
+    public void ImportJson_Merge_Combines_Tags_Case_Insensitively()
     {
         var mgr = new FindingTagManager();
         mgr.Tag("F1", "C1", "existing");
 
-        var json = "{\"findings\":[{\"Title\":\"F1\",\"Category\":\"C1\"," +
+        var json = "{\"findings\":[{\"Title\":\"f1\",\"Category\":\"c1\"," +
             "\"Tags\":[\"new-tag\"],\"Annotations\":[],\"FirstTaggedAt\":\"2026-01-01T00:00:00Z\"," +
             "\"LastModifiedAt\":\"2026-01-01T00:00:00Z\"}]}";
 
         mgr.ImportJson(json, merge: true);
 
+        Assert.Equal(1, mgr.Count);
         var f = mgr.Get("F1", "C1");
         Assert.Equal(2, f!.Tags.Count);
         Assert.Contains("existing", f.Tags);
@@ -482,6 +499,23 @@ public class FindingTagManagerTests
     {
         var mgr = new FindingTagManager();
         Assert.Throws<ArgumentException>(() => mgr.ImportJson("{}"));
+    }
+
+    [Fact]
+    public void ImportJson_NonArray_Findings_Throws_ArgumentException()
+    {
+        var mgr = new FindingTagManager();
+        Assert.Throws<ArgumentException>(() => mgr.ImportJson("{\"findings\":{}}"));
+    }
+
+    [Fact]
+    public void ImportJson_Blank_Identity_Throws_Without_Creating_Entry()
+    {
+        var mgr = new FindingTagManager();
+        var json = "{\"findings\":[{\"Title\":\"  \",\"Category\":\"C1\",\"Tags\":[\"tag\"]}]}";
+
+        Assert.Throws<ArgumentException>(() => mgr.ImportJson(json));
+        Assert.Equal(0, mgr.Count);
     }
 
     [Fact]

@@ -3,46 +3,65 @@ name: Submit to WinGet
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to publish (for example, v1.25.0)'
+        required: true
+        type: string
 
 jobs:
   winget:
     name: Publish to WinGet
     runs-on: windows-latest
-    if: "!github.event.release.prerelease"
+    if: github.event_name == 'workflow_dispatch' || !github.event.release.prerelease
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Extract version from tag
         id: version
         shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
         run: |
-          $tag = "${{ github.event.release.tag_name }}"
+          $tag = $env:RELEASE_TAG
+          if ($tag -notmatch '^v\d+\.\d+\.\d+([.-][0-9A-Za-z.-]+)?$') {
+            throw "Invalid release tag: $tag"
+          }
           $ver = $tag -replace '^v', ''
-          echo "version=$ver" >> $env:GITHUB_OUTPUT
+          "version=$ver" >> $env:GITHUB_OUTPUT
 
-      - name: Get NuGet package SHA256
+      - name: Wait for NuGet package and get SHA256
         id: hash
         shell: pwsh
         run: |
           $version = "${{ steps.version.outputs.version }}"
-          $url = "https://www.nuget.org/api/v2/package/WinSentinel.Cli/$version"
+          $registrationUrl = "https://api.nuget.org/v3-flatcontainer/winsentinel.cli/$version/winsentinel.cli.$version.nupkg"
+          $installerUrl = "https://www.nuget.org/api/v2/package/WinSentinel.Cli/$version"
           $tempFile = Join-Path $env:TEMP "winsentinel-cli-$version.nupkg"
-          
-          # Wait for NuGet indexing (up to 5 min)
-          $attempts = 0
-          do {
+          $maxAttempts = 20
+
+          for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
             try {
-              Invoke-WebRequest -Uri $url -OutFile $tempFile -ErrorAction Stop
+              Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
+              Invoke-WebRequest -Uri $registrationUrl -OutFile $tempFile -ErrorAction Stop
+              if ((Get-Item $tempFile).Length -le 0) { throw 'Downloaded package is empty' }
+              Write-Host "NuGet package is available (attempt $attempt/$maxAttempts)."
               break
             } catch {
-              $attempts++
-              if ($attempts -ge 10) { throw "NuGet package not available after 5 minutes" }
-              Start-Sleep -Seconds 30
+              if ($attempt -eq $maxAttempts) {
+                throw "NuGet package was not available after $maxAttempts attempts: $($_.Exception.Message)"
+              }
+              $delay = [Math]::Min(180, 15 * [Math]::Pow(1.35, $attempt - 1))
+              $delay = [int][Math]::Ceiling($delay)
+              Write-Host "Package not ready (attempt $attempt/$maxAttempts); retrying in $delay seconds."
+              Start-Sleep -Seconds $delay
             }
-          } while ($true)
-          
+          }
+
           $hash = (Get-FileHash -Path $tempFile -Algorithm SHA256).Hash
-          echo "sha256=$hash" >> $env:GITHUB_OUTPUT
+          "sha256=$hash" >> $env:GITHUB_OUTPUT
+          "installer_url=$installerUrl" >> $env:GITHUB_OUTPUT
           Remove-Item $tempFile -Force
 
       - name: Generate winget manifest
@@ -50,14 +69,13 @@ jobs:
         run: |
           $version = "${{ steps.version.outputs.version }}"
           $sha256 = "${{ steps.hash.outputs.sha256 }}"
-          $url = "https://www.nuget.org/api/v2/package/WinSentinel.Cli/$version"
+          $url = "${{ steps.hash.outputs.installer_url }}"
           $date = (Get-Date -Format "yyyy-MM-dd")
           $id = "SauravBhattacharya.WinSentinel"
           $outDir = "manifests/s/SauravBhattacharya/WinSentinel/$version"
-          
+
           New-Item -ItemType Directory -Path $outDir -Force | Out-Null
-          
-          # Version manifest
+
           @"
           PackageIdentifier: $id
           PackageVersion: $version
@@ -65,8 +83,7 @@ jobs:
           ManifestType: version
           ManifestVersion: 1.6.0
           "@ -replace '(?m)^\s+', '' | Set-Content "$outDir/$id.yaml"
-          
-          # Installer manifest
+
           @"
           PackageIdentifier: $id
           PackageVersion: $version
@@ -82,8 +99,7 @@ jobs:
           ManifestType: installer
           ManifestVersion: 1.6.0
           "@ -replace '(?m)^\s+', '' | Set-Content "$outDir/$id.installer.yaml"
-          
-          # Locale manifest
+
           Get-Content "winget/SauravBhattacharya.WinSentinel.locale.en-US.yaml" |
             ForEach-Object { $_ -replace 'PackageVersion: .*', "PackageVersion: $version" } |
             Set-Content "$outDir/$id.locale.en-US.yaml"

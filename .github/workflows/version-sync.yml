@@ -3,9 +3,16 @@ name: Sync Version on Release
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to sync (for example, v1.25.0)'
+        required: true
+        type: string
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   sync-version:
@@ -14,11 +21,19 @@ jobs:
     steps:
     - uses: actions/checkout@v6
       with:
-        token: ${{ secrets.GITHUB_TOKEN }}
+        ref: main
 
     - name: Extract version from tag
       id: version
-      run: echo "version=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+      env:
+        RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      run: |
+        if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+          echo "Invalid release tag: $RELEASE_TAG" >&2
+          exit 1
+        fi
+        echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+        echo "version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
 
     - name: Update csproj versions
       run: |
@@ -27,19 +42,22 @@ jobs:
           if grep -q '<Version>' "$csproj"; then
             sed -i "s|<Version>.*</Version>|<Version>${VERSION}</Version>|g" "$csproj"
           else
-            # Insert Version after TargetFramework(s) line
             sed -i "/<TargetFramework/a\\    <Version>${VERSION}</Version>" "$csproj"
           fi
         done
 
-    - name: Commit version bump
-      run: |
-        git config user.name "github-actions[bot]"
-        git config user.email "github-actions[bot]@users.noreply.github.com"
-        git add -A
-        if git diff --cached --quiet; then
-          echo "No version changes needed"
-        else
-          git commit -m "chore: sync package version to ${{ steps.version.outputs.version }}"
-          git push origin HEAD:main
-        fi
+    - name: Create version sync pull request
+      uses: peter-evans/create-pull-request@v8
+      with:
+        token: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
+        commit-message: 'chore: sync package version to ${{ steps.version.outputs.version }}'
+        committer: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
+        author: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
+        branch: automation/version-sync-${{ steps.version.outputs.version }}
+        delete-branch: true
+        title: 'chore: sync package version to ${{ steps.version.outputs.version }}'
+        body: |
+          Synchronizes project package versions with release `${{ steps.version.outputs.tag }}`.
+
+          This pull request is generated instead of pushing directly to `main`, so normal branch protection and required checks remain in force.
+        labels: automated

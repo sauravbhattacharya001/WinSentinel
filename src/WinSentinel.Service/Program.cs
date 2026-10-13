@@ -4,10 +4,13 @@ using WinSentinel.Service;
 
 var builder = Host.CreateApplicationBuilder(args);
 
-builder.Services.AddWindowsService(options =>
+if (OperatingSystem.IsWindows())
 {
-    options.ServiceName = "WinSentinel Security Monitor";
-});
+    builder.Services.AddWindowsService(options =>
+    {
+        options.ServiceName = "WinSentinel Security Monitor";
+    });
+}
 
 builder.Services.AddHostedService<SecurityMonitorWorker>();
 

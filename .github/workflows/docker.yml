@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+  pull_request:
+    branches: [main]
 
 env:
   REGISTRY: ghcr.io
@@ -22,7 +24,7 @@ permissions:
 
 jobs:
   docker:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         target: [cli, service]
@@ -30,136 +32,78 @@ jobs:
     steps:
     - uses: actions/checkout@v6
 
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
     - name: Log in to GitHub Container Registry
       if: github.event_name != 'pull_request'
-      run: |
-        echo "${{ secrets.GITHUB_TOKEN }}" | docker login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Extract metadata
       id: meta
-      shell: pwsh
+      shell: bash
       run: |
-        $repo = "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}".ToLower()
-        $target = "${{ matrix.target }}"
-        $imageName = if ($target -eq "cli") { $repo } else { "${repo}-${target}" }
+        repo="${REGISTRY}/${IMAGE_NAME,,}"
+        target="${{ matrix.target }}"
+        if [[ "$target" == "cli" ]]; then image_name="$repo"; else image_name="${repo}-${target}"; fi
 
-        $tags = @()
-        $ref = "${{ github.ref }}"
+        tags=()
+        if [[ "$GITHUB_REF" =~ ^refs/tags/v(.+)$ ]]; then
+          version="${BASH_REMATCH[1]}"
+          tags+=("${image_name}:${version}" "${image_name}:latest")
+          if [[ "$version" =~ ^([0-9]+\.[0-9]+) ]]; then tags+=("${image_name}:${BASH_REMATCH[1]}"); fi
+        elif [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
+          tags+=("${image_name}:main" "${image_name}:sha-${GITHUB_SHA:0:7}")
+        else
+          tags+=("${image_name}:pr-${{ github.event.number }}" "${image_name}:sha-${GITHUB_SHA:0:7}")
+        fi
 
-        if ($ref -match '^refs/tags/v(.+)$') {
-          $version = $Matches[1]
-          $tags += "${imageName}:${version}"
-          $tags += "${imageName}:latest"
-          # Add major.minor tag (e.g., 1.0)
-          if ($version -match '^(\d+\.\d+)') {
-            $tags += "${imageName}:$($Matches[1])"
-          }
-        } elseif ($ref -eq 'refs/heads/main') {
-          $sha = "${{ github.sha }}".Substring(0, 7)
-          $tags += "${imageName}:main"
-          $tags += "${imageName}:sha-${sha}"
-        } else {
-          $sha = "${{ github.sha }}".Substring(0, 7)
-          $tags += "${imageName}:pr-${{ github.event.number }}"
-          $tags += "${imageName}:sha-${sha}"
-        }
+        {
+          echo 'tags<<EOF'
+          printf '%s\n' "${tags[@]}"
+          echo 'EOF'
+          echo "primary=${tags[0]}"
+          echo "image_name=${image_name}"
+        } >> "$GITHUB_OUTPUT"
 
-        $tagsStr = $tags -join "`n"
-        "tags<<EOF" >> $env:GITHUB_OUTPUT
-        $tagsStr >> $env:GITHUB_OUTPUT
-        "EOF" >> $env:GITHUB_OUTPUT
-        "primary=$($tags[0])" >> $env:GITHUB_OUTPUT
-
-        Write-Host "Tags:"
-        $tags | ForEach-Object { Write-Host "  $_" }
-
-    - name: Build Docker image
-      run: |
-        docker build --target ${{ matrix.target }} -t ${{ steps.meta.outputs.primary }} .
-
-    - name: Tag additional tags
-      if: github.event_name != 'pull_request'
-      shell: pwsh
-      run: |
-        $tags = @"
-        ${{ steps.meta.outputs.tags }}
-        "@.Trim() -split "`n"
-
-        foreach ($tag in $tags) {
-          $tag = $tag.Trim()
-          if ($tag -and $tag -ne "${{ steps.meta.outputs.primary }}") {
-            docker tag "${{ steps.meta.outputs.primary }}" $tag
-            Write-Host "Tagged: $tag"
-          }
-        }
-
-    - name: Push to GHCR
-      if: github.event_name != 'pull_request'
-      shell: pwsh
-      run: |
-        $tags = @"
-        ${{ steps.meta.outputs.tags }}
-        "@.Trim() -split "`n"
-
-        foreach ($tag in $tags) {
-          $tag = $tag.Trim()
-          if ($tag) {
-            docker push $tag
-            Write-Host "Pushed: $tag"
-          }
-        }
-
-    - name: Capture image digest
-      if: github.event_name != 'pull_request'
-      id: digest
-      shell: pwsh
-      run: |
-        $primary = "${{ steps.meta.outputs.primary }}"
-        $inspect = docker inspect --format='{{index .RepoDigests 0}}' $primary 2>$null
-        if ($inspect -match '@(sha256:[a-f0-9]{64})') {
-          $digest = $Matches[1]
-        } else {
-          # Fallback: get digest from manifest
-          $digest = (docker manifest inspect $primary 2>$null | ConvertFrom-Json).config.digest
-        }
-        "digest=$digest" >> $env:GITHUB_OUTPUT
-        Write-Host "Digest: $digest"
+    - name: Build and push Docker image
+      id: build
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        target: ${{ matrix.target }}
+        push: ${{ github.event_name != 'pull_request' }}
+        load: ${{ github.event_name == 'pull_request' }}
+        tags: ${{ steps.meta.outputs.tags }}
+        cache-from: type=gha,scope=${{ matrix.target }}
+        cache-to: type=gha,mode=max,scope=${{ matrix.target }}
 
     - name: Image summary
-      if: github.event_name != 'pull_request'
-      shell: pwsh
       run: |
-        $primary = "${{ steps.meta.outputs.primary }}"
-        $size = docker image inspect $primary --format '{{.Size}}'
-        $sizeMB = [math]::Round($size / 1MB, 1)
-        Write-Host "Image: $primary"
-        Write-Host "Size: ${sizeMB} MB"
-
-        # GitHub Actions job summary
-        "## 🐳 Docker Image: ${{ matrix.target }}" >> $env:GITHUB_STEP_SUMMARY
-        "" >> $env:GITHUB_STEP_SUMMARY
-        "| Property | Value |" >> $env:GITHUB_STEP_SUMMARY
-        "|----------|-------|" >> $env:GITHUB_STEP_SUMMARY
-        "| Image | ``$primary`` |" >> $env:GITHUB_STEP_SUMMARY
-        "| Size | ${sizeMB} MB |" >> $env:GITHUB_STEP_SUMMARY
-        "" >> $env:GITHUB_STEP_SUMMARY
-        "### Tags" >> $env:GITHUB_STEP_SUMMARY
-        $tags = @"
-        ${{ steps.meta.outputs.tags }}
-        "@.Trim() -split "`n"
-        foreach ($tag in $tags) {
-          $tag = $tag.Trim()
-          if ($tag) { "- ``$tag``" >> $env:GITHUB_STEP_SUMMARY }
-        }
+        {
+          echo "## 🐳 Docker Image: ${{ matrix.target }}"
+          echo
+          echo "| Property | Value |"
+          echo "|----------|-------|"
+          echo '| Image | `${{ steps.meta.outputs.primary }}` |'
+          echo '| Digest | `${{ steps.build.outputs.digest || 'local build only' }}` |'
+          echo
+          echo "### Tags"
+          while IFS= read -r tag; do [[ -n "$tag" ]] && echo "- \`$tag\`"; done <<< "${{ steps.meta.outputs.tags }}"
+        } >> "$GITHUB_STEP_SUMMARY"
 
     - name: Scan image for vulnerabilities
       if: github.event_name != 'pull_request'
       uses: aquasecurity/trivy-action@v0.36.0
       with:
         image-ref: ${{ steps.meta.outputs.primary }}
-        format: 'table'
+        format: table
         exit-code: '0'
-        severity: 'CRITICAL,HIGH'
+        severity: CRITICAL,HIGH
       continue-on-error: true
 
     - name: Upload vulnerability scan (SARIF)
@@ -167,17 +111,17 @@ jobs:
       uses: aquasecurity/trivy-action@v0.36.0
       with:
         image-ref: ${{ steps.meta.outputs.primary }}
-        format: 'sarif'
-        output: 'trivy-results-${{ matrix.target }}.sarif'
-        severity: 'CRITICAL,HIGH,MEDIUM'
+        format: sarif
+        output: trivy-results-${{ matrix.target }}.sarif
+        severity: CRITICAL,HIGH,MEDIUM
       continue-on-error: true
 
     - name: Upload Trivy results to GitHub Security
       if: github.event_name != 'pull_request'
       uses: github/codeql-action/upload-sarif@v4
       with:
-        sarif_file: 'trivy-results-${{ matrix.target }}.sarif'
-        category: 'trivy-${{ matrix.target }}'
+        sarif_file: trivy-results-${{ matrix.target }}.sarif
+        category: trivy-${{ matrix.target }}
       continue-on-error: true
 
     - name: Generate SBOM
@@ -190,10 +134,10 @@ jobs:
       continue-on-error: true
 
     - name: Attest build provenance
-      if: github.event_name != 'pull_request' && steps.digest.outputs.digest != ''
+      if: github.event_name != 'pull_request' && steps.build.outputs.digest != ''
       uses: actions/attest-build-provenance@v4
       with:
-        subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-        subject-digest: ${{ steps.digest.outputs.digest }}
+        subject-name: ${{ steps.meta.outputs.image_name }}
+        subject-digest: ${{ steps.build.outputs.digest }}
         push-to-registry: true
       continue-on-error: true

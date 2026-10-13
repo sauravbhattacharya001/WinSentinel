@@ -1,120 +1,67 @@
-# WinSentinel Docker Image
-# Builds the CLI tool and background Service for Windows Server Core containers.
-# WinSentinel uses Windows-specific APIs (WMI, Registry, EventLog, Defender),
-# so it requires Windows containers — Linux containers are not supported.
-#
-# Build:  docker build -t winsentinel .
-# Run:    docker run --rm winsentinel audit --full
-# Test:   docker build --target test -t winsentinel-test .
-# Note:   Requires Docker Desktop with Windows containers enabled,
-#         or a Windows Server host with Docker EE.
+# WinSentinel Linux container images.
+# The CLI and service remain Windows-security tools; Linux containers provide a
+# reliable packaging/runtime surface for cross-platform-capable audits.
 
-# --- Build Arguments ---
-ARG DOTNET_SDK_TAG=8.0-windowsservercore-ltsc2022
-ARG DOTNET_RUNTIME_TAG=8.0-windowsservercore-ltsc2022
+ARG DOTNET_SDK_TAG=8.0
+ARG DOTNET_RUNTIME_TAG=8.0
 ARG VERSION=0.0.0-dev
 ARG BUILD_DATE=unknown
 ARG VCS_REF=unknown
 
-# --- Build Stage ---
 FROM mcr.microsoft.com/dotnet/sdk:${DOTNET_SDK_TAG} AS build
 ARG VERSION
 WORKDIR /src
 
-# Copy solution and project files first for layer caching
-COPY WinSentinel.sln .
+COPY Directory.Build.props Directory.Packages.props WinSentinel.sln ./
 COPY src/WinSentinel.Core/WinSentinel.Core.csproj src/WinSentinel.Core/
 COPY src/WinSentinel.Cli/WinSentinel.Cli.csproj src/WinSentinel.Cli/
-COPY src/WinSentinel.Agent/WinSentinel.Agent.csproj src/WinSentinel.Agent/
 COPY src/WinSentinel.Service/WinSentinel.Service.csproj src/WinSentinel.Service/
-COPY src/WinSentinel.App/WinSentinel.App.csproj src/WinSentinel.App/
-COPY src/WinSentinel.Installer/WinSentinel.Installer.csproj src/WinSentinel.Installer/
-COPY tests/WinSentinel.Tests/WinSentinel.Tests.csproj tests/WinSentinel.Tests/
+RUN dotnet restore src/WinSentinel.Cli/WinSentinel.Cli.csproj -r linux-x64 \
+ && dotnet restore src/WinSentinel.Service/WinSentinel.Service.csproj -r linux-x64 -p:TargetFramework=net8.0
 
-# Restore only the projects this image builds (Core -> CLI, Core -> Service).
-# Restoring the whole solution would drag in the test plugin projects
-# (WinSentinel.TestPlugin / WinSentinel.NaughtyTestPlugin) whose csproj files
-# are intentionally not copied here, causing NETSDK1004 "assets file not found".
-RUN dotnet restore src/WinSentinel.Cli/WinSentinel.Cli.csproj -r win-x64 \
- && dotnet restore src/WinSentinel.Service/WinSentinel.Service.csproj -r win-x64
-
-# Copy remaining source
 COPY src/ src/
-COPY tests/ tests/
-
-# Build CLI (self-contained for portability)
 RUN dotnet publish src/WinSentinel.Cli/WinSentinel.Cli.csproj \
-    -c Release -r win-x64 --self-contained --no-restore \
+    -c Release -r linux-x64 --self-contained --no-restore \
     -o /app/cli \
     -p:PublishSingleFile=true \
     -p:IncludeNativeLibrariesForSelfExtract=true \
-    -p:Version=%VERSION%
-
-# Build Service
-RUN dotnet publish src/WinSentinel.Service/WinSentinel.Service.csproj \
-    -c Release -r win-x64 --self-contained --no-restore \
+    -p:Version=${VERSION} \
+ && dotnet publish src/WinSentinel.Service/WinSentinel.Service.csproj \
+    -c Release -r linux-x64 --self-contained --no-restore \
     -o /app/service \
-    -p:Version=%VERSION%
+    -p:TargetFramework=net8.0 \
+    -p:Version=${VERSION}
 
-# --- Test Stage (opt-in via --target test) ---
-FROM build AS test
-# The base build stage only restored CLI/Service, so restore the test project here.
-RUN dotnet restore tests/WinSentinel.Tests/WinSentinel.Tests.csproj
-RUN dotnet test tests/WinSentinel.Tests/WinSentinel.Tests.csproj \
-    -c Release \
-    --logger "console;verbosity=minimal" \
-    --results-directory /test-results
-
-# --- Runtime Stage (CLI) ---
-FROM mcr.microsoft.com/windows/servercore:ltsc2022 AS cli
+FROM mcr.microsoft.com/dotnet/runtime-deps:${DOTNET_RUNTIME_TAG}-bookworm-slim AS cli
 ARG VERSION
 ARG BUILD_DATE
 ARG VCS_REF
-
 LABEL org.opencontainers.image.title="WinSentinel CLI" \
-      org.opencontainers.image.description="Windows security auditing from the command line" \
+      org.opencontainers.image.description="Security auditing from the command line" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.source="https://github.com/sauravbhattacharya001/WinSentinel" \
-      org.opencontainers.image.licenses="MIT" \
-      org.opencontainers.image.vendor="sauravbhattacharya001"
-
+      org.opencontainers.image.licenses="MIT"
 WORKDIR /app
 COPY --from=build /app/cli .
-
-# WinSentinel needs admin privileges for full audit capabilities
-USER ContainerAdministrator
-
-# Health check: verify the binary responds to --version
-HEALTHCHECK --interval=60s --timeout=10s --retries=3 \
-    CMD winsentinel.exe version || exit 1
-
-ENTRYPOINT ["winsentinel.exe"]
+USER 65532:65532
+HEALTHCHECK --interval=60s --timeout=10s --retries=3 CMD ["./winsentinel", "version"]
+ENTRYPOINT ["./winsentinel"]
 CMD ["audit", "--full"]
 
-# --- Runtime Stage (Service) ---
-FROM mcr.microsoft.com/dotnet/runtime:${DOTNET_RUNTIME_TAG} AS service
+FROM mcr.microsoft.com/dotnet/runtime-deps:${DOTNET_RUNTIME_TAG}-bookworm-slim AS service
 ARG VERSION
 ARG BUILD_DATE
 ARG VCS_REF
-
 LABEL org.opencontainers.image.title="WinSentinel Service" \
       org.opencontainers.image.description="WinSentinel background monitoring service" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.source="https://github.com/sauravbhattacharya001/WinSentinel" \
-      org.opencontainers.image.licenses="MIT" \
-      org.opencontainers.image.vendor="sauravbhattacharya001"
-
+      org.opencontainers.image.licenses="MIT"
 WORKDIR /app
 COPY --from=build /app/service .
-
-USER ContainerAdministrator
-
-# Health check: verify the service process is running
-HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD powershell -Command "if (Get-Process -Name WinSentinel.Service -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }"
-
-ENTRYPOINT ["WinSentinel.Service.exe"]
+USER 65532:65532
+ENTRYPOINT ["./WinSentinel.Service"]

@@ -12,7 +12,7 @@ FROM mcr.microsoft.com/dotnet/sdk:${DOTNET_SDK_TAG} AS build
 ARG VERSION
 WORKDIR /src
 
-COPY Directory.Build.props Directory.Packages.props WinSentinel.sln ./
+COPY Directory.Build.props WinSentinel.sln ./
 COPY src/WinSentinel.Core/WinSentinel.Core.csproj src/WinSentinel.Core/
 COPY src/WinSentinel.Cli/WinSentinel.Cli.csproj src/WinSentinel.Cli/
 COPY src/WinSentinel.Service/WinSentinel.Service.csproj src/WinSentinel.Service/

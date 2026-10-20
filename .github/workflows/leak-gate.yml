@@ -1,0 +1,51 @@
+name: Leak Gate
+
+# Runs on every push. Scans the pushed commits for secret shapes (gitleaks)
+# and the added lines for banned identity phrases (spec: check-body.ps1,
+# the fleet's identity-leak guard).
+# Phrase patterns use character classes (e.g. zalen[ix]) so this file does
+# not itself contain the literal strings it hunts.
+# Phone-number patterns are intentionally NOT in this file: the literal
+# digits must never be committed to a public repo. That check stays with
+# the weekly scrubme audit and the local pre-push hook.
+
+on:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  leak-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Secret scan (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+
+      - name: Banned identity phrases (added lines only)
+        shell: bash
+        run: |
+          set -uo pipefail
+          BEFORE="${{ github.event.before }}"
+          AFTER="${{ github.event.after }}"
+          ZERO="0000000000000000000000000000000000000000"
+          if [ -z "$BEFORE" ] || [ "$BEFORE" = "$ZERO" ]; then
+            DIFF=$(git show -U0 --format= "$AFTER" -- . ':(exclude).github/workflows/leak-gate.yml')
+          else
+            DIFF=$(git diff -U0 "$BEFORE" "$AFTER" -- . ':(exclude).github/workflows/leak-gate.yml')
+          fi
+          ADDED=$(printf '%s\n' "$DIFF" | grep -E '^\+' | grep -vE '^\+\+\+' || true)
+          if [ -z "$ADDED" ]; then
+            echo "no added lines to check"
+            exit 0
+          fi
+          PATTERN='zalen[ix]|repo[[:space:]-]?garden[e]r|agentic garden[e]r|automated garden[i]ng|automated garden[e]r|automated profile refres[h]|garden[e]r (run|cron|auto-merge|auto-merges|guidance|persona|bot|job)|(run|cron|auto-merge|persona|bot|job) (by )?(the )?garden[e]r|builde[r] (run|cron|persona|bot|job)|file[d] by the bo[t]|durin[g] run [0-9]+|worker-commo[n]|gardener[-]tas[k]|builde[r]-task|sentine[l]-task'
+          if printf '%s\n' "$ADDED" | grep -niIE "$PATTERN"; then
+            echo "::error::Banned identity phrase found in added lines (see matches above)"
+            exit 1
+          fi
+          echo "phrase check clean"

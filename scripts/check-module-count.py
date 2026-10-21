@@ -29,7 +29,11 @@ if on_disk != registered:
         f'missing files: {sorted(registered - on_disk)})')
 
 def check_claims(path, text):
-    for pat in (r'(\d+)\s+audit modules', r'(\d+)\s+Audit Modules'):
+    # Bare "N modules" claims count too (diagram labels, tree comments) --
+    # the "13 modules" architecture-diagram fossil hid behind the missing
+    # word "audit" until 2026-10-21.
+    for pat in (r'(\d+)\s+audit modules', r'(\d+)\s+Audit Modules',
+                r'(?<!audit )(\d+)\s+modules\b'):
         for m in re.finditer(pat, text, re.IGNORECASE):
             if int(m.group(1)) != count:
                 failures.append(f'{path}: claims {m.group(1)} audit modules, code has {count}')

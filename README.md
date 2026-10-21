@@ -51,7 +51,7 @@ graph TB
         FM[📁 File System Watcher]
         EL[📋 Event Log Listener]
         NM[🌐 Network Monitor]
-        SA[📊 Scheduled Auditor<br/>13 modules]
+        SA[📊 Scheduled Auditor<br/>full audit suite]
         AB[🧠 Agent Brain +<br/>Threat Correlator]
         AR[🔧 Auto-Remediator<br/>7 actions + undo]
         IS[🔒 Input Sanitizer]

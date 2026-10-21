@@ -1,6 +1,6 @@
 # Audit Modules
 
-WinSentinel ships with **33 audit modules** covering comprehensive Windows security assessment. Each module runs independently and produces findings with severity levels and remediation guidance.
+WinSentinel ships with **64 audit modules** covering comprehensive Windows security assessment. Each module runs independently and produces findings with severity levels and remediation guidance.
 
 ## Module Overview
 
@@ -8,37 +8,68 @@ WinSentinel ships with **33 audit modules** covering comprehensive Windows secur
 |--------|-------|------------|
 | [Account](#account-audit) | `AccountAudit` | Password policy, admin accounts, guest status |
 | [App Security](#app-security-audit) | `AppSecurityAudit` | UAC, SmartScreen, exploit protection |
+| [Application Control (AppLocker/WDAC)](#application-control-applockerwdac-audit) | `ApplicationControlAudit` | Checks application allowlisting - AppLocker rule collections and enforcement, the Application Identity... |
+| [Attachment Manager / Mark-of-the-Web](#attachment-manager--mark-of-the-web-audit) | `AttachmentManagerAudit` | Checks Windows Attachment Manager / Mark-of-the-Web hardening on a single machine: whether downloaded... |
+| [Audit Policy](#audit-policy-audit) | `AuditPolicyAudit` | Checks this machine's advanced audit policy - whether the security-relevant subcategories (Logon,... |
+| [Automatic Sign-On](#automatic-sign-on-audit) | `AutoSignOnAudit` | Checks single-machine Windows Automatic Restart Sign-On (ARSO) and sign-in-screen hardening - whether ARSO... |
 | [Backup](#backup-audit) | `BackupAudit` | VSS, System Restore, File History, ransomware resilience |
 | [Bluetooth](#bluetooth-audit) | `BluetoothAudit` | Bluetooth radio, discoverable mode, paired devices |
+| [Boot Integrity](#boot-integrity-audit) | `BootIntegrityAudit` | Checks single-machine platform boot-integrity and kernel-protection posture - UEFI Secure Boot,... |
 | [Browser](#browser-audit) | `BrowserAudit` | Browser security settings, extensions |
 | [Certificate](#certificate-audit) | `CertificateAudit` | Expired/weak certs, untrusted root CAs |
 | [Credential Exposure](#credential-exposure-audit) | `CredentialExposureAudit` | Plaintext creds, SSH keys, git stores, RDP files |
+| [Credential Protection](#credential-protection-audit) | `CredentialGuardAudit` | Checks single-machine LSASS credential-theft defenses - LSA Protection (RunAsPPL), Credential Guard... |
 | [Defender](#defender-audit) | `DefenderAudit` | Antivirus status, definitions, real-time protection |
+| [Delivery Optimization](#delivery-optimization-audit) | `DeliveryOptimizationAudit` | Checks single-machine Windows Delivery Optimization download-source posture - whether the machine peers... |
+| [Diagnostics Hardening](#diagnostics-hardening-audit) | `DiagnosticsHardeningAudit` | Checks single-machine Windows diagnostics / troubleshooting hardening - the scripted-diagnostics (MSDT)... |
 | [DNS](#dns-audit) | `DnsAudit` | DNS servers, DoH, cache poisoning, hosts tampering |
 | [Driver](#driver-audit) | `DriverAudit` | Unsigned/vulnerable drivers, BYOVD detection |
 | [Encryption](#encryption-audit) | `EncryptionAudit` | BitLocker, drive encryption |
 | [Environment](#environment-audit) | `EnvironmentAudit` | PATH hijacking, secrets in env vars, proxy settings |
 | [Event Log](#event-log-audit) | `EventLogAudit` | Security events, failed logins, audit policy |
+| [Exploit Mitigation](#exploit-mitigation-audit) | `ExploitMitigationAudit` | Checks system-wide exploit mitigations - SEHOP (exception-chain validation), mandatory image relocation... |
 | [Firewall](#firewall-audit) | `FirewallAudit` | Firewall profile status, inbound rules |
+| [Firewall Logging](#firewall-logging-audit) | `FirewallLoggingAudit` | Checks single-machine Windows Firewall logging per profile (Domain/Private/Public) - dropped-packet... |
+| [Firewall Rule Analysis](#firewall-rule-analysis) | `FirewallRuleAudit` | Deep analysis of individual inbound firewall Allow rules: flags rules exposing dangerous ports (RDP, SMB,... |
 | [Group Policy](#group-policy-audit) | `GroupPolicyAudit` | Security-relevant GPO settings |
+| [Hosts File Integrity](#hosts-file-integrity-audit) | `HostsFileAudit` | Checks the local hosts file for tampering - security/update domains blackholed to a non-routable address... |
 | [Identity & Credential](#identity-credential-audit) | `IdentityCredentialAudit` | Admin sprawl, stale accounts, LAPS, LSA Protection |
+| [Interactive Logon](#interactive-logon-audit) | `InteractiveLogonAudit` | Checks single-machine Windows interactive-logon policy hardening - whether a pre-logon legal-notice banner... |
+| [Kerberos Hardening](#kerberos-hardening-audit) | `KerberosHardeningAudit` | Checks single-machine Kerberos client encryption-type hardening - the SupportedEncryptionTypes bitmask... |
+| [LSA Hardening](#lsa-hardening-audit) | `LsaHardeningAudit` | Checks single-machine LSA / credential-protection hardening - LSASS Protected Process (RunAsPPL), WDigest... |
+| [Name Resolution](#name-resolution-audit) | `NameResolutionAudit` | Checks single-machine name-resolution poisoning hardening - whether LLMNR, NetBIOS over TCP/IP (NBT-NS),... |
 | [Network](#network-audit) | `NetworkAudit` | LLMNR, NetBIOS, SMB signing, open ports |
+| [Network Protection](#network-protection-audit) | `NetworkProtectionAudit` | Checks single-machine Microsoft Defender Network Protection - whether outbound connections from any... |
+| [Office Macro Security](#office-macro-security-audit) | `OfficeMacroSecurityAudit` | Checks single-machine Microsoft Office macro-security posture - whether macros run without a prompt... |
+| [Optional Features](#optional-features-audit) | `OptionalFeaturesAudit` | Checks for risky enabled Windows optional features - SMB 1.0/CIFS, the legacy PowerShell 2.0 engine, and... |
 | [PowerShell](#powershell-audit) | `PowerShellAudit` | Execution policy, v2 engine, logging config |
+| [Print Spooler Hardening](#print-spooler-hardening-audit) | `PrintSpoolerAudit` | Checks Print Spooler / PrintNightmare hardening on a single machine: whether the spooler is running,... |
 | [Privacy](#privacy-audit) | `PrivacyAudit` | Telemetry, location, advertising ID |
 | [Process](#process-audit) | `ProcessAudit` | Running processes, suspicious activity |
 | [Process Lineage](#process-lineage-audit) | `ProcessLineageAudit` | Parent-child chain analysis, LOLBin abuse, MITRE ATT&CK |
 | [Registry](#registry-audit) | `RegistryAudit` | UAC, AutoRun, credential caching, WDigest |
 | [Remote Access](#remote-access-audit) | `RemoteAccessAudit` | RDP, SSH, VNC, TeamViewer, WinRM, Remote Registry |
+| [Remote Desktop Hardening](#remote-desktop-hardening-audit) | `RdpHardeningAudit` | Checks Remote Desktop (RDP) hardening on a single machine: whether RDP is enabled, whether Network Level... |
 | [Scheduled Task](#scheduled-task-audit) | `ScheduledTaskAudit` | Persistence mechanisms, suspicious tasks |
 | [Service](#service-audit) | `ServiceAudit` | Unquoted paths, SYSTEM services, missing binaries |
+| [Session Lock](#session-lock-audit) | `ScreenLockAudit` | Checks single-machine interactive-session lock and sign-in hardening - machine inactivity auto-lock, a... |
+| [SmartScreen](#smartscreen-audit) | `SmartScreenAudit` | Checks single-machine Windows SmartScreen reputation posture - whether App & File (Explorer) SmartScreen... |
+| [SMB Security Hardening](#smb-security-hardening-audit) | `SmbSecurityAudit` | Checks SMB server/client signing enforcement, the legacy SMBv1 protocol, SMB share encryption,... |
 | [SMB Share](#smb-share-audit) | `SmbShareAudit` | SMBv1, signing, admin shares, permissive ACLs |
 | [Software Inventory](#software-inventory-audit) | `SoftwareInventoryAudit` | Unsigned software, PUPs, orphaned installs |
 | [Startup](#startup-audit) | `StartupAudit` | Auto-start programs, persistence |
 | [System](#system-audit) | `SystemAudit` | OS version, Secure Boot, TPM |
+| [Time Synchronization](#time-synchronization-audit) | `TimeSyncSecurityAudit` | Checks single-machine Windows time-synchronization security - the Windows Time service (W32Time) state,... |
 | [Updates](#updates-audit) | `UpdateAudit` | Pending updates, update age |
 | [USB & Removable Media](#usb-removable-media-audit) | `UsbAudit` | AutoRun, USB write-protect, BitLocker-to-Go, device history |
+| [User Account Control (UAC) Hardening](#user-account-control-uac-hardening-audit) | `UacHardeningAudit` | Checks UAC enablement, the admin elevation-prompt behaviour, secure-desktop prompting, Admin Approval Mode... |
 | [Virtualization](#virtualization-audit) | `VirtualizationAudit` | Hyper-V, WSL, Sandbox, Docker, Credential Guard |
 | [Wi-Fi](#wi-fi-audit) | `WifiAudit` | Weak encryption profiles, auto-connect, MAC randomization |
+| [Windows Error Reporting Exposure](#windows-error-reporting-exposure-audit) | `WerExposureAudit` | Checks Windows Error Reporting upload posture (additional in-memory data, automatic consent level), local... |
+| [Windows Installer](#windows-installer-audit) | `WindowsInstallerAudit` | Checks single-machine Windows Installer (MSI) hardening - whether AlwaysInstallElevated is enabled in both... |
+| [Windows Recall](#windows-recall-audit) | `WindowsRecallAudit` | Checks single-machine Windows Recall exposure - whether Recall snapshotting is disabled by policy... |
+| [Windows Script Host](#windows-script-host-audit) | `WindowsScriptHostAudit` | Checks single-machine Windows Script Host hardening - whether wscript.exe/cscript.exe are disabled,... |
+| [WinRM Remote Management Hardening](#winrm-remote-management-hardening-audit) | `WinRmSecurityAudit` | Checks Windows Remote Management (WS-Man) service and client hardening - unencrypted traffic, Basic/Digest... |
 
 ## Severity Levels
 
@@ -79,6 +110,22 @@ Application-level security controls.
 - .NET Framework security
 - Windows Script Host
 
+## Application Control (AppLocker/WDAC) Audit
+
+Checks application allowlisting - AppLocker rule collections and enforcement, the Application Identity service, WDAC/Code Integrity policy, and Smart App Control - against Essential 8 #1 and CIS Windows L1.
+
+## Attachment Manager / Mark-of-the-Web Audit
+
+Checks Windows Attachment Manager / Mark-of-the-Web hardening on a single machine: whether downloaded files keep their untrusted zone mark (so SmartScreen and Office Protected View still fire), whether saved attachments are scanned for malware, and whether any file types have been force-classified as low-risk - the controls that decide how safely untrusted downloads are handled.
+
+## Audit Policy Audit
+
+Checks this machine's advanced audit policy - whether the security-relevant subcategories (Logon, Credential Validation, Process Creation, Audit Policy Change, User Account Management) are recording the Success/Failure events an investigation relies on. Auditing turned off here leaves the host forensically blind even when everything else is hardened.
+
+## Automatic Sign-On Audit
+
+Checks single-machine Windows Automatic Restart Sign-On (ARSO) and sign-in-screen hardening - whether ARSO is disabled (DisableAutomaticRestartSignOn) so the machine does not silently re-establish the last user's session after an update reboot, and whether the sign-in screen is blocked from displaying account details (BlockUserFromShowingAccountDetailsOnSignin) - CIS L1 interactive-logon controls.
+
 ## Backup Audit
 
 Backup and recovery security posture — critical for ransomware resilience.
@@ -101,6 +148,10 @@ Bluetooth attack surface and device security.
 - Paired devices with outdated or unknown profiles
 - Bluetooth services exposing sensitive capabilities (OBEX, PAN, serial)
 - Missing or weak Bluetooth authentication/encryption settings
+
+## Boot Integrity Audit
+
+Checks single-machine platform boot-integrity and kernel-protection posture - UEFI Secure Boot, Virtualization-Based Security (VBS), Memory Integrity (HVCI), Kernel DMA Protection, and whether the kernel is booted with test signing or debugging enabled - the mitigations that keep the kernel trustworthy.
 
 ## Browser Audit
 
@@ -139,6 +190,10 @@ Credential storage and exposure risk assessment.
 - Cloud credential configurations
 - Sensitive file permissions
 
+## Credential Protection Audit
+
+Checks single-machine LSASS credential-theft defenses - LSA Protection (RunAsPPL), Credential Guard (LsaCfgFlags) and WDigest cleartext caching (UseLogonCredential) - to confirm that credentials in LSASS memory are protected against Mimikatz-style dumping.
+
 ## Defender Audit
 
 Checks Windows Defender / Microsoft Defender Antivirus status.
@@ -149,6 +204,14 @@ Checks Windows Defender / Microsoft Defender Antivirus status.
 - Quick scan recency (warns if > 7 days)
 - Full scan recency (warns if > 30 days)
 - Cloud-delivered protection enabled
+
+## Delivery Optimization Audit
+
+Checks single-machine Windows Delivery Optimization download-source posture - whether the machine peers update/Store content with other machines and, critically, whether it peers across the public Internet (DODownloadMode=3) - to avoid turning the machine into an Internet-facing content peer.
+
+## Diagnostics Hardening Audit
+
+Checks single-machine Windows diagnostics / troubleshooting hardening - the scripted-diagnostics (MSDT) engine, the ms-msdt: URL protocol handler behind Follina (CVE-2022-30190), built-in MSDT troubleshooter policy, and the diagnostic-data (telemetry) floor - the local controls that decide how much of the MSDT / diagnostics attack surface is exposed on this box.
 
 ## DNS Audit
 
@@ -206,6 +269,10 @@ Security event log analysis.
 - Log size and retention
 - Critical security events (last 24h)
 
+## Exploit Mitigation Audit
+
+Checks system-wide exploit mitigations - SEHOP (exception-chain validation), mandatory image relocation (ASLR / MoveImages), the machine-wide process MitigationOptions policy, and the DEP/NX boot policy - all foundational memory-corruption defenses on a single machine.
+
 ## Firewall Audit
 
 Audits Windows Firewall configuration across all profiles.
@@ -218,6 +285,14 @@ Audits Windows Firewall configuration across all profiles.
 - Suspicious allow-all inbound rules
 - Overly permissive rules with wide port ranges
 
+## Firewall Logging Audit
+
+Checks single-machine Windows Firewall logging per profile (Domain/Private/Public) - dropped-packet logging, successful-connection logging, log file size, and log file path - the CIS L1 controls that decide whether the firewall leaves any evidence of scans, blocked C2, or unexpected egress.
+
+## Firewall Rule Analysis
+
+Deep analysis of individual inbound firewall Allow rules: flags rules exposing dangerous ports (RDP, SMB, WinRM, SQL, Redis, MongoDB, …), overly-permissive wide-open rules, Public-profile exposure, duplicate rules, and shadowed/redundant rules, with an overall firewall risk score.
+
 ## Group Policy Audit
 
 Security-relevant Group Policy settings via registry.
@@ -228,6 +303,10 @@ Security-relevant Group Policy settings via registry.
 - Audit and logging policies
 - Security option configurations
 - Restricted software policies
+
+## Hosts File Integrity Audit
+
+Checks the local hosts file for tampering - security/update domains blackholed to a non-routable address (blocks Windows Update and AV), hostnames redirected to public IPs (traffic hijack / phishing), and unusually large blocklists - to catch a common, low-effort DNS-override attack on a single machine.
 
 ## Identity & Credential Audit
 
@@ -241,6 +320,22 @@ Identity hygiene and credential protection — complements AccountAudit with dee
 - Cached credentials count (CachedLogonsCount registry value)
 - LSA Protection / RunAsPPL status (protects lsass.exe from credential dumping)
 - Credential Guard (virtualization-based credential isolation)
+
+## Interactive Logon Audit
+
+Checks single-machine Windows interactive-logon policy hardening - whether a pre-logon legal-notice banner is configured (LegalNoticeCaption / LegalNoticeText) and, when smart-card logon is in use, whether removing the card locks or logs off the session (ScRemoveOption) - CIS L1 interactive-logon controls.
+
+## Kerberos Hardening Audit
+
+Checks single-machine Kerberos client encryption-type hardening - the SupportedEncryptionTypes bitmask that controls which cipher suites the host will negotiate - flagging the broken DES suites and the weak RC4 suite (which enables fast offline Kerberoasting) and confirming a strong AES suite is offered.
+
+## LSA Hardening Audit
+
+Checks single-machine LSA / credential-protection hardening - LSASS Protected Process (RunAsPPL), WDigest plaintext caching, LM hash storage, NTLM dialect restriction, anonymous null-session enumeration, blank-password remote logon, cached domain logon count, cleartext autologon, and outbound/inbound NTLM restriction (RestrictSending/ReceivingNTLMTraffic) - the classic CIS L1 controls that decide how hard it is to lift, replay, or relay credentials on this box.
+
+## Name Resolution Audit
+
+Checks single-machine name-resolution poisoning hardening - whether LLMNR, NetBIOS over TCP/IP (NBT-NS), mDNS and WPAD proxy auto-discovery are disabled - to remove the Responder/NetNTLM-capture and proxy-MITM surface on untrusted networks.
 
 ## Network Audit
 
@@ -256,6 +351,18 @@ Deep network security assessment.
 - Network adapter security
 - Wi-Fi security protocols
 
+## Network Protection Audit
+
+Checks single-machine Microsoft Defender Network Protection - whether outbound connections from any process are blocked when they target low-reputation (malware C2, phishing, exploit-hosting) domains and IPs, whether the feature is enforcing (Block) or only logging (Audit), and whether Defender real-time and cloud-delivered protection are active to back it - the most effective free control against commodity C2 callbacks.
+
+## Office Macro Security Audit
+
+Checks single-machine Microsoft Office macro-security posture - whether macros run without a prompt (VBAWarnings), whether macros in files from the internet are hard-blocked, and whether Protected View is disabled for risky document origins - to reduce the phishing-borne macro initial-access surface.
+
+## Optional Features Audit
+
+Checks for risky enabled Windows optional features - SMB 1.0/CIFS, the legacy PowerShell 2.0 engine, and cleartext legacy clients (Telnet, TFTP) - that expand the local attack surface or bypass other controls.
+
 ## PowerShell Audit
 
 PowerShell security configuration and logging.
@@ -266,6 +373,10 @@ PowerShell security configuration and logging.
 - Script block logging disabled (lack of command visibility)
 - Module logging disabled (can't track loaded modules)
 - Transcription logging disabled (no session transcripts)
+
+## Print Spooler Hardening Audit
+
+Checks Print Spooler / PrintNightmare hardening on a single machine: whether the spooler is running, whether printer-driver installation is restricted to administrators (CVE-2021-34527), and whether Point-and-Print suppresses the install/update elevation prompts - the controls on one of the most-exploited Windows privilege-escalation surfaces.
 
 ## Privacy Audit
 
@@ -330,6 +441,10 @@ Remote access exposure and configuration.
 - Remote Registry service enabled
 - Remote Assistance enabled
 
+## Remote Desktop Hardening Audit
+
+Checks Remote Desktop (RDP) hardening on a single machine: whether RDP is enabled, whether Network Level Authentication is required, the minimum encryption level, the TLS security layer, and whether RDP listens on the default port 3389 - the primary controls on one of the most-attacked Windows remote-access surfaces.
+
 ## Scheduled Task Audit
 
 Windows Scheduled Tasks security analysis (MITRE T1053).
@@ -353,6 +468,18 @@ Windows services security analysis.
 - Services with suspicious executable paths (temp, downloads, user dirs)
 - Services set to auto-start that point to missing binaries
 - Services using cmd.exe or powershell.exe as wrappers
+
+## Session Lock Audit
+
+Checks single-machine interactive-session lock and sign-in hardening - machine inactivity auto-lock, a password-protected screensaver fallback, hiding the last user on the logon/locked screen, requiring Ctrl+Alt+Del, and disabling automatic passwordless console logon - CIS L1 session-security controls.
+
+## SmartScreen Audit
+
+Checks single-machine Windows SmartScreen reputation posture - whether App & File (Explorer) SmartScreen is enabled and set to Block, whether Microsoft Edge SmartScreen and PUA blocking are on, and whether SmartScreen still evaluates Store/App Installer web content - to preserve the built-in reputation check against downloaded-executable droppers and browser-borne malware.
+
+## SMB Security Hardening Audit
+
+Checks SMB server/client signing enforcement, the legacy SMBv1 protocol, SMB share encryption, null-session access, and insecure guest-logon fallback against CIS Windows L1.
 
 ## SMB Share Audit
 
@@ -396,6 +523,10 @@ Core system security posture.
 - Kernel DMA protection
 - Virtualization-based security (VBS)
 
+## Time Synchronization Audit
+
+Checks single-machine Windows time-synchronization security - the Windows Time service (W32Time) state, the sync source type (NTP / NT5DS / NoSync), the NTP peer relative to the machine's domain role, and whether clock phase-correction caps are bounded - because accurate time underpins Kerberos auth, certificate validity, and log correlation.
+
 ## Updates Audit
 
 Windows Update status and compliance.
@@ -418,6 +549,10 @@ USB and removable media security posture.
 - BitLocker-to-Go enforcement (deny write access to unencrypted removable drives)
 - USB device connection history (USBSTOR registry enumeration)
 - Removable disk encryption requirements via Group Policy
+
+## User Account Control (UAC) Hardening Audit
+
+Checks UAC enablement, the admin elevation-prompt behaviour, secure-desktop prompting, Admin Approval Mode for the built-in Administrator, installer detection, and the remote UAC token-filtering override (Pass-the-Hash enabler) against CIS Windows L1.
 
 ## Virtualization Audit
 
@@ -443,6 +578,26 @@ Wi-Fi security configuration.
 - MAC address randomization not enabled
 
 ---
+
+## Windows Error Reporting Exposure Audit
+
+Checks Windows Error Reporting upload posture (additional in-memory data, automatic consent level), local crash-dump writing (WER LocalDumps and full-dump type), and whether WER is disabled - all data exposure / credential-harvesting surfaces on a single machine.
+
+## Windows Installer Audit
+
+Checks single-machine Windows Installer (MSI) hardening - whether AlwaysInstallElevated is enabled in both HKLM and HKCU (a classic local privilege-escalation path that lets any user install an MSI as SYSTEM), whether ad-hoc MSI installs are restricted (DisableMSI), and whether unprivileged users can override restricted install properties (EnableUserControl) - CIS L1 controls that decide how easily msiexec becomes a local escalation and malware-delivery surface on this box.
+
+## Windows Recall Audit
+
+Checks single-machine Windows Recall exposure - whether Recall snapshotting is disabled by policy (DisableAIDataAnalysis), whether Recall is blocked from being enabled (AllowRecallEnablement), and whether a Recall snapshot store already exists on disk - to reduce local screen-capture data exposure that can include passwords, tokens and private data.
+
+## Windows Script Host Audit
+
+Checks single-machine Windows Script Host hardening - whether wscript.exe/cscript.exe are disabled, whether a per-user override re-enables WSH over a machine-wide disable, whether remote script execution is allowed, and whether signed-only (Authenticode) TrustPolicy is enforced - to reduce the .vbs/.js living-off-the-land execution surface.
+
+## WinRM Remote Management Hardening Audit
+
+Checks Windows Remote Management (WS-Man) service and client hardening - unencrypted traffic, Basic/Digest auth, channel-binding-token enforcement, and wildcard TrustedHosts - against CIS Windows L1.
 
 ## Creating Custom Modules
 

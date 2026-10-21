@@ -1,0 +1,34 @@
+name: Module Count Check
+
+# The audit-module count's source of truth is the code
+# (src/WinSentinel.Core/Audits/*Audit.cs, registered in AuditEngine).
+# This check fails if README.md or the docfx audit-modules article
+# states a different number, so the published count cannot drift again.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'README.md'
+      - 'docfx/articles/audit-modules.md'
+      - 'src/WinSentinel.Core/Audits/**'
+      - 'src/WinSentinel.Core/Services/AuditEngine.cs'
+      - 'scripts/check-module-count.py'
+      - '.github/workflows/module-count.yml'
+  pull_request:
+    paths:
+      - 'README.md'
+      - 'docfx/articles/audit-modules.md'
+      - 'src/WinSentinel.Core/Audits/**'
+      - 'src/WinSentinel.Core/Services/AuditEngine.cs'
+      - 'scripts/check-module-count.py'
+      - '.github/workflows/module-count.yml'
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Verify published module counts match the code
+        run: python3 scripts/check-module-count.py

@@ -597,6 +597,115 @@ public class SlaTrackerTests
         Assert.Throws<ArgumentException>(() => tracker.ImportJson("{}"));
     }
 
+    [Fact]
+    public void ImportJson_MalformedElement_ImportsNothing()
+    {
+        var tracker = new SlaTracker();
+        var json = "{\"findings\":[" +
+            "{\"Id\":\"SLA-0005\",\"Title\":\"Good\",\"Category\":\"C\"," +
+            "\"Severity\":\"Warning\",\"DetectedAt\":\"2026-01-01T00:00:00Z\"," +
+            "\"Deadline\":\"2026-01-08T00:00:00Z\"}," +
+            "{\"Id\":\"SLA-0006\",\"Category\":\"C\"," +
+            "\"Severity\":\"Warning\",\"DetectedAt\":\"2026-01-01T00:00:00Z\"," +
+            "\"Deadline\":\"2026-01-08T00:00:00Z\"}]}";
+
+        Assert.Throws<ArgumentException>(() => tracker.ImportJson(json));
+        Assert.Empty(tracker.Findings);
+
+        // The failed import must not have advanced the ID sequence either.
+        var f = tracker.Track(MakeFinding(Severity.Info, "New"), _baseTime);
+        Assert.Equal("SLA-0001", f.Id);
+    }
+
+    [Fact]
+    public void ImportJson_Reimport_IsIdempotent()
+    {
+        var tracker = new SlaTracker();
+        var json = "{\"findings\":[" +
+            "{\"Id\":\"SLA-0001\",\"Title\":\"One\",\"Category\":\"C\"," +
+            "\"Severity\":\"Critical\",\"DetectedAt\":\"2026-01-01T00:00:00Z\"," +
+            "\"Deadline\":\"2026-01-02T00:00:00Z\"}," +
+            "{\"Id\":\"SLA-0002\",\"Title\":\"Two\",\"Category\":\"C\"," +
+            "\"Severity\":\"Info\",\"DetectedAt\":\"2026-01-01T00:00:00Z\"," +
+            "\"Deadline\":\"2026-01-31T00:00:00Z\"}]}";
+
+        Assert.Equal(2, tracker.ImportJson(json));
+        Assert.Equal(0, tracker.ImportJson(json));
+        Assert.Equal(2, tracker.Findings.Count);
+        Assert.Equal("One", tracker.Findings[0].Title);
+        Assert.Equal("Two", tracker.Findings[1].Title);
+    }
+
+    [Fact]
+    public void ImportJson_UpdatesExistingById()
+    {
+        var tracker = new SlaTracker();
+        var open = "{\"findings\":[{\"Id\":\"SLA-0009\",\"Title\":\"T\",\"Category\":\"C\"," +
+            "\"Severity\":\"Warning\",\"DetectedAt\":\"2026-01-01T00:00:00Z\"," +
+            "\"Deadline\":\"2026-01-08T00:00:00Z\"}]}";
+        var resolved = "{\"findings\":[{\"Id\":\"SLA-0009\",\"Title\":\"T\",\"Category\":\"C\"," +
+            "\"Severity\":\"Warning\",\"DetectedAt\":\"2026-01-01T00:00:00Z\"," +
+            "\"Deadline\":\"2026-01-08T00:00:00Z\"," +
+            "\"ResolvedAt\":\"2026-01-03T00:00:00Z\",\"ResolutionNotes\":\"Fixed\"}]}";
+
+        Assert.Equal(1, tracker.ImportJson(open));
+        Assert.Equal(0, tracker.ImportJson(resolved));
+        Assert.Single(tracker.Findings);
+        Assert.False(tracker.Findings[0].IsOpen);
+        Assert.Equal("Fixed", tracker.Findings[0].ResolutionNotes);
+    }
+
+    [Fact]
+    public void ImportJson_UnknownSeverity_Throws_AndImportsNothing()
+    {
+        var tracker = new SlaTracker();
+        var json = "{\"findings\":[{\"Id\":\"SLA-0001\",\"Title\":\"T\",\"Category\":\"C\"," +
+            "\"Severity\":\"Bogus\",\"DetectedAt\":\"2026-01-01T00:00:00Z\"," +
+            "\"Deadline\":\"2026-01-08T00:00:00Z\"}]}";
+
+        Assert.Throws<ArgumentException>(() => tracker.ImportJson(json));
+        Assert.Empty(tracker.Findings);
+    }
+
+    [Fact]
+    public void ImportJson_NonArrayFindings_Throws()
+    {
+        var tracker = new SlaTracker();
+        Assert.Throws<ArgumentException>(() => tracker.ImportJson("{\"findings\":{}}"));
+    }
+
+    [Fact]
+    public void ImportJson_DuplicateIdsInPayload_CollapseLastWins()
+    {
+        var tracker = new SlaTracker();
+        var json = "{\"findings\":[" +
+            "{\"Id\":\"SLA-0001\",\"Title\":\"First\",\"Category\":\"C\"," +
+            "\"Severity\":\"Info\",\"DetectedAt\":\"2026-01-01T00:00:00Z\"," +
+            "\"Deadline\":\"2026-01-31T00:00:00Z\"}," +
+            "{\"Id\":\"SLA-0001\",\"Title\":\"Second\",\"Category\":\"C\"," +
+            "\"Severity\":\"Info\",\"DetectedAt\":\"2026-01-01T00:00:00Z\"," +
+            "\"Deadline\":\"2026-01-31T00:00:00Z\"}]}";
+
+        Assert.Equal(1, tracker.ImportJson(json));
+        Assert.Single(tracker.Findings);
+        Assert.Equal("Second", tracker.Findings[0].Title);
+    }
+
+    [Fact]
+    public void ImportJson_MissingId_GeneratesSequenceId()
+    {
+        var tracker = new SlaTracker();
+        var json = "{\"findings\":[{\"Title\":\"T\",\"Category\":\"C\"," +
+            "\"Severity\":\"Info\",\"DetectedAt\":\"2026-01-01T00:00:00Z\"," +
+            "\"Deadline\":\"2026-01-31T00:00:00Z\"}]}";
+
+        Assert.Equal(1, tracker.ImportJson(json));
+        Assert.Equal("SLA-0001", tracker.Findings[0].Id);
+
+        var f = tracker.Track(MakeFinding(Severity.Info, "New"), _baseTime);
+        Assert.Equal("SLA-0002", f.Id);
+    }
+
     // ── Custom policy ────────────────────────────────────────────
 
     [Fact]

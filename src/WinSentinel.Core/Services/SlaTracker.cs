@@ -610,54 +610,155 @@ public class SlaTracker
     /// <summary>
     /// Import previously exported findings.
     /// </summary>
+    /// <remarks>
+    /// The import is validated and merged atomically: every element is parsed
+    /// first, and the tracker is only mutated once the whole payload checks
+    /// out — a malformed element anywhere leaves existing state untouched
+    /// (including the ID sequence). Findings are merged by <see
+    /// cref="TrackedFinding.Id"/>: an imported Id that already exists updates
+    /// that record in place, so re-importing the same export is a no-op
+    /// instead of doubling the tracked count. Duplicate Ids inside one
+    /// payload collapse with the last element winning.
+    /// </remarks>
     /// <param name="json">JSON string from <see cref="ExportJson"/>.</param>
-    /// <returns>Number of findings imported.</returns>
+    /// <returns>Number of findings newly added (updates to existing Ids are not counted).</returns>
+    /// <exception cref="ArgumentException">The payload is empty, lacks a 'findings' array, or any element is malformed.</exception>
     public int ImportJson(string json)
     {
+        if (string.IsNullOrWhiteSpace(json))
+            throw new ArgumentException("JSON content cannot be empty.", nameof(json));
+
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
 
-        if (!root.TryGetProperty("findings", out var findingsEl))
-            throw new ArgumentException("JSON must contain a 'findings' array");
+        if (!root.TryGetProperty("findings", out var findingsEl) || findingsEl.ValueKind != JsonValueKind.Array)
+            throw new ArgumentException("JSON must contain a 'findings' array.", nameof(json));
 
-        int count = 0;
+        // Validate the whole payload before mutating anything.
+        var validated = new Dictionary<string, TrackedFinding>(StringComparer.Ordinal);
+        var nextId = _nextId;
+        var index = 0;
         foreach (var el in findingsEl.EnumerateArray())
         {
+            if (el.ValueKind != JsonValueKind.Object)
+                throw new ArgumentException($"Imported finding [{index}] must be a JSON object.", nameof(json));
+
             var tracked = new TrackedFinding
             {
-                Id = el.GetProperty("Id").GetString() ?? $"SLA-{++_nextId:D4}",
-                Title = el.GetProperty("Title").GetString() ?? "",
-                Category = el.GetProperty("Category").GetString() ?? "",
-                Severity = Enum.Parse<Severity>(el.GetProperty("Severity").GetString() ?? "Info"),
-                DetectedAt = el.GetProperty("DetectedAt").GetDateTimeOffset(),
-                Deadline = el.GetProperty("Deadline").GetDateTimeOffset(),
+                Id = GetOptionalId(el, index, ref nextId),
+                Title = GetRequiredString(el, "Title", index),
+                Category = GetRequiredString(el, "Category", index),
+                Severity = GetRequiredSeverity(el, index),
+                DetectedAt = GetRequiredTimestamp(el, "DetectedAt", index),
+                Deadline = GetRequiredTimestamp(el, "Deadline", index),
+                ResolvedAt = GetOptionalTimestamp(el, "ResolvedAt", index),
+                ResolutionNotes = GetOptionalString(el, "ResolutionNotes", index),
             };
 
-            if (el.TryGetProperty("ResolvedAt", out var resolvedEl) &&
-                resolvedEl.ValueKind != JsonValueKind.Null)
-            {
-                tracked.ResolvedAt = resolvedEl.GetDateTimeOffset();
-            }
-
-            if (el.TryGetProperty("ResolutionNotes", out var notesEl) &&
-                notesEl.ValueKind != JsonValueKind.Null)
-            {
-                tracked.ResolutionNotes = notesEl.GetString();
-            }
-
-            _findings.Add(tracked);
-
-            // Keep ID sequence consistent
-            if (tracked.Id.StartsWith("SLA-") &&
-                int.TryParse(tracked.Id[4..], out var num) && num > _nextId)
-            {
-                _nextId = num;
-            }
-
-            count++;
+            validated[tracked.Id] = tracked;
+            index++;
         }
 
-        return count;
+        // Commit: merge by Id, appending only genuinely new findings.
+        var added = 0;
+        foreach (var tracked in validated.Values)
+        {
+            var existing = _findings.FirstOrDefault(f => f.Id == tracked.Id);
+            if (existing != null)
+            {
+                existing.Title = tracked.Title;
+                existing.Category = tracked.Category;
+                existing.Severity = tracked.Severity;
+                existing.DetectedAt = tracked.DetectedAt;
+                existing.Deadline = tracked.Deadline;
+                existing.ResolvedAt = tracked.ResolvedAt;
+                existing.ResolutionNotes = tracked.ResolutionNotes;
+            }
+            else
+            {
+                _findings.Add(tracked);
+                added++;
+            }
+        }
+
+        _nextId = nextId;
+        return added;
+    }
+
+    private static string GetOptionalId(JsonElement element, int index, ref int nextId)
+    {
+        if (!element.TryGetProperty("Id", out var value) || value.ValueKind == JsonValueKind.Null)
+            return $"SLA-{++nextId:D4}";
+
+        if (value.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(value.GetString()))
+            throw new ArgumentException($"Imported finding [{index}] 'Id' must be a non-empty string.");
+
+        var id = value.GetString()!;
+
+        // Keep the ID sequence consistent with imported SLA-NNNN ids.
+        if (id.StartsWith("SLA-", StringComparison.Ordinal) &&
+            int.TryParse(id[4..], out var num) && num > nextId)
+        {
+            nextId = num;
+        }
+
+        return id;
+    }
+
+    private static string GetRequiredString(JsonElement element, string propertyName, int index)
+    {
+        if (!element.TryGetProperty(propertyName, out var value) || value.ValueKind != JsonValueKind.String)
+            throw new ArgumentException($"Imported finding [{index}] must contain a string '{propertyName}' property.");
+
+        var text = value.GetString();
+        if (string.IsNullOrWhiteSpace(text))
+            throw new ArgumentException($"Imported finding [{index}] '{propertyName}' cannot be empty.");
+
+        return text;
+    }
+
+    private static Severity GetRequiredSeverity(JsonElement element, int index)
+    {
+        if (!element.TryGetProperty("Severity", out var value) || value.ValueKind != JsonValueKind.String)
+            throw new ArgumentException($"Imported finding [{index}] must contain a string 'Severity' property.");
+
+        if (!Enum.TryParse<Severity>(value.GetString(), ignoreCase: true, out var severity))
+            throw new ArgumentException($"Imported finding [{index}] 'Severity' value '{value.GetString()}' is not a valid severity.");
+
+        return severity;
+    }
+
+    private static DateTimeOffset GetRequiredTimestamp(JsonElement element, string propertyName, int index)
+    {
+        if (!element.TryGetProperty(propertyName, out var value) || value.ValueKind != JsonValueKind.String ||
+            !value.TryGetDateTimeOffset(out var timestamp))
+        {
+            throw new ArgumentException($"Imported finding [{index}] '{propertyName}' must be a valid timestamp.");
+        }
+
+        return timestamp;
+    }
+
+    private static DateTimeOffset? GetOptionalTimestamp(JsonElement element, string propertyName, int index)
+    {
+        if (!element.TryGetProperty(propertyName, out var value) || value.ValueKind == JsonValueKind.Null)
+            return null;
+
+        if (value.ValueKind != JsonValueKind.String || !value.TryGetDateTimeOffset(out var timestamp))
+            throw new ArgumentException($"Imported finding [{index}] '{propertyName}' must be a valid timestamp.");
+
+        return timestamp;
+    }
+
+    private static string? GetOptionalString(JsonElement element, string propertyName, int index)
+    {
+        if (!element.TryGetProperty(propertyName, out var value) || value.ValueKind == JsonValueKind.Null)
+            return null;
+
+        if (value.ValueKind != JsonValueKind.String)
+            throw new ArgumentException($"Imported finding [{index}] '{propertyName}' must be a string.");
+
+        return value.GetString();
     }
 
     // ── Text report ──────────────────────────────────────────────

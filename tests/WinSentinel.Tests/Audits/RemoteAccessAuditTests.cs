@@ -22,6 +22,7 @@ public class RemoteAccessAuditTests
     private static RemoteAccessState MakeSecureState() => new()
     {
         RdpEnabled = false,
+        RdpEnabledKnown = true,
         SshServerInstalled = false,
         SshServerRunning = false,
         RunningRemoteTools = new(),
@@ -29,6 +30,7 @@ public class RemoteAccessAuditTests
         WinRmRunning = false,
         RemoteRegistryRunning = false,
         RemoteRegistryStartType = "Disabled",
+        RemoteRegistryStartTypeKnown = true,
         RemoteAssistanceEnabled = false,
         TelnetServerRunning = false,
     };
@@ -1531,5 +1533,162 @@ public class RemoteAccessAuditTests
         var result = MakeResult();
         RemoteAccessAudit.AnalyzeState(state, result);
         Assert.DoesNotContain(result.Findings, f => f.Title.Contains("TrustedHosts"));
+    }
+
+    // --- Guarded parsing (hardening): a null/mistyped field must not wipe the block,
+    // and an unread verdict must not be reported as a Pass ---
+
+    [Fact]
+    public void ParseRdpJson_NullDeny_LeavesOtherFieldsAndMarksUnknown()
+    {
+        // The old code threw on the null Deny and the catch-all discarded the whole block.
+        var state = new RemoteAccessState();
+        RemoteAccessAudit.ParseRdpJson(
+            "{\"Deny\":null,\"NLA\":1,\"Port\":3389,\"EncLevel\":3,\"SecLayer\":2,\"SingleSession\":1}", state);
+        Assert.False(state.RdpEnabledKnown);
+        Assert.False(state.RdpEnabled);
+        Assert.True(state.RdpNlaEnabled);
+        Assert.Equal(3389, state.RdpPort);
+        Assert.Equal(3, state.RdpEncryptionLevel);
+        Assert.Equal(2, state.RdpSecurityLayer);
+        Assert.True(state.RdpSingleSessionPerUser);
+    }
+
+    [Fact]
+    public void ParseRdpJson_NullPort_DoesNotWipeLaterFields()
+    {
+        var state = new RemoteAccessState();
+        RemoteAccessAudit.ParseRdpJson(
+            "{\"Deny\":0,\"NLA\":1,\"Port\":null,\"EncLevel\":1,\"SecLayer\":0,\"SingleSession\":0}", state);
+        Assert.True(state.RdpEnabledKnown);
+        Assert.True(state.RdpEnabled);
+        Assert.Equal(3389, state.RdpPort); // default kept, not wiped
+        Assert.Equal(1, state.RdpEncryptionLevel);
+        Assert.Equal(0, state.RdpSecurityLayer);
+    }
+
+    [Fact]
+    public void ParseRdpJson_DenyZero_MeansEnabled()
+    {
+        var state = new RemoteAccessState();
+        RemoteAccessAudit.ParseRdpJson("{\"Deny\":0}", state);
+        Assert.True(state.RdpEnabledKnown);
+        Assert.True(state.RdpEnabled);
+    }
+
+    [Fact]
+    public void ParseRdpJson_DenyOne_MeansDisabledAndKnown()
+    {
+        var state = new RemoteAccessState();
+        RemoteAccessAudit.ParseRdpJson("{\"Deny\":1}", state);
+        Assert.True(state.RdpEnabledKnown);
+        Assert.False(state.RdpEnabled);
+    }
+
+    [Fact]
+    public void RdpUnknown_ReportsUnknownNotDisabledPass()
+    {
+        var state = MakeSecureState();
+        state.RdpEnabled = false;
+        state.RdpEnabledKnown = false; // gatherer never read fDenyTSConnections
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.Contains(result.Findings, f => f.Title == "RDP Status Unknown" && f.Severity == Severity.Info);
+        Assert.DoesNotContain(result.Findings, f => f.Title == "RDP Disabled");
+    }
+
+    [Fact]
+    public void ParseRemoteRegistryJson_StringForms_Parse()
+    {
+        var state = new RemoteAccessState();
+        RemoteAccessAudit.ParseRemoteRegistryJson("{\"Status\":\"Running\",\"StartType\":\"Automatic\"}", state);
+        Assert.True(state.RemoteRegistryRunning);
+        Assert.True(state.RemoteRegistryStartTypeKnown);
+        Assert.Equal("Automatic", state.RemoteRegistryStartType);
+    }
+
+    [Fact]
+    public void ParseRemoteRegistryJson_NumericForms_Parse()
+    {
+        var state = new RemoteAccessState();
+        RemoteAccessAudit.ParseRemoteRegistryJson("{\"Status\":4,\"StartType\":3}", state);
+        Assert.True(state.RemoteRegistryRunning);
+        Assert.Equal("Manual", state.RemoteRegistryStartType);
+    }
+
+    [Fact]
+    public void ParseRemoteRegistryJson_NullValues_LeaveDefaultsAndUnknown()
+    {
+        // The old code threw on the null Status and the catch-all left StartType at its
+        // default "Disabled", which the analyzer then reported as "Remote Registry Disabled".
+        var state = new RemoteAccessState();
+        RemoteAccessAudit.ParseRemoteRegistryJson("{\"Status\":null,\"StartType\":null}", state);
+        Assert.False(state.RemoteRegistryRunning);
+        Assert.False(state.RemoteRegistryStartTypeKnown);
+        Assert.Equal("Disabled", state.RemoteRegistryStartType); // default value, but NOT a verdict
+    }
+
+    [Fact]
+    public void RemoteRegistryUnknown_ReportsUnknownNotDisabledPass()
+    {
+        var state = MakeSecureState();
+        state.RemoteRegistryRunning = false;
+        state.RemoteRegistryStartType = "Disabled";
+        state.RemoteRegistryStartTypeKnown = false; // gatherer never read StartType
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.Contains(result.Findings, f => f.Title == "Remote Registry Status Unknown" && f.Severity == Severity.Info);
+        Assert.DoesNotContain(result.Findings, f => f.Title == "Remote Registry Disabled");
+    }
+
+    [Fact]
+    public void ParseSshServiceJson_StringRunning_Parses()
+    {
+        var state = new RemoteAccessState();
+        RemoteAccessAudit.ParseSshServiceJson("{\"Status\":\"Running\"}", state);
+        Assert.True(state.SshServerRunning);
+    }
+
+    [Fact]
+    public void ParseSshConfig_CommentedOutDirectives_Ignored()
+    {
+        // Previously Contains() read the commented-out "no" as active and reported key-only auth.
+        var state = new RemoteAccessState();
+        RemoteAccessAudit.ParseSshConfig(
+            "#PasswordAuthentication no\nPasswordAuthentication yes\n#PermitRootLogin yes\n", state);
+        Assert.True(state.SshPasswordAuthEnabled);
+        Assert.False(state.SshRootLoginEnabled);
+    }
+
+    [Fact]
+    public void ParseSshConfig_FirstActiveDirective_Wins()
+    {
+        var state = new RemoteAccessState();
+        RemoteAccessAudit.ParseSshConfig(
+            "PasswordAuthentication no\nPasswordAuthentication yes\nPermitRootLogin yes\nPermitRootLogin no\n", state);
+        Assert.False(state.SshPasswordAuthEnabled);
+        Assert.True(state.SshRootLoginEnabled);
+    }
+
+    [Fact]
+    public void ParseSshConfig_AbsentDirectives_KeepSshdDefaults()
+    {
+        var state = new RemoteAccessState();
+        RemoteAccessAudit.ParseSshConfig("Port 2222\n", state);
+        Assert.True(state.SshPasswordAuthEnabled); // sshd default: password auth on
+        Assert.False(state.SshRootLoginEnabled); // sshd default is not "yes"
+    }
+
+    [Fact]
+    public void SshConfig_CommentedNo_StillWarnsInAnalyzer()
+    {
+        var state = MakeSecureState();
+        state.SshServerInstalled = true;
+        state.SshServerRunning = true;
+        RemoteAccessAudit.ParseSshConfig("#PasswordAuthentication no\n", state);
+        var result = MakeResult();
+        RemoteAccessAudit.AnalyzeState(state, result);
+        Assert.Contains(result.Findings, f => f.Title.Contains("Password Authentication Enabled") && f.Severity == Severity.Warning);
+        Assert.DoesNotContain(result.Findings, f => f.Title.Contains("Password Authentication Disabled"));
     }
 }

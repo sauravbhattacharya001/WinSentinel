@@ -111,6 +111,13 @@ public class RemoteAccessAudit : IAuditModule
         /// <summary>Whether RDP is enabled (fDenyTSConnections = 0).</summary>
         public bool RdpEnabled { get; set; }
 
+        /// <summary>Whether the RDP enabled/disabled verdict was actually read (fDenyTSConnections
+        /// present as a readable value in the registry JSON). When false, <see cref="RdpEnabled"/>
+        /// is just the default (false) and must NOT be reported as "RDP Disabled" — the analyzer
+        /// reports the state as unknown instead. The gatherer sets this; it is false on a freshly
+        /// constructed state, so a fixture for a known-disabled host must set it explicitly.</summary>
+        public bool RdpEnabledKnown { get; set; }
+
         /// <summary>Whether Network Level Authentication is required for RDP.</summary>
         public bool RdpNlaEnabled { get; set; }
 
@@ -264,6 +271,13 @@ public class RemoteAccessAudit : IAuditModule
         /// <summary>Remote Registry service start type (Auto, Manual, Disabled).</summary>
         public string RemoteRegistryStartType { get; set; } = "Disabled";
 
+        /// <summary>Whether the Remote Registry start type was actually read (a recognized
+        /// StartType value in the service JSON). When false, the default "Disabled" start type
+        /// must NOT be reported as "Remote Registry Disabled" — the analyzer reports the
+        /// state as unknown instead. The gatherer sets this; it is false on a freshly
+        /// constructed state, so a fixture for a known-disabled host must set it explicitly.</summary>
+        public bool RemoteRegistryStartTypeKnown { get; set; }
+
         /// <summary>Whether Remote Assistance is enabled.</summary>
         public bool RemoteAssistanceEnabled { get; set; }
 
@@ -313,6 +327,173 @@ public class RemoteAccessAudit : IAuditModule
         return result;
     }
 
+    // ── Guarded PowerShell-JSON / sshd_config parsing ─────────────────────────────
+    // PowerShell's ConvertTo-Json emits null for an absent registry value or service
+    // property, and JsonElement.GetInt32() throws on a Null or String value. The gatherer
+    // wraps each probe in catch-all blocks, so one unreadable field used to abort its whole
+    // block and leave the remaining fields at their defaults — which the analyzer then
+    // reported as Pass findings ("RDP Disabled", "Remote Registry Disabled") for state that
+    // was never actually read. These helpers read one field at a time and never throw for a
+    // missing, null, or mistyped value, so a bad field can no longer wipe the rest of the
+    // block. They are internal so tests can pin the parsing without invoking PowerShell.
+
+    /// <summary>Reads one integer property from a PowerShell JSON object, accepting a JSON
+    /// number or a string holding an integer. Returns false (leaving <paramref name="value"/>
+    /// at 0) when the property is missing, null, or not an integer.</summary>
+    internal static bool TryGetInt32(System.Text.Json.JsonElement root, string property, out int value)
+    {
+        value = 0;
+        if (!root.TryGetProperty(property, out var element)) return false;
+        if (element.ValueKind == System.Text.Json.JsonValueKind.Number) return element.TryGetInt32(out value);
+        if (element.ValueKind == System.Text.Json.JsonValueKind.String)
+            return int.TryParse(element.GetString()?.Trim(), out value);
+        return false;
+    }
+
+    /// <summary>Reads one service Status property (ServiceControllerStatus: 4 = Running),
+    /// accepting the numeric form PowerShell normally emits or the string form ("Running",
+    /// "Stopped", "4"). Returns false when the property is missing, null, or unrecognized,
+    /// in which case the caller's running flag is left untouched.</summary>
+    internal static bool TryGetServiceRunning(System.Text.Json.JsonElement root, string property, out bool running)
+    {
+        running = false;
+        if (!root.TryGetProperty(property, out var element)) return false;
+        if (element.ValueKind == System.Text.Json.JsonValueKind.Number)
+        {
+            if (!element.TryGetInt32(out var status)) return false;
+            running = status == 4;
+            return true;
+        }
+        if (element.ValueKind == System.Text.Json.JsonValueKind.String)
+        {
+            var text = element.GetString()?.Trim();
+            if (string.IsNullOrEmpty(text)) return false;
+            if (int.TryParse(text, out var status)) { running = status == 4; return true; }
+            if (text.Equals("Running", StringComparison.OrdinalIgnoreCase)) { running = true; return true; }
+            if (text.Equals("Stopped", StringComparison.OrdinalIgnoreCase) ||
+                text.Equals("StopPending", StringComparison.OrdinalIgnoreCase) ||
+                text.Equals("StartPending", StringComparison.OrdinalIgnoreCase) ||
+                text.Equals("ContinuePending", StringComparison.OrdinalIgnoreCase) ||
+                text.Equals("PausePending", StringComparison.OrdinalIgnoreCase) ||
+                text.Equals("Paused", StringComparison.OrdinalIgnoreCase))
+            {
+                running = false;
+                return true;
+            }
+            return false;
+        }
+        return false;
+    }
+
+    /// <summary>Reads one service StartType property (ServiceStartMode), accepting the numeric
+    /// form (2 = Automatic, 3 = Manual, 4 = Disabled) or the string form ("Automatic",
+    /// "Manual", "Disabled", "Boot", "System", "AutomaticDelayedStart"). Returns false when
+    /// the property is missing, null, or unrecognized; otherwise <paramref name="startType"/>
+    /// holds the canonical name.</summary>
+    internal static bool TryGetServiceStartType(System.Text.Json.JsonElement root, string property, out string? startType)
+    {
+        startType = null;
+        if (!root.TryGetProperty(property, out var element)) return false;
+        if (element.ValueKind == System.Text.Json.JsonValueKind.Number)
+        {
+            if (!element.TryGetInt32(out var mode)) return false;
+            startType = mode switch
+            {
+                0 => "Boot",
+                1 => "System",
+                2 => "Automatic",
+                3 => "Manual",
+                4 => "Disabled",
+                _ => null,
+            };
+            return startType != null;
+        }
+        if (element.ValueKind == System.Text.Json.JsonValueKind.String)
+        {
+            var text = element.GetString()?.Trim();
+            if (string.IsNullOrEmpty(text)) return false;
+            foreach (var known in new[] { "Boot", "System", "Automatic", "AutomaticDelayedStart", "Manual", "Disabled" })
+            {
+                if (text.Equals(known, StringComparison.OrdinalIgnoreCase)) { startType = known; return true; }
+            }
+            return false;
+        }
+        return false;
+    }
+
+    /// <summary>Applies one RDP registry JSON payload (the PSCustomObject emitted by the
+    /// gatherer) to <paramref name="state"/>, field by field. A null or mistyped field is
+    /// skipped, not fatal: the remaining fields still land. <see cref="RemoteAccessState.RdpEnabledKnown"/>
+    /// is set only when fDenyTSConnections itself was read.</summary>
+    internal static void ParseRdpJson(string json, RemoteAccessState state)
+    {
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        if (TryGetInt32(root, "Deny", out var deny))
+        {
+            state.RdpEnabledKnown = true;
+            state.RdpEnabled = deny == 0;
+        }
+        if (TryGetInt32(root, "NLA", out var nla)) state.RdpNlaEnabled = nla == 1;
+        if (TryGetInt32(root, "Port", out var port)) state.RdpPort = port;
+        if (TryGetInt32(root, "EncLevel", out var enc)) state.RdpEncryptionLevel = enc;
+        if (TryGetInt32(root, "SecLayer", out var sec)) state.RdpSecurityLayer = sec;
+        if (TryGetInt32(root, "SingleSession", out var ss)) state.RdpSingleSessionPerUser = ss == 1;
+    }
+
+    /// <summary>Applies one OpenSSH service JSON payload to <paramref name="state"/>.
+    /// The gatherer sets <see cref="RemoteAccessState.SshServerInstalled"/> before calling
+    /// this; only the running flag is parsed here.</summary>
+    internal static void ParseSshServiceJson(string json, RemoteAccessState state)
+    {
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        if (TryGetServiceRunning(doc.RootElement, "Status", out var running)) state.SshServerRunning = running;
+    }
+
+    /// <summary>Applies one Remote Registry service JSON payload to <paramref name="state"/>.
+    /// <see cref="RemoteAccessState.RemoteRegistryStartTypeKnown"/> is set only when the
+    /// StartType value itself was read.</summary>
+    internal static void ParseRemoteRegistryJson(string json, RemoteAccessState state)
+    {
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        if (TryGetServiceRunning(root, "Status", out var running)) state.RemoteRegistryRunning = running;
+        if (TryGetServiceStartType(root, "StartType", out var startType))
+        {
+            state.RemoteRegistryStartType = startType!;
+            state.RemoteRegistryStartTypeKnown = true;
+        }
+    }
+
+    /// <summary>Returns the value of the first ACTIVE (non-comment) occurrence of a
+    /// sshd_config directive, or null when the directive never appears. A line counts as a
+    /// comment when its first non-whitespace character is '#', so a commented-out directive
+    /// can never be read as active. First-active wins, matching sshd_config semantics for
+    /// these keywords; Match-block scoping is not evaluated.</summary>
+    internal static string? GetSshDirectiveValue(string config, string keyword)
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(config,
+            @"^\s*" + keyword + @"\s+(\S+)",
+            System.Text.RegularExpressions.RegexOptions.Multiline |
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        return match.Success ? match.Groups[1].Value : null;
+    }
+
+    /// <summary>Applies the authentication directives of an sshd_config file to
+    /// <paramref name="state"/>. Absent directives keep sshd's own defaults: password
+    /// authentication defaults to enabled, root login defaults to not-"yes". This replaces
+    /// the previous substring checks, which read commented-out directives as active (e.g. a
+    /// commented "#PasswordAuthentication no" was reported as key-only auth).</summary>
+    internal static void ParseSshConfig(string config, RemoteAccessState state)
+    {
+        var passwordAuth = GetSshDirectiveValue(config, "PasswordAuthentication");
+        state.SshPasswordAuthEnabled = passwordAuth == null ||
+            !passwordAuth.Equals("no", StringComparison.OrdinalIgnoreCase);
+        var rootLogin = GetSshDirectiveValue(config, "PermitRootLogin");
+        state.SshRootLoginEnabled = rootLogin != null &&
+            rootLogin.Equals("yes", StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>
     /// Gather live remote access state from the system.
     /// </summary>
@@ -337,14 +518,7 @@ public class RemoteAccessAudit : IAuditModule
 
             if (!string.IsNullOrWhiteSpace(rdpOutput) && rdpOutput.TrimStart().StartsWith("{"))
             {
-                var json = System.Text.Json.JsonDocument.Parse(rdpOutput);
-                var root = json.RootElement;
-                state.RdpEnabled = root.TryGetProperty("Deny", out var deny) && deny.GetInt32() == 0;
-                state.RdpNlaEnabled = root.TryGetProperty("NLA", out var nla) && nla.GetInt32() == 1;
-                if (root.TryGetProperty("Port", out var port)) state.RdpPort = port.GetInt32();
-                if (root.TryGetProperty("EncLevel", out var enc)) state.RdpEncryptionLevel = enc.GetInt32();
-                if (root.TryGetProperty("SecLayer", out var sec)) state.RdpSecurityLayer = sec.GetInt32();
-                state.RdpSingleSessionPerUser = root.TryGetProperty("SingleSession", out var ss) && ss.GetInt32() == 1;
+                ParseRdpJson(rdpOutput, state);
             }
         }
         catch { /* Non-fatal */ }
@@ -433,11 +607,8 @@ public class RemoteAccessAudit : IAuditModule
                 "Get-Service sshd -ErrorAction SilentlyContinue | Select-Object Status, StartType | ConvertTo-Json", ct);
             if (!string.IsNullOrWhiteSpace(sshService) && sshService.TrimStart().StartsWith("{"))
             {
-                var json = System.Text.Json.JsonDocument.Parse(sshService);
-                var root = json.RootElement;
                 state.SshServerInstalled = true;
-                if (root.TryGetProperty("Status", out var status))
-                    state.SshServerRunning = status.GetInt32() == 4; // Running
+                ParseSshServiceJson(sshService, state);
             }
 
             // SSH config
@@ -445,8 +616,7 @@ public class RemoteAccessAudit : IAuditModule
                 "if (Test-Path $env:ProgramData\\ssh\\sshd_config) { Get-Content $env:ProgramData\\ssh\\sshd_config -Raw }", ct);
             if (!string.IsNullOrWhiteSpace(sshConfig))
             {
-                state.SshPasswordAuthEnabled = !sshConfig.Contains("PasswordAuthentication no", StringComparison.OrdinalIgnoreCase);
-                state.SshRootLoginEnabled = sshConfig.Contains("PermitRootLogin yes", StringComparison.OrdinalIgnoreCase);
+                ParseSshConfig(sshConfig, state);
                 var portMatch = System.Text.RegularExpressions.Regex.Match(sshConfig, @"^\s*Port\s+(\d+)", System.Text.RegularExpressions.RegexOptions.Multiline);
                 if (portMatch.Success && int.TryParse(portMatch.Groups[1].Value, out var sshPort))
                     state.SshPort = sshPort;
@@ -560,18 +730,7 @@ public class RemoteAccessAudit : IAuditModule
                 "Get-Service RemoteRegistry -ErrorAction SilentlyContinue | Select-Object Status, StartType | ConvertTo-Json", ct);
             if (!string.IsNullOrWhiteSpace(remRegOutput) && remRegOutput.TrimStart().StartsWith("{"))
             {
-                var json = System.Text.Json.JsonDocument.Parse(remRegOutput);
-                var root = json.RootElement;
-                if (root.TryGetProperty("Status", out var status))
-                    state.RemoteRegistryRunning = status.GetInt32() == 4;
-                if (root.TryGetProperty("StartType", out var startType))
-                    state.RemoteRegistryStartType = startType.GetInt32() switch
-                    {
-                        2 => "Automatic",
-                        3 => "Manual",
-                        4 => "Disabled",
-                        _ => "Unknown"
-                    };
+                ParseRemoteRegistryJson(remRegOutput, state);
             }
         }
         catch { /* Non-fatal */ }
@@ -639,6 +798,17 @@ public class RemoteAccessAudit : IAuditModule
 
     private static void AnalyzeRdp(RemoteAccessState state, AuditResult result, string cat)
     {
+        if (!state.RdpEnabled && !state.RdpEnabledKnown)
+        {
+            // The gatherer never read fDenyTSConnections (missing value, unreadable output,
+            // or a failed probe): the default false must not be reported as "RDP Disabled".
+            result.Findings.Add(Finding.Info("RDP Status Unknown",
+                "The RDP enabled/disabled state could not be read from the registry, so no " +
+                "verdict is given here. Check the Terminal Server registry values manually.",
+                cat));
+            return;
+        }
+
         if (!state.RdpEnabled)
         {
             result.Findings.Add(Finding.Pass("RDP Disabled",
@@ -1198,6 +1368,15 @@ public class RemoteAccessAudit : IAuditModule
                 // InputSanitizer.CheckDangerousCommand, so the Fix button never ran). Disabling
                 // startup is the durable fix; the remediation text covers stopping it now.
                 "Set-Service RemoteRegistry -StartupType Disabled"));
+        }
+        else if (!state.RemoteRegistryStartTypeKnown)
+        {
+            // The gatherer never read a recognized StartType: the default "Disabled" must
+            // not be reported as "Remote Registry Disabled".
+            result.Findings.Add(Finding.Info("Remote Registry Status Unknown",
+                "The Remote Registry service start type could not be read, so no verdict " +
+                "is given here. Check the RemoteRegistry service manually.",
+                cat));
         }
         else if (state.RemoteRegistryStartType != "Disabled")
         {

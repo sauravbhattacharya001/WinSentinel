@@ -204,48 +204,106 @@ public class UpdateAudit : AuditModuleBase
 
     private async Task CheckPendingUpdates(AuditResult result, CancellationToken ct)
     {
-        // Use registry and update history (fast) instead of COM Search (can take minutes)
+        // Use registry and update history (fast) instead of COM Search (can take minutes).
+        // The script reports both the indicator count AND whether the update-history
+        // query actually ran: a COM/service failure must not read as "0 indicators".
         var output = await ShellHelper.RunPowerShellAsync(
             @"$indicators = 0
             if (Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired') { $indicators++ }
+            $historyRead = $true
             try {
                 $session = New-Object -ComObject Microsoft.Update.Session
                 $searcher = $session.CreateUpdateSearcher()
                 $history = $searcher.QueryHistory(0, 20)
                 $failed = @($history | Where-Object { $_.ResultCode -eq 4 -or $_.ResultCode -eq 5 }).Count
                 $indicators += $failed
-            } catch { }
-            $indicators", ct);
+            } catch { $historyRead = $false }
+            if ($historyRead) { ""$indicators|OK"" } else { ""$indicators|UNKNOWN"" }", ct);
 
-        if (int.TryParse(output.Trim(), out int pendingCount))
-        {
-            if (pendingCount > 0)
-            {
-                var severity = pendingCount > 5 ? Severity.Warning : Severity.Info;
-                result.Findings.Add(new Finding
-                {
-                    Title = $"{pendingCount} Update Issue(s) Detected",
-                    Description = $"Found {pendingCount} indicators of pending or failed updates.",
-                    Severity = severity,
-                    Category = Category,
-                    Remediation = "Install all pending Windows updates.",
-                    FixCommand = "Start-Process ms-settings:windowsupdate"
-                });
-            }
-            else
-            {
-                result.Findings.Add(Finding.Pass(
-                    "No Pending Updates",
-                    "No indicators of pending or failed Windows updates found.",
-                    Category));
-            }
-        }
-        else
+        var status = ParsePendingUpdateOutput(output);
+        if (status is null)
         {
             result.Findings.Add(Finding.Info(
                 "Update Status Check Incomplete",
                 "Could not fully determine pending update status.",
                 Category));
+            return;
+        }
+
+        AddPendingUpdateFindings(result, status.Value, Category);
+    }
+
+    /// <summary>
+    /// Result of parsing the pending-updates probe output: how many update-issue
+    /// indicators were found, and whether the Windows Update history query
+    /// actually ran. The history flag is what keeps a COM/service failure from
+    /// reading as "no pending updates".
+    /// </summary>
+    internal readonly record struct PendingUpdateStatus(int Indicators, bool HistoryRead);
+
+    /// <summary>
+    /// Parses the pending-updates probe output, expected as
+    /// "<c>indicators|OK</c>" or "<c>indicators|UNKNOWN</c>". Returns null when
+    /// the output is not in that shape — including the legacy bare-integer form,
+    /// which carries no history-read signal and must never be treated as a clean
+    /// bill of health. Kept static and dependency free so it can be unit-tested
+    /// deterministically.
+    /// </summary>
+    internal static PendingUpdateStatus? ParsePendingUpdateOutput(string output)
+    {
+        var parts = output.Trim().Split('|');
+        if (parts.Length != 2)
+            return null;
+        if (!int.TryParse(parts[0].Trim(), out int indicators) || indicators < 0)
+            return null;
+
+        var flag = parts[1].Trim();
+        if (flag.Equals("OK", StringComparison.OrdinalIgnoreCase))
+            return new PendingUpdateStatus(indicators, HistoryRead: true);
+        if (flag.Equals("UNKNOWN", StringComparison.OrdinalIgnoreCase))
+            return new PendingUpdateStatus(indicators, HistoryRead: false);
+        return null;
+    }
+
+    /// <summary>
+    /// Adds the pending-updates findings for a parsed probe result. A Pass is
+    /// emitted only when the update history was actually read and showed no
+    /// indicators; an unread history yields Info, never a Pass. A reboot-required
+    /// indicator on its own is not reported here — it has its own dedicated
+    /// <see cref="CheckPendingReboot"/> finding — so an unread history produces
+    /// exactly one finding.
+    /// </summary>
+    internal static void AddPendingUpdateFindings(AuditResult result, PendingUpdateStatus status, string category)
+    {
+        if (!status.HistoryRead)
+        {
+            result.Findings.Add(Finding.Info(
+                "Update Status Check Incomplete",
+                "Could not read Windows Update history (the update service or COM query failed), " +
+                "so pending-update status could not be determined.",
+                category));
+            return;
+        }
+
+        if (status.Indicators > 0)
+        {
+            var severity = status.Indicators > 5 ? Severity.Warning : Severity.Info;
+            result.Findings.Add(new Finding
+            {
+                Title = $"{status.Indicators} Update Issue(s) Detected",
+                Description = $"Found {status.Indicators} indicators of pending or failed updates.",
+                Severity = severity,
+                Category = category,
+                Remediation = "Install all pending Windows updates.",
+                FixCommand = "Start-Process ms-settings:windowsupdate"
+            });
+        }
+        else
+        {
+            result.Findings.Add(Finding.Pass(
+                "No Pending Updates",
+                "No indicators of pending or failed Windows updates found.",
+                category));
         }
     }
 

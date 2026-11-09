@@ -143,4 +143,166 @@ public class UpdateAuditTests : IAsyncLifetime
         Assert.Equal(Severity.Pass, s.Level);
         Assert.Equal(new DateTime(2027, 10, 12), s.EndDate);
     }
+
+    // ---- ParsePendingUpdateOutput: probe output -> (indicators, history-read) ----
+
+    [Fact]
+    public void ParsePendingUpdateOutput_ZeroOk_IsClean()
+    {
+        var s = UpdateAudit.ParsePendingUpdateOutput("0|OK");
+        Assert.NotNull(s);
+        Assert.Equal(0, s.Value.Indicators);
+        Assert.True(s.Value.HistoryRead);
+    }
+
+    [Fact]
+    public void ParsePendingUpdateOutput_CountOk_PreservesCount()
+    {
+        var s = UpdateAudit.ParsePendingUpdateOutput("3|OK");
+        Assert.NotNull(s);
+        Assert.Equal(3, s.Value.Indicators);
+        Assert.True(s.Value.HistoryRead);
+    }
+
+    [Fact]
+    public void ParsePendingUpdateOutput_ZeroUnknown_FlagsUnreadHistory()
+    {
+        // The defect case: COM failure with no reboot pending. The count is 0
+        // but the history was never read — the parser must carry that fact.
+        var s = UpdateAudit.ParsePendingUpdateOutput("0|UNKNOWN");
+        Assert.NotNull(s);
+        Assert.Equal(0, s.Value.Indicators);
+        Assert.False(s.Value.HistoryRead);
+    }
+
+    [Fact]
+    public void ParsePendingUpdateOutput_OneUnknown_KeepsIndicator()
+    {
+        // Reboot-required indicator survives even when history is unread.
+        var s = UpdateAudit.ParsePendingUpdateOutput("1|UNKNOWN");
+        Assert.NotNull(s);
+        Assert.Equal(1, s.Value.Indicators);
+        Assert.False(s.Value.HistoryRead);
+    }
+
+    [Fact]
+    public void ParsePendingUpdateOutput_LowercaseFlag_IsAccepted()
+    {
+        var s = UpdateAudit.ParsePendingUpdateOutput("2|ok");
+        Assert.NotNull(s);
+        Assert.Equal(2, s.Value.Indicators);
+        Assert.True(s.Value.HistoryRead);
+    }
+
+    [Fact]
+    public void ParsePendingUpdateOutput_Whitespace_IsTrimmed()
+    {
+        var s = UpdateAudit.ParsePendingUpdateOutput(" 3|OK \r\n");
+        Assert.NotNull(s);
+        Assert.Equal(3, s.Value.Indicators);
+        Assert.True(s.Value.HistoryRead);
+    }
+
+    [Fact]
+    public void ParsePendingUpdateOutput_Empty_IsNull()
+    {
+        Assert.Null(UpdateAudit.ParsePendingUpdateOutput(""));
+        Assert.Null(UpdateAudit.ParsePendingUpdateOutput("   "));
+    }
+
+    [Fact]
+    public void ParsePendingUpdateOutput_BareInteger_IsNull()
+    {
+        // Legacy bare-integer output carries no history-read signal and must
+        // never be treated as a clean bill of health.
+        Assert.Null(UpdateAudit.ParsePendingUpdateOutput("0"));
+        Assert.Null(UpdateAudit.ParsePendingUpdateOutput("5"));
+    }
+
+    [Fact]
+    public void ParsePendingUpdateOutput_NonIntegerCount_IsNull()
+    {
+        Assert.Null(UpdateAudit.ParsePendingUpdateOutput("abc|OK"));
+    }
+
+    [Fact]
+    public void ParsePendingUpdateOutput_NegativeCount_IsNull()
+    {
+        Assert.Null(UpdateAudit.ParsePendingUpdateOutput("-1|OK"));
+    }
+
+    [Fact]
+    public void ParsePendingUpdateOutput_UnknownFlag_IsNull()
+    {
+        Assert.Null(UpdateAudit.ParsePendingUpdateOutput("0|MAYBE"));
+        Assert.Null(UpdateAudit.ParsePendingUpdateOutput("0|OK|EXTRA"));
+    }
+
+    // ---- AddPendingUpdateFindings: verdicts for a parsed probe result ----
+
+    private static AuditResult MakeResult() => new()
+    {
+        ModuleName = "Update Audit",
+        Category = "Updates"
+    };
+
+    [Fact]
+    public void Findings_HistoryRead_ZeroIndicators_IsPass()
+    {
+        var result = MakeResult();
+        UpdateAudit.AddPendingUpdateFindings(
+            result, new UpdateAudit.PendingUpdateStatus(0, HistoryRead: true), "Updates");
+        Assert.Single(result.Findings);
+        Assert.Equal("No Pending Updates", result.Findings[0].Title);
+        Assert.Equal(Severity.Pass, result.Findings[0].Severity);
+    }
+
+    [Fact]
+    public void Findings_HistoryRead_WithIndicators_ReportsIssues()
+    {
+        var result = MakeResult();
+        UpdateAudit.AddPendingUpdateFindings(
+            result, new UpdateAudit.PendingUpdateStatus(3, HistoryRead: true), "Updates");
+        Assert.Single(result.Findings);
+        Assert.Equal("3 Update Issue(s) Detected", result.Findings[0].Title);
+        Assert.Equal(Severity.Info, result.Findings[0].Severity);
+    }
+
+    [Fact]
+    public void Findings_HistoryRead_ManyIndicators_IsWarning()
+    {
+        var result = MakeResult();
+        UpdateAudit.AddPendingUpdateFindings(
+            result, new UpdateAudit.PendingUpdateStatus(6, HistoryRead: true), "Updates");
+        Assert.Single(result.Findings);
+        Assert.Equal(Severity.Warning, result.Findings[0].Severity);
+    }
+
+    [Fact]
+    public void Findings_HistoryUnread_ZeroIndicators_IsInfoNotPass()
+    {
+        // The fixed defect: an unread history with zero indicators must NOT
+        // produce a "No Pending Updates" Pass.
+        var result = MakeResult();
+        UpdateAudit.AddPendingUpdateFindings(
+            result, new UpdateAudit.PendingUpdateStatus(0, HistoryRead: false), "Updates");
+        Assert.Single(result.Findings);
+        Assert.Equal("Update Status Check Incomplete", result.Findings[0].Title);
+        Assert.Equal(Severity.Info, result.Findings[0].Severity);
+        Assert.DoesNotContain(result.Findings, f => f.Severity == Severity.Pass);
+    }
+
+    [Fact]
+    public void Findings_HistoryUnread_WithIndicators_IsStillIncomplete()
+    {
+        // Without the history the count is not a trustworthy pending-update
+        // count, so the verdict is Incomplete; the reboot signal itself has
+        // its own dedicated finding elsewhere in the audit.
+        var result = MakeResult();
+        UpdateAudit.AddPendingUpdateFindings(
+            result, new UpdateAudit.PendingUpdateStatus(1, HistoryRead: false), "Updates");
+        Assert.Single(result.Findings);
+        Assert.Equal("Update Status Check Incomplete", result.Findings[0].Title);
+        Assert.Equal(Severity.Info, result.Findings[0].Severity);
+    }
 }

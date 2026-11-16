@@ -71,6 +71,22 @@ public class AgentState
     /// <summary>Reference to the threat log for counting.</summary>
     public ThreatLog? ThreatLog { get; set; }
 
+    private Exception? _fault;
+
+    /// <summary>
+    /// Fault that terminated <c>ExecuteAsync</c>, if any. Recorded by
+    /// <c>AgentService</c> when the service loop dies unexpectedly: a faulted
+    /// <c>BackgroundService</c> otherwise vanishes silently — its
+    /// <c>StopAsync</c> returns normally for a faulted executing task — so the
+    /// fault is kept on state where status snapshots and tests can see it.
+    /// Null while the service is healthy.
+    /// </summary>
+    public Exception? Fault
+    {
+        get { lock (_lock) return _fault; }
+        set { lock (_lock) _fault = value; }
+    }
+
     /// <summary>Agent version.</summary>
     public string Version { get; } = typeof(AgentState).Assembly.GetName().Version?.ToString() ?? "1.0.0";
 

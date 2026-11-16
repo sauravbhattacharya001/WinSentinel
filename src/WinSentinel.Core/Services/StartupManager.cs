@@ -28,45 +28,86 @@ public static class StartupManager
 
     /// <summary>
     /// Register WinSentinel to start with Windows.
+    /// Returns false unless the value was verified written: a previous
+    /// version returned true when <c>OpenSubKey</c> yielded null
+    /// (<c>key?.SetValue</c> no-ops), reporting success for a registration
+    /// that never landed — the read-back assert in the tests then failed
+    /// instead. Opening the Run key can also fail transiently while the
+    /// registry is under load, so retry briefly before giving up.
     /// </summary>
     public static bool Register(string? exePath = null)
     {
-        try
-        {
-            exePath ??= GetExecutablePath();
-            if (string.IsNullOrEmpty(exePath)) return false;
+        exePath ??= GetExecutablePath();
+        if (string.IsNullOrEmpty(exePath)) return false;
 
-            // Add --minimized flag so it starts in tray
-            var command = $"\"{exePath}\" --minimized";
+        // Add --minimized flag so it starts in tray
+        var command = $"\"{exePath}\" --minimized";
 
-            using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath, true);
-            key?.SetValue(AppName, command, RegistryValueKind.String);
-            return true;
-        }
-        catch
+        for (var attempt = 0; attempt < 3; attempt++)
         {
-            return false;
+            try
+            {
+                using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath, true);
+                if (key == null)
+                {
+                    Thread.Sleep(50);
+                    continue;
+                }
+
+                key.SetValue(AppName, command, RegistryValueKind.String);
+                return key.GetValue(AppName) is string written && written == command;
+            }
+            catch (IOException)
+            {
+                // Transient registry contention — retry.
+                Thread.Sleep(50);
+            }
+            catch
+            {
+                return false;
+            }
         }
+
+        return false;
     }
 
     /// <summary>
     /// Unregister WinSentinel from Windows startup.
+    /// Returns false unless the value was verified gone (same transient-open
+    /// retry and read-back verification as <see cref="Register"/>).
     /// </summary>
     public static bool Unregister()
     {
-        try
+        for (var attempt = 0; attempt < 3; attempt++)
         {
-            using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath, true);
-            if (key?.GetValue(AppName) != null)
+            try
             {
-                key.DeleteValue(AppName, false);
+                using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath, true);
+                if (key == null)
+                {
+                    Thread.Sleep(50);
+                    continue;
+                }
+
+                if (key.GetValue(AppName) != null)
+                {
+                    key.DeleteValue(AppName, false);
+                }
+
+                return key.GetValue(AppName) == null;
             }
-            return true;
+            catch (IOException)
+            {
+                // Transient registry contention — retry.
+                Thread.Sleep(50);
+            }
+            catch
+            {
+                return false;
+            }
         }
-        catch
-        {
-            return false;
-        }
+
+        return false;
     }
 
     /// <summary>

@@ -41,6 +41,24 @@ public class AgentService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        try
+        {
+            await ExecuteCoreAsync(stoppingToken);
+        }
+        catch (Exception ex)
+        {
+            // A faulted BackgroundService dies silently: StopAsync returns
+            // normally for a faulted executing task, so record the fault on
+            // state (where status snapshots and tests can see it) before
+            // rethrowing. The rethrow preserves the host-visible fault.
+            _state.Fault = ex;
+            _logger.LogError(ex, "Agent service terminated unexpectedly");
+            throw;
+        }
+    }
+
+    private async Task ExecuteCoreAsync(CancellationToken stoppingToken)
+    {
         _logger.LogInformation("WinSentinel Agent starting...");
 
         // Initialize state

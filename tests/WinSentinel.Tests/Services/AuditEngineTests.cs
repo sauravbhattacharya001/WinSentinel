@@ -148,14 +148,27 @@ public class AuditEngineTests
 
         await engine.RunFullAuditAsync(progress);
 
-        // Small delay to let async Progress<T> callbacks fire
-        await Task.Delay(100);
+        // Progress<T> callbacks are posted asynchronously, so a fixed delay
+        // races on slow CI runners — wait (bounded) until both callbacks
+        // have actually arrived instead.
+        var reported = await WaitForAsync(() =>
+        {
+            lock (progressUpdates) { return progressUpdates.Count == 2; }
+        });
+        Assert.True(reported, "Progress callbacks did not arrive within the timeout");
 
-        Assert.Equal(2, progressUpdates.Count);
-        Assert.Equal(1, progressUpdates[0].current);
-        Assert.Equal(2, progressUpdates[0].total);
-        Assert.Equal(2, progressUpdates[1].current);
-        Assert.Equal(2, progressUpdates[1].total);
+        (string module, int current, int total) first, second;
+        lock (progressUpdates)
+        {
+            Assert.Equal(2, progressUpdates.Count);
+            first = progressUpdates[0];
+            second = progressUpdates[1];
+        }
+
+        Assert.Equal(1, first.current);
+        Assert.Equal(2, first.total);
+        Assert.Equal(2, second.current);
+        Assert.Equal(2, second.total);
     }
 
     [Fact]
@@ -460,6 +473,26 @@ public class AuditEngineTests
     }
 
     // --- Additional mock for timeout/slow scenarios ---
+
+    /// <summary>
+    /// Polls <paramref name="condition"/> until it returns true or <paramref name="timeoutMs"/>
+    /// elapses, checking every <paramref name="pollMs"/>. Returns the final observed value.
+    /// Used to wait for asynchronously delivered state (e.g. <c>Progress&lt;T&gt;</c>
+    /// callbacks) rather than assuming a fixed delay is enough — a fixed delay
+    /// races on slow CI runners. Same shape as the helper in
+    /// <c>AgentServiceTests</c>.
+    /// </summary>
+    private static async Task<bool> WaitForAsync(Func<bool> condition, int timeoutMs = 5000, int pollMs = 25)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (condition())
+                return true;
+            await Task.Delay(pollMs);
+        }
+        return condition();
+    }
 
     private class MockSlowAudit : IAuditModule
     {

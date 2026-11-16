@@ -216,13 +216,38 @@ public class AgentServiceTests : IDisposable
 
     // ── Helper to run service briefly ───────────────────────────────
 
-    private static async Task RunServiceBriefly(AgentService service, int delayMs = 200)
+    /// <summary>
+    /// Run the service until it reaches steady state, soak briefly, then stop it.
+    /// Waits for the caller-supplied <paramref name="ready"/> condition — or, by
+    /// default, for the "Agent Started" event in the threat log — before
+    /// cancelling: a fixed delay races on slow CI runners, where the background
+    /// <c>ExecuteAsync</c> loop may not have run yet when the cancel fires and
+    /// the shutdown assertions then fail for want of a start, not a real defect.
+    /// Awaiting <c>StartAsync</c> surfaces a fault thrown synchronously by the
+    /// startup prefix; a fault thrown later is recorded on
+    /// <c>AgentState.Fault</c> by <c>AgentService</c> (a faulted
+    /// <c>BackgroundService</c> otherwise dies silently — <c>StopAsync</c>
+    /// returns normally for a faulted executing task) and asserted null here,
+    /// so a recurrence carries the real exception instead of a mystery assert.
+    /// </summary>
+    private static async Task RunServiceBriefly(
+        AgentService service,
+        AgentState state,
+        ThreatLog threatLog,
+        Func<bool>? ready = null,
+        int delayMs = 200)
     {
         using var cts = new CancellationTokenSource();
-        var startTask = service.StartAsync(cts.Token);
+        await service.StartAsync(cts.Token);
+
+        var steady = await WaitForAsync(
+            () => ready?.Invoke() ?? threatLog.GetAll().Any(e => e.Title == "Agent Started"));
+        Assert.True(steady, "Agent service did not reach steady state within the timeout");
+
         await Task.Delay(delayMs);
         cts.Cancel();
         await service.StopAsync(CancellationToken.None);
+        Assert.True(state.Fault is null, $"Agent service faulted during the run: {state.Fault}");
     }
 
     /// <summary>
@@ -250,10 +275,10 @@ public class AgentServiceTests : IDisposable
     [Fact]
     public async Task Execute_SetsStartTimeOnState()
     {
-        var (service, state, _, _) = CreateServiceFull();
+        var (service, state, threatLog, _) = CreateServiceFull();
         var before = DateTimeOffset.UtcNow;
 
-        await RunServiceBriefly(service);
+        await RunServiceBriefly(service, state, threatLog);
 
         Assert.True(state.StartTime >= before);
         Assert.True(state.StartTime <= DateTimeOffset.UtcNow);
@@ -264,7 +289,7 @@ public class AgentServiceTests : IDisposable
     {
         var (service, state, threatLog, _) = CreateServiceFull();
 
-        await RunServiceBriefly(service);
+        await RunServiceBriefly(service, state, threatLog);
 
         Assert.NotNull(state.ThreatLog);
         Assert.Same(threatLog, state.ThreatLog);
@@ -276,7 +301,7 @@ public class AgentServiceTests : IDisposable
         var config = new AgentConfig { MaxThreatLogSize = 500 };
         var (service, state, threatLog, _) = CreateServiceFull(config: config);
 
-        await RunServiceBriefly(service);
+        await RunServiceBriefly(service, state, threatLog);
 
         // Verify by adding events over the limit
         for (int i = 0; i < 520; i++)
@@ -298,7 +323,7 @@ public class AgentServiceTests : IDisposable
     {
         var (service, state, threatLog, _) = CreateServiceFull();
 
-        await RunServiceBriefly(service);
+        await RunServiceBriefly(service, state, threatLog);
 
         // Add 1050 events
         for (int i = 0; i < 1050; i++)
@@ -322,9 +347,9 @@ public class AgentServiceTests : IDisposable
     [Fact]
     public async Task Execute_LogsStartupThreatEvent()
     {
-        var (service, _, threatLog, _) = CreateServiceFull();
+        var (service, state, threatLog, _) = CreateServiceFull();
 
-        await RunServiceBriefly(service);
+        await RunServiceBriefly(service, state, threatLog);
 
         var events = threatLog.GetAll();
         Assert.Contains(events, e =>
@@ -338,7 +363,7 @@ public class AgentServiceTests : IDisposable
     {
         var (service, state, threatLog, _) = CreateServiceFull();
 
-        await RunServiceBriefly(service);
+        await RunServiceBriefly(service, state, threatLog);
 
         var startEvent = threatLog.GetAll().First(e => e.Title == "Agent Started");
         Assert.Contains("WinSentinel Agent v", startEvent.Description);
@@ -348,9 +373,9 @@ public class AgentServiceTests : IDisposable
     [Fact]
     public async Task Execute_StartupEventHasInfoSeverity()
     {
-        var (service, _, threatLog, _) = CreateServiceFull();
+        var (service, state, threatLog, _) = CreateServiceFull();
 
-        await RunServiceBriefly(service);
+        await RunServiceBriefly(service, state, threatLog);
 
         var startEvent = threatLog.GetAll().First(e => e.Title == "Agent Started");
         Assert.Equal(ThreatSeverity.Info, startEvent.Severity);
@@ -365,10 +390,10 @@ public class AgentServiceTests : IDisposable
     {
         var module1 = new FakeModule("ProcessMonitor");
         var module2 = new FakeModule("FileMonitor");
-        var (service, _, _, _) = CreateServiceFull(modules: new IAgentModule[] { module1, module2 });
+        var (service, state, _, _) = CreateServiceFull(modules: new IAgentModule[] { module1, module2 });
 
         using var cts = new CancellationTokenSource();
-        var startTask = service.StartAsync(cts.Token);
+        await service.StartAsync(cts.Token);
 
         // The background ExecuteAsync loop starts modules asynchronously; a fixed delay
         // races on slow CI runners, so wait until both modules actually report started
@@ -377,6 +402,7 @@ public class AgentServiceTests : IDisposable
 
         cts.Cancel();
         await service.StopAsync(CancellationToken.None);
+        Assert.True(state.Fault is null, $"Agent service faulted during the run: {state.Fault}");
 
         Assert.True(started, "Enabled modules did not start within the timeout");
         Assert.True(module1.WasStarted);
@@ -390,8 +416,14 @@ public class AgentServiceTests : IDisposable
         var (service, state, _, _) = CreateServiceFull(modules: new IAgentModule[] { module });
 
         using var cts = new CancellationTokenSource();
-        var startTask = service.StartAsync(cts.Token);
-        await Task.Delay(150);
+        await service.StartAsync(cts.Token);
+
+        // Wait until the module is actually marked active instead of
+        // assuming a fixed delay is enough — the background ExecuteAsync
+        // loop may not have run yet on a slow CI runner.
+        var active = await WaitForAsync(
+            () => state.ActiveModules.TryGetValue("ScheduledAudit", out var value) && value);
+        Assert.True(active, "Module was not marked active within the timeout");
 
         // Module should be marked active
         Assert.True(state.ActiveModules.ContainsKey("ScheduledAudit"));
@@ -399,6 +431,7 @@ public class AgentServiceTests : IDisposable
 
         cts.Cancel();
         await service.StopAsync(CancellationToken.None);
+        Assert.True(state.Fault is null, $"Agent service faulted during the run: {state.Fault}");
     }
 
     [Fact]
@@ -410,9 +443,9 @@ public class AgentServiceTests : IDisposable
             new FakeModule("Module2"),
             new FakeModule("Module3")
         };
-        var (service, state, _, _) = CreateServiceFull(modules: modules);
+        var (service, state, threatLog, _) = CreateServiceFull(modules: modules);
 
-        await RunServiceBriefly(service);
+        await RunServiceBriefly(service, state, threatLog);
 
         foreach (var m in modules)
         {
@@ -433,11 +466,11 @@ public class AgentServiceTests : IDisposable
 
         var enabledModule = new FakeModule("EnabledModule");
         var disabledModule = new FakeModule("DisabledModule");
-        var (service, _, _, _) = CreateServiceFull(
+        var (service, state, threatLog, _) = CreateServiceFull(
             config: config,
             modules: new IAgentModule[] { enabledModule, disabledModule });
 
-        await RunServiceBriefly(service);
+        await RunServiceBriefly(service, state, threatLog);
 
         Assert.True(enabledModule.WasStarted);
         Assert.False(disabledModule.WasStarted);
@@ -458,13 +491,21 @@ public class AgentServiceTests : IDisposable
 
         using var cts = new CancellationTokenSource();
         await service.StartAsync(cts.Token);
-        await Task.Delay(150);
+
+        // Wait until initialization is observable rather than assuming a
+        // fixed delay is enough. The skipped module's startup loop runs
+        // synchronously with the prefix, so once the startup event is
+        // logged the loop has finished and "Disabled" must be absent.
+        var initialized = await WaitForAsync(() =>
+            state.ThreatLog?.GetAll().Any(e => e.Title == "Agent Started") == true);
+        Assert.True(initialized, "Agent service did not initialize within the timeout");
 
         // During run, disabled module should NOT be in ActiveModules
         Assert.False(state.ActiveModules.ContainsKey("Disabled"));
 
         cts.Cancel();
         await service.StopAsync(CancellationToken.None);
+        Assert.True(state.Fault is null, $"Agent service faulted during the run: {state.Fault}");
     }
 
     [Fact]
@@ -474,11 +515,11 @@ public class AgentServiceTests : IDisposable
         var config = new AgentConfig();
         // Don't add "NewModule" to ModuleToggles at all
         var module = new FakeModule("NewModule");
-        var (service, _, _, _) = CreateServiceFull(
+        var (service, state, threatLog, _) = CreateServiceFull(
             config: config,
             modules: new IAgentModule[] { module });
 
-        await RunServiceBriefly(service);
+        await RunServiceBriefly(service, state, threatLog);
 
         Assert.True(module.WasStarted);
     }
@@ -497,11 +538,11 @@ public class AgentServiceTests : IDisposable
             new FakeModule("ModuleB"),
             new FakeModule("ModuleC")
         };
-        var (service, state, _, _) = CreateServiceFull(
+        var (service, state, threatLog, _) = CreateServiceFull(
             config: config,
             modules: modules);
 
-        await RunServiceBriefly(service);
+        await RunServiceBriefly(service, state, threatLog);
 
         Assert.True(modules[0].WasStarted);   // A enabled
         Assert.False(modules[1].WasStarted);  // B disabled
@@ -517,11 +558,11 @@ public class AgentServiceTests : IDisposable
     {
         var failingModule = new FailingModule("BadModule");
         var goodModule = new FakeModule("GoodModule");
-        var (service, _, _, _) = CreateServiceFull(
+        var (service, state, threatLog, _) = CreateServiceFull(
             modules: new IAgentModule[] { failingModule, goodModule });
 
         // Should not throw
-        await RunServiceBriefly(service);
+        await RunServiceBriefly(service, state, threatLog);
 
         Assert.True(failingModule.StartAttempted);
         Assert.True(goodModule.WasStarted);
@@ -531,10 +572,10 @@ public class AgentServiceTests : IDisposable
     public async Task Execute_FailingModule_MarkedInactiveInState()
     {
         var failingModule = new FailingModule("FailModule");
-        var (service, state, _, _) = CreateServiceFull(
+        var (service, state, threatLog, _) = CreateServiceFull(
             modules: new IAgentModule[] { failingModule });
 
-        await RunServiceBriefly(service);
+        await RunServiceBriefly(service, state, threatLog);
 
         // The module key exists but is set to false
         Assert.True(state.ActiveModules.ContainsKey("FailModule"));
@@ -551,7 +592,14 @@ public class AgentServiceTests : IDisposable
 
         using var cts = new CancellationTokenSource();
         await service.StartAsync(cts.Token);
-        await Task.Delay(150);
+
+        // Wait for the full startup outcome instead of a fixed delay:
+        // the healthy module started and the failing one recorded inactive.
+        var settled = await WaitForAsync(() =>
+            healthy.WasStarted
+            && state.ActiveModules.TryGetValue("Second", out var second) && second
+            && state.ActiveModules.TryGetValue("First", out var first) && !first);
+        Assert.True(settled, "Module startup did not settle within the timeout");
 
         // During run: Second started and is active, First failed
         Assert.True(healthy.WasStarted);
@@ -560,6 +608,7 @@ public class AgentServiceTests : IDisposable
 
         cts.Cancel();
         await service.StopAsync(CancellationToken.None);
+        Assert.True(state.Fault is null, $"Agent service faulted during the run: {state.Fault}");
     }
 
     [Fact]
@@ -571,10 +620,10 @@ public class AgentServiceTests : IDisposable
             new FailingModule("Bad2"),
             new FailingModule("Bad3")
         };
-        var (service, state, _, _) = CreateServiceFull(modules: modules);
+        var (service, state, threatLog, _) = CreateServiceFull(modules: modules);
 
         // Should not throw — service runs even with zero active modules
-        await RunServiceBriefly(service);
+        await RunServiceBriefly(service, state, threatLog);
 
         Assert.True(state.ActiveModules.All(kv => !kv.Value));
     }
@@ -587,10 +636,12 @@ public class AgentServiceTests : IDisposable
     public async Task Execute_AsyncModule_AwaitsStart()
     {
         var slowModule = new SlowModule("SlowStart");
-        var (service, state, _, _) = CreateServiceFull(
+        var (service, state, threatLog, _) = CreateServiceFull(
             modules: new IAgentModule[] { slowModule });
 
-        await RunServiceBriefly(service, delayMs: 300);
+        // SlowModule yields inside StartAsync, so the fixed soak alone is a
+        // wall-clock guess — wait for its start to be observed instead.
+        await RunServiceBriefly(service, state, threatLog, ready: () => slowModule.WasStarted, delayMs: 300);
 
         Assert.True(slowModule.WasStarted);
     }
@@ -604,7 +655,7 @@ public class AgentServiceTests : IDisposable
     {
         var (service, state, threatLog, _) = CreateServiceFull(modules: Array.Empty<IAgentModule>());
 
-        await RunServiceBriefly(service);
+        await RunServiceBriefly(service, state, threatLog);
 
         // Service still logs startup event
         Assert.Contains(threatLog.GetAll(), e => e.Title == "Agent Started");
@@ -620,10 +671,10 @@ public class AgentServiceTests : IDisposable
     {
         var module1 = new FakeModule("Mod1");
         var module2 = new FakeModule("Mod2");
-        var (service, _, _, _) = CreateServiceFull(
+        var (service, state, threatLog, _) = CreateServiceFull(
             modules: new IAgentModule[] { module1, module2 });
 
-        await RunServiceBriefly(service);
+        await RunServiceBriefly(service, state, threatLog);
 
         Assert.True(module1.WasStopped);
         Assert.True(module2.WasStopped);
@@ -633,10 +684,10 @@ public class AgentServiceTests : IDisposable
     public async Task Shutdown_MarksModulesInactiveInState()
     {
         var module = new FakeModule("TestMod");
-        var (service, state, _, _) = CreateServiceFull(
+        var (service, state, threatLog, _) = CreateServiceFull(
             modules: new IAgentModule[] { module });
 
-        await RunServiceBriefly(service);
+        await RunServiceBriefly(service, state, threatLog);
 
         Assert.False(state.ActiveModules["TestMod"]);
     }
@@ -646,11 +697,11 @@ public class AgentServiceTests : IDisposable
     {
         var failStop = new FailingStopModule("FailStop");
         var normalModule = new FakeModule("NormalMod");
-        var (service, _, _, _) = CreateServiceFull(
+        var (service, state, threatLog, _) = CreateServiceFull(
             modules: new IAgentModule[] { failStop, normalModule });
 
         // Should not throw even though FailStop.StopAsync throws
-        await RunServiceBriefly(service);
+        await RunServiceBriefly(service, state, threatLog);
 
         Assert.True(normalModule.WasStopped);
     }
@@ -663,11 +714,11 @@ public class AgentServiceTests : IDisposable
         config.ModuleToggles["Disabled"] = false;
 
         var disabledModule = new FakeModule("Disabled");
-        var (service, _, _, _) = CreateServiceFull(
+        var (service, state, threatLog, _) = CreateServiceFull(
             config: config,
             modules: new IAgentModule[] { disabledModule });
 
-        await RunServiceBriefly(service);
+        await RunServiceBriefly(service, state, threatLog);
 
         // Even disabled modules get StopAsync called during shutdown
         Assert.True(disabledModule.WasStopped);
@@ -681,16 +732,21 @@ public class AgentServiceTests : IDisposable
     public async Task Execute_CancellationToken_StopsGracefully()
     {
         var module = new FakeModule("TestMod");
-        var (service, _, _, _) = CreateServiceFull(
+        var (service, state, _, _) = CreateServiceFull(
             modules: new IAgentModule[] { module });
 
         using var cts = new CancellationTokenSource();
         await service.StartAsync(cts.Token);
-        await Task.Delay(100);
+
+        // Wait until the module actually started before cancelling, instead
+        // of assuming a fixed delay is enough.
+        var started = await WaitForAsync(() => module.WasStarted);
+        Assert.True(started, "Module did not start within the timeout");
 
         // Cancel should trigger shutdown
         cts.Cancel();
         await service.StopAsync(CancellationToken.None);
+        Assert.True(state.Fault is null, $"Agent service faulted during the run: {state.Fault}");
 
         Assert.True(module.WasStopped);
     }
@@ -702,9 +758,17 @@ public class AgentServiceTests : IDisposable
 
         using var cts = new CancellationTokenSource();
         await service.StartAsync(cts.Token);
-        await Task.Delay(50);
+
+        // Wait until initialization is observable, then cancel promptly:
+        // the point is that state is initialized even when cancellation
+        // follows start immediately, not that a 50 ms guess elapsed.
+        var initialized = await WaitForAsync(() =>
+            threatLog.GetAll().Any(e => e.Title == "Agent Started"));
+        Assert.True(initialized, "Agent service did not initialize within the timeout");
+
         cts.Cancel();
         await service.StopAsync(CancellationToken.None);
+        Assert.True(state.Fault is null, $"Agent service faulted during the run: {state.Fault}");
 
         // State should still be initialized
         Assert.NotNull(state.ThreatLog);
@@ -734,7 +798,13 @@ public class AgentServiceTests : IDisposable
 
         using var cts = new CancellationTokenSource();
         await service.StartAsync(cts.Token);
-        await Task.Delay(150);
+
+        // Wait for the full startup outcome (all three attempted modules
+        // recorded, two active) instead of a fixed delay.
+        var settled = await WaitForAsync(() =>
+            state.ActiveModules.Count == 3
+            && state.ActiveModules.Count(kv => kv.Value) == 2);
+        Assert.True(settled, "Module startup did not settle within the timeout");
 
         // Good1 and Good2 are active; Bad1 failed; Disabled was skipped
         var activeCount = state.ActiveModules.Count(kv => kv.Value);
@@ -742,6 +812,7 @@ public class AgentServiceTests : IDisposable
 
         cts.Cancel();
         await service.StopAsync(CancellationToken.None);
+        Assert.True(state.Fault is null, $"Agent service faulted during the run: {state.Fault}");
     }
 
     // ══════════════════════════════════════════════════════════════════
@@ -771,9 +842,9 @@ public class AgentServiceTests : IDisposable
     public async Task Execute_CustomMaxThreatLogSize_Applied()
     {
         var config = new AgentConfig { MaxThreatLogSize = 50 };
-        var (service, _, threatLog, _) = CreateServiceFull(config: config);
+        var (service, state, threatLog, _) = CreateServiceFull(config: config);
 
-        await RunServiceBriefly(service);
+        await RunServiceBriefly(service, state, threatLog);
 
         // Fill beyond 50
         for (int i = 0; i < 70; i++)
@@ -794,9 +865,9 @@ public class AgentServiceTests : IDisposable
     {
         // ThreatLog.SetMaxSize clamps to minimum of 10
         var config = new AgentConfig { MaxThreatLogSize = 3 };
-        var (service, _, threatLog, _) = CreateServiceFull(config: config);
+        var (service, state, threatLog, _) = CreateServiceFull(config: config);
 
-        await RunServiceBriefly(service);
+        await RunServiceBriefly(service, state, threatLog);
 
         for (int i = 0; i < 20; i++)
         {
@@ -827,9 +898,9 @@ public class AgentServiceTests : IDisposable
             new OrderTrackingModule("Beta", startOrder),
             new OrderTrackingModule("Gamma", startOrder)
         };
-        var (service, _, _, _) = CreateServiceFull(modules: modules);
+        var (service, state, threatLog, _) = CreateServiceFull(modules: modules);
 
-        await RunServiceBriefly(service);
+        await RunServiceBriefly(service, state, threatLog);
 
         Assert.Equal(new[] { "Alpha", "Beta", "Gamma" }, startOrder);
     }
@@ -868,10 +939,10 @@ public class AgentServiceTests : IDisposable
     public async Task Execute_ModuleStartCalledOnlyOnce()
     {
         var module = new FakeModule("SingleStart");
-        var (service, _, _, _) = CreateServiceFull(
+        var (service, state, threatLog, _) = CreateServiceFull(
             modules: new IAgentModule[] { module });
 
-        await RunServiceBriefly(service);
+        await RunServiceBriefly(service, state, threatLog);
 
         Assert.Equal(1, module.StartCallCount);
     }
@@ -880,10 +951,10 @@ public class AgentServiceTests : IDisposable
     public async Task Execute_ModuleStopCalledOnlyOnce()
     {
         var module = new FakeModule("SingleStop");
-        var (service, _, _, _) = CreateServiceFull(
+        var (service, state, threatLog, _) = CreateServiceFull(
             modules: new IAgentModule[] { module });
 
-        await RunServiceBriefly(service);
+        await RunServiceBriefly(service, state, threatLog);
 
         Assert.Equal(1, module.StopCallCount);
     }
@@ -897,9 +968,9 @@ public class AgentServiceTests : IDisposable
     {
         // The brain subscribes to ThreatLog.ThreatDetected during Initialize.
         // Modules that add threats should have the brain already listening.
-        var (service, _, threatLog, _) = CreateServiceFull();
+        var (service, state, threatLog, _) = CreateServiceFull();
 
-        await RunServiceBriefly(service);
+        await RunServiceBriefly(service, state, threatLog);
 
         // The startup event is added after brain.Initialize(), so it would
         // have been processed by the brain's event handler
@@ -915,9 +986,11 @@ public class AgentServiceTests : IDisposable
         var modules = Enumerable.Range(0, 20)
             .Select(i => new FakeModule($"Module{i}"))
             .ToArray();
-        var (service, state, _, _) = CreateServiceFull(modules: modules);
+        var (service, state, threatLog, _) = CreateServiceFull(modules: modules);
 
-        await RunServiceBriefly(service, delayMs: 300);
+        // Twenty starts must all be observed before cancelling — a fixed
+        // soak is a wall-clock guess on a loaded runner.
+        await RunServiceBriefly(service, state, threatLog, ready: () => modules.All(m => m.WasStarted), delayMs: 300);
 
         Assert.All(modules, m => Assert.True(m.WasStarted));
     }
@@ -927,10 +1000,10 @@ public class AgentServiceTests : IDisposable
     {
         var module1 = new FakeModule("Duplicate");
         var module2 = new FakeModule("Duplicate");
-        var (service, _, _, _) = CreateServiceFull(
+        var (service, state, threatLog, _) = CreateServiceFull(
             modules: new IAgentModule[] { module1, module2 });
 
-        await RunServiceBriefly(service);
+        await RunServiceBriefly(service, state, threatLog);
 
         Assert.True(module1.WasStarted);
         Assert.True(module2.WasStarted);
@@ -940,10 +1013,10 @@ public class AgentServiceTests : IDisposable
     public async Task Execute_EmptyModuleName_StillStarts()
     {
         var module = new FakeModule("");
-        var (service, _, _, _) = CreateServiceFull(
+        var (service, state, threatLog, _) = CreateServiceFull(
             modules: new IAgentModule[] { module });
 
-        await RunServiceBriefly(service);
+        await RunServiceBriefly(service, state, threatLog);
 
         Assert.True(module.WasStarted);
     }
@@ -952,9 +1025,9 @@ public class AgentServiceTests : IDisposable
     public async Task Execute_StartupEventTimestamp_IsRecent()
     {
         var before = DateTimeOffset.UtcNow;
-        var (service, _, threatLog, _) = CreateServiceFull();
+        var (service, state, threatLog, _) = CreateServiceFull();
 
-        await RunServiceBriefly(service);
+        await RunServiceBriefly(service, state, threatLog);
 
         var startEvent = threatLog.GetAll().First(e => e.Title == "Agent Started");
         Assert.True(startEvent.Timestamp >= before);
@@ -964,9 +1037,9 @@ public class AgentServiceTests : IDisposable
     [Fact]
     public async Task Execute_OnlyOneStartupEvent_Logged()
     {
-        var (service, _, threatLog, _) = CreateServiceFull();
+        var (service, state, threatLog, _) = CreateServiceFull();
 
-        await RunServiceBriefly(service);
+        await RunServiceBriefly(service, state, threatLog);
 
         var startEvents = threatLog.GetAll().Where(e => e.Title == "Agent Started").ToList();
         Assert.Single(startEvents);

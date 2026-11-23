@@ -939,8 +939,9 @@ public class CredentialExposureAudit : IAuditModule
             var line = raw.Trim();
             if (line.StartsWith("full address:s:", StringComparison.OrdinalIgnoreCase))
             {
+                // The server address alone is not a credential — it does not
+                // mark the file as credential-bearing (see sawAny below).
                 info.ServerAddress = line["full address:s:".Length..].Trim();
-                sawAny = true;
             }
             else if (line.StartsWith("username:s:", StringComparison.OrdinalIgnoreCase))
             {

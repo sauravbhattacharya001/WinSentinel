@@ -1295,7 +1295,7 @@ public class CredentialExposureAudit : IAuditModule
             foreach (FileSystemAccessRule rule in rules)
             {
                 if (rule.AccessControlType != AccessControlType.Allow) continue;
-                if ((rule.FileSystemRights & (FileSystemRights.ReadData | FileSystemRights.Read | FileSystemRights.GenericRead)) == 0) continue;
+                if ((rule.FileSystemRights & (FileSystemRights.ReadData | FileSystemRights.Read)) == 0) continue;
                 if (rule.IdentityReference is not SecurityIdentifier sid) continue;
                 if (sid == worldSid) world = true;
                 else if (sid == authSid || sid == usersSid) other = true;

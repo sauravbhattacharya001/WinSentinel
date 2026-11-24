@@ -553,6 +553,14 @@ WinSentinel.sln
 
 | Version | Date | Highlights |
 |:---|:---|:---|
+| [**v1.25.0**](https://github.com/sauravbhattacharya001/WinSentinel/releases/tag/v1.25.0) | 2026-10-12 | Boot integrity auditing (Secure Boot, VBS, HVCI, Kernel DMA Protection), CI hardening |
+| [**v1.24.0**](https://github.com/sauravbhattacharya001/WinSentinel/releases/tag/v1.24.0) | 2026-08-31 | New hardening audit modules — RDP, credential/LSA, PrintNightmare, Recall; orphaned analyzers wired into `--audit` |
+| [**v1.23.0**](https://github.com/sauravbhattacharya001/WinSentinel/releases/tag/v1.23.0) | 2026-08-03 | 39 new audit improvements — WER, AppLocker/WDAC, UAC, WinRM, SMB, Recall |
+| [**v1.22.0**](https://github.com/sauravbhattacharya001/WinSentinel/releases/tag/v1.22.0) | 2026-07-20 | 43 commits of new coverage — network posture, PowerShell abuse, identity, encryption |
+| [**v1.21.0**](https://github.com/sauravbhattacharya001/WinSentinel/releases/tag/v1.21.0) | 2026-07-06 | Five new detections — WPAD, EOL build detection, DoH validation, PowerShell logging, Defender health |
+| [**v1.20.2**](https://github.com/sauravbhattacharya001/WinSentinel/releases/tag/v1.20.2) | 2026-07-04 | v1.20.0 payload, first of the line to reach NuGet |
+| [**v1.20.1**](https://github.com/sauravbhattacharya001/WinSentinel/releases/tag/v1.20.1) | 2026-07-04 | v1.20.0 payload + LLMNR remediation fix for NuGet publish |
+| [**v1.20.0**](https://github.com/sauravbhattacharya001/WinSentinel/releases/tag/v1.20.0) | 2026-07-03 | 110 commits — two new audit modules, Remote Access and Defender checks, new CLI commands |
 | [**v1.19.1**](https://github.com/sauravbhattacharya001/WinSentinel/releases/tag/v1.19.1) | 2026-06-01 | Plugin trust model, Ed25519 publisher key, CI hardening |
 | [**v1.19.0**](https://github.com/sauravbhattacharya001/WinSentinel/releases/tag/v1.19.0) | 2026-05-31 | Plugin architecture, `self-update`, `export` subcommand, `pro activate` |
 | [**v1.18.0**](https://github.com/sauravbhattacharya001/WinSentinel/releases/tag/v1.18.0) | 2026-05-27 | USB audit module, BVT gating, E2E smoke tests |

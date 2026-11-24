@@ -46,6 +46,78 @@ jobs:
           fi
         done
 
+    - name: Update README releases table
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        TAG: ${{ steps.version.outputs.tag }}
+        VERSION: ${{ steps.version.outputs.version }}
+        REPO: ${{ github.repository }}
+      run: |
+        python3 - <<'PYEOF'
+        import json
+        import os
+        import re
+        import subprocess
+        import sys
+
+        tag = os.environ['TAG']
+        version = os.environ['VERSION']
+        repo = os.environ['REPO']
+
+        # Fetch the published release (works for both the release event
+        # and workflow_dispatch, where the event payload has no release).
+        rel = json.loads(subprocess.check_output(
+            ['gh', 'api', f'repos/{repo}/releases/tags/{tag}'], text=True))
+        body = rel.get('body') or ''
+        name = (rel.get('name') or '').strip()
+        date = (rel.get('published_at') or '')[:10]
+
+        # Highlights: first meaningful line under "## Highlights", else
+        # the release title. Subheadings inside the section are skipped,
+        # so a "### ..." intro does not swallow the first bullet.
+        highlights = ''
+        lines = body.splitlines()
+        for i, line in enumerate(lines):
+            if re.match(r'##\s+highlights\s*$', line, re.IGNORECASE):
+                for cand in lines[i + 1:]:
+                    if re.match(r'##\s', cand):
+                        break
+                    s = cand.strip()
+                    if not s or s.startswith('#'):
+                        continue
+                    s = re.sub(r'^[-*+]\s+', '', s)
+                    s = re.sub(r'^\d+[.)]\s+', '', s)
+                    s = s.replace('|', '\\|').strip()
+                    if s:
+                        highlights = s
+                        break
+                break
+        if not highlights:
+            highlights = name or tag
+
+        row = (f'| [**{tag}**](https://github.com/{repo}/releases/tag/{tag}) '
+               f'| {date} | {highlights} |')
+
+        readme = open('README.md').read()
+        rlines = readme.splitlines()
+        sec = next((i for i, l in enumerate(rlines)
+                    if l.startswith('## \U0001f4cb Releases')), None)
+        if sec is None:
+            print('README.md: no "## \U0001f4cb Releases" section', file=sys.stderr)
+            sys.exit(1)
+        sep = next((i for i in range(sec, len(rlines))
+                    if rlines[i].startswith('|:---|:---|:---|')), None)
+        if sep is None:
+            print('README.md: Releases table header not found', file=sys.stderr)
+            sys.exit(1)
+        if any(f'[**{tag}**]' in l for l in rlines[sec:sep + 20]):
+            print(f'README releases table already has a row for {tag}; skipping.')
+            sys.exit(0)
+        rlines.insert(sep + 1, row)
+        open('README.md', 'w').write('\n'.join(rlines) + '\n')
+        print(f'Added README releases row for {tag}.')
+        PYEOF
+
     - name: Create version sync pull request
       uses: peter-evans/create-pull-request@v8
       with:
@@ -57,7 +129,7 @@ jobs:
         delete-branch: true
         title: 'chore: sync package version to ${{ steps.version.outputs.version }}'
         body: |
-          Synchronizes project package versions with release `${{ steps.version.outputs.tag }}`.
+          Synchronizes project package versions with release `${{ steps.version.outputs.tag }}` and appends its row to the README releases table.
 
           This pull request is generated instead of pushing directly to `main`, so normal branch protection and required checks remain in force.
         labels: automated

@@ -3,16 +3,19 @@
 
 The audit-module count has ONE source of truth: the code in
 src/WinSentinel.Core/Audits (one *Audit.cs class per module, each registered
-in AuditEngine). Every published claim — README.md and
-docfx/articles/audit-modules.md — must match it. When a module is added or
+in AuditEngine). Every published claim — README.md,
+docfx/articles/audit-modules.md, and the winsentinel-site data/modules.json
+that drives the live /modules page — must match it. When a module is added or
 removed, this check fails until the docs are updated, so the count can never
 silently drift again.
 
 Run: python3 scripts/check-module-count.py   (exit 1 on any mismatch)
 """
 import glob
+import json
 import re
 import sys
+import urllib.request
 
 failures = []
 
@@ -73,6 +76,21 @@ non_module = {'Module Overview', 'Severity Levels', 'Creating Custom Modules'}
 sections = {l[3:].strip() for l in dl if l.startswith('## ')} - non_module
 if len(sections) != count:
     failures.append(f'docfx audit-modules.md: {len(sections)} module sections, code has {count}')
+
+# --- winsentinel-site data/modules.json (live /modules page source) ---
+# The site's /modules page is built from this file in the winsentinel-site
+# repo; it is updated by hand, so verify it here instead of trusting it.
+SITE_MODULES_URL = 'https://raw.githubusercontent.com/sauravbhattacharya001/winsentinel-site/main/data/modules.json'
+try:
+    with urllib.request.urlopen(SITE_MODULES_URL, timeout=30) as response:
+        site_data = json.load(response)
+    site_total = site_data.get('totalModules') if isinstance(site_data, dict) else None
+    if site_total is None:
+        failures.append('site data/modules.json: no totalModules field found')
+    elif int(site_total) != count:
+        failures.append(f'site data/modules.json: totalModules is {site_total}, code has {count}')
+except Exception as exc:  # noqa: BLE001 - any fetch/parse failure must fail the check
+    failures.append(f'site data/modules.json: could not verify ({SITE_MODULES_URL}): {exc}')
 
 if failures:
     print(f'MODULE COUNT CHECK FAILED (code count: {count})')

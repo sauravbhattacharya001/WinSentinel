@@ -1,5 +1,23 @@
 name: Submit to WinGet
 
+# Two failure modes fixed 2026-11-24 (failed every release since v1.22.0):
+# 1. SHA step raced NuGet: it downloaded the .nupkg from NuGet, whose
+#    indexing lagged the release by an unbounded time (v1.20.0-v1.25.0 all
+#    failed here; the Oct 13 retry loop only papered over it). The
+#    installer is now the release's own .msix asset, which release.yml
+#    attaches in the same step that creates the release, so it exists when
+#    this workflow starts; only CDN propagation is waited out.
+#    (The old InstallerType "dotnet" + .nupkg also has no precedent in
+#    microsoft/winget-pkgs — code search finds zero manifests using it.)
+# 2. Submit step used vedantmgoyal9/winget-releaser, an update-only action
+#    that hard-fails when the package does not exist yet in winget-pkgs
+#    ("Please add atleast one version of the package before using this
+#    action") — and WinSentinel is not in winget-pkgs at all. Its
+#    installers-regex '\.nupkg$' also matched no release asset (assets
+#    are .zip/.zip/.msix). Submission is now a direct fork + PR of the
+#    manifests this workflow generates, which works for the first version
+#    and for updates alike.
+
 on:
   release:
     types: [published]
@@ -30,35 +48,39 @@ jobs:
           }
           $ver = $tag -replace '^v', ''
           "version=$ver" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
 
-      - name: Wait for NuGet package and get SHA256
+      - name: Wait for release MSIX asset and get SHA256
         id: hash
         shell: pwsh
         run: |
           $version = "${{ steps.version.outputs.version }}"
-          $registrationUrl = "https://api.nuget.org/v3-flatcontainer/winsentinel.cli/$version/winsentinel.cli.$version.nupkg"
-          $installerUrl = "https://www.nuget.org/api/v2/package/WinSentinel.Cli/$version"
-          $tempFile = Join-Path $env:TEMP "winsentinel-cli-$version.nupkg"
-          $maxAttempts = 20
+          $tag = "${{ steps.version.outputs.tag }}"
+          $installerUrl = "https://github.com/sauravbhattacharya001/WinSentinel/releases/download/$tag/WinSentinel-$tag.msix"
+          $tempFile = Join-Path $env:TEMP "WinSentinel-$tag.msix"
+          $maxAttempts = 30
 
+          # The asset is attached before the release is published, so this
+          # normally succeeds on the first attempt; the loop only covers
+          # CDN propagation.
           for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
             try {
-              Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
-              Invoke-WebRequest -Uri $registrationUrl -OutFile $tempFile -ErrorAction Stop
-              if ((Get-Item $tempFile).Length -le 0) { throw 'Downloaded package is empty' }
-              Write-Host "NuGet package is available (attempt $attempt/$maxAttempts)."
+              Invoke-WebRequest -Uri $installerUrl -Method Head -ErrorAction Stop | Out-Null
+              Write-Host "MSIX asset is available (attempt $attempt/$maxAttempts)."
               break
             } catch {
               if ($attempt -eq $maxAttempts) {
-                throw "NuGet package was not available after $maxAttempts attempts: $($_.Exception.Message)"
+                throw "MSIX asset was not available after $maxAttempts attempts: $($_.Exception.Message)"
               }
-              $delay = [Math]::Min(180, 15 * [Math]::Pow(1.35, $attempt - 1))
+              $delay = [Math]::Min(120, 10 * [Math]::Pow(1.5, $attempt - 1))
               $delay = [int][Math]::Ceiling($delay)
-              Write-Host "Package not ready (attempt $attempt/$maxAttempts); retrying in $delay seconds."
+              Write-Host "Asset not ready (attempt $attempt/$maxAttempts); retrying in $delay seconds."
               Start-Sleep -Seconds $delay
             }
           }
 
+          Invoke-WebRequest -Uri $installerUrl -OutFile $tempFile -ErrorAction Stop
+          if ((Get-Item $tempFile).Length -le 0) { throw 'Downloaded MSIX is empty' }
           $hash = (Get-FileHash -Path $tempFile -Algorithm SHA256).Hash
           "sha256=$hash" >> $env:GITHUB_OUTPUT
           "installer_url=$installerUrl" >> $env:GITHUB_OUTPUT
@@ -88,13 +110,11 @@ jobs:
           PackageIdentifier: $id
           PackageVersion: $version
           MinimumOSVersion: 10.0.17763.0
-          Commands:
-            - winsentinel
           Installers:
             - Architecture: x64
               InstallerUrl: $url
               InstallerSha256: $sha256
-              InstallerType: dotnet
+              InstallerType: msix
           ReleaseDate: $date
           ManifestType: installer
           ManifestVersion: 1.6.0
@@ -105,9 +125,66 @@ jobs:
             Set-Content "$outDir/$id.locale.en-US.yaml"
 
       - name: Submit to winget-pkgs
-        uses: vedantmgoyal9/winget-releaser@v2
-        with:
-          identifier: SauravBhattacharya.WinSentinel
-          version: ${{ steps.version.outputs.version }}
-          installers-regex: '\.nupkg$'
-          token: ${{ secrets.WINGET_TOKEN }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = "${{ steps.version.outputs.version }}"
+          $tag = "${{ steps.version.outputs.tag }}"
+          if (-not $env:GH_TOKEN) { throw 'WINGET_TOKEN secret is not set; cannot submit to winget-pkgs.' }
+
+          $owner = gh api user --jq .login
+          $pkgPath = 'manifests/s/SauravBhattacharya/WinSentinel'
+
+          # Already submitted? A re-run after the PR merged must be a no-op.
+          gh api "repos/microsoft/winget-pkgs/contents/$pkgPath/$version" --jq '.[].name' 2>$null | Out-Null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "Version $version is already in microsoft/winget-pkgs; nothing to submit."
+            exit 0
+          }
+
+          # New package vs update decides the PR title convention.
+          gh api "repos/microsoft/winget-pkgs/contents/$pkgPath" --jq '.[].name' 2>$null | Out-Null
+          if ($LASTEXITCODE -eq 0) {
+            $title = "SauravBhattacharya.WinSentinel version $version"
+          } else {
+            $title = "New package: SauravBhattacharya.WinSentinel version $version"
+          }
+
+          # Fork microsoft/winget-pkgs if the token owner has none yet.
+          gh api "repos/$owner/winget-pkgs" --jq '.full_name' 2>$null | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "Forking microsoft/winget-pkgs as $owner..."
+            gh repo fork microsoft/winget-pkgs --clone=false
+          }
+
+          gh auth setup-git
+          if (Test-Path winget-pkgs) { Remove-Item winget-pkgs -Recurse -Force }
+          git clone --filter=blob:none --depth 1 --single-branch --branch master "https://github.com/$owner/winget-pkgs.git" winget-pkgs
+          Set-Location winget-pkgs
+          git config user.name 'Saurav Bhattacharya'
+          git config user.email 'online.saurav@gmail.com'
+
+          # Branch is owned by this workflow; force-push so re-runs converge.
+          $branch = "winsentinel-$version"
+          git checkout -B $branch
+          $dest = "$pkgPath/$version"
+          New-Item -ItemType Directory -Path $dest -Force | Out-Null
+          Copy-Item "../manifests/s/SauravBhattacharya/WinSentinel/$version/*" $dest -Force
+          git add $dest
+          # A re-run regenerates identical manifests; commit only on change.
+          # Push always (no-op when the branch is already up to date).
+          if (git status --porcelain) {
+            git commit -m "SauravBhattacharya.WinSentinel version $version"
+          }
+          git push --force origin $branch
+
+          $existing = gh pr list --repo microsoft/winget-pkgs --head "${owner}:$branch" --json number --jq '.[0].number'
+          if ($existing) {
+            Write-Host "PR #$existing already open for $branch; skipping creation."
+            exit 0
+          }
+          gh pr create --repo microsoft/winget-pkgs --base master --head "${owner}:$branch" `
+            --title $title `
+            --body "WinGet manifest for WinSentinel $version (InstallerType: msix; installer is WinSentinel-$tag.msix from the GitHub release). Submitted by the WinSentinel release workflow."
